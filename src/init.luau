@@ -146,13 +146,27 @@ local function Vet(Options: Config)
 			)
 		end
 	end
+
+	if Options.Balance ~= nil then
+		assert(type(Options.Balance) == "string" and #Options.Balance > 0, "Balance must name a field, like \"Gold\"")
+		assert(
+			type(Options.Default[Options.Balance]) == "number",
+			`Balance names '{Options.Balance}' but the Default has no numeric field by that name`
+		)
+	end
 end
 
 function DataStore.Configure(self: DataStore, Options: Config)
 	Vet(Options)
+
+	local Base = Options.Reducer
+	if Options.Balance then
+		Base = Transfer.Wrap(Base, Options.Balance)
+	end
+
 	self.Live = {
 		Options = Options,
-		Reducer = WrapSystem(Options.Reducer),
+		Reducer = WrapSystem(Base),
 		Wrapper = DataStoreWrapper.New(Options.Name),
 		TxWrapper = DataStoreWrapper.New(Options.Name .. "_Tx"),
 		Initial = MakeInitial(Options.Default),
@@ -367,6 +381,11 @@ end
 function DataStore.Transfer(self: DataStore, FromUserId: number, ToUserId: number, Amount: number): Future<boolean>
 	local Live = ExpectLive(self, "Transfer")
 
+	if not Live.Options.Balance then
+		warn("Ledger: Transfer needs Configure to name the balance field, like Balance = \"Gold\"")
+		return Future.Completed(false)
+	end
+
 	if not ValidId(FromUserId) or not ValidId(ToUserId) or FromUserId == ToUserId then
 		warn("Ledger: Transfer needs two different positive integer UserIds")
 		return Future.Completed(false)
@@ -401,6 +420,9 @@ end
 
 function DataStore.RecoverTransfers(self: DataStore, UserId: number): Future<()>
 	local Live = ExpectLive(self, "RecoverTransfers")
+	if not Live.Options.Balance then
+		return Future.Errored("RecoverTransfers needs Configure to name the balance field, like Balance = \"Gold\"")
+	end
 	if not ValidId(UserId) then
 		return Future.Errored(`RecoverTransfers needs a positive integer UserId, got {typeof(UserId)}`)
 	end

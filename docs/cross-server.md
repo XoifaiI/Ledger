@@ -36,23 +36,31 @@ This is the tool for offline rewards, support grants, and scheduled jobs.
 
 ## Transfer
 
+Transfer moves one numeric balance, so Configure has to know which field that is:
+
 ```luau
+Ledger:Configure({
+	Name = "PlayerData",
+	Default = { Gold = 100 },
+	Balance = "Gold", -- the field Transfer moves
+	Reducer = Reducer,
+})
+
 local Ok = Ledger:Transfer(FromUserId, ToUserId, 100):Wait()
 ```
 
-Moves a numeric balance between two players through an escrow: reserve the amount into a
-held state on the sender, deliver to the receiver, settle the hold. Each leg is
-single-key atomic and deduped by transfer id, so money is never minted, lost, or
-double-spendable, and held money is unspendable.
+It moves the balance through an escrow: reserve the amount into a held state on the
+sender, deliver to the receiver, settle the hold. Each leg is single-key atomic and
+deduped by transfer id, so money is never minted, lost, or double-spendable, and held
+money is unspendable. Without `Balance` configured, `Transfer` warns and returns false.
 
 A crash mid-transfer is completed automatically from the sender's held map on their next
 load, or manually via `RecoverTransfers(UserId)`. There is deliberately no cancel: the
 sender's side cannot see whether delivery landed, so a refund could mint. The fix for a
 mistaken transfer is to complete it and transfer back.
 
-Transfer requires your reducer to route two internal op kinds; if you only ever move one
-field (gold), it works out of the box because the escrow ops carry their own semantics.
-For swaps involving items, use [transactions](transactions.md) instead.
+For swaps involving items, or anything beyond one balance, use
+[transactions](transactions.md) instead.
 
 ## Choosing between them
 

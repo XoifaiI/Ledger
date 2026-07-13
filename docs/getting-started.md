@@ -54,6 +54,10 @@ Ledger:Configure({
 or a `_` prefixed key in the Default, or a malformed migration step all throw immediately,
 at boot, instead of surfacing at the first player.
 
+Two optional fields join these later: `Balance` names the numeric field that
+[`Transfer`](cross-server.md) moves, and `Migrations` handles
+[shape changes](migrations.md).
+
 If those three fields feel small, that is the point. The `Reducer` is where your game's
 rules live, and [the model](the-model.md) explains how to write a good one.
 
@@ -62,9 +66,14 @@ rules live, and [the model](the-model.md) explains how to write a good one.
 Ledger is passive. Your boot script owns when players load and leave:
 
 ```luau
-Players.PlayerAdded:Connect(function(Player)
+local function OnPlayer(Player)
 	Ledger:Load(Player)     -- folds the log into a live session, starts autosave
-end)
+end
+
+Players.PlayerAdded:Connect(OnPlayer)
+for _, Player in Players:GetPlayers() do
+	task.spawn(OnPlayer, Player) -- anyone who joined before this script ran
+end
 
 Players.PlayerRemoving:Connect(function(Player)
 	Ledger:Unload(Player)   -- final save and release

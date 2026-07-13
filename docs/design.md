@@ -155,9 +155,9 @@ after the first write, between write and acknowledgement, during a retry. The
 [transaction protocol](transactions.md) is the minimum machinery that closes those windows
 without a lock: prepared legs that no fold counts yet, a marker that decides, any
 bystander able to resolve or abort a stale transaction, and idempotent leg ids so a retry
-cannot resurrect an aborted trade. Ledger's test suite injects faults into exactly those
-windows, including writes that succeed while reporting failure, because that is where item
-duplication is actually born in live games.
+cannot resurrect an aborted trade. The protocol was developed under fault-injection tests
+aimed at exactly those windows, including writes that succeed while reporting failure,
+because that is where item duplication is actually born in live games.
 
 ## Where do unsaved changes live, and what does a crash cost?
 

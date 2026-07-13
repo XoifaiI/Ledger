@@ -85,7 +85,7 @@ export type Session<S> = setmetatable<{
 }, SessionImpl<S>>
 
 export type Store<D> = {
-	Configure: (self: Store<D>, Options: { Name: string, Reducer: Reducer<D>, Default: D, Migrations: { Migration }? }) -> (),
+	Configure: (self: Store<D>, Options: { Name: string, Reducer: Reducer<D>, Default: D, Balance: string?, Migrations: { Migration }? }) -> (),
 	Load: (self: Store<D>, Player: Player) -> (),
 	Unload: (self: Store<D>, Player: Player) -> (),
 	CloseAll: (self: Store<D>) -> (),
@@ -110,6 +110,7 @@ export type Config = {
 	Name: string,
 	Reducer: Reducer<any>,
 	Default: any,
+	Balance: string?,
 	Migrations: { Migration }?,
 }
 
