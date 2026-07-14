@@ -64,15 +64,6 @@ back into this shape.
   refuses benignly instead of writing garbage keys. In Studio, session state is deep-frozen
   so a consumer that mutates instead of cloning throws in development.
 
-## Crash behavior, stated plainly
-
-Pending ops live in server memory between flushes. A soft shutdown (updates, migration,
-nearly every server death) flushes everyone through `CloseAll` and loses nothing. A hard
-crash loses at most the autosave interval (30 seconds) of optimistic gameplay ops, and
-anything routed through `Commit` was durable before its side effect fired. No library
-survives the power cord; the honest levers are the width of the window and what you route
-around it.
-
 ## Docs
 
 - [Getting started](docs/getting-started.md): install, configure, wire the lifecycle
