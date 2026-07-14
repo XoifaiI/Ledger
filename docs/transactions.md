@@ -6,8 +6,8 @@ that anyone involved is online.
 
 ```luau
 local Committed = Ledger:Tx({
-	{ UserId = Jack,   Kind = "Delta", Fields = { Gold = 25,  Drop = "Sword" } },
-	{ UserId = Marcus, Kind = "Delta", Fields = { Gold = -25, Gain = "Sword" } },
+	{ UserId = 123,   Kind = "Delta", Fields = { Gold = 25,  Drop = "Sword" } },
+	{ UserId = 456, Kind = "Delta", Fields = { Gold = -25, Gain = "Sword" } },
 }):Wait()
 ```
 
