@@ -4,7 +4,7 @@
 --[=[
     Future: eager async result, runs your callback on its own thread and you grab the result with :Wait()
 
-    Return type: frozen table { New, Is, Completed, Cancelled, Errored, FromWeak }
+    Return type: frozen table { New, Is, Completed, Cancelled, Errored }
     Example usage:
         local Future = require("./Future")
         local Job = Future.New(function()
@@ -46,9 +46,6 @@ type Private<T...> = {
 
 	Thread: thread?,
 }
-
-type FutureReference<T...> = setmetatable<{ Inst: Future<T...> }, { __mode: "v" }>
-type TimeoutReference<T...> = setmetatable<{ Inst: Future<T...>, Caller: thread }, { __mode: "v" }>
 
 local function ToPrivate<T...>(self: Future<T...>): Private<T...>
 	return self :: any
@@ -125,12 +122,7 @@ local function TryFlatten<T...>(self: Private<T...>)
 	self.WasCancelled = InnerPrivate.WasCancelled
 end
 
-local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Reference: FutureReference<Ret...>, ...: Args...)
-	local Inst = Reference.Inst
-	if not Inst then
-		return
-	end
-
+local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: Future<Ret...>, ...: Args...)
 	local Private = ToPrivate(Inst)
 
 	Private.Result = Pack(pcall(Callback, ...))
@@ -139,20 +131,14 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Refere
 	Finish(Private, Unpack(Private))
 end
 
-local function TimeoutTask<T...>(Reference: TimeoutReference<T...>)
+local function TimeoutTask<T...>(Inst: Future<T...>, Caller: thread)
 	local Self = coroutine.running()
-
-	local Inst = Reference.Inst
-	if not Inst then
-		return
-	end
 
 	if not FutureIsHappening(Inst) then
 		return
 	end
 
-	local Caller = Reference.Caller
-	if not Caller or coroutine.status(Caller) ~= "suspended" then
+	if coroutine.status(Caller) ~= "suspended" then
 		return
 	end
 
@@ -176,8 +162,7 @@ local function New<Args..., Ret...>(Callback: (Args...) -> Ret..., ...: Args...)
 
 	local NewFuture: Future<Ret...> = setmetatable(Body :: any, Future)
 
-	local Reference: FutureReference<Ret...> = setmetatable({ Inst = NewFuture }, { __mode = "v" })
-	Body.Thread = task.spawn(FutureTask, Callback, Reference, ...)
+	Body.Thread = task.spawn(FutureTask, Callback, NewFuture, ...)
 
 	return NewFuture
 end
@@ -193,12 +178,7 @@ function Future.Wait<T...>(self: Future<T...>, Timeout: number?): T...
 	table.insert(Private.Waiting, Caller)
 
 	if Timeout then
-		local Reference: TimeoutReference<T...> = setmetatable({
-			Inst = self,
-			Caller = Caller,
-		}, { __mode = "v" })
-
-		table.insert(Private.Timeouts, task.delay(Timeout, TimeoutTask, Reference))
+		table.insert(Private.Timeouts, task.delay(Timeout, TimeoutTask, self, Caller))
 	end
 
 	return coroutine.yield()
@@ -282,18 +262,6 @@ local function NewErrored<T...>(Reason: string): Future<T...>
 	return Settled(Pack(false, Reason), false)
 end
 
-local function FromWeak<T...>(Object: any): Future<T...>?
-	if not IsFuture(Object) then
-		return nil
-	end
-
-	local Private = ToPrivate(Object)
-	Private.Waiting = Private.Waiting or {}
-	Private.Timeouts = Private.Timeouts or {}
-
-	return setmetatable(Object, Future)
-end
-
 table.freeze(Future)
 return table.freeze({
 	New = New,
@@ -302,6 +270,4 @@ return table.freeze({
 	Completed = NewCompleted,
 	Cancelled = NewCancelled,
 	Errored = NewErrored,
-
-	FromWeak = FromWeak,
 })
