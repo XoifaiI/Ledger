@@ -1,0 +1,12 @@
+{
+	"name": "LedgerDev",
+	"tree": {
+		"$className": "Folder",
+		"src": {
+			"$path": "src"
+		},
+		"Tests": {
+			"$path": "Tests"
+		}
+	}
+}

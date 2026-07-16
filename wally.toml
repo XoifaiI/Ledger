@@ -6,4 +6,4 @@ realm = "server"
 license = "MIT"
 authors = ["XoifaiI"]
 description = "Lock-free event-sourced player data for Roblox. State is a fold over validated ops, no session locks."
-exclude = ["Ledger.rbxm", "docs", "docs/**", "sourcemap.json", "**/.git/**"]
+exclude = ["Ledger.rbxm", "docs", "docs/**", "Tests", "Tests/**", "test.project.json", "sourcemap.json", "**/.git/**"]
