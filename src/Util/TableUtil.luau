@@ -4,7 +4,13 @@
 --[=[
     TableUtil: small grab bag of table helpers, add to it only when something actually needs it
 
-    Return type: frozen table { DeepCopy, DeepEqual, Without, DeepFreeze }
+    FreezeDelta is DeepFreeze that prunes at already-frozen subtrees, so freezing a state
+    whose unchanged children came from a previously deep-frozen state costs only the changed
+    path. It trusts that a frozen table has no unfrozen descendants, which holds when every
+    frozen table in reach was frozen by DeepFreeze or FreezeDelta; a table frozen shallowly
+    by hand slips its children past it.
+
+    Return type: frozen table { DeepCopy, DeepEqual, Without, DeepFreeze, FreezeDelta }
     Example usage:
         local TableUtil = require("./TableUtil")
         local Copy = TableUtil.DeepCopy(Original)
@@ -87,9 +93,22 @@ local function DeepFreeze<T>(Value: T): T
 	return Value
 end
 
+local function FreezeDelta<T>(Value: T): T
+	if type(Value) ~= "table" or table.isfrozen(Value :: any) then
+		return Value
+	end
+
+	table.freeze(Value :: any)
+	for _, Inner in Value :: any do
+		FreezeDelta(Inner)
+	end
+	return Value
+end
+
 return table.freeze({
 	DeepCopy = DeepCopy,
 	DeepEqual = DeepEqual,
 	Without = Without,
 	DeepFreeze = DeepFreeze,
+	FreezeDelta = FreezeDelta,
 })

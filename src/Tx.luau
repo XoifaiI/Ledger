@@ -2,28 +2,22 @@
 --!optimize 2
 
 --[=[
-    Tx: multi key transactions over the op log, no locks. every leg is a normal op
-    stamped with a Tx marker, and folds skip stamped ops, so a prepared leg has not
-    happened yet. a marker record in a side store decides the whole set at once:
-    committed strips the stamps and the legs become ordinary ops, aborted removes them
-    and retires their ids so a retry cannot bring them back.
+    Tx: lock-free multi key transactions over the op log. every leg is a normal op stamped
+    with a Tx marker that folds skip, so a prepared leg has not happened yet; a marker in a
+    side store decides the whole set at once, committed strips the stamps and aborted removes
+    the legs and retires their ids. the log is append only, so a leg accepted at prepare is
+    still accepted when the stamp comes off. one pending transaction per key.
 
-    the trick that makes it safe is that the log is append only. a leg's position is
-    fixed the moment it is prepared, nothing can ever be inserted before it, so a leg
-    the reducer accepted at prepare is still accepted when the stamp comes off.
-
-    crashes are someone else's problem, literally: any server that runs into a pending
-    leg resolves it from the marker, and whoever finds a marker still Pending past the
-    timeout aborts it. an adoption counter cleans the marker up once every leg is done.
-    one pending transaction per key at a time; a second one answers Busy and aborts.
+    crashes resolve themselves: any server that hits a pending leg settles it from the marker,
+    a marker still Pending past the timeout aborts, and an adoption counter cleans it up. a
+    failed decision write is treated as unknown, not aborted, so a lost ack can delay a commit
+    but never split it. legs may live on different datastores, each carrying its own runtime;
+    the marker stays in the coordinator's store, stamped onto every leg as TxHome so any
+    bystander can find it. see docs/transactions.md for the full rules.
 
     Return type: frozen table { Drive, Settle, TIMEOUT }
     Example usage:
-        local Tx = require("./Tx")
-        local Committed = Tx.Drive(Wrapper, TxStore, Reducer, Initial, Migrations, {
-            { Key = "261", Kind = "Delta", Fields = { Gold = 25, Drop = "Sword" } },
-            { Key = "262", Kind = "Delta", Fields = { Gold = -25, Gain = "Sword" } },
-        })
+        local Committed = Tx.Drive(Wrapper, TxStore, Reducer, Initial, Migrations, Legs)
 --]=]
 
 local HttpService = game:GetService("HttpService")
@@ -43,10 +37,17 @@ type Reducer<S> = Types.Reducer<S>
 type Migration = Types.Migration
 type Op = Types.Op
 
+local Homes: { [string]: DataStoreWrapper } = {}
+
 export type Leg = {
 	Key: string,
 	Kind: string,
 	Fields: { [any]: any }?,
+	Wrapper: DataStoreWrapper?,
+	TxStore: DataStoreWrapper?,
+	Reducer: Reducer<any>?,
+	Initial: any?,
+	Migrations: { Migration }?,
 }
 
 type Marker = {
@@ -55,19 +56,17 @@ type Marker = {
 	Adopted: number,
 }
 
-local function CreateMarker(TxStore: DataStoreWrapper, Txid: string, Total: number)
-	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
+local function CreateMarker(TxStore: DataStoreWrapper, Txid: string, Total: number): boolean
+	local Ok = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
 		if type(Current) == "table" then
 			return Current
 		end
 		return { Status = "Pending", Total = Total, Adopted = 0 }
 	end)
-	if not Ok then
-		error(Value)
-	end
+	return Ok == true
 end
 
-local function DecideMarker(TxStore: DataStoreWrapper, Txid: string, To: string): string
+local function DecideMarker(TxStore: DataStoreWrapper, Txid: string, To: string, Shrink: number?): string?
 	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
 		if type(Current) ~= "table" then
 			return { Status = "Aborted", Total = 0, Adopted = 0 }
@@ -75,19 +74,26 @@ local function DecideMarker(TxStore: DataStoreWrapper, Txid: string, To: string)
 		if Current.Status == "Pending" then
 			Current.Status = To
 		end
+		if Shrink ~= nil and Current.Status == "Aborted" and Shrink < Current.Total then
+			Current.Total = Shrink
+		end
 		return Current
 	end)
 
 	if not Ok or type(Value) ~= "table" then
-		return "Aborted"
+		return nil
 	end
-	return Value.Status
+	local Decided = Value :: Marker
+	if Shrink ~= nil and Decided.Status == "Aborted" and (Decided.Total <= 0 or Decided.Adopted >= Decided.Total) then
+		TxStore:RemoveAsync(Txid)
+	end
+	return Decided.Status
 end
 
-local function StatusOf(TxStore: DataStoreWrapper, Txid: string, Timeout: number): string
+local function StatusOf(TxStore: DataStoreWrapper, Txid: string, Timeout: number): string?
 	local Ok, Value, Info = TxStore:GetAsync(Txid)
 	if not Ok then
-		error(Value)
+		return nil
 	end
 	if type(Value) ~= "table" then
 		return "Aborted"
@@ -100,7 +106,7 @@ local function StatusOf(TxStore: DataStoreWrapper, Txid: string, Timeout: number
 
 	local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
 	if os.time() - Updated >= Timeout then
-		return DecideMarker(TxStore, Txid, "Aborted")
+		return DecideMarker(TxStore, Txid, "Aborted") or "Pending"
 	end
 	return "Pending"
 end
@@ -123,6 +129,18 @@ local function Adopt(TxStore: DataStoreWrapper, Txid: string, Count: number)
 	end
 end
 
+local function HomeOf(TxStore: DataStoreWrapper, Home: string | true): DataStoreWrapper
+	if type(Home) ~= "string" or Home == TxStore.Name then
+		return TxStore
+	end
+	local Cached = Homes[Home]
+	if not Cached then
+		Cached = DataStoreWrapper.New(Home)
+		Homes[Home] = Cached
+	end
+	return Cached
+end
+
 local function Settle(Wrapper: DataStoreWrapper, TxStore: DataStoreWrapper, Key: string, Record: Record<any>, Timeout: number?): Record<any>
 	local Limit = Timeout or TIMEOUT
 	local Pending = Log.PendingTx(Record)
@@ -131,11 +149,14 @@ local function Settle(Wrapper: DataStoreWrapper, TxStore: DataStoreWrapper, Key:
 	end
 
 	local Verdicts: { [string]: boolean } = {}
-	for Txid in Pending do
-		local Ok, Status = pcall(StatusOf, TxStore, Txid, Limit)
-		if Ok and Status == "Committed" then
+	local Markers: { [string]: DataStoreWrapper } = {}
+	for Txid, Home in Pending do
+		local Marker = HomeOf(TxStore, Home)
+		Markers[Txid] = Marker
+		local Status = StatusOf(Marker, Txid, Limit)
+		if Status == "Committed" then
 			Verdicts[Txid] = true
-		elseif Ok and Status == "Aborted" then
+		elseif Status == "Aborted" then
 			Verdicts[Txid] = false
 		end
 	end
@@ -145,9 +166,27 @@ local function Settle(Wrapper: DataStoreWrapper, TxStore: DataStoreWrapper, Key:
 
 	local Resolved, Counts = Log.Resolve(Wrapper, Key, Verdicts)
 	for Txid, Count in Counts do
-		pcall(Adopt, TxStore, Txid, Count)
+		Adopt(Markers[Txid], Txid, Count)
 	end
 	return Resolved
+end
+
+local function PrepareLeg(
+	Wrapper: DataStoreWrapper,
+	TxStore: DataStoreWrapper,
+	Reducer: Reducer<any>,
+	Initial: any,
+	Migrations: { Migration }?,
+	Key: string,
+	Op: Op,
+	Timeout: number?
+): string
+	local Record = Log.Read(Wrapper, Key)
+	Record = Settle(Wrapper, TxStore, Key, Record, Timeout)
+	if Log.HasPending(Record) then
+		return "Busy"
+	end
+	return Log.Prepare(Wrapper, Key, Op, Reducer, Initial, Migrations)
 end
 
 local function Drive(
@@ -166,11 +205,12 @@ local function Drive(
 
 	local Keys: { [string]: boolean } = {}
 	for _, Leg in Legs do
-		if Keys[Leg.Key] then
-			warn("Ledger: rejected transaction, it may only touch a key once")
+		local Mark = `{(Leg.Wrapper or Wrapper).Name}\0{Leg.Key}`
+		if Keys[Mark] then
+			warn("Ledger: rejected transaction, it may only touch a key once per store")
 			return false
 		end
-		Keys[Leg.Key] = true
+		Keys[Mark] = true
 	end
 
 	local Txid = HttpService:GenerateGUID(false)
@@ -187,25 +227,28 @@ local function Drive(
 		end
 
 		Op.Tx = Txid
+		Op.TxHome = TxStore.Name
 		Ops[Index] = Op :: Op
 	end
 
-	local Created = pcall(CreateMarker, TxStore, Txid, #Legs)
-	if not Created then
+	if not CreateMarker(TxStore, Txid, #Legs) then
 		return false
 	end
 
 	local Prepared = 0
 	local Failed = false
 	for Index, Leg in Legs do
-		local Fine, Verdict = pcall(function(): string
-			local Record = Log.Read(Wrapper, Leg.Key)
-			Record = Settle(Wrapper, TxStore, Leg.Key, Record, Timeout)
-			if Log.HasPending(Record) then
-				return "Busy"
-			end
-			return Log.Prepare(Wrapper, Leg.Key, Ops[Index], Reducer, Initial, Migrations)
-		end)
+		local Fine, Verdict = pcall(
+			PrepareLeg,
+			Leg.Wrapper or Wrapper,
+			Leg.TxStore or TxStore,
+			if Leg.Wrapper then Leg.Reducer :: Reducer<any> else Reducer,
+			if Leg.Wrapper then Leg.Initial else Initial,
+			if Leg.Wrapper then Leg.Migrations else Migrations,
+			Leg.Key,
+			Ops[Index],
+			Timeout
+		)
 
 		if Fine and Verdict == "Prepared" then
 			Prepared = Index
@@ -215,15 +258,20 @@ local function Drive(
 		end
 	end
 
-	local Final = DecideMarker(TxStore, Txid, if Failed then "Aborted" else "Committed")
+	local Final = DecideMarker(TxStore, Txid, if Failed then "Aborted" else "Committed", if Failed then Prepared else nil)
+	if Final == nil and not Failed then
+		warn(`Ledger: transaction {Txid} could not record its verdict, its legs stay pending until another server settles them from the marker`)
+		return false
+	end
 
 	for Index = 1, if Failed then Prepared else #Legs do
-		pcall(function()
-			local _, Counts = Log.Resolve(Wrapper, Legs[Index].Key, { [Txid] = Final == "Committed" })
-			for Id, Count in Counts do
+		local Leg = Legs[Index]
+		local Ok, _, Counts = pcall(Log.Resolve, Leg.Wrapper or Wrapper, Leg.Key, { [Txid] = Final == "Committed" })
+		if Ok then
+			for Id, Count in Counts :: { [string]: number } do
 				Adopt(TxStore, Id, Count)
 			end
-		end)
+		end
 	end
 
 	return Final == "Committed"

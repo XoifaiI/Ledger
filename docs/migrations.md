@@ -4,7 +4,7 @@ New default fields are free: the reconcile step fills any key present in your `D
 that a stored profile is missing. A rename or a restructure needs a migration.
 
 ```luau
-Ledger:Configure({
+local Store = Ledger.New({
 	Name = "PlayerData",
 	Default = Default,
 	Reducer = Reducer,
@@ -35,7 +35,7 @@ step's output, so a new migration is always written against the latest shape.
 
 ## The rules
 
-**Append only, never edit or reorder.** A shipped step has already stamped versions into
+**Append only, never edit or reorder.** A released step has already stamped versions into
 stored records. Changing it desynchronizes every record it touched.
 
 **A record from a newer version refuses to load on an old server**, and the player is

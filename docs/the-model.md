@@ -56,8 +56,8 @@ stays deterministic.
 
 **Never mutate `State`.** It is shared with the stored snapshot and the running fold.
 Clone nested tables too before writing into them; a shallow clone that mutates a nested
-table corrupts shared prior state. In Studio, Ledger deep-freezes state so this mistake
-throws during development.
+table corrupts shared prior state. Ledger deep-freezes state everywhere, so this mistake
+throws at the line that did it instead of quietly corrupting the shared table.
 
 **Never yield.** Compaction folds inside a datastore transform where a yield would fail
 the save, so every reducer call runs through a yield guard. A throw or a yield is treated

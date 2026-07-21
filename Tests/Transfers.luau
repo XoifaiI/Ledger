@@ -64,7 +64,7 @@ function Suite.TransferCrashRecover()
 	Expect(HeldSum(Sa1)).ToBe(50)
 	Expect(FoldId(B).Gold).ToBe(0)
 
-	Transfer.Recover(W(), A, Sa1._Held)
+	Transfer.Recover(W(), TR, INIT, nil, A, Sa1._Held)
 	local Sa2, Sb2 = FoldId(A), FoldId(B)
 	local Total = Sa2.Gold + Sb2.Gold + HeldSum(Sa2)
 
@@ -80,9 +80,9 @@ function Suite.TransferDoubleRecover()
 	Transfer.Reserve(W(), TR, INIT, A, B, 50)
 	local Held = FoldId(A)._Held
 
-	Transfer.Recover(W(), A, Held)
-	Transfer.Recover(W(), A, Held)
-	Transfer.Recover(W(), A, Held)
+	Transfer.Recover(W(), TR, INIT, nil, A, Held)
+	Transfer.Recover(W(), TR, INIT, nil, A, Held)
+	Transfer.Recover(W(), TR, INIT, nil, A, Held)
 
 	local Sb = FoldId(B)
 
@@ -157,7 +157,7 @@ function Suite.TransferRecoverCompletes()
 	Log.Append(W(), tostring(B), { DeliverOp })
 	local Sa1, Sb1 = FoldId(A), FoldId(B)
 
-	Transfer.Recover(W(), A, Sa1._Held)
+	Transfer.Recover(W(), TR, INIT, nil, A, Sa1._Held)
 	local Sa2, Sb2 = FoldId(A), FoldId(B)
 	local Total = Sa2.Gold + Sb2.Gold + HeldSum(Sa2)
 
@@ -211,6 +211,64 @@ function Suite.TransferPruneDelivered()
 	Expect(Cleared).ToBe(true)
 end
 
+function Suite.TransferExpiredRefund()
+	local A, B = Uid(), Uid()
+	Log.Append(W(), tostring(A), { MakeOp("Add", { Amount = 100 }) })
+	local Tid = HttpService:GenerateGUID(false)
+	local ReserveOp: any = { Id = "res:" .. Tid, Kind = "__TransferReserve", To = B, Amount = 60, Tid = Tid, At = os.time() - 9 * 86400 }
+	Log.Append(W(), tostring(A), { ReserveOp })
+	local Sa1 = FoldId(A)
+
+	Transfer.Recover(W(), TR, INIT, nil, A, Sa1._Held)
+	local Sa2, Sb2 = FoldId(A), FoldId(B)
+
+	Expect(Sa1.Gold).ToBe(40)
+	Expect(HeldSum(Sa1)).ToBe(60)
+	Expect(Sa2.Gold).ToBe(100)
+	Expect(HeldSum(Sa2)).ToBe(0)
+	Expect(Sb2.Gold).ToBe(0)
+end
+
+function Suite.TransferExpiredButDelivered()
+	local A, B = Uid(), Uid()
+	Log.Append(W(), tostring(A), { MakeOp("Add", { Amount = 100 }) })
+	local Tid = HttpService:GenerateGUID(false)
+	local Old = os.time() - 9 * 86400
+	local ReserveOp: any = { Id = "res:" .. Tid, Kind = "__TransferReserve", To = B, Amount = 60, Tid = Tid, At = Old }
+	Log.Append(W(), tostring(A), { ReserveOp })
+	local DeliverOp: any = { Id = "del:" .. Tid, Kind = "__TransferDeliver", From = A, Amount = 60, Tid = Tid, At = Old }
+	Log.Append(W(), tostring(B), { DeliverOp })
+
+	Transfer.Recover(W(), TR, INIT, nil, A, FoldId(A)._Held)
+	local Sa2, Sb2 = FoldId(A), FoldId(B)
+	local Total = Sa2.Gold + Sb2.Gold + HeldSum(Sa2)
+
+	Expect(Sa2.Gold).ToBe(40)
+	Expect(HeldSum(Sa2)).ToBe(0)
+	Expect(Sb2.Gold).ToBe(60)
+	Expect(Total).ToBe(100)
+end
+
+function Suite.TransferReceivedWindow()
+	local A, B = Uid(), Uid()
+	local Now = os.time()
+	local Stale = Now - 31 * 86400
+	for Index = 1, 2 do
+		local DeliverOp: any = { Id = "del:win" .. Index, Kind = "__TransferDeliver", From = A, Amount = 10, Tid = "win" .. Index, At = Stale }
+		Log.Append(W(), tostring(B), { DeliverOp })
+	end
+	local FreshOp: any = { Id = "del:win3", Kind = "__TransferDeliver", From = A, Amount = 10, Tid = "win3", At = Now }
+	Log.Append(W(), tostring(B), { FreshOp })
+
+	local Sb = FoldId(B)
+	local Received = Sb._Received :: { [string]: any }
+
+	Expect(Sb.Gold).ToBe(30)
+	Expect(Received["win1"]).ToBeNil()
+	Expect(Received["win2"]).ToBeNil()
+	Expect(Received["win3"]).Never.ToBeNil()
+end
+
 function Suite.TransferConservation()
 	local N = 4
 	local Accts, Total = {}, 0
@@ -246,7 +304,7 @@ function Suite.TransferConservation()
 
 	for _ = 1, 3 do
 		for _, A in Accts do
-			pcall(Transfer.Recover, W(), A, FoldId(A)._Held)
+			pcall(Transfer.Recover, W(), TR, INIT, nil, A, FoldId(A)._Held)
 		end
 	end
 

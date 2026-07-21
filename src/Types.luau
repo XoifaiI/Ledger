@@ -46,8 +46,14 @@ export type HistoryEntry = {
 	Deleted: boolean,
 }
 
+export type KeysMode = "Player" | "String"
+
+export type KeyLike = number | string
+
 export type TxLeg = {
-	UserId: number,
+	Store: Store<any>?,
+	UserId: number?,
+	Key: string?,
 	Kind: string,
 	Fields: { [any]: any }?,
 }
@@ -85,25 +91,23 @@ export type Session<S> = setmetatable<{
 }, SessionImpl<S>>
 
 export type Store<D> = {
-	Configure: (self: Store<D>, Options: { Name: string, Reducer: Reducer<D>, Default: D, Balance: string?, Migrations: { Migration }? }) -> (),
 	Load: (self: Store<D>, Player: Player) -> (),
 	Unload: (self: Store<D>, Player: Player) -> (),
-	CloseAll: (self: Store<D>) -> (),
 	Get: (self: Store<D>, Player: Player) -> Session<D>?,
 	Expect: (self: Store<D>, Player: Player) -> Session<D>,
 	IsLoaded: (self: Store<D>, Player: Player) -> boolean,
 	WaitForLoaded: (self: Store<D>, Player: Player) -> Session<D>?,
 	Read: (self: Store<D>, Player: Player) -> D?,
-	Peek: (self: Store<D>, UserId: number) -> Future<D>,
-	History: (self: Store<D>, UserId: number, Limit: number?) -> Future<{ HistoryEntry }>,
-	PeekVersion: (self: Store<D>, UserId: number, Version: string) -> Future<D>,
-	Edit: (self: Store<D>, UserId: number, Kind: string, Fields: { [any]: any }?) -> Future<()>,
-	Transfer: (self: Store<D>, FromUserId: number, ToUserId: number, Amount: number) -> Future<boolean>,
+	Peek: (self: Store<D>, Key: KeyLike) -> Future<D>,
+	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }>,
+	PeekVersion: (self: Store<D>, Key: KeyLike, Version: string) -> Future<D>,
+	Edit: (self: Store<D>, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<()>,
+	Transfer: (self: Store<D>, From: KeyLike, To: KeyLike, Amount: number) -> Future<boolean>,
 	Tx: (self: Store<D>, Legs: { TxLeg }) -> Future<boolean>,
-	RecoverTransfers: (self: Store<D>, UserId: number) -> Future<()>,
-	ClearDelivered: (self: Store<D>, UserId: number) -> Future<()>,
-	Reset: (self: Store<D>, UserId: number) -> Future<()>,
-	Erase: (self: Store<D>, UserId: number) -> Future<()>,
+	RecoverTransfers: (self: Store<D>, Key: KeyLike) -> Future<()>,
+	ClearDelivered: (self: Store<D>, Key: KeyLike) -> Future<()>,
+	Reset: (self: Store<D>, Key: KeyLike) -> Future<()>,
+	Erase: (self: Store<D>, Key: KeyLike) -> Future<()>,
 }
 
 export type Config = {
@@ -112,6 +116,12 @@ export type Config = {
 	Default: any,
 	Balance: string?,
 	Migrations: { Migration }?,
+	Keys: KeysMode?,
+}
+
+export type LoadedEntry = {
+	Active: Session<any>,
+	Ticker: thread,
 }
 
 export type Runtime = {
@@ -121,31 +131,32 @@ export type Runtime = {
 	TxWrapper: DataStoreWrapper,
 	Initial: any,
 	Migrations: { Migration },
+	Keys: KeysMode,
+	Loaded: { [number]: LoadedEntry },
+	Waiters: { [number]: { thread } },
 }
 
 export type DataStoreImpl = {
 	__index: DataStoreImpl,
-	Configure: (self: DataStore, Options: Config) -> (),
 	Load: (self: DataStore, Player: Player) -> (),
 	Unload: (self: DataStore, Player: Player) -> (),
-	CloseAll: (self: DataStore) -> (),
 	Get: (self: DataStore, Player: Player) -> Session<any>?,
 	Expect: (self: DataStore, Player: Player) -> Session<any>,
 	IsLoaded: (self: DataStore, Player: Player) -> boolean,
 	WaitForLoaded: (self: DataStore, Player: Player) -> Session<any>?,
 	Read: (self: DataStore, Player: Player) -> any,
-	Peek: (self: DataStore, UserId: number) -> Future<any>,
-	History: (self: DataStore, UserId: number, Limit: number?) -> Future<{ HistoryEntry }>,
-	PeekVersion: (self: DataStore, UserId: number, Version: string) -> Future<any>,
-	Edit: (self: DataStore, UserId: number, Kind: string, Fields: { [any]: any }?) -> Future<()>,
-	Transfer: (self: DataStore, FromUserId: number, ToUserId: number, Amount: number) -> Future<boolean>,
+	Peek: (self: DataStore, Key: KeyLike) -> Future<any>,
+	History: (self: DataStore, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }>,
+	PeekVersion: (self: DataStore, Key: KeyLike, Version: string) -> Future<any>,
+	Edit: (self: DataStore, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<()>,
+	Transfer: (self: DataStore, From: KeyLike, To: KeyLike, Amount: number) -> Future<boolean>,
 	Tx: (self: DataStore, Legs: { TxLeg }) -> Future<boolean>,
-	RecoverTransfers: (self: DataStore, UserId: number) -> Future<()>,
-	ClearDelivered: (self: DataStore, UserId: number) -> Future<()>,
-	Reset: (self: DataStore, UserId: number) -> Future<()>,
-	Erase: (self: DataStore, UserId: number) -> Future<()>,
+	RecoverTransfers: (self: DataStore, Key: KeyLike) -> Future<()>,
+	ClearDelivered: (self: DataStore, Key: KeyLike) -> Future<()>,
+	Reset: (self: DataStore, Key: KeyLike) -> Future<()>,
+	Erase: (self: DataStore, Key: KeyLike) -> Future<()>,
 }
 
-export type DataStore = setmetatable<{ Live: Runtime? }, DataStoreImpl>
+export type DataStore = setmetatable<{ Live: Runtime }, DataStoreImpl>
 
 return {}

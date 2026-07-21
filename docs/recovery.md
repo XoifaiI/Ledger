@@ -1,8 +1,8 @@
 # Recovery
 
-Things go wrong: a bad reducer ships for an hour, a player claims their data vanished, a
-support case needs ground truth. Because state is derived from a log, Ledger can always
-show you what happened and fold you back to what things looked like.
+Because state is derived from a log, Ledger can always show you what happened and fold a
+record back to what it looked like before. That covers the usual cases: a bad reducer that
+ran for a while, a player disputing a loss, or a support request that needs the real history.
 
 ## Version history
 
@@ -10,10 +10,10 @@ Roblox keeps 30 days of versions for every datastore key. Ledger exposes that as
 recovery surface:
 
 ```luau
-local Rows = Ledger:History(UserId, 25):Wait()
+local Rows = Store:History(UserId, 25):Wait()
 -- { { Version = "...", At = 1760000000, Deleted = false }, ... } newest first
 
-local OldState = Ledger:PeekVersion(UserId, Rows[3].Version):Wait()
+local OldState = Store:PeekVersion(UserId, Rows[3].Version):Wait()
 ```
 
 `PeekVersion` reads the historical record and folds it through your reducer and
@@ -26,19 +26,19 @@ get their own version.
 ## Reset
 
 ```luau
-Ledger:Reset(UserId)
+Store:Reset(UserId)
 ```
 
 Moderation tool. Resets an account to the `Default` by appending a reset op, never by
-deleting, so the exploit and the correction both stay in the log as the audit trail. It
-works on a player online anywhere; their session folds it on its next flush. The
-anti-dupe guards survive the reset on purpose, since clearing them would re-arm old
-purchase receipts.
+deleting, so the exploit and the correction both stay in the log as the audit trail. It works
+on a player online anywhere; their session folds it on its next flush. The transfer
+bookkeeping survives the reset on purpose, so a reset that lands mid-transfer cannot lose a
+held amount or re-credit a delivery.
 
 ## Erase
 
 ```luau
-Ledger:Erase(UserId)
+Store:Erase(UserId)
 ```
 
 Right-to-erasure compliance. Hard-deletes the record, the one path around the append-only
@@ -50,8 +50,9 @@ live session elsewhere will push its pending ops and partially resurrect the rec
 - A soft shutdown flushes everyone through `CloseAll`. Nothing lost.
 - A hard crash loses at most the 30 second autosave window of `Apply` traffic. Anything
   through `Commit` was durable first.
-- A crashed transfer completes itself from the sender's held state on their next load, or
-  via `RecoverTransfers(UserId)`.
+- A crashed transfer finishes itself from the sender's held state on their next load, or via
+  `RecoverTransfers(UserId)`: a recent hold re-drives to the receiver, an old one settles if
+  the delivery landed or refunds the sender if it did not.
 - A crashed transaction resolves within about a minute, aborted or completed by whichever
   server touches it next. See [transactions](transactions.md).
 - A record written by a newer format refuses to load on older servers rather than being

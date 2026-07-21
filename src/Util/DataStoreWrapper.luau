@@ -21,19 +21,6 @@ type ThreadQueue = ThreadQueue.ThreadQueue
 type Handler = KeyedRetryQueue.Handler
 type Transform = (any, DataStoreKeyInfo) -> ...any
 
-local PERMANENT: { [string]: boolean } = {
-	["101"] = true,
-	["102"] = true,
-	["103"] = true,
-	["104"] = true,
-	["105"] = true,
-}
-
-local function IsRetryable(Reason: any): boolean
-	local Code = string.match(tostring(Reason), "^%s*(%d+)")
-	return Code == nil or not PERMANENT[Code]
-end
-
 type DataStoreWrapperImpl = {
 	__index: DataStoreWrapperImpl,
 	GetAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
@@ -67,7 +54,6 @@ export type DataStoreWrapper = setmetatable<{
 	Attempts: number?,
 	Constant: number?,
 	Exponent: number?,
-	Retryable: (Reason: any) -> boolean,
 	Queues: { [string]: ThreadQueue },
 }, DataStoreWrapperImpl>
 
@@ -165,7 +151,6 @@ local function New(Name: string, Attempts: number?, Constant: number?, Exponent:
 		Attempts = Attempts,
 		Constant = Constant,
 		Exponent = Exponent,
-		Retryable = IsRetryable,
 		Queues = {},
 	}, DataStoreWrapper) :: DataStoreWrapper
 end

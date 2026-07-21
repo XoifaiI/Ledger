@@ -5,10 +5,11 @@
     Session: per player authority, folds live state from the log on load.
 
     Apply mutates state optimistically for gameplay, Commit is the authoritative path whose
-    result you gate an external side effect on. in studio the state a session holds and
-    hands out is deep frozen, so a consumer or reducer that mutates instead of cloning
-    throws in development where it is loud instead of corrupting shared state in
-    production where it is silent.
+    result you gate an external side effect on. the state a session holds and hands out is
+    deep frozen everywhere, so a consumer or reducer that mutates instead of cloning throws
+    at the mutation site instead of corrupting shared state. the freeze is FreezeDelta:
+    unchanged children are already frozen from the previous state, so each transition only
+    pays for the path the reducer actually cloned.
 
     Return type: frozen table { Load }
     Example usage:
@@ -16,8 +17,6 @@
         local Active = Session.Load(Wrapper, Key, Reducer, Initial):Wait()
         Active:Apply("AddGold", { Amount = 10 })
 --]=]
-
-local RunService = game:GetService("RunService")
 
 local Future = require("./Util/Future")
 local NoYield = require("./Util/NoYield")
@@ -48,10 +47,11 @@ local MAX_LOG_BYTES = 1536 * 1024
 
 local MAX_PENDING = 4096
 
-local HARDEN = RunService:IsStudio()
+local PENDING_WAIT_ATTEMPTS = 15
+local PENDING_WAIT_DELAY = 5
 
 local function Guard<S>(State: S): S
-	return if HARDEN then TableUtil.DeepFreeze(State) else State
+	return TableUtil.FreezeDelta(State)
 end
 
 local Session = {}
@@ -219,10 +219,15 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean>
 		Push(self)
 
 		local Stored = SettlePending(self, Log.Append(self.Wrapper, self.Key, { Op }))
+		for _ = 1, PENDING_WAIT_ATTEMPTS do
+			if not Log.HasPending(Stored) then
+				break
+			end
+			task.wait(PENDING_WAIT_DELAY)
+			Stored = SettlePending(self, Log.Read(self.Wrapper, self.Key))
+		end
 		if Log.HasPending(Stored) then
-			Rebuild(self, Stored)
-			Notify(self)
-			return false
+			warn(`Ledger: commit '{Op.Kind}' settled against a record with a stuck transaction leg, its verdict may flip when that leg resolves`)
 		end
 
 		local _, Accepted = Rebuild(self, Stored, Op.Id)

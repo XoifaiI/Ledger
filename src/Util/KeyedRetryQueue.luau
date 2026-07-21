@@ -28,7 +28,6 @@ export type State = {
 	Attempts: number?,
 	Constant: number?,
 	Exponent: number?,
-	Retryable: (Reason: any) -> boolean,
 	Queues: { [string]: ThreadQueue },
 }
 
@@ -38,7 +37,6 @@ local function RunUnqueued(State: State, Operation: () -> ...any, Handler: Handl
 		Constant = State.Constant,
 		Exponent = State.Exponent,
 		Handler = Handler,
-		Retryable = State.Retryable,
 	})
 end
 

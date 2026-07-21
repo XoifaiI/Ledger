@@ -6,31 +6,37 @@ datastore on a 30 second autosave (plus a final save on `Unload` and `CloseAll`)
 
 ## Store methods
 
-```
-Configure(Options)                  set up the store, once, before anyone joins
-Load(Player)                        fold a session, start autosave; kicks on failure
-Unload(Player)                      final save and release
-CloseAll()                          flush and release everyone, for BindToClose
-Get(Player) -> Session?             the live session, or nil if not loaded
-Expect(Player) -> Session           the session, asserts it is loaded
-IsLoaded(Player) -> boolean
-WaitForLoaded(Player) -> Session?   yields until loaded, nil if the player left first
-Read(Player) -> State?              the current state table, or nil
-```
+`Ledger.New` builds the store and `Ledger.CloseAll` closes every store at once. The rest are
+methods on the store `New` returned. The session lifecycle here is player-store only; an
+entity store has no sessions.
+
+- `Ledger.New(Options)` returns a store. Call it once, before anyone joins.
+- `Ledger.CloseAll()` flushes and releases every store. Call it from `BindToClose`.
+- `Store:Load(Player)` folds a session onto the player and starts the autosave. It kicks the
+  player if the load fails.
+- `Store:Unload(Player)` does a final save and releases the session.
+- `Store:Get(Player)` returns the live session, or `nil` if the player is not loaded.
+- `Store:Expect(Player)` returns the session and asserts it is loaded, so it throws rather than
+  returning `nil`.
+- `Store:IsLoaded(Player)` returns whether a session is loaded.
+- `Store:WaitForLoaded(Player)` yields until the session is loaded, and returns `nil` if the
+  player leaves first.
+- `Store:Read(Player)` returns the current state table, or `nil` if not loaded.
 
 ## Session methods
 
-```
-Get() -> State                      the current state
-Apply(Kind, Fields?) -> boolean     optimistic, instant, queues the op for the next flush
-Commit(Kind, Fields?) -> Future<boolean>   durable append, then an authoritative answer
-CommitOp(Op) -> Future<boolean>     raw commit of a pre-built op whose Id the caller owns
-Flush() -> Future<()>               push pending ops, then fold in what other servers wrote
-Compact() -> Future<()>             fold the log into a fresh snapshot
-Release() -> Future<()>             final push; Apply and Commit are rejected afterwards
-Observe() -> Observer<State>        a stream of state, fires on every change
-LogSize / LogBytes                  ops since the last snapshot, and their measured bytes
-```
+- `Session:Get()` returns the current state table.
+- `Session:Apply(Kind, Fields?)` runs the reducer against live state, updates it optimistically,
+  and queues the op for the next flush. It returns `true` if the reducer accepted the op.
+- `Session:Commit(Kind, Fields?)` appends the op durably and returns a `Future<boolean>` that
+  resolves to whether your op was the one accepted. This is the path to gate a side effect on.
+- `Session:CommitOp(Op)` is `Commit` for a pre-built op whose `Id` you own.
+- `Session:Flush()` pushes pending ops, then folds in what other servers wrote.
+- `Session:Compact()` folds the log into a fresh snapshot.
+- `Session:Release()` does a final push and afterwards rejects any further `Apply` or `Commit`.
+- `Session:Observe()` returns an `Observer<State>` that fires on every change.
+- `Session.LogSize` and `Session.LogBytes` are the count of ops since the last snapshot and
+  their measured size.
 
 ## Apply vs Commit
 
@@ -68,8 +74,8 @@ end)
 ```
 
 The value is the live state table by reference. Never mutate it; clone first if it leaves
-your hands. Listeners run inline on the session's thread and must not yield. In Studio the
-state is deep-frozen, so a mutating listener throws in development.
+your hands. Listeners run inline on the session's thread and must not yield. The state is
+deep-frozen everywhere, so a mutating listener throws at the line that did it.
 
 ## What a crash costs
 

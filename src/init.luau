@@ -4,16 +4,21 @@
 --[=[
     Ledger: player data as a ledger, not a document. state is a pure fold of an append
     only op log, every change is a validated intent, and there are no session locks
-    anywhere. loads a session per player, autosaves it, and covers the cross-server
-    side: peek, edit, transfer, transactions, history and recovery.
+    anywhere. New builds an independent store per datastore name, keyed by player ids
+    (the default, with the session lifecycle) or by plain string keys (entity stores:
+    clans, listings, anything shared, which get the cross-server surface only).
 
-    the boot owns the lifecycle: Load on join, Unload on leave, CloseAll on close.
+    the boot owns the lifecycle for a player store: Load on join, Unload on leave, and
+    Ledger.CloseAll on shutdown, which flushes every store.
 
-    Return type: singleton service, cast to Store<D> by a game
+    Return type: frozen factory table, stores are typed by an annotated binding
     Example usage:
         local Ledger = require(ServerStorage.Ledger)
-        Ledger:Configure({ Name = "PlayerData", Reducer = Reducer, Default = Default })
-        Ledger:Load(Player)
+        local Store: Ledger.Store<Profile> = Ledger.New({
+            Name = "PlayerData", Reducer = Reducer, Default = Default, Balance = "Gold",
+        })
+        Store:Load(Player)
+        local Session = Store:Expect(Player)
 --]=]
 
 local DataStoreService = game:GetService("DataStoreService")
@@ -25,6 +30,7 @@ local TableUtil = require("@self/Util/TableUtil")
 local DataStoreWrapper = require("@self/Util/DataStoreWrapper")
 local Log = require("@self/Log")
 local MakeOp = require("@self/MakeOp")
+local Measure = require("@self/Measure")
 local IsStorable = require("@self/Storable")
 local Session = require("@self/Session")
 local Transfer = require("@self/Transfer")
@@ -32,31 +38,41 @@ local Tx = require("@self/Tx")
 local Types = require("@self/Types")
 
 type Op = Types.Op
-type Session<S> = Types.Session<S>
 type Future<T...> = Future.Future<T...>
 
 export type Store<D> = Types.Store<D>
+export type Session<S> = Types.Session<S>
+export type KeyLike = Types.KeyLike
+export type KeysMode = Types.KeysMode
+export type TxLeg = Types.TxLeg
+export type Migration = Types.Migration
 
 type Config = Types.Config
 type Runtime = Types.Runtime
 type DataStoreImpl = Types.DataStoreImpl
 type DataStore = Types.DataStore
 
+type NewOptions<D> = {
+	Name: string,
+	Reducer: Types.Reducer<D>,
+	Default: D,
+	Balance: string?,
+	Migrations: { Types.Migration }?,
+	Keys: Types.KeysMode?,
+}
+
 local AUTOSAVE_INTERVAL = 30
 local COMPACT_THRESHOLD = 128
 local COMPACT_BYTES = 1024 * 1024
 local RELEASE_ATTEMPTS = 3
 local SHUTDOWN_ATTEMPTS = 2
+local MAX_KEY = 50
 
 local RESET_KIND = "__Reset"
 
-type Entry = {
-	Active: Session<any>,
-	Ticker: thread,
-}
-
-local Loaded: { [number]: Entry } = {}
-local Waiters: { [number]: { thread } } = {}
+local Claimed: { [string]: boolean } = {}
+local Instances: { DataStore } = {}
+local InFlight: { [Future<()>]: boolean } = {}
 
 local function MakeInitial(Default: any): any
 	return TableUtil.DeepFreeze(TableUtil.DeepCopy(Default))
@@ -74,26 +90,24 @@ local function WrapSystem(GameReducer: Types.Reducer<any>): Types.Reducer<any>
 		end
 
 		local Next = TableUtil.DeepCopy(Snapshot)
-		Next._Purchases = State._Purchases
 		Next._Received = State._Received
+		Next._Held = State._Held
 		return Next
 	end
 
 	return Combined
 end
 
-local function Wake(UserId: number, Active: Session<any>?)
-	local List = Waiters[UserId]
+local function Wake(Live: Runtime, UserId: number, Active: Session<any>?)
+	local List = Live.Waiters[UserId]
 	if not List then
 		return
 	end
-	Waiters[UserId] = nil
+	Live.Waiters[UserId] = nil
 	for _, Thread in List do
 		task.spawn(Thread, Active)
 	end
 end
-
-local InFlight: { [Future<()>]: boolean } = {}
 
 local function Save(Active: Session<any>, UserId: number): Future<()>
 	local Job = Future.New(function()
@@ -111,22 +125,41 @@ end
 local DataStore = {} :: DataStoreImpl
 DataStore.__index = DataStore
 
-local function ExpectLive(self: DataStore, What: string): Runtime
-	return assert(self.Live, `Ledger not configured before {What}`)
+local function ValidId(UserId: any): boolean
+	return type(UserId) == "number" and UserId == UserId // 1 and UserId > 0 and UserId < math.huge
 end
 
-local function ValidId(UserId: any): boolean
-	return type(UserId) == "number" and UserId == UserId // 1 and UserId > 0
+local function KeyFor(self: DataStore, Value: any): string?
+	if self.Live.Keys == "Player" then
+		return if ValidId(Value) then tostring(Value) else nil
+	end
+	return if type(Value) == "string" and #Value > 0 and #Value <= MAX_KEY and utf8.len(Value) ~= nil
+		then Value
+		else nil
+end
+
+local function KeyIssue(self: DataStore): string
+	return if self.Live.Keys == "Player"
+		then "a positive integer UserId"
+		else `a key string of 1 to {MAX_KEY} characters`
+end
+
+local function ExpectPlayers(self: DataStore, What: string)
+	assert(self.Live.Keys == "Player", `{What} is for player stores, '{self.Live.Options.Name}' uses string keys`)
 end
 
 local function Vet(Options: Config)
-	assert(type(Options) == "table", "Configure takes an options table")
+	assert(type(Options) == "table", "New takes an options table")
 	assert(
-		type(Options.Name) == "string" and #Options.Name > 0 and #Options.Name <= 50,
-		"Configure needs Name, a datastore name of 1 to 50 characters"
+		type(Options.Name) == "string" and #Options.Name > 0 and #Options.Name <= 47,
+		"New needs Name, a datastore name of 1 to 47 characters (the transaction store appends _Tx)"
 	)
-	assert(type(Options.Reducer) == "function", "Configure needs Reducer, a (State, Op) -> State? function")
-	assert(type(Options.Default) == "table", "Configure needs Default, the fresh profile table")
+	assert(type(Options.Reducer) == "function", "New needs Reducer, a (State, Op) -> State? function")
+	assert(type(Options.Default) == "table", "New needs Default, the fresh state table")
+	assert(
+		Options.Keys == nil or Options.Keys == "Player" or Options.Keys == "String",
+		`Keys must be "Player" or "String"`
+	)
 
 	for Key in Options.Default do
 		assert(
@@ -156,29 +189,12 @@ local function Vet(Options: Config)
 	end
 end
 
-function DataStore.Configure(self: DataStore, Options: Config)
-	Vet(Options)
-
-	local Base = Options.Reducer
-	if Options.Balance then
-		Base = Transfer.Wrap(Base, Options.Balance)
-	end
-
-	self.Live = {
-		Options = Options,
-		Reducer = WrapSystem(Base),
-		Wrapper = DataStoreWrapper.New(Options.Name),
-		TxWrapper = DataStoreWrapper.New(Options.Name .. "_Tx"),
-		Initial = MakeInitial(Options.Default),
-		Migrations = Options.Migrations or {},
-	}
-end
-
 function DataStore.Load(self: DataStore, Player: Player)
-	local Live = ExpectLive(self, "Load")
-
+	ExpectPlayers(self, "Load")
+	local Live = self.Live
 	local UserId = Player.UserId
-	if Loaded[UserId] then
+
+	if Live.Loaded[UserId] then
 		warn(`Ledger: {Player.Name} already has a live session, ignoring the second Load`)
 		return
 	end
@@ -188,13 +204,19 @@ function DataStore.Load(self: DataStore, Player: Player)
 
 	if not Job:Happened() or not Active then
 		Player:Kick("Your data failed to load, please rejoin")
-		Wake(UserId, nil)
+		Wake(Live, UserId, nil)
+		return
+	end
+
+	if Live.Loaded[UserId] then
+		warn(`Ledger: {Player.Name} was loaded twice concurrently, releasing the duplicate session`)
+		Active:Release()
 		return
 	end
 
 	local LastFailed = false
 	local Ticker = SetInterval(AUTOSAVE_INTERVAL, function()
-		local Entry = Loaded[UserId]
+		local Entry = Live.Loaded[UserId]
 		if not Entry then
 			return
 		end
@@ -216,24 +238,26 @@ function DataStore.Load(self: DataStore, Player: Player)
 		end
 	end)
 
-	Loaded[UserId] = { Active = Active, Ticker = Ticker }
-	Wake(UserId, Active)
+	Live.Loaded[UserId] = { Active = Active, Ticker = Ticker }
+	Wake(Live, UserId, Active)
 
 	local Held = Active:Get()._Held
 	if type(Held) == "table" and next(Held) then
-		task.spawn(Transfer.Recover, Live.Wrapper, UserId, Held)
+		task.spawn(Transfer.Recover, Live.Wrapper, Live.Reducer, Live.Initial, Live.Migrations, UserId, Held)
 	end
 end
 
 function DataStore.Unload(self: DataStore, Player: Player)
+	ExpectPlayers(self, "Unload")
+	local Live = self.Live
 	local UserId = Player.UserId
-	local Entry = Loaded[UserId]
+	local Entry = Live.Loaded[UserId]
 	if not Entry then
-		Wake(UserId, nil)
+		Wake(Live, UserId, nil)
 		return
 	end
 
-	Loaded[UserId] = nil
+	Live.Loaded[UserId] = nil
 	task.cancel(Entry.Ticker)
 
 	local Job = Save(Entry.Active, UserId)
@@ -241,45 +265,24 @@ function DataStore.Unload(self: DataStore, Player: Player)
 	InFlight[Job] = nil
 end
 
-function DataStore.CloseAll(self: DataStore)
-	local Live = self.Live
-	if Live then
-		Live.Wrapper:SkipAllQueuesToLastEnqueued()
-		Live.Wrapper.Attempts = SHUTDOWN_ATTEMPTS
-	end
-
-	for UserId, Entry in Loaded do
-		Loaded[UserId] = nil
-		task.cancel(Entry.Ticker)
-		Save(Entry.Active, UserId)
-	end
-
-	local Jobs: { Future<()> } = {}
-	for Job in InFlight do
-		table.insert(Jobs, Job)
-	end
-	for _, Job in Jobs do
-		Job:Wait()
-		InFlight[Job] = nil
-	end
-end
-
 function DataStore.Get(self: DataStore, Player: Player): Session<any>?
-	local Entry = Loaded[Player.UserId]
+	local Entry = self.Live.Loaded[Player.UserId]
 	return if Entry then Entry.Active else nil
 end
 
 function DataStore.Expect(self: DataStore, Player: Player): Session<any>
-	local Entry = Loaded[Player.UserId]
+	local Entry = self.Live.Loaded[Player.UserId]
 	return assert(Entry and Entry.Active, `data for {Player.Name} is not loaded`)
 end
 
 function DataStore.IsLoaded(self: DataStore, Player: Player): boolean
-	return Loaded[Player.UserId] ~= nil
+	return self.Live.Loaded[Player.UserId] ~= nil
 end
 
 function DataStore.WaitForLoaded(self: DataStore, Player: Player): Session<any>?
-	local Entry = Loaded[Player.UserId]
+	ExpectPlayers(self, "WaitForLoaded")
+	local Live = self.Live
+	local Entry = Live.Loaded[Player.UserId]
 	if Entry then
 		return Entry.Active
 	end
@@ -287,41 +290,43 @@ function DataStore.WaitForLoaded(self: DataStore, Player: Player): Session<any>?
 		return nil
 	end
 
-	local List = Waiters[Player.UserId]
+	local List = Live.Waiters[Player.UserId]
 	if not List then
 		List = {}
-		Waiters[Player.UserId] = List
+		Live.Waiters[Player.UserId] = List
 	end
 	table.insert(List, coroutine.running())
 	return coroutine.yield()
 end
 
 function DataStore.Read(self: DataStore, Player: Player): any
-	local Entry = Loaded[Player.UserId]
+	local Entry = self.Live.Loaded[Player.UserId]
 	return if Entry then Entry.Active:Get() else nil
 end
 
-function DataStore.Peek(self: DataStore, UserId: number): Future<any>
-	local Live = ExpectLive(self, "Peek")
-	if not ValidId(UserId) then
-		return Future.Errored(`Peek needs a positive integer UserId, got {typeof(UserId)}`)
+function DataStore.Peek(self: DataStore, Key: KeyLike): Future<any>
+	local Live = self.Live
+	local Resolved = KeyFor(self, Key)
+	if not Resolved then
+		return Future.Errored(`Peek needs {KeyIssue(self)}, got {typeof(Key)}`)
 	end
 
 	return Future.New(function(): any
-		local Record = Log.Read(Live.Wrapper, tostring(UserId))
+		local Record = Log.Read(Live.Wrapper, Resolved)
 		return Log.FoldRecord(Record, Live.Initial, Live.Reducer, Live.Migrations)
 	end)
 end
 
-function DataStore.History(self: DataStore, UserId: number, Limit: number?): Future<{ Types.HistoryEntry }>
-	local Live = ExpectLive(self, "History")
-	if not ValidId(UserId) then
-		return Future.Errored(`History needs a positive integer UserId, got {typeof(UserId)}`)
+function DataStore.History(self: DataStore, Key: KeyLike, Limit: number?): Future<{ Types.HistoryEntry }>
+	local Live = self.Live
+	local Resolved = KeyFor(self, Key)
+	if not Resolved then
+		return Future.Errored(`History needs {KeyIssue(self)}, got {typeof(Key)}`)
 	end
 
 	return Future.New(function(): { Types.HistoryEntry }
 		local Ok, Pages = Live.Wrapper:ListVersionsAsync(
-			tostring(UserId),
+			Resolved,
 			Enum.SortDirection.Descending,
 			nil,
 			nil,
@@ -343,23 +348,24 @@ function DataStore.History(self: DataStore, UserId: number, Limit: number?): Fut
 	end)
 end
 
-function DataStore.PeekVersion(self: DataStore, UserId: number, Version: string): Future<any>
-	local Live = ExpectLive(self, "PeekVersion")
-	if not ValidId(UserId) or type(Version) ~= "string" or #Version == 0 then
-		return Future.Errored("PeekVersion needs a positive integer UserId and a Version string from History")
+function DataStore.PeekVersion(self: DataStore, Key: KeyLike, Version: string): Future<any>
+	local Live = self.Live
+	local Resolved = KeyFor(self, Key)
+	if not Resolved or type(Version) ~= "string" or #Version == 0 then
+		return Future.Errored(`PeekVersion needs {KeyIssue(self)} and a Version string from History`)
 	end
 
 	return Future.New(function(): any
-		local Record = Log.ReadVersion(Live.Wrapper, tostring(UserId), Version)
+		local Record = Log.ReadVersion(Live.Wrapper, Resolved, Version)
 		return Log.FoldRecord(Record, Live.Initial, Live.Reducer, Live.Migrations)
 	end)
 end
 
-function DataStore.Edit(self: DataStore, UserId: number, Kind: string, Fields: { [any]: any }?): Future<()>
-	local Live = ExpectLive(self, "Edit")
-
-	if not ValidId(UserId) then
-		warn(`Ledger: rejected edit '{tostring(Kind)}', it needs a positive integer UserId, got {typeof(UserId)}`)
+function DataStore.Edit(self: DataStore, Key: KeyLike, Kind: string, Fields: { [any]: any }?): Future<()>
+	local Live = self.Live
+	local Resolved = KeyFor(self, Key)
+	if not Resolved then
+		warn(`Ledger: rejected edit '{tostring(Kind)}', it needs {KeyIssue(self)}, got {typeof(Key)}`)
 		return Future.Completed()
 	end
 
@@ -371,34 +377,34 @@ function DataStore.Edit(self: DataStore, UserId: number, Kind: string, Fields: {
 	end
 
 	return Future.New(function()
-		local Record = Log.Append(Live.Wrapper, tostring(UserId), { Op })
-		if #Record.Ops >= COMPACT_THRESHOLD then
-			Log.Compact(Live.Wrapper, tostring(UserId), Live.Reducer, Live.Initial, Live.Migrations)
+		local Record = Log.Append(Live.Wrapper, Resolved, { Op })
+		if #Record.Ops >= COMPACT_THRESHOLD or (#Record.Ops % 16 == 0 and Measure(Record) >= COMPACT_BYTES) then
+			Log.Compact(Live.Wrapper, Resolved, Live.Reducer, Live.Initial, Live.Migrations)
 		end
 	end)
 end
 
-function DataStore.Transfer(self: DataStore, FromUserId: number, ToUserId: number, Amount: number): Future<boolean>
-	local Live = ExpectLive(self, "Transfer")
+function DataStore.Transfer(self: DataStore, From: KeyLike, To: KeyLike, Amount: number): Future<boolean>
+	local Live = self.Live
 
 	if not Live.Options.Balance then
-		warn("Ledger: Transfer needs Configure to name the balance field, like Balance = \"Gold\"")
+		warn("Ledger: Transfer needs the store to name a Balance field, like Balance = \"Gold\"")
 		return Future.Completed(false)
 	end
 
-	if not ValidId(FromUserId) or not ValidId(ToUserId) or FromUserId == ToUserId then
-		warn("Ledger: Transfer needs two different positive integer UserIds")
+	local FromKey = KeyFor(self, From)
+	local ToKey = KeyFor(self, To)
+	if not FromKey or not ToKey or FromKey == ToKey then
+		warn(`Ledger: Transfer needs two different keys, each {KeyIssue(self)}`)
 		return Future.Completed(false)
 	end
 
 	return Future.New(function(): boolean
-		return Transfer.Drive(Live.Wrapper, Live.Reducer, Live.Initial, FromUserId, ToUserId, Amount, Live.Migrations)
+		return Transfer.Drive(Live.Wrapper, Live.Reducer, Live.Initial, From, To, Amount, Live.Migrations)
 	end)
 end
 
 function DataStore.Tx(self: DataStore, Legs: { Types.TxLeg }): Future<boolean>
-	local Live = ExpectLive(self, "Tx")
-
 	if type(Legs) ~= "table" then
 		warn("Ledger: Tx takes an array of legs")
 		return Future.Completed(false)
@@ -406,71 +412,104 @@ function DataStore.Tx(self: DataStore, Legs: { Types.TxLeg }): Future<boolean>
 
 	local Mapped: { Tx.Leg } = table.create(#Legs) :: { Tx.Leg }
 	for Index, Leg in Legs do
-		if type(Leg) ~= "table" or not ValidId(Leg.UserId) or type(Leg.Kind) ~= "string" or #Leg.Kind == 0 then
-			warn(`Ledger: rejected transaction, leg {Index} needs a positive integer UserId and a string Kind`)
+		if type(Leg) ~= "table" then
+			warn(`Ledger: rejected transaction, leg {Index} is not a table`)
 			return Future.Completed(false)
 		end
-		Mapped[Index] = { Key = tostring(Leg.UserId), Kind = Leg.Kind, Fields = Leg.Fields }
+
+		local Target: DataStore = self
+		if Leg.Store ~= nil then
+			if getmetatable(Leg.Store :: any) ~= DataStore then
+				warn(`Ledger: rejected transaction, leg {Index} Store is not a store built by Ledger.New`)
+				return Future.Completed(false)
+			end
+			Target = Leg.Store :: any
+		end
+
+		local Raw = if Target.Live.Keys == "Player" then Leg.UserId else Leg.Key
+		local Resolved = KeyFor(Target, Raw)
+		if not Resolved or type(Leg.Kind) ~= "string" or #Leg.Kind == 0 then
+			warn(`Ledger: rejected transaction, leg {Index} needs {KeyIssue(Target)} and a string Kind`)
+			return Future.Completed(false)
+		end
+
+		Mapped[Index] = {
+			Key = Resolved,
+			Kind = Leg.Kind,
+			Fields = Leg.Fields,
+			Wrapper = Target.Live.Wrapper,
+			TxStore = Target.Live.TxWrapper,
+			Reducer = Target.Live.Reducer,
+			Initial = Target.Live.Initial,
+			Migrations = Target.Live.Migrations,
+		}
 	end
 
+	local Live = self.Live
 	return Future.New(function(): boolean
 		return Tx.Drive(Live.Wrapper, Live.TxWrapper, Live.Reducer, Live.Initial, Live.Migrations, Mapped)
 	end)
 end
 
-function DataStore.RecoverTransfers(self: DataStore, UserId: number): Future<()>
-	local Live = ExpectLive(self, "RecoverTransfers")
+function DataStore.RecoverTransfers(self: DataStore, Key: KeyLike): Future<()>
+	local Live = self.Live
 	if not Live.Options.Balance then
-		return Future.Errored("RecoverTransfers needs Configure to name the balance field, like Balance = \"Gold\"")
+		return Future.Errored("RecoverTransfers needs the store to name a Balance field, like Balance = \"Gold\"")
 	end
-	if not ValidId(UserId) then
-		return Future.Errored(`RecoverTransfers needs a positive integer UserId, got {typeof(UserId)}`)
+	local Resolved = KeyFor(self, Key)
+	if not Resolved then
+		return Future.Errored(`RecoverTransfers needs {KeyIssue(self)}, got {typeof(Key)}`)
 	end
 
 	return Future.New(function()
-		local Record = Log.Read(Live.Wrapper, tostring(UserId))
+		local Record = Log.Read(Live.Wrapper, Resolved)
 		local State = Log.FoldRecord(Record, Live.Initial, Live.Reducer, Live.Migrations)
-		Transfer.Recover(Live.Wrapper, UserId, State._Held)
+		Transfer.Recover(Live.Wrapper, Live.Reducer, Live.Initial, Live.Migrations, Resolved, State._Held)
 	end)
 end
 
-function DataStore.ClearDelivered(self: DataStore, UserId: number): Future<()>
-	local Live = ExpectLive(self, "ClearDelivered")
-	if not ValidId(UserId) then
-		return Future.Errored(`ClearDelivered needs a positive integer UserId, got {typeof(UserId)}`)
+function DataStore.ClearDelivered(self: DataStore, Key: KeyLike): Future<()>
+	local Live = self.Live
+	local Resolved = KeyFor(self, Key)
+	if not Resolved then
+		return Future.Errored(`ClearDelivered needs {KeyIssue(self)}, got {typeof(Key)}`)
 	end
 
 	return Future.New(function()
-		Transfer.Prune(Live.Wrapper, UserId)
+		Transfer.Prune(Live.Wrapper, Resolved)
 	end)
 end
 
-function DataStore.Reset(self: DataStore, UserId: number): Future<()>
-	local Live = ExpectLive(self, "Reset")
-	if not ValidId(UserId) then
-		return Future.Errored(`Reset needs a positive integer UserId, got {typeof(UserId)}`)
+function DataStore.Reset(self: DataStore, Key: KeyLike): Future<()>
+	local Live = self.Live
+	local Resolved = KeyFor(self, Key)
+	if not Resolved then
+		return Future.Errored(`Reset needs {KeyIssue(self)}, got {typeof(Key)}`)
 	end
 
 	local Op = MakeOp(RESET_KIND, { State = Live.Options.Default })
 
 	return Future.New(function()
-		Log.Append(Live.Wrapper, tostring(UserId), { Op })
+		Log.Append(Live.Wrapper, Resolved, { Op })
 	end)
 end
 
-function DataStore.Erase(self: DataStore, UserId: number): Future<()>
-	local Live = ExpectLive(self, "Erase")
-	if not ValidId(UserId) then
-		return Future.Errored(`Erase needs a positive integer UserId, got {typeof(UserId)}`)
+function DataStore.Erase(self: DataStore, Key: KeyLike): Future<()>
+	local Live = self.Live
+	local Resolved = KeyFor(self, Key)
+	if not Resolved then
+		return Future.Errored(`Erase needs {KeyIssue(self)}, got {typeof(Key)}`)
 	end
 
-	local Online: any = Players:GetPlayerByUserId(UserId :: any)
-	if Online then
-		warn(`Ledger: erasing {UserId} while they are in this server, their session will resurrect a partial record`)
+	if Live.Keys == "Player" then
+		local Online: any = Players:GetPlayerByUserId(Key :: any)
+		if Online then
+			warn(`Ledger: erasing {Resolved} while they are in this server, their session will resurrect a partial record`)
+		end
 	end
 
 	return Future.New(function()
-		local Ok, Reason = Live.Wrapper:RemoveAsync(tostring(UserId))
+		local Ok, Reason = Live.Wrapper:RemoveAsync(Resolved)
 		if not Ok then
 			error(Reason)
 		end
@@ -478,4 +517,65 @@ function DataStore.Erase(self: DataStore, UserId: number): Future<()>
 end
 
 table.freeze(DataStore)
-return setmetatable({ Live = nil :: Runtime? }, DataStore) :: DataStore
+
+local Ledger = {}
+
+function Ledger.New<D>(Options: NewOptions<D>): Store<D>
+	local Config = Options :: any
+	Vet(Config)
+	assert(
+		not Claimed[Config.Name] and not Claimed[Config.Name .. "_Tx"],
+		`a store named '{Config.Name}' already exists in this server`
+	)
+	Claimed[Config.Name] = true
+	Claimed[Config.Name .. "_Tx"] = true
+
+	local Base = Config.Reducer
+	if Config.Balance then
+		Base = Transfer.Wrap(Base, Config.Balance)
+	end
+
+	local Keys: Types.KeysMode = Config.Keys or "Player"
+	local Built: DataStore = setmetatable({
+		Live = {
+			Options = Config,
+			Reducer = WrapSystem(Base),
+			Wrapper = DataStoreWrapper.New(Config.Name),
+			TxWrapper = DataStoreWrapper.New(Config.Name .. "_Tx"),
+			Initial = MakeInitial(Config.Default),
+			Migrations = Config.Migrations or {},
+			Keys = Keys,
+			Loaded = {},
+			Waiters = {},
+		},
+	}, DataStore)
+
+	table.insert(Instances, Built)
+	return Built :: any
+end
+
+function Ledger.CloseAll()
+	for _, Built in Instances do
+		Built.Live.Wrapper:SkipAllQueuesToLastEnqueued()
+		Built.Live.Wrapper.Attempts = SHUTDOWN_ATTEMPTS
+	end
+
+	for _, Built in Instances do
+		for UserId, Entry in Built.Live.Loaded do
+			Built.Live.Loaded[UserId] = nil
+			task.cancel(Entry.Ticker)
+			Save(Entry.Active, UserId)
+		end
+	end
+
+	local Jobs: { Future<()> } = {}
+	for Job in InFlight do
+		table.insert(Jobs, Job)
+	end
+	for _, Job in Jobs do
+		Job:Wait()
+		InFlight[Job] = nil
+	end
+end
+
+return table.freeze(Ledger)

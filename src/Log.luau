@@ -2,26 +2,20 @@
 --!optimize 2
 
 --[=[
-    Log: op log persistence, read the stored record, append ops idempotently by id, or compact the ops into a fresh snapshot.
+    Log: op log persistence, read the stored record, append ops idempotently by id, or
+    compact the ops into a fresh snapshot. all through the retrying wrapper, yields and
+    throws on failure.
 
-    all through the retrying wrapper, yields and throws on failure. Rehydrate runs the
-    configured migrations on any snapshot older than the current version before the fold,
-    so a shape change replays in memory on every load until Compact stamps it durably.
-    a record NEWER than this server knows loads untouched IF every step past this
-    server's knowledge was marked Compatible (the record's Floor says the minimum a
-    reader must know), and refuses to rehydrate otherwise, so a stale server can never
-    fold or compact an incompatible future format back down; compacting a compatible
-    future record preserves its stored version and floor instead of downgrading them.
-    the record ENVELOPE (the {Snapshot, Ops, Seen, ...} wrapper itself) carries its own
-    format number, stamped on every write and refused when newer than this module knows,
-    so a future restructure of the wrapper can never be misread as an empty record.
-    ReadVersion reads a historical copy from the datastore's 30 day version history.
+    Rehydrate runs the migrations on an older snapshot before the fold. a record newer than
+    this server knows loads untouched only if every step past its knowledge was Compatible
+    (the Floor names the minimum a reader must know), and refuses otherwise, so a stale
+    server can never fold an incompatible future format down. the record envelope carries its
+    own format number too, so a future restructure is never misread as an empty record. see
+    docs/migrations.md for the rolling-deploy reasoning.
 
     Return type: frozen table { Read, ReadVersion, Append, Compact, Rehydrate, FoldRecord }
     Example usage:
-        local Log = require("./Log")
         local Record = Log.Read(Wrapper, Key)
-        Log.Append(Wrapper, Key, { Op })
         local State = Log.FoldRecord(Record, Initial, Reducer)
 --]=]
 
@@ -173,11 +167,11 @@ local function Append(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }): Reco
 	return Materialize(Value)
 end
 
-local function PendingTx(Record: Record<any>): { [string]: true }
-	local Set: { [string]: true } = {}
+local function PendingTx(Record: Record<any>): { [string]: string | true }
+	local Set: { [string]: string | true } = {}
 	for _, Op in Record.Ops do
 		if type(Op.Tx) == "string" then
-			Set[Op.Tx] = true
+			Set[Op.Tx] = if type(Op.TxHome) == "string" then Op.TxHome else true
 		end
 	end
 	return Set
@@ -217,6 +211,7 @@ local function Prepare<S>(Wrapper: DataStoreWrapper, Key: string, Op: Op, Reduce
 		local State = Fold(Rehydrate(Record, Initial, Migrations), Record.Ops, Reducer)
 		local Probe = table.clone(Op)
 		Probe.Tx = nil
+		Probe.TxHome = nil
 		local Stepped, Next = pcall(NoYield, Reducer, State, Probe :: Op)
 		if not Stepped or Next == nil then
 			Verdict = "Rejected"
@@ -251,6 +246,7 @@ local function Resolve(Wrapper: DataStoreWrapper, Key: string, Verdicts: { [stri
 				if Verdicts[Txid] then
 					local Live = table.clone(Existing)
 					Live.Tx = nil
+					Live.TxHome = nil
 					table.insert(Kept, Live)
 				else
 					table.insert(Record.Seen, Existing.Id)

@@ -11,14 +11,12 @@
 --]=]
 
 type Handler = (() -> ...any) -> (boolean, ...any)
-type Retryable = (Reason: any) -> boolean
 
 export type Options = {
 	Attempts: number?,
 	Constant: number?,
 	Exponent: number?,
 	Handler: Handler?,
-	Retryable: Retryable?,
 }
 
 local DEFAULT_ATTEMPTS = 5
@@ -30,7 +28,7 @@ local function RetryAsync(Callback: () -> ...any, Options: Options?): (boolean, 
 	local Attempts = Config.Attempts or DEFAULT_ATTEMPTS
 	local Constant = Config.Constant or DEFAULT_CONSTANT
 	local Exponent = Config.Exponent or DEFAULT_EXPONENT
-	local Handler, Retryable = Config.Handler, Config.Retryable
+	local Handler = Config.Handler
 
 	local Attempt = 0
 
@@ -48,9 +46,7 @@ local function RetryAsync(Callback: () -> ...any, Options: Options?): (boolean, 
 			warn(`RetryAsync attempt {Attempt}/{Attempts}: {Result[2]}`)
 		end
 
-		local Permanent = not Result[1] and Retryable ~= nil and not Retryable(Result[2])
-
-		if Result[1] or Attempt >= Attempts or Permanent then
+		if Result[1] or Attempt >= Attempts then
 			return table.unpack(Result, 1, Result.n)
 		end
 
