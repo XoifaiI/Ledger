@@ -217,6 +217,9 @@ local function Drive(
 	local Ops: { Op } = {}
 	for Index, Leg in Legs do
 		local Op: { [any]: any } = if Leg.Fields then TableUtil.DeepCopy(Leg.Fields) else {}
+		if Op.Id ~= nil or Op.Kind ~= nil then
+			warn(`Ledger: transaction leg '{Leg.Kind}' fields carried Id or Kind, those are reserved and were overwritten`)
+		end
 		Op.Id = `tx:{Txid}:{Index}`
 		Op.Kind = Leg.Kind
 

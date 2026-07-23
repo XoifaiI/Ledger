@@ -245,4 +245,19 @@ function Suite.BacklogByteBudget()
 	Expect(Accepted).ToBeLessThan(40)
 end
 
+function Suite.CommitOpForgedRefused()
+	local K = Key("forgeop")
+	Log.Append(W(), K, { MakeOp("Add", { Amount = 100 }) })
+	local S = Session.Load(W(), K, TR, INIT):Wait()
+
+	local SystemForge = S:CommitOp({ Id = "forge1", Kind = "__TransferDeliver", Tid = "x", Amount = 1000000 } :: any):Wait()
+	local TxForge = S:CommitOp({ Id = "forge2", Kind = "Add", Amount = 5, Tx = "hax" } :: any):Wait()
+	S:Flush():Wait()
+
+	Expect(SystemForge).ToBe(false)
+	Expect(TxForge).ToBe(false)
+	Expect(#Log.Read(W(), K).Ops).ToBe(1)
+	Expect(FoldRecord(K).Gold).ToBe(100)
+end
+
 return table.freeze(Suite)

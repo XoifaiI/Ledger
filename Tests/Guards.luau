@@ -18,7 +18,9 @@
 --]=]
 
 local Fold = require("../src/Fold")
+local Log = require("../src/Log")
 local Session = require("../src/Session")
+local DataStoreWrapper = require("../src/Util/DataStoreWrapper")
 local Harness = require("./Harness")
 local Testing = require("./Testing")
 
@@ -210,9 +212,9 @@ function Suite.GuardBadUserIds()
 	PeekFuture:Wait()
 	local PeekRefused = not PeekFuture:Happened()
 
-	local EditOk = pcall(function()
-		Store:Edit(nil, "K"):Wait()
-	end)
+	local EditFuture = Store:Edit(nil, "K")
+	EditFuture:Wait()
+	local EditRefused = not EditFuture:Happened()
 
 	local TransferSelf = Store:Transfer(5, 5, 10):Wait()
 	local TransferJunk = Store:Transfer(0.5, 2, 10):Wait()
@@ -224,7 +226,7 @@ function Suite.GuardBadUserIds()
 	local ResetRefused = not ResetFuture:Happened()
 
 	Expect(PeekRefused).ToBe(true)
-	Expect(EditOk).ToBe(true)
+	Expect(EditRefused).ToBe(true)
 	Expect(TransferSelf).ToBe(false)
 	Expect(TransferJunk).ToBe(false)
 	Expect(TxJunk).ToBe(false)
@@ -242,6 +244,62 @@ function Suite.GuardNoBalance()
 
 	Expect(TransferOk).ToBe(false)
 	Expect(RecoverRefused).ToBe(true)
+end
+
+function Suite.GuardEntityLifecycle()
+	local Store = Ledger.New({
+		Name = "GuardsLife_" .. Harness.Uid(),
+		Keys = "String",
+		Reducer = Keep,
+		Default = { Gold = 0 },
+	})
+	local Dummy: any = nil
+
+	local GetRefused = not pcall(function() Store:Get(Dummy) end)
+	local ExpectRefused = not pcall(function() Store:Expect(Dummy) end)
+	local IsLoadedRefused = not pcall(function() Store:IsLoaded(Dummy) end)
+	local ReadRefused = not pcall(function() Store:Read(Dummy) end)
+	local WaitRefused = not pcall(function() Store:WaitForLoaded(Dummy) end)
+
+	Expect(GetRefused).ToBe(true)
+	Expect(ExpectRefused).ToBe(true)
+	Expect(IsLoadedRefused).ToBe(true)
+	Expect(ReadRefused).ToBe(true)
+	Expect(WaitRefused).ToBe(true)
+end
+
+function Suite.GuardEditUnstorable()
+	local Store = EnsureStore()
+	local Uid = Harness.Uid()
+
+	local Bad = Store:Edit(Uid, "K", { Fn = Keep })
+	Bad:Wait()
+	local BadRefused = not Bad:Happened()
+
+	local Good = Store:Edit(Uid, "Add", { Amount = 1 })
+	Good:Wait()
+	local GoodHappened = Good:Happened()
+
+	Expect(BadRefused).ToBe(true)
+	Expect(GoodHappened).ToBe(true)
+end
+
+function Suite.GuardResetReconciles()
+	local Name = "GuardsReset_" .. Harness.Uid()
+	local Store = Ledger.New({
+		Name = Name,
+		Keys = "String",
+		Reducer = Keep,
+		Default = { Gold = 100, Extra = "keep" },
+	})
+
+	local Raw = DataStoreWrapper.New(Name)
+	Log.Append(Raw, "k1", { { Id = "reset1", Kind = "__Reset", State = { Gold = 5 } } :: any })
+
+	local State = Store:Peek("k1"):Wait()
+
+	Expect(State.Gold).ToBe(5)
+	Expect(State.Extra).ToBe("keep")
 end
 
 return table.freeze(Suite)

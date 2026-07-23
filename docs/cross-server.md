@@ -59,10 +59,13 @@ unspendable. Without `Balance` named, `Transfer` warns and returns false.
 
 A crash mid-transfer resolves itself. On the sender's next load, or when an operator calls
 `RecoverTransfers(UserId)`, any stranded hold is finished: a recent one re-drives to the
-receiver, and one older than a week is settled if the delivery landed or refunded to the
-sender if it did not. Refunding is safe because nothing ever delivers that late, so the
-receiver's record is the whole truth by then. You never have to reconcile a stuck transfer by
-hand.
+receiver, and one past a week is settled if the delivery landed or refunded to the sender if
+it did not. Delivery ids are remembered for thirty days, so inside that window the receiver's
+record is authoritative and a refund is safe. Past it the record may have pruned the id, so a
+hold with no matching delivery is settled rather than refunded, because a wrong refund would
+mint; it warns so you can compensate from the audit log if the transfer never actually
+delivered. That only arises when a sender is gone for over a month after a crash in the settle
+step. You never have to reconcile a stuck transfer by hand.
 
 For swaps involving items, or anything beyond one balance, use
 [transactions](transactions.md) instead.

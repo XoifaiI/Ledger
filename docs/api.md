@@ -57,7 +57,9 @@ These work on any key, online or not, in this server or none. On a player store 
 UserId; on an entity store it is a string.
 
 - `Store:Peek(Key) -> Future<State>` is a read-only fold, for display.
-- `Store:Edit(Key, Kind, Fields?) -> Future<()>` appends one op to a key's log.
+- `Store:Edit(Key, Kind, Fields?) -> Future<()>` appends one op to a key's log. A junk key or
+  unstorable fields settle the future as failed; a non-string `Kind` throws at the call site,
+  because a kind is code, not data.
 - `Store:Transfer(From, To, Amount) -> Future<boolean>` moves the `Balance` field between two
   keys.
 - `Store:Tx(Legs) -> Future<boolean>` runs an atomic multi-key transaction.

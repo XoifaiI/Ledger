@@ -72,6 +72,9 @@ end
 
 local function ApplyPending<S>(self: Session<S>, State: S, Applied: { [string]: boolean }): S
 	for _, Op in self.Pending do
+		if Applied[Op.Id] then
+			continue
+		end
 		Applied[Op.Id] = true
 		local Next = Step(self.Reducer, State, Op)
 		if Next ~= nil then
@@ -210,6 +213,17 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 end
 
 function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean>
+	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
+		warn("Ledger: rejected commit, an op needs a string Id and a string Kind")
+		return Future.Completed(false)
+	end
+
+	local Storable, Reason = IsStorable.Op(Op)
+	if not Storable then
+		warn(`Ledger: rejected commit '{Op.Kind}', {Reason}`)
+		return Future.Completed(false)
+	end
+
 	local Admitted = Admit(self, Op)
 	if not Admitted then
 		return Future.Completed(false)
@@ -237,15 +251,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean>
 end
 
 function Session.Commit<S>(self: Session<S>, Kind: string, Fields: { [any]: any }?): Future<boolean>
-	local Op = MakeOp(Kind, Fields)
-
-	local Storable, Reason = IsStorable.Op(Op)
-	if not Storable then
-		warn(`Ledger: rejected commit '{Kind}', {Reason}`)
-		return Future.Completed(false)
-	end
-
-	return Session.CommitOp(self, Op)
+	return Session.CommitOp(self, MakeOp(Kind, Fields))
 end
 
 function Session.Flush<S>(self: Session<S>): Future<()>
@@ -313,6 +319,8 @@ local function Load<S>(
 		return Active
 	end)
 end
+
+table.freeze(Session)
 
 return table.freeze({
 	Load = Load,

@@ -1,12 +1,22 @@
 {
 	"name": "LedgerDev",
 	"tree": {
-		"$className": "Folder",
-		"src": {
-			"$path": "src"
+		"$className": "DataModel",
+		"ServerStorage": {
+			"LedgerDev": {
+				"$className": "Folder",
+				"src": {
+					"$path": "src"
+				},
+				"Tests": {
+					"$path": "Tests"
+				}
+			}
 		},
-		"Tests": {
-			"$path": "Tests"
+		"ServerScriptService": {
+			"RunLedgerTests": {
+				"$path": "RunTests.server.luau"
+			}
 		}
 	}
 }

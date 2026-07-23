@@ -87,7 +87,7 @@ The full method list lives in the [API reference](docs/api.md).
 
 ```toml
 [server-dependencies]
-Ledger = "xoifaii/ledger@2.0.0"
+Ledger = "xoifaii/ledger@2.0.1"
 ```
 
 **Rojo**: clone the repo and add `src` to your project as `ServerStorage/Ledger` (the folder

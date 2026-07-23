@@ -50,9 +50,17 @@ local function Materialize(Value: any): Record<any>
 	local Ops: { Op } = {}
 	if type(Value.Ops) == "table" then
 		for _, Op in Value.Ops do
-			if type(Op) == "table" and type(Op.Id) == "string" then
-				table.insert(Ops, Op :: Op)
+			if type(Op) ~= "table" or type(Op.Id) ~= "string" then
+				continue
 			end
+			local Loose = Op :: any
+			if type(Loose.Kind) ~= "string" then
+				continue
+			end
+			if Loose.Tx ~= nil and type(Loose.Tx) ~= "string" then
+				continue
+			end
+			table.insert(Ops, Op :: Op)
 		end
 	end
 	Value.Ops = Ops
@@ -67,6 +75,9 @@ local function Materialize(Value: any): Record<any>
 	end
 	Value.Seen = Seen
 
+	if Value.Snapshot ~= nil and type(Value.Snapshot) ~= "table" then
+		Value.Snapshot = nil
+	end
 	if type(Value.Version) ~= "number" then
 		Value.Version = nil
 	end
@@ -139,7 +150,8 @@ local function ReadVersion(Wrapper: DataStoreWrapper, Key: string, Version: stri
 end
 
 local function Append(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }): Record<any>
-	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any)
+	local Unchanged: Record<any>? = nil
+	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any): Record<any>?
 		local Record = Materialize(Current)
 
 		local Present: { [string]: boolean } = {}
@@ -150,11 +162,18 @@ local function Append(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }): Reco
 			Present[Id] = true
 		end
 
+		local Added = false
 		for _, Op in Ops do
 			if not Present[Op.Id] then
 				Present[Op.Id] = true
 				table.insert(Record.Ops, Op)
+				Added = true
 			end
+		end
+
+		if not Added then
+			Unchanged = Record
+			return nil
 		end
 
 		Record.Envelope = ENVELOPE
@@ -163,6 +182,9 @@ local function Append(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }): Reco
 
 	if not Ok then
 		error(Value)
+	end
+	if Value == nil then
+		return Unchanged :: Record<any>
 	end
 	return Materialize(Value)
 end
@@ -188,7 +210,7 @@ end
 
 local function Prepare<S>(Wrapper: DataStoreWrapper, Key: string, Op: Op, Reducer: Reducer<S>, Initial: S, Migrations: { Migration }?): string
 	local Verdict = "Rejected"
-	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any)
+	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any): Record<any>?
 		local Record = Materialize(Current)
 
 		for _, Existing in Record.Ops do
@@ -213,7 +235,7 @@ local function Prepare<S>(Wrapper: DataStoreWrapper, Key: string, Op: Op, Reduce
 		Probe.Tx = nil
 		Probe.TxHome = nil
 		local Stepped, Next = pcall(NoYield, Reducer, State, Probe :: Op)
-		if not Stepped or Next == nil then
+		if not Stepped or type(Next) ~= "table" then
 			Verdict = "Rejected"
 			return nil
 		end
@@ -232,7 +254,8 @@ end
 
 local function Resolve(Wrapper: DataStoreWrapper, Key: string, Verdicts: { [string]: boolean }): (Record<any>, { [string]: number })
 	local Counts: { [string]: number } = {}
-	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any)
+	local Unchanged: Record<any>? = nil
+	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any): Record<any>?
 		table.clear(Counts)
 		local Record = Materialize(Current)
 
@@ -257,6 +280,7 @@ local function Resolve(Wrapper: DataStoreWrapper, Key: string, Verdicts: { [stri
 		end
 
 		if not Changed then
+			Unchanged = Record
 			return nil
 		end
 		Record.Ops = Kept
@@ -268,7 +292,7 @@ local function Resolve(Wrapper: DataStoreWrapper, Key: string, Verdicts: { [stri
 		error(Value)
 	end
 	if Value == nil then
-		return Read(Wrapper, Key), Counts
+		return Unchanged :: Record<any>, Counts
 	end
 	return Materialize(Value), Counts
 end
@@ -292,10 +316,12 @@ end
 local function Compact<S>(Wrapper: DataStoreWrapper, Key: string, Reducer: Reducer<S>, Initial: S, Migrations: { Migration }?): Record<any>
 	local Steps = Migrations or {}
 	local KnownFloor = FloorOf(Steps)
-	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any)
+	local Skipped: Record<any>? = nil
+	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any): Record<any>?
 		local Record = Materialize(Current)
 		if HasPending(Record) then
-			return Record
+			Skipped = Record
+			return nil
 		end
 		local Base = Rehydrate(Record, Initial, Steps)
 
@@ -324,6 +350,9 @@ local function Compact<S>(Wrapper: DataStoreWrapper, Key: string, Reducer: Reduc
 
 	if not Ok then
 		error(Value)
+	end
+	if Value == nil then
+		return Skipped :: Record<any>
 	end
 
 	local Record = Materialize(Value)

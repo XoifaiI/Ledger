@@ -52,7 +52,9 @@ live session elsewhere will push its pending ops and partially resurrect the rec
   through `Commit` was durable first.
 - A crashed transfer finishes itself from the sender's held state on their next load, or via
   `RecoverTransfers(UserId)`: a recent hold re-drives to the receiver, an old one settles if
-  the delivery landed or refunds the sender if it did not.
+  the delivery landed or refunds the sender if it did not. Delivery ids are kept for thirty
+  days, so a hold recovered later than that is settled rather than refunded, because the record
+  may have pruned the id and a wrong refund would mint; it warns for compensation.
 - A crashed transaction resolves within about a minute, aborted or completed by whichever
   server touches it next. See [transactions](transactions.md).
 - A record written by a newer format refuses to load on older servers rather than being

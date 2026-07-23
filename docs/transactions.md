@@ -53,7 +53,11 @@ runs into a pending leg resolves it from the marker, and whoever finds a marker 
 `Pending` after 60 seconds aborts it. A crashed coordinator can never wedge a key for longer
 than that. A cleanup counter deletes the marker once every leg has folded its outcome, and a
 coordinator that decides to abort shrinks that counter to the legs it actually wrote, so a
-failed transaction cleans up its own marker instead of leaving a husk behind.
+failed transaction cleans up its own marker instead of leaving a husk behind. The counter
+only ever undercounts: if a leg resolves but its acknowledgement is lost, the marker outlives
+its legs as an inert husk rather than risk over-counting, which could delete a live marker and
+split a transaction. A husk is never read again, since its legs are gone and its id is unique,
+so it costs a stranded key and nothing more.
 
 A coordinator that cannot record its verdict, because the marker store is down for the whole
 retry budget, does not guess. It leaves the legs pending and returns false. They settle later

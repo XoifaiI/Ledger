@@ -134,6 +134,7 @@ export type Runtime = {
 	Keys: KeysMode,
 	Loaded: { [number]: LoadedEntry },
 	Waiters: { [number]: { thread } },
+	Leaving: { [number]: boolean },
 }
 
 export type DataStoreImpl = {

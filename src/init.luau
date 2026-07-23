@@ -31,6 +31,7 @@ local DataStoreWrapper = require("@self/Util/DataStoreWrapper")
 local Log = require("@self/Log")
 local MakeOp = require("@self/MakeOp")
 local Measure = require("@self/Measure")
+local Reconcile = require("@self/Reconcile")
 local IsStorable = require("@self/Storable")
 local Session = require("@self/Session")
 local Transfer = require("@self/Transfer")
@@ -78,7 +79,7 @@ local function MakeInitial(Default: any): any
 	return TableUtil.DeepFreeze(TableUtil.DeepCopy(Default))
 end
 
-local function WrapSystem(GameReducer: Types.Reducer<any>): Types.Reducer<any>
+local function WrapSystem(GameReducer: Types.Reducer<any>, Initial: any): Types.Reducer<any>
 	local function Combined(State: any, Op: Op): any?
 		if Op.Kind ~= RESET_KIND then
 			return GameReducer(State, Op)
@@ -89,7 +90,7 @@ local function WrapSystem(GameReducer: Types.Reducer<any>): Types.Reducer<any>
 			return nil
 		end
 
-		local Next = TableUtil.DeepCopy(Snapshot)
+		local Next = Reconcile(Initial, TableUtil.DeepCopy(Snapshot))
 		Next._Received = State._Received
 		Next._Held = State._Held
 		return Next
@@ -198,6 +199,7 @@ function DataStore.Load(self: DataStore, Player: Player)
 		warn(`Ledger: {Player.Name} already has a live session, ignoring the second Load`)
 		return
 	end
+	Live.Leaving[UserId] = nil
 
 	local Job = Session.Load(Live.Wrapper, tostring(UserId), Live.Reducer, Live.Initial, Live.Migrations, Live.TxWrapper)
 	local Active = Job:Wait()
@@ -211,6 +213,13 @@ function DataStore.Load(self: DataStore, Player: Player)
 	if Live.Loaded[UserId] then
 		warn(`Ledger: {Player.Name} was loaded twice concurrently, releasing the duplicate session`)
 		Active:Release()
+		return
+	end
+
+	if Live.Leaving[UserId] or not Player.Parent then
+		Live.Leaving[UserId] = nil
+		Active:Release()
+		Wake(Live, UserId, nil)
 		return
 	end
 
@@ -253,6 +262,7 @@ function DataStore.Unload(self: DataStore, Player: Player)
 	local UserId = Player.UserId
 	local Entry = Live.Loaded[UserId]
 	if not Entry then
+		Live.Leaving[UserId] = true
 		Wake(Live, UserId, nil)
 		return
 	end
@@ -266,16 +276,19 @@ function DataStore.Unload(self: DataStore, Player: Player)
 end
 
 function DataStore.Get(self: DataStore, Player: Player): Session<any>?
+	ExpectPlayers(self, "Get")
 	local Entry = self.Live.Loaded[Player.UserId]
 	return if Entry then Entry.Active else nil
 end
 
 function DataStore.Expect(self: DataStore, Player: Player): Session<any>
+	ExpectPlayers(self, "Expect")
 	local Entry = self.Live.Loaded[Player.UserId]
 	return assert(Entry and Entry.Active, `data for {Player.Name} is not loaded`)
 end
 
 function DataStore.IsLoaded(self: DataStore, Player: Player): boolean
+	ExpectPlayers(self, "IsLoaded")
 	return self.Live.Loaded[Player.UserId] ~= nil
 end
 
@@ -300,6 +313,7 @@ function DataStore.WaitForLoaded(self: DataStore, Player: Player): Session<any>?
 end
 
 function DataStore.Read(self: DataStore, Player: Player): any
+	ExpectPlayers(self, "Read")
 	local Entry = self.Live.Loaded[Player.UserId]
 	return if Entry then Entry.Active:Get() else nil
 end
@@ -365,20 +379,18 @@ function DataStore.Edit(self: DataStore, Key: KeyLike, Kind: string, Fields: { [
 	local Live = self.Live
 	local Resolved = KeyFor(self, Key)
 	if not Resolved then
-		warn(`Ledger: rejected edit '{tostring(Kind)}', it needs {KeyIssue(self)}, got {typeof(Key)}`)
-		return Future.Completed()
+		return Future.Errored(`Edit needs {KeyIssue(self)}, got {typeof(Key)}`)
 	end
 
 	local Op = MakeOp(Kind, Fields)
 	local Storable, Reason = IsStorable.Op(Op)
 	if not Storable then
-		warn(`Ledger: rejected edit '{Kind}', {Reason}`)
-		return Future.Completed()
+		return Future.Errored(`Edit rejected op '{Kind}', {Reason}`)
 	end
 
 	return Future.New(function()
 		local Record = Log.Append(Live.Wrapper, Resolved, { Op })
-		if #Record.Ops >= COMPACT_THRESHOLD or (#Record.Ops % 16 == 0 and Measure(Record) >= COMPACT_BYTES) then
+		if #Record.Ops >= COMPACT_THRESHOLD or (#Record.Ops > 0 and #Record.Ops % 16 == 0 and Measure(Record) >= COMPACT_BYTES) then
 			Log.Compact(Live.Wrapper, Resolved, Live.Reducer, Live.Initial, Live.Migrations)
 		end
 	end)
@@ -400,7 +412,7 @@ function DataStore.Transfer(self: DataStore, From: KeyLike, To: KeyLike, Amount:
 	end
 
 	return Future.New(function(): boolean
-		return Transfer.Drive(Live.Wrapper, Live.Reducer, Live.Initial, From, To, Amount, Live.Migrations)
+		return Transfer.Drive(Live.Wrapper, Live.Reducer, Live.Initial, FromKey, ToKey, Amount, Live.Migrations)
 	end)
 end
 
@@ -536,17 +548,19 @@ function Ledger.New<D>(Options: NewOptions<D>): Store<D>
 	end
 
 	local Keys: Types.KeysMode = Config.Keys or "Player"
+	local Initial = MakeInitial(Config.Default)
 	local Built: DataStore = setmetatable({
 		Live = {
 			Options = Config,
-			Reducer = WrapSystem(Base),
+			Reducer = WrapSystem(Base, Initial),
 			Wrapper = DataStoreWrapper.New(Config.Name),
 			TxWrapper = DataStoreWrapper.New(Config.Name .. "_Tx"),
-			Initial = MakeInitial(Config.Default),
+			Initial = Initial,
 			Migrations = Config.Migrations or {},
 			Keys = Keys,
 			Loaded = {},
 			Waiters = {},
+			Leaving = {},
 		},
 	}, DataStore)
 
@@ -558,6 +572,8 @@ function Ledger.CloseAll()
 	for _, Built in Instances do
 		Built.Live.Wrapper:SkipAllQueuesToLastEnqueued()
 		Built.Live.Wrapper.Attempts = SHUTDOWN_ATTEMPTS
+		Built.Live.TxWrapper:SkipAllQueuesToLastEnqueued()
+		Built.Live.TxWrapper.Attempts = SHUTDOWN_ATTEMPTS
 	end
 
 	for _, Built in Instances do

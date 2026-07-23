@@ -56,7 +56,7 @@ local function Wrap<S>(GameReducer: Reducer<S>, Field: string): Reducer<S>
 			local Held = table.clone((Data._Held or {}) :: { [any]: any })
 			Held[Op.Tid] = { To = Op.To, Amount = Op.Amount, At = Op.At }
 			local Next = table.clone(Data)
-			Next[Field] = Data[Field] - Op.Amount
+			Next[Field] = (Data[Field] or 0) - Op.Amount
 			Next._Held = if next(Held) == nil then nil else Held
 			return Next :: any
 		elseif Kind == DELIVER then
@@ -172,16 +172,23 @@ local function Drive(Store: DataStoreWrapper, Reducer: Reducer<any>, Initial: an
 	return true
 end
 
-local function Expire<S>(Store: DataStoreWrapper, Reducer: Reducer<S>, Initial: S, Migrations: { Types.Migration }?, From: number | string, Tid: string, Entry: any)
+local function Expire<S>(Store: DataStoreWrapper, Reducer: Reducer<S>, Initial: S, Migrations: { Types.Migration }?, From: number | string, Tid: string, Entry: any, Age: number?)
 	local Record = Log.Read(Store, tostring(Entry.To))
 	local State: any = Log.FoldRecord(Record, Initial, Reducer, Migrations)
 	local Received = State._Received
 	if type(Received) == "table" and Received[Tid] then
 		Settle(Store, From, Tid)
-	else
+		return
+	end
+
+	if Age ~= nil and Age <= PRUNE_HORIZON then
 		local ExpireOp: Op = { Id = `{EXPIRE_ID}:{Tid}`, Kind = EXPIRE, Tid = Tid }
 		Log.Append(Store, tostring(From), { ExpireOp })
+		return
 	end
+
+	warn(`Ledger: transfer {Tid} from {From} is past the {PRUNE_HORIZON // 86400} day recovery horizon with no delivery on record, settling the hold to avoid a mint. compensate {Entry.Amount} from the audit log if it never delivered`)
+	Settle(Store, From, Tid)
 end
 
 local function Recover<S>(Store: DataStoreWrapper, Reducer: Reducer<S>, Initial: S, Migrations: { Types.Migration }?, From: number | string, Held: any)
@@ -197,7 +204,7 @@ local function Recover<S>(Store: DataStoreWrapper, Reducer: Reducer<S>, Initial:
 		if Age and Age <= REDRIVE_HORIZON then
 			pcall(Post, Store, From, Tid, Entry.To, Entry.Amount)
 		elseif Age == nil or Age > REDRIVE_HORIZON + EXPIRE_MARGIN then
-			pcall(Expire, Store, Reducer, Initial, Migrations, From, Tid, Entry)
+			pcall(Expire, Store, Reducer, Initial, Migrations, From, Tid, Entry, Age)
 		end
 	end
 end

@@ -213,4 +213,55 @@ function Suite.SeenKeepsBatch()
 	Expect(#Rec.Seen).ToBeGreaterThanOrEqual(2100)
 end
 
+function Suite.PrepareRejectsNonTable()
+	local K = Key("preptable")
+	local function BadReducer(_State: any, _Op: any): any?
+		return true
+	end
+	local Op: any = { Id = "leg1", Kind = "Delta", Tx = "tx1", TxHome = "Home" }
+	local Verdict = Log.Prepare(W(), K, Op, BadReducer, INIT)
+	local Rec = Log.Read(W(), K)
+
+	Expect(Verdict).ToBe("Rejected")
+	Expect(#Rec.Ops).ToBe(0)
+end
+
+function Suite.MaterializeDropsJunkSnapshot()
+	local K = Key("junksnap")
+	W():UpdateAsync(K, function(): any
+		return { Snapshot = "corrupted", Ops = {}, Seen = {} }
+	end)
+	local Rec = Log.Read(W(), K)
+	local Folded = FoldRecord(K)
+
+	Expect(Rec.Snapshot).ToBeNil()
+	Expect(Folded.Gold).ToBe(0)
+	Expect(Folded.N).ToBe(0)
+end
+
+function Suite.MaterializeDropsPoisonOps()
+	local K = Key("poison")
+	W():UpdateAsync(K, function(): any
+		return {
+			Ops = {
+				{ Id = "good", Kind = "Add", Amount = 5 },
+				{ Id = "nokind", Amount = 9 },
+				{ Id = "numtx", Kind = "Add", Amount = 9, Tx = 7 },
+				{ Kind = "Add", Amount = 9 },
+			},
+			Seen = {},
+		}
+	end)
+	local Rec = Log.Read(W(), K)
+	local Kept: { [string]: boolean } = {}
+	for _, Op in Rec.Ops do
+		Kept[Op.Id] = true
+	end
+
+	Expect(#Rec.Ops).ToBe(1)
+	Expect(Kept["good"]).ToBe(true)
+	Expect(Kept["nokind"]).ToBeNil()
+	Expect(Kept["numtx"]).ToBeNil()
+end
+
 return table.freeze(Suite)

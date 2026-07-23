@@ -319,4 +319,31 @@ function Suite.TransferConservation()
 	Expect(Held).ToBe(0)
 end
 
+function Suite.TransferExpiredPrunedSettles()
+	local A, B = Uid(), Uid()
+	Log.Append(W(), tostring(A), { MakeOp("Add", { Amount = 100 }) })
+	local Now = os.time()
+	local Old = Now - 31 * 86400
+	local Tid = HttpService:GenerateGUID(false)
+
+	Log.Append(W(), tostring(A), { { Id = "res:" .. Tid, Kind = "__TransferReserve", To = B, Amount = 60, Tid = Tid, At = Old } :: any })
+	Log.Append(W(), tostring(B), { { Id = "del:" .. Tid, Kind = "__TransferDeliver", From = A, Amount = 60, Tid = Tid, At = Old } :: any })
+
+	local FreshTid = HttpService:GenerateGUID(false)
+	Log.Append(W(), tostring(B), { { Id = "del:" .. FreshTid, Kind = "__TransferDeliver", From = A, Amount = 0, Tid = FreshTid, At = Now } :: any })
+
+	local Sb1 = FoldId(B)
+	local EvidenceGone = Sb1._Received == nil or Sb1._Received[Tid] == nil
+
+	Transfer.Recover(W(), TR, INIT, nil, A, FoldId(A)._Held)
+	local Sa2, Sb2 = FoldId(A), FoldId(B)
+	local Total = Sa2.Gold + Sb2.Gold + HeldSum(Sa2)
+
+	Expect(EvidenceGone).ToBe(true)
+	Expect(Sa2.Gold).ToBe(40)
+	Expect(HeldSum(Sa2)).ToBe(0)
+	Expect(Sb2.Gold).ToBe(60)
+	Expect(Total).ToBe(100)
+end
+
 return table.freeze(Suite)

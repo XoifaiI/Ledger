@@ -66,8 +66,8 @@ returns something other than a table or `nil` is also treated as a rejection, lo
 the call site.
 
 **Reserved names.** State keys starting with `_` (like `_Held` and `_Received`) belong to
-Ledger's bookkeeping. Op kinds starting with `__` and the op fields `Id`, `Kind`, `Tx`
-and `PurchaseId` are reserved and refused.
+Ledger's bookkeeping. Op kinds starting with `__` and the op fields `Tx` and `TxHome` are
+reserved and refused; `Id` and `Kind` are overwritten with a warning if supplied.
 
 ## One op per meaningful change
 
