@@ -9,7 +9,7 @@
 
 ```toml
 [server-dependencies]
-Ledger = "xoifaii/ledger@2.0.1"
+Ledger = "xoifaii/ledger@2.0.2"
 ```
 
 **Model file**: insert the `Ledger` module anywhere server-side. `ServerStorage` is the
