@@ -33,10 +33,14 @@ export type ThreadQueue = setmetatable<{
 local ThreadQueue = {} :: ThreadQueueImpl
 ThreadQueue.__index = ThreadQueue
 
+local function TraceHandler(Err: any): string
+	return debug.traceback(tostring(Err), 1)
+end
+
 local function Drain(self: ThreadQueue)
 	while self.Tasks[1] do
 		local Entry = table.remove(self.Tasks, 1) :: Entry
-		local Result = table.pack(pcall(Entry.Callback))
+		local Result = table.pack(xpcall(Entry.Callback, TraceHandler))
 		if coroutine.status(Entry.Caller) == "suspended" then
 			task.spawn(Entry.Caller, table.unpack(Result, 1, Result.n))
 		end

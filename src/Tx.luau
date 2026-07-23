@@ -280,8 +280,16 @@ local function Drive(
 	return Final == "Committed"
 end
 
+local function ShutdownHomes(Attempts: number)
+	for _, Wrapper in Homes do
+		Wrapper:SkipAllQueuesToLastEnqueued()
+		Wrapper.Attempts = Attempts
+	end
+end
+
 return table.freeze({
 	Drive = Drive,
 	Settle = Settle,
+	ShutdownHomes = ShutdownHomes,
 	TIMEOUT = TIMEOUT,
 })

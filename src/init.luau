@@ -575,6 +575,7 @@ function Ledger.CloseAll()
 		Built.Live.TxWrapper:SkipAllQueuesToLastEnqueued()
 		Built.Live.TxWrapper.Attempts = SHUTDOWN_ATTEMPTS
 	end
+	Tx.ShutdownHomes(SHUTDOWN_ATTEMPTS)
 
 	for _, Built in Instances do
 		for UserId, Entry in Built.Live.Loaded do

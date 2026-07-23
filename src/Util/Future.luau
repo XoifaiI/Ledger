@@ -15,8 +15,6 @@
 
 local Threads = require("./Threads")
 
-local ALREADY_HAPPENED = "Future already happened or was cancelled"
-
 local Future = {}
 Future.__index = Future
 
@@ -185,7 +183,9 @@ function Future.Wait<T...>(self: Future<T...>, Timeout: number?): T...
 end
 
 function Future.Cancel<T...>(self: Future<T...>)
-	assert(FutureIsHappening(self), ALREADY_HAPPENED)
+	if not FutureIsHappening(self) then
+		return
+	end
 
 	local Private = ToPrivate(self)
 	Private.WasCancelled = true
