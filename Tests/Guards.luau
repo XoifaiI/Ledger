@@ -208,22 +208,15 @@ end
 function Suite.GuardBadUserIds()
 	local Store = EnsureStore()
 
-	local PeekFuture = Store:Peek("abc")
-	PeekFuture:Wait()
-	local PeekRefused = not PeekFuture:Happened()
-
-	local EditFuture = Store:Edit(nil, "K")
-	EditFuture:Wait()
-	local EditRefused = not EditFuture:Happened()
+	local PeekRefused = not Store:Peek("abc"):Happened(true)
+	local EditRefused = not Store:Edit(nil, "K"):Happened(true)
 
 	local TransferSelf = Store:Transfer(5, 5, 10):Wait()
 	local TransferJunk = Store:Transfer(0.5, 2, 10):Wait()
 
 	local TxJunk = Store:Tx({ { UserId = "x", Kind = "K" }, { UserId = 2, Kind = "K" } }):Wait()
 
-	local ResetFuture = Store:Reset(-1)
-	ResetFuture:Wait()
-	local ResetRefused = not ResetFuture:Happened()
+	local ResetRefused = not Store:Reset(-1):Happened(true)
 
 	Expect(PeekRefused).ToBe(true)
 	Expect(EditRefused).ToBe(true)
@@ -238,9 +231,7 @@ function Suite.GuardNoBalance()
 
 	local TransferOk = Store:Transfer(Harness.Uid(), Harness.Uid(), 10):Wait()
 
-	local RecoverFuture = Store:RecoverTransfers(Harness.Uid())
-	RecoverFuture:Wait()
-	local RecoverRefused = not RecoverFuture:Happened()
+	local RecoverRefused = not Store:RecoverTransfers(Harness.Uid()):Happened(true)
 
 	Expect(TransferOk).ToBe(false)
 	Expect(RecoverRefused).ToBe(true)
@@ -272,13 +263,8 @@ function Suite.GuardEditUnstorable()
 	local Store = EnsureStore()
 	local Uid = Harness.Uid()
 
-	local Bad = Store:Edit(Uid, "K", { Fn = Keep })
-	Bad:Wait()
-	local BadRefused = not Bad:Happened()
-
-	local Good = Store:Edit(Uid, "Add", { Amount = 1 })
-	Good:Wait()
-	local GoodHappened = Good:Happened()
+	local BadRefused = not Store:Edit(Uid, "K", { Fn = Keep }):Happened(true)
+	local GoodHappened = Store:Edit(Uid, "Add", { Amount = 1 }):Happened(true)
 
 	Expect(BadRefused).ToBe(true)
 	Expect(GoodHappened).ToBe(true)
