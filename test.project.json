@@ -12,11 +12,6 @@
 					"$path": "Tests"
 				}
 			}
-		},
-		"ServerScriptService": {
-			"RunLedgerTests": {
-				"$path": "RunTests.server.luau"
-			}
 		}
 	}
 }

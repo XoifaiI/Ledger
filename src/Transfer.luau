@@ -129,7 +129,7 @@ local function Reserve(Store: DataStoreWrapper, Reducer: Reducer<any>, Initial: 
 	local Tid = HttpService:GenerateGUID(false)
 	local ReserveOp: Op = { Id = `{RESERVE_ID}:{Tid}`, Kind = RESERVE, To = To, Amount = Amount, Tid = Tid, At = os.time() }
 
-	local Record = Log.Append(Store, tostring(From), { ReserveOp })
+	local Record = Log.AppendUnlessPending(Store, tostring(From), { ReserveOp })
 	local State = Log.FoldRecord(Record, Initial, Reducer, Migrations)
 	if State._Held and State._Held[Tid] then
 		return Tid

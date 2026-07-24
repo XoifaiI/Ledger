@@ -135,6 +135,7 @@ export type Runtime = {
 	Loaded: { [number]: LoadedEntry },
 	Waiters: { [number]: { thread } },
 	Leaving: { [number]: boolean },
+	Loading: { [number]: boolean },
 }
 
 export type DataStoreImpl = {

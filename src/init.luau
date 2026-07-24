@@ -200,9 +200,14 @@ function DataStore.Load(self: DataStore, Player: Player)
 		return
 	end
 	Live.Leaving[UserId] = nil
+	Live.Loading[UserId] = true
 
 	local Job = Session.Load(Live.Wrapper, tostring(UserId), Live.Reducer, Live.Initial, Live.Migrations, Live.TxWrapper)
 	local Active = Job:Wait()
+
+	Live.Loading[UserId] = nil
+	local WasLeaving = Live.Leaving[UserId] == true
+	Live.Leaving[UserId] = nil
 
 	if not Job:Happened() or not Active then
 		Player:Kick("Your data failed to load, please rejoin")
@@ -216,8 +221,7 @@ function DataStore.Load(self: DataStore, Player: Player)
 		return
 	end
 
-	if Live.Leaving[UserId] or not Player.Parent then
-		Live.Leaving[UserId] = nil
+	if WasLeaving or not Player.Parent then
 		Active:Release()
 		Wake(Live, UserId, nil)
 		return
@@ -262,7 +266,9 @@ function DataStore.Unload(self: DataStore, Player: Player)
 	local UserId = Player.UserId
 	local Entry = Live.Loaded[UserId]
 	if not Entry then
-		Live.Leaving[UserId] = true
+		if Live.Loading[UserId] then
+			Live.Leaving[UserId] = true
+		end
 		Wake(Live, UserId, nil)
 		return
 	end
@@ -561,6 +567,7 @@ function Ledger.New<D>(Options: NewOptions<D>): Store<D>
 			Loaded = {},
 			Waiters = {},
 			Leaving = {},
+			Loading = {},
 		},
 	}, DataStore)
 

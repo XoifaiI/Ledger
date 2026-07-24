@@ -149,10 +149,19 @@ local function ReadVersion(Wrapper: DataStoreWrapper, Key: string, Version: stri
 	return Materialize(Value)
 end
 
-local function Append(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }): Record<any>
+local function AppendImpl(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }, RejectIfPending: boolean?): Record<any>
 	local Unchanged: Record<any>? = nil
 	local Ok, Value = Wrapper:UpdateAsync(Key, function(Current: any): Record<any>?
 		local Record = Materialize(Current)
+
+		if RejectIfPending then
+			for _, Existing in Record.Ops do
+				if Existing.Tx ~= nil then
+					Unchanged = Record
+					return nil
+				end
+			end
+		end
 
 		local Present: { [string]: boolean } = {}
 		for _, Existing in Record.Ops do
@@ -187,6 +196,14 @@ local function Append(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }): Reco
 		return Unchanged :: Record<any>
 	end
 	return Materialize(Value)
+end
+
+local function Append(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }): Record<any>
+	return AppendImpl(Wrapper, Key, Ops, false)
+end
+
+local function AppendUnlessPending(Wrapper: DataStoreWrapper, Key: string, Ops: { Op }): Record<any>
+	return AppendImpl(Wrapper, Key, Ops, true)
 end
 
 local function PendingTx(Record: Record<any>): { [string]: string | true }
@@ -369,6 +386,7 @@ return table.freeze({
 	Read = Read,
 	ReadVersion = ReadVersion,
 	Append = Append,
+	AppendUnlessPending = AppendUnlessPending,
 	Compact = Compact,
 	Rehydrate = Rehydrate,
 	FoldRecord = FoldRecord,
