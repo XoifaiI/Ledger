@@ -1,0 +1,20 @@
+{
+	"name": "LedgerDev",
+	"tree": {
+		"$className": "DataModel",
+		"ServerStorage": {
+			"LedgerDev": {
+				"$className": "Folder",
+				"src": {
+					"$path": "src"
+				},
+				"Tests": {
+					"$path": "Tests"
+				},
+				"examples": {
+					"$path": "examples"
+				}
+			}
+		}
+	}
+}
