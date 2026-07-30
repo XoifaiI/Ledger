@@ -118,17 +118,7 @@ sessions across up to eight servers, then asserts the properties any correct led
 money is conserved, every transaction applies to all of its keys or none, nothing stays pending once
 things go quiet, and no balance goes negative.
 
-## Docs
-
-- [Getting started](docs/getting-started.md), install, build a store, wire the lifecycle
-- [The model](docs/the-model.md), ops, the fold, and the reducer rules
-- [Sessions](docs/sessions.md), the per player API, Apply vs Commit
-- [Cross-server](docs/cross-server.md), Peek, Edit, Transfer, and entity stores
-- [Transactions](docs/transactions.md), atomic multi key trades
-- [Migrations](docs/migrations.md), evolving your data shape safely
-- [Recovery](docs/recovery.md), version history, resets, erasure
-- [API reference](docs/api.md), every method in one place
-- [Examples](examples/README.md), shops, receipts, trading, clans, offline grants
+## Docs (Coming soon)
 
 ## License
 
