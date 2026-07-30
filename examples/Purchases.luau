@@ -119,10 +119,22 @@ end
 
 --[[ granting to someone who is not here, from a webhook or a support tool ]]
 
-local function GrantOffline(Store: Ledger.Store<Profile>, UserId: number, ProductId: number, OrderId: string): boolean
+--[[
+    DidApply answers nil when it could not read the record at all, which is not the same as the
+    grant not happening. hand that back so the caller retries instead of granting a second time
+--]]
+
+local function GrantOffline(
+	Store: Ledger.Store<Profile>,
+	UserId: number,
+	ProductId: number,
+	OrderId: string
+): (boolean, Ledger.Reason?)
 	local Name = `order:{OrderId}`
 	Store:Edit(UserId, "ProductGrant", { ProductId = ProductId, Once = Name }):Wait()
-	return Store:DidApply(UserId, Name):Wait()
+
+	local Applied, Why = Store:DidApply(UserId, Name):Wait()
+	return Applied == true, Why
 end
 
 return table.freeze({

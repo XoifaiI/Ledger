@@ -6,6 +6,8 @@
 local NoYield = require("../Util/NoYield")
 local TableUtil = require("../Util/TableUtil")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Fault = require("../Fault")
+local Reasons = require("../Reason")
 local Dedupe = require("./Dedupe")
 local Fold = require("./Fold")
 local Measure = require("./Measure")
@@ -43,16 +45,11 @@ local COMPACT_SAMPLE = 16
 local OWNED: Fated = "Owned"
 local DEAD: Fated = "Dead"
 
-local PREPARED: Prepared = "Prepared"
-local SETTLED: Prepared = "Settled"
-local BUSY: Prepared = "Busy"
-local REJECTED: Prepared = "Rejected"
-
 local VERDICT = table.freeze({
-	Prepared = PREPARED,
-	Settled = SETTLED,
-	Busy = BUSY,
-	Rejected = REJECTED
+	Prepared = "Prepared" :: Prepared,
+	Settled = "Settled" :: Prepared,
+	Busy = "Busy" :: Prepared,
+	Rejected = "Rejected" :: Prepared
 })
 
 local function Materialize(Value: any): Record
@@ -61,7 +58,7 @@ local function Materialize(Value: any): Record
 	end
 
 	if type(Value.Envelope) == "number" and Value.Envelope > ENVELOPE then
-		error(`the record envelope is format {Value.Envelope} but this server only knows {ENVELOPE}, a newer framework wrote it`)
+		error(Fault.New(Reasons.Behind, `the record envelope is format {Value.Envelope} but this server only knows {ENVELOPE}, a newer framework wrote it`))
 	end
 
 	local Ops: { Op } = {}
@@ -324,7 +321,7 @@ function Shape.Rehydrate(self: Shape<any>, Record: Record): any
 	if Version > #Steps then
 		local Floor = Record.Floor or Version
 		if Floor > #Steps then
-			error(`the record needs format version {Floor} but this server only knows {#Steps} migrations, a newer server wrote it`)
+			error(Fault.New(Reasons.Behind, `the record needs format version {Floor} but this server only knows {#Steps} migrations, a newer server wrote it`))
 		end
 		return Reconcile(self.Initial, Record.Snapshot)
 	end

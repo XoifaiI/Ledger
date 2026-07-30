@@ -5,10 +5,17 @@
 
 local YIELDED = "the callback must complete without yielding"
 
+local function Carried(Raised: any): boolean
+	return type(Raised) == "table" and (Raised :: { Ledger: unknown }).Ledger == true
+end
+
 local function Finish(Thread: thread, Success: boolean, ...: any): ...any
 	if not Success then
-		local Reason: string = tostring((...))
-		error(debug.traceback(Thread, Reason), 2)
+		local Raised: any = (...)
+		if Carried(Raised) then
+			error(Raised, 0)
+		end
+		error(debug.traceback(Thread, tostring(Raised)), 2)
 	end
 
 	if coroutine.status(Thread) ~= "dead" then

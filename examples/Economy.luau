@@ -78,10 +78,15 @@ end
 
 --[[ compensation, a support grant, a scheduled reward: works offline ]]
 
+--[[
+    DidApply answers nil when the record could not be read, which is not the same as the grant not
+    happening. only a true means it went through
+--]]
+
 local function Grant(Store: Ledger.Store<Profile>, UserId: number, Amount: number, Reason: string, GrantId: string): boolean
 	local Name = `grant:{GrantId}`
 	Store:Edit(UserId, "Compensate", { Amount = Amount, Text = Reason, Once = Name }):Wait()
-	return Store:DidApply(UserId, Name):Wait()
+	return Store:DidApply(UserId, Name):Wait() == true
 end
 
 local function GrantMany(Store: Ledger.Store<Profile>, Recipients: { number }, Amount: number, GrantId: string): number

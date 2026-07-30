@@ -38,7 +38,7 @@ export type KeysMode = "Player" | "String"
 export type KeyLike = number | string
 
 export type Reason =
-	"Refused" | "Busy" | "Spent" | "Unresolved" | "Closed" | "Backlog" | "Full" | "Invalid"
+	"Refused" | "Busy" | "Spent" | "Unresolved" | "Closed" | "Backlog" | "Full" | "Invalid" | "Behind"
 
 export type TxLeg = {
 	Store: Store<any>?,
@@ -160,17 +160,17 @@ export type Store<D> = {
 	IsLoaded: (self: Store<D>, Player: Player) -> boolean,
 	WaitForLoaded: (self: Store<D>, Player: Player) -> Live<D>?,
 	Read: (self: Store<D>, Player: Player) -> D?,
-	Peek: (self: Store<D>, Key: KeyLike) -> Future<D>,
-	DidApply: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean>,
-	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }>,
-	PeekVersion: (self: Store<D>, Key: KeyLike, Version: string) -> Future<D>,
+	Peek: (self: Store<D>, Key: KeyLike) -> Future<D?, Reason?>,
+	DidApply: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,
+	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
+	PeekVersion: (self: Store<D>, Key: KeyLike, Version: string) -> Future<D?, Reason?>,
 	Edit: (self: Store<D>, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Transfer: (self: Store<D>, From: KeyLike, To: KeyLike, Amount: number, Id: string?) -> Future<boolean, Reason?>,
 	Tx: (self: Store<D>, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
-	RecoverTransfers: (self: Store<D>, Key: KeyLike) -> Future<()>,
-	ClearDelivered: (self: Store<D>, Key: KeyLike) -> Future<()>,
+	RecoverTransfers: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
+	ClearDelivered: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	Reset: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
-	Erase: (self: Store<D>, Key: KeyLike) -> Future<()>,
+	Erase: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	Destroy: (self: Store<D>) -> ()
 }
 
@@ -226,7 +226,7 @@ export type DataStoreImpl = {
 	Wake: (self: DataStore, UserId: number, Active: Session<any>?) -> (),
 	Append: (self: DataStore, Key: string, Op: Op, Guard: ((Record<any>) -> boolean)?) -> Record<any>,
 	Maintain: (self: DataStore, Key: string, Record: Record<any>) -> Record<any>,
-	Written: (self: DataStore, Key: string, Op: Op, What: string, Guard: ((Record<any>) -> boolean)?) -> (boolean, Reason?),
+	Written: (self: DataStore, Key: string, Op: Op, What: string, Guard: ((Record<any>) -> boolean)?, Denied: Reason?) -> (boolean, Reason?),
 	Autosave: (self: DataStore, UserId: number) -> (),
 	Save: (self: DataStore, Active: Session<any>) -> Future<boolean>,
 
@@ -237,17 +237,17 @@ export type DataStoreImpl = {
 	IsLoaded: (self: DataStore, Player: Player) -> boolean,
 	WaitForLoaded: (self: DataStore, Player: Player) -> Session<any>?,
 	Read: (self: DataStore, Player: Player) -> any,
-	Peek: (self: DataStore, Key: KeyLike) -> Future<any>,
-	DidApply: (self: DataStore, Key: KeyLike, Id: string) -> Future<boolean>,
-	History: (self: DataStore, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }>,
-	PeekVersion: (self: DataStore, Key: KeyLike, Version: string) -> Future<any>,
+	Peek: (self: DataStore, Key: KeyLike) -> Future<any?, Reason?>,
+	DidApply: (self: DataStore, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,
+	History: (self: DataStore, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
+	PeekVersion: (self: DataStore, Key: KeyLike, Version: string) -> Future<any?, Reason?>,
 	Edit: (self: DataStore, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Transfer: (self: DataStore, From: KeyLike, To: KeyLike, Amount: number, Id: string?) -> Future<boolean, Reason?>,
 	Tx: (self: DataStore, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
-	RecoverTransfers: (self: DataStore, Key: KeyLike) -> Future<()>,
-	ClearDelivered: (self: DataStore, Key: KeyLike) -> Future<()>,
+	RecoverTransfers: (self: DataStore, Key: KeyLike) -> Future<boolean, Reason?>,
+	ClearDelivered: (self: DataStore, Key: KeyLike) -> Future<boolean, Reason?>,
 	Reset: (self: DataStore, Key: KeyLike) -> Future<boolean, Reason?>,
-	Erase: (self: DataStore, Key: KeyLike) -> Future<()>,
+	Erase: (self: DataStore, Key: KeyLike) -> Future<boolean, Reason?>,
 	Destroy: (self: DataStore) -> ()
 }
 

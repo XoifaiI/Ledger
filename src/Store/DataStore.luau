@@ -10,6 +10,7 @@ local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
 local Threads = require("../Util/Threads")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Fault = require("../Fault")
 local Dedupe = require("../Record/Dedupe")
 local Log = require("../Record/Log")
 local MakeOp = require("../Record/MakeOp")
@@ -52,6 +53,23 @@ local REFUSED = Reasons.Refused
 local INVALID = Reasons.Invalid
 local UNRESOLVED = Reasons.Unresolved
 local BUSY = Reasons.Busy
+local CLOSED = Reasons.Closed
+local BEHIND = Reasons.Behind
+
+local function Failed(What: string, Key: string, Err: any): Reason
+	local Why = Fault.Named(Err)
+	if Why == CLOSED then
+		return Why
+	end
+
+	if Why == BEHIND then
+		warn(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
+		return Why
+	end
+
+	warn(`Ledger: could not {What} '{Key}': {Err}`)
+	return Why
+end
 
 local function ValidId(UserId: any): boolean
 	return type(UserId) == "number" and UserId == UserId // 1 and UserId > 0 and UserId < math.huge
@@ -336,19 +354,37 @@ function DataStore.Maintain(self: DataStore, Key: string, Record: Record): Recor
 	return Settled
 end
 
-function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, Guard: Allow?): (boolean, Reason?)
-	local Ok, Why = pcall(function(): Reason?
-		local Record = self:Append(Key, Op, Guard)
-		if Guard ~= nil and not Guard(Record) then
-			return REFUSED
+function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?): (boolean, Reason?)
+	local Landed, Result = pcall(function(): Record
+		return self:Append(Key, Op, Guard)
+	end)
+
+	if not Landed then
+		local Named = Fault.Named(Result)
+		if Named == CLOSED then
+			return false, CLOSED
+		end
+		if Named == BEHIND then
+			warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
+			return false, BEHIND
 		end
 
-		Record = self:Maintain(Key, Record)
-		if not Log.Holds(Record, Op.Id) then
+		warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
+		return false, UNRESOLVED
+	end
+
+	local Stored: Record = Result
+	if Guard ~= nil and not Guard(Stored) then
+		return false, Denied or REFUSED
+	end
+
+	local Ok, Why = pcall(function(): Reason?
+		local Settled = self:Maintain(Key, Stored)
+		if not Log.Holds(Settled, Op.Id) then
 			return UNRESOLVED
 		end
 
-		local Took, Sure = self:Format():Certain(Record, Op.Id)
+		local Took, Sure = self:Format():Certain(Settled, Op.Id)
 		if not Sure then
 			return UNRESOLVED
 		end
@@ -356,7 +392,7 @@ function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, G
 	end)
 
 	if not Ok then
-		warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Why}`)
+		warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
 		return false, UNRESOLVED
 	end
 	return Why == nil, Why
@@ -514,54 +550,78 @@ function DataStore.Read(self: DataStore, Player: Player): any
 	return if Entry then Entry.Active:Get() else nil
 end
 
-function DataStore.Peek(self: DataStore, Key: KeyLike): Future<any>
+function DataStore.Peek(self: DataStore, Key: KeyLike): Future<any?, Reason?>
 	local Resolved = self:Resolve(Key, "Peek")
 
-	return Future.New(function(): any
-		local Record = self:ReadRecord(Resolved)
-		self:Watch(Resolved, Record)
+	return Future.New(function(): (any?, Reason?)
+		local Ok, State = pcall(function(): any
+			local Record = self:ReadRecord(Resolved)
+			self:Watch(Resolved, Record)
 
-		local State = self:Fold(Record)
-		self:WatchHeld(Resolved, State)
-		return State
+			local Folded = self:Fold(Record)
+			self:WatchHeld(Resolved, Folded)
+			return Folded
+		end)
+		if not Ok then
+			return nil, Failed("read", Resolved, State)
+		end
+		return State, nil
 	end)
 end
 
-function DataStore.DidApply(self: DataStore, Key: KeyLike, Id: string): Future<boolean>
+function DataStore.DidApply(self: DataStore, Key: KeyLike, Id: string): Future<boolean?, Reason?>
 	local Resolved = self:Resolve(Key, "DidApply")
 	assert(type(Id) == "string" and #Id > 0, "DidApply needs the same Once name the op was written under")
 
-	return Future.New(function(): boolean
-		local State: any = self:Fold(self:ReadRecord(Resolved))
-		return Dedupe.Has(State._Received, Dedupe.ONCE, Id)
+	return Future.New(function(): (boolean?, Reason?)
+		local Ok, Applied = pcall(function(): boolean
+			local State: any = self:Fold(self:ReadRecord(Resolved))
+			return Dedupe.Has(State._Received, Dedupe.ONCE, Id)
+		end)
+		if not Ok then
+			return nil, Failed(`check what has been applied to`, Resolved, Applied)
+		end
+		return Applied, nil
 	end)
 end
 
-function DataStore.History(self: DataStore, Key: KeyLike, Limit: number?): Future<{ Types.HistoryEntry }>
+function DataStore.History(self: DataStore, Key: KeyLike, Limit: number?): Future<{ Types.HistoryEntry }?, Reason?>
 	local Resolved = self:Resolve(Key, "History")
 	local Page = math.clamp(if type(Limit) == "number" then Limit else 25, 1, 100)
 
-	return Future.New(function(): { Types.HistoryEntry }
-		local Ok, Pages = self.Wrapper:ListVersionsAsync(Resolved, Enum.SortDirection.Descending, nil, nil, Page)
-		if not Ok then
-			error(Pages)
-		end
+	return Future.New(function(): ({ Types.HistoryEntry }?, Reason?)
+		local Ok, Rows = pcall(function(): { Types.HistoryEntry }
+			local Fine, Pages = self.Wrapper:ListVersionsAsync(Resolved, Enum.SortDirection.Descending, nil, nil, Page)
+			if not Fine then
+				error(Pages)
+			end
 
-		local Rows: { Types.HistoryEntry } = {}
-		for _, Info in (Pages :: DataStoreVersionPages):GetCurrentPage() do
-			local Version = Info :: DataStoreObjectVersionInfo
-			table.insert(Rows, { Version = Version.Version, At = Version.CreatedTime / 1000, Deleted = Version.IsDeleted })
+			local Out: { Types.HistoryEntry } = {}
+			for _, Info in (Pages :: DataStoreVersionPages):GetCurrentPage() do
+				local Version = Info :: DataStoreObjectVersionInfo
+				table.insert(Out, { Version = Version.Version, At = Version.CreatedTime / 1000, Deleted = Version.IsDeleted })
+			end
+			return Out
+		end)
+		if not Ok then
+			return nil, Failed("list the history for", Resolved, Rows)
 		end
-		return Rows
+		return Rows, nil
 	end)
 end
 
-function DataStore.PeekVersion(self: DataStore, Key: KeyLike, Version: string): Future<any>
+function DataStore.PeekVersion(self: DataStore, Key: KeyLike, Version: string): Future<any?, Reason?>
 	local Resolved = self:Resolve(Key, "PeekVersion")
 	assert(type(Version) == "string" and #Version > 0, "PeekVersion needs a Version string from History")
 
-	return Future.New(function(): any
-		return self:Fold(self:Records():ReadVersion(Resolved, Version))
+	return Future.New(function(): (any?, Reason?)
+		local Ok, State = pcall(function(): any
+			return self:Fold(self:Records():ReadVersion(Resolved, Version))
+		end)
+		if not Ok then
+			return nil, Failed(`read version '{Version}' of`, Resolved, State)
+		end
+		return State, nil
 	end)
 end
 
@@ -652,21 +712,33 @@ function DataStore.Tx(self: DataStore, Id: string, Legs: { TxLeg }): Future<bool
 	end)
 end
 
-function DataStore.RecoverTransfers(self: DataStore, Key: KeyLike): Future<()>
+function DataStore.RecoverTransfers(self: DataStore, Key: KeyLike): Future<boolean, Reason?>
 	self:ExpectBalance("RecoverTransfers")
 	local Resolved = self:Resolve(Key, "RecoverTransfers")
 
-	return Future.New(function()
-		local Held = self:Fold(self:ReadRecord(Resolved))._Held
-		Transfer.Recover(self:Records(), self:Format(), Resolved, Held)
+	return Future.New(function(): (boolean, Reason?)
+		local Ok, Why = pcall(function()
+			local Held = self:Fold(self:ReadRecord(Resolved))._Held
+			Transfer.Recover(self:Records(), self:Format(), Resolved, Held)
+		end)
+		if not Ok then
+			return false, Failed("recover the transfers set aside on", Resolved, Why)
+		end
+		return true, nil
 	end)
 end
 
-function DataStore.ClearDelivered(self: DataStore, Key: KeyLike): Future<()>
+function DataStore.ClearDelivered(self: DataStore, Key: KeyLike): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "ClearDelivered")
 
-	return Future.New(function()
-		Transfer.Prune(self:Records(), Resolved)
+	return Future.New(function(): (boolean, Reason?)
+		local Ok, Why = pcall(function()
+			Transfer.Prune(self:Records(), Resolved)
+		end)
+		if not Ok then
+			return false, Failed("clear the delivered transfers on", Resolved, Why)
+		end
+		return true, nil
 	end)
 end
 
@@ -680,31 +752,38 @@ function DataStore.Reset(self: DataStore, Key: KeyLike): Future<boolean, Reason?
 	return Future.New(function(): (boolean, Reason?)
 		return self:Written(Resolved, Op, "reset", function(Record: Record): boolean
 			return (Record.Version or 0) <= Known
-		end)
+		end, BEHIND)
 	end)
 end
 
-function DataStore.Erase(self: DataStore, Key: KeyLike): Future<()>
+function DataStore.Erase(self: DataStore, Key: KeyLike): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Erase")
 
 	if self.Keys == "Player" and Players:GetPlayerByUserId(Key :: any) ~= nil then
 		warn(`Ledger: erasing {Resolved} while they are still in this server, so their session writes part of the record back`)
 	end
 
-	return Future.New(function()
+	return Future.New(function(): (boolean, Reason?)
 		local Holds, Amount = 0, 0
 		if self.Options.Balance then
 			Holds, Amount = HandOver(self, Resolved)
 		end
 
-		local Ok, Reason = self.Wrapper:RemoveAsync(Resolved)
+		local Ok, Why = pcall(function()
+			local Gone, Reason = self.Wrapper:RemoveAsync(Resolved)
+			if not Gone then
+				error(Reason)
+			end
+		end)
+
 		if not Ok then
-			error(Reason)
+			return false, Failed("erase", Resolved, Why)
 		end
 
 		if Holds > 0 then
 			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} were still in flight, so that money is gone for good. check the audit log and pay the receivers back by hand`)
 		end
+		return true, nil
 	end)
 end
 

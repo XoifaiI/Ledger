@@ -7,6 +7,7 @@ local HttpService = game:GetService("HttpService")
 
 local DataStoreWrapper = require("./Util/DataStoreWrapper")
 local Clock = require("./Clock")
+local Fault = require("./Fault")
 local Dedupe = require("./Record/Dedupe")
 local Log = require("./Record/Log")
 local Reasons = require("./Reason")
@@ -291,7 +292,7 @@ end
 local function Drive(Records: Log.Log, Format: Log.Shape<any>, From: number | string, To: number | string, Amount: number, Id: string?): (boolean, Reason?, boolean?)
 	local Fine, Ruling = pcall(Reserve, Records, Format, From, To, Amount, Id)
 	if not Fine then
-		return false, UNRESOLVED, nil
+		return false, Fault.Named(Ruling), nil
 	end
 
 	if Ruling.Outcome == "Finished" then

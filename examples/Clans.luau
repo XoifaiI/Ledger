@@ -87,7 +87,13 @@ local function SetMotd(Clans: Ledger.Store<Clan>, Tag: string, Text: string)
 	Clans:Edit(Tag, "SetMotd", { Text = Text })
 end
 
-local function Read(Clans: Ledger.Store<Clan>, Tag: string): Clan?
+--[[
+    a clan that was never written folds to the Default, so nil here always means the read itself
+    failed. Behind means a newer server wrote this record and you are mid deploy, anything else is
+    worth another go later
+--]]
+
+local function Read(Clans: Ledger.Store<Clan>, Tag: string): (Clan?, Ledger.Reason?)
 	return Clans:Peek(Tag):Wait()
 end
 

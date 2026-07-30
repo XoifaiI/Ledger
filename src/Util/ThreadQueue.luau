@@ -20,6 +20,8 @@ export type ThreadQueue = setmetatable<{
 	Busy: boolean
 }, ThreadQueueImpl>
 
+local SKIPPED = "ThreadQueue task skipped"
+
 local ThreadQueue = {} :: ThreadQueueImpl
 ThreadQueue.__index = ThreadQueue
 
@@ -81,7 +83,7 @@ function ThreadQueue.SkipToLastEnqueued(self: ThreadQueue)
 
 	for _, Entry in Dropped do
 		if coroutine.status(Entry.Caller) == "suspended" then
-			task.spawn(Entry.Caller, false, "ThreadQueue task skipped")
+			task.spawn(Entry.Caller, false, SKIPPED)
 		end
 	end
 end
@@ -96,5 +98,6 @@ end
 table.freeze(ThreadQueue)
 
 return table.freeze({
-	New = New
+	New = New,
+	SKIPPED = SKIPPED
 })
