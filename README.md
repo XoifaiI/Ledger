@@ -6,7 +6,7 @@ Player data as a ledger, not a document.
 
 [![Luau](https://img.shields.io/badge/Luau-strict-00A2FF?style=for-the-badge&logo=lua&logoColor=white)](https://luau.org)
 [![Roblox](https://img.shields.io/badge/Roblox-DataStore-E2231A?style=for-the-badge&logo=robloxstudio&logoColor=white)](https://create.roblox.com/docs/cloud-services/data-stores)
-[![Realm](https://img.shields.io/badge/Realm-Server-555555?style=for-the-badge)]()
+[![Docs](https://img.shields.io/badge/Docs-Read-8B5CF6?style=for-the-badge)](https://xoifaii.github.io/LedgerDocs/)
 [![Dependencies](https://img.shields.io/badge/Dependencies-0-success?style=for-the-badge)]()
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
@@ -102,8 +102,6 @@ Stricter than Studio on purpose, since Studio reports budgets a live server neve
 sessions across up to eight servers, then asserts the properties any correct ledger must hold:
 money is conserved, every transaction applies to all of its keys or none, nothing stays pending once
 things go quiet, and no balance goes negative.
-
-## Docs (Coming soon)
 
 ## License
 
