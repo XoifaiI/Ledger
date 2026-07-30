@@ -14,19 +14,20 @@ export type State = {
 	Attempts: number?,
 	Constant: number?,
 	Exponent: number?,
+	Jitter: number?,
+	Direct: boolean?,
 	Queues: { [string]: ThreadQueue }
 }
 
 local function RunUnqueued(State: State, Operation: () -> ...any, Handler: Handler?): ...any
-	return RetryAsync(Operation, {
-		Attempts = State.Attempts,
-		Constant = State.Constant,
-		Exponent = State.Exponent,
-		Handler = Handler
-	})
+	return RetryAsync(Operation, State, Handler)
 end
 
 local function Run(State: State, Key: string, Operation: () -> ...any, Handler: Handler?): ...any
+	if State.Direct then
+		return RunUnqueued(State, Operation, Handler)
+	end
+
 	local Queue = State.Queues[Key]
 	if not Queue then
 		Queue = ThreadQueue.New()

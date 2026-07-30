@@ -50,35 +50,69 @@ export type TxLeg = {
 
 export type Reducer<S> = (State: S, Op: Op) -> S?
 
+export type Migration = ((State: any) -> any) | { Apply: (State: any) -> any, Compatible: boolean? }
 export type LogOutcome = { Before: Record<any>, After: Record<any>, Changed: boolean }
 
 export type LogResolution = { Record: Record<any>, Counts: { [string]: number } }
 
-export type Shape<S> = {
-	Reducer: Reducer<S>,
-	Initial: S,
-	Migrations: { Migration },
+export type LogVerdict = { Commit: boolean, Gen: string?, Since: number? }
+
+export type LogPrepared = "Prepared" | "Settled" | "Busy" | "Rejected"
+
+export type LogFated = "Owned" | "Dead"
+
+export type ShapeImpl<S> = {
+	__index: ShapeImpl<S>,
 
 	Floor: (self: Shape<S>) -> number,
 	Rehydrate: (self: Shape<S>, Record: Record<any>) -> S,
 	Fold: (self: Shape<S>, Record: Record<any>) -> S,
-	Accepted: (self: Shape<S>, Record: Record<any>, Id: string) -> boolean
+	Certain: (self: Shape<S>, Record: Record<any>, Id: string) -> (boolean, boolean)
 }
 
-export type LogHandle = {
-	Wrapper: DataStoreWrapper,
+export type Shape<S> = setmetatable<{
+	read Reducer: Reducer<S>,
+	read Initial: S,
+	read Migrations: { Migration }
+}, ShapeImpl<S>>
+
+export type LogImpl = {
+	__index: LogImpl,
 
 	Update: (self: LogHandle, Key: string, Apply: (Record<any>) -> Record<any>?) -> LogOutcome,
 	Read: (self: LogHandle, Key: string) -> Record<any>,
 	ReadVersion: (self: LogHandle, Key: string, Version: string) -> Record<any>,
 	Append: (self: LogHandle, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?) -> Record<any>,
 	AppendUnlessPending: (self: LogHandle, Key: string, Ops: { Op }) -> Record<any>,
-	Prepare: (self: LogHandle, Key: string, Op: Op, Format: Shape<any>) -> string,
-	Resolve: (self: LogHandle, Key: string, Verdicts: { [string]: boolean }) -> LogResolution,
-	Compact: (self: LogHandle, Key: string, Format: Shape<any>) -> Record<any>
+	Prepare: (self: LogHandle, Key: string, Op: Op, Format: Shape<any>) -> LogPrepared,
+	Resolve: (self: LogHandle, Key: string, Verdicts: { [string]: LogVerdict }) -> LogResolution,
+	Compact: (self: LogHandle, Key: string, Format: Shape<any>) -> Record<any>,
+	Trim: (self: LogHandle, Key: string, Format: Shape<any>, Record: Record<any>) -> Record<any>
 }
 
-export type Migration = ((State: any) -> any) | { Apply: (State: any) -> any, Compatible: boolean? }
+export type LogHandle = setmetatable<{
+	read Wrapper: DataStoreWrapper
+}, LogImpl>
+
+export type Live<S> = {
+	read LogSize: number,
+	read LogBytes: number,
+
+	Get: (self: Live<S>) -> S,
+	Apply: (self: Live<S>, Kind: string, Fields: { [any]: any }?) -> (boolean, Reason?),
+	Commit: (self: Live<S>, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
+	CommitOp: (self: Live<S>, Op: Op) -> Future<boolean, Reason?>,
+	Flush: (self: Live<S>) -> Future<boolean>,
+	Compact: (self: Live<S>) -> Future<boolean>,
+	Release: (self: Live<S>) -> Future<boolean>,
+	Observe: (self: Live<S>) -> Observer<S>,
+	DidApply: (self: Live<S>, Id: string) -> boolean
+}
+
+export type Admitted<S> =
+	{ read Outcome: "Refused", read Why: Reason }
+	| { read Outcome: "Rejected" }
+	| { read Outcome: "Accepted", read Next: S, read Bytes: number? }
 
 export type SessionImpl<S> = {
 	__index: SessionImpl<S>,
@@ -90,7 +124,7 @@ export type SessionImpl<S> = {
 	Notify: (self: Session<S>) -> (),
 	SettlePending: (self: Session<S>, Stored: Record<any>) -> Record<any>,
 	Settled: (self: Session<S>, Stored: Record<any>) -> Record<any>,
-	Admit: (self: Session<S>, Op: Op, OpBytes: number) -> { Why: Reason?, Next: S?, Bytes: number? },
+	Admit: (self: Session<S>, Op: Op, OpBytes: number) -> Admitted<S>,
 
 	Get: (self: Session<S>) -> S,
 	Apply: (self: Session<S>, Kind: string, Fields: { [any]: any }?) -> (boolean, Reason?),
@@ -99,7 +133,8 @@ export type SessionImpl<S> = {
 	Flush: (self: Session<S>) -> Future<boolean>,
 	Compact: (self: Session<S>) -> Future<boolean>,
 	Release: (self: Session<S>) -> Future<boolean>,
-	Observe: (self: Session<S>) -> Observer<S>
+	Observe: (self: Session<S>) -> Observer<S>,
+	DidApply: (self: Session<S>, Id: string) -> boolean
 }
 
 export type Session<S> = setmetatable<{
@@ -120,12 +155,13 @@ export type Session<S> = setmetatable<{
 export type Store<D> = {
 	Load: (self: Store<D>, Player: Player) -> (),
 	Unload: (self: Store<D>, Player: Player) -> (),
-	Get: (self: Store<D>, Player: Player) -> Session<D>?,
-	Expect: (self: Store<D>, Player: Player) -> Session<D>,
+	Get: (self: Store<D>, Player: Player) -> Live<D>?,
+	Expect: (self: Store<D>, Player: Player) -> Live<D>,
 	IsLoaded: (self: Store<D>, Player: Player) -> boolean,
-	WaitForLoaded: (self: Store<D>, Player: Player) -> Session<D>?,
+	WaitForLoaded: (self: Store<D>, Player: Player) -> Live<D>?,
 	Read: (self: Store<D>, Player: Player) -> D?,
 	Peek: (self: Store<D>, Key: KeyLike) -> Future<D>,
+	DidApply: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean>,
 	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }>,
 	PeekVersion: (self: Store<D>, Key: KeyLike, Version: string) -> Future<D>,
 	Edit: (self: Store<D>, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
@@ -134,25 +170,28 @@ export type Store<D> = {
 	RecoverTransfers: (self: Store<D>, Key: KeyLike) -> Future<()>,
 	ClearDelivered: (self: Store<D>, Key: KeyLike) -> Future<()>,
 	Reset: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
-	Erase: (self: Store<D>, Key: KeyLike) -> Future<()>
+	Erase: (self: Store<D>, Key: KeyLike) -> Future<()>,
+	Destroy: (self: Store<D>) -> ()
 }
 
-export type Config = {
-	Name: string,
-	Reducer: Reducer<any>,
-	Default: any,
-	Balance: string?,
-	Migrations: { Migration }?,
-	Keys: KeysMode?
+export type Config<D> = {
+	read Name: string,
+	read Reducer: (State: D, Op: Op) -> unknown,
+	read Default: D,
+	read Balance: string?,
+	read Migrations: { Migration }?,
+	read Keys: KeysMode?
 }
 
-export type LoadedEntry = {
+type LoadedEntry = {
 	Active: Session<any>,
 	Ticker: thread
 }
 
-export type StoreFields = {
-	Options: Config,
+type LoadPhase = "Loading" | "Leaving"
+
+type StoreFields = {
+	Options: Config<any>,
 	Reducer: Reducer<any>,
 	Wrapper: DataStoreWrapper,
 	TxWrapper: DataStoreWrapper,
@@ -161,9 +200,9 @@ export type StoreFields = {
 	Keys: KeysMode,
 	Loaded: { [number]: LoadedEntry },
 	Waiters: { [number]: { thread } },
-	Leaving: { [number]: boolean },
-	Loading: { [number]: boolean },
-	Saving: { [Future<boolean>]: boolean }
+	Loads: { [number]: LoadPhase },
+	Saving: { [Future<boolean>]: boolean },
+	Closed: boolean
 }
 
 export type DataStoreImpl = {
@@ -172,13 +211,18 @@ export type DataStoreImpl = {
 	Mark: (self: DataStore, Key: string) -> string,
 	KeyFor: (self: DataStore, Value: any) -> string?,
 	KeyIssue: (self: DataStore) -> string,
+	Live: (self: DataStore, What: string) -> (),
 	Resolve: (self: DataStore, Key: KeyLike, What: string) -> string,
 	ExpectPlayers: (self: DataStore, What: string) -> (),
 	ExpectBalance: (self: DataStore, What: string) -> (),
+	Records: (self: DataStore) -> LogHandle,
+	Format: (self: DataStore) -> Shape<any>,
 	Fold: (self: DataStore, Record: Record<any>) -> any,
 	ReadRecord: (self: DataStore, Key: string) -> Record<any>,
 	Watch: (self: DataStore, Key: string, Record: Record<any>) -> (),
+	WatchHeld: (self: DataStore, Key: string, State: any) -> (),
 	Resettle: (self: DataStore, Key: string) -> boolean,
+	ReapMarkers: (self: DataStore) -> number,
 	Wake: (self: DataStore, UserId: number, Active: Session<any>?) -> (),
 	Append: (self: DataStore, Key: string, Op: Op, Guard: ((Record<any>) -> boolean)?) -> Record<any>,
 	Maintain: (self: DataStore, Key: string, Record: Record<any>) -> Record<any>,
@@ -194,6 +238,7 @@ export type DataStoreImpl = {
 	WaitForLoaded: (self: DataStore, Player: Player) -> Session<any>?,
 	Read: (self: DataStore, Player: Player) -> any,
 	Peek: (self: DataStore, Key: KeyLike) -> Future<any>,
+	DidApply: (self: DataStore, Key: KeyLike, Id: string) -> Future<boolean>,
 	History: (self: DataStore, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }>,
 	PeekVersion: (self: DataStore, Key: KeyLike, Version: string) -> Future<any>,
 	Edit: (self: DataStore, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
@@ -202,9 +247,10 @@ export type DataStoreImpl = {
 	RecoverTransfers: (self: DataStore, Key: KeyLike) -> Future<()>,
 	ClearDelivered: (self: DataStore, Key: KeyLike) -> Future<()>,
 	Reset: (self: DataStore, Key: KeyLike) -> Future<boolean, Reason?>,
-	Erase: (self: DataStore, Key: KeyLike) -> Future<()>
+	Erase: (self: DataStore, Key: KeyLike) -> Future<()>,
+	Destroy: (self: DataStore) -> ()
 }
 
 export type DataStore = setmetatable<StoreFields, DataStoreImpl>
 
-return {}
+return table.freeze({})

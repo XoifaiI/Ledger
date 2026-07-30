@@ -6,6 +6,7 @@ online somewhere else, or offline, and on any entity key.
 ```luau
 Store:Peek(Key)                       -- Future<State>, read only fold
 Store:Edit(Key, Kind, Fields?)        -- Future<boolean, Reason?>, append one op
+Store:DidApply(Key, Name)             -- Future<boolean>, has a Once name landed here
 Store:Transfer(From, To, Amount, Id?) -- Future<boolean, Reason?>, move the Balance field
 Store:Tx(Id, Legs)                    -- Future<boolean, Reason?>, atomic multi key
 ```
@@ -13,6 +14,7 @@ Store:Tx(Id, Legs)                    -- Future<boolean, Reason?>, atomic multi 
 | Shape | Use |
 | --- | --- |
 | one key, any change | `Edit` |
+| one key, at most once under a name you own | `Edit` with `Once` |
 | two keys, one balance | `Transfer` |
 | two to four keys, arbitrary changes, all or nothing | `Tx` |
 
@@ -39,10 +41,26 @@ flush. Same reducer as everything else, so it can be refused:
 local Ok, Why = Store:Edit(UserId, "SpendGold", { Amount = 500 }):Wait()
 -- false, "Refused"     the reducer said no
 -- false, "Invalid"     the fields cannot be stored
--- false, "Unresolved"  the write never landed, it may still be there
+-- false, "Unresolved"  no settled answer: the write may still land, or a stuck transaction holds the verdict open
 ```
 
 The tool for offline rewards, support grants, and scheduled jobs.
+
+## Edit with Once
+
+When the id belongs to something outside Ledger, name the op and it lands at most once on that key,
+no matter how many servers replay it or how often:
+
+```luau
+Store:Edit(UserId, "AddGold", { Amount = 500, Once = `order:{OrderId}` }):Wait()
+Store:DidApply(UserId, `order:{OrderId}`):Wait()   -- true, and still true on every replay
+```
+
+A replay answers `false` with `Refused`, because it changed nothing. Read `DidApply` for the question
+you actually mean, which is whether the grant has ever landed.
+
+Two servers replaying the same name at the same time is the case this is built for: one applies, and
+both see `DidApply`. There is no lock, so neither is shut out and neither has to give up.
 
 ## Transfer
 

@@ -39,12 +39,23 @@ local function Drain(self: ThreadQueue)
 end
 
 function ThreadQueue.SubmitAsync(self: ThreadQueue, Callback: () -> ...any): ...any
-	table.insert(self.Tasks, { Callback = Callback, Caller = coroutine.running() })
-
 	if not self.Busy then
 		self.Busy = true
-		task.defer(Drain, self)
+		local Straight = table.pack(xpcall(Callback, TraceHandler))
+
+		if self.Tasks[1] then
+			task.defer(Drain, self)
+		else
+			self.Busy = false
+		end
+
+		if not Straight[1] then
+			error(Straight[2], 0)
+		end
+		return table.unpack(Straight, 2, Straight.n)
 	end
+
+	table.insert(self.Tasks, { Callback = Callback, Caller = coroutine.running() })
 
 	local Result = table.pack(coroutine.yield())
 	if not Result[1] then

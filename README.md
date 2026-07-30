@@ -69,6 +69,9 @@ validates them.
   is no periodic job for you to write.
 - **Idempotent by construction.** Every op has an id and appends dedupe by it, even across
   compaction, so retries cannot double apply.
+- **`Once` for ids you do not own.** Name an op after a receipt, a webhook or an order and it
+  lands at most one time on that key, forever, across compaction, rejoins and two servers
+  racing the same replay. `DidApply` answers whether it ever landed.
 - **Loud misuse.** Bad options throw at build time, junk input refuses benignly, and state is
   deep frozen so a mutation throws at the line that did it.
 
@@ -78,19 +81,42 @@ validates them.
 
 ```toml
 [server-dependencies]
-Ledger = "xoifaii/ledger@3.0.0"
+Ledger = "xoifaii/ledger@3.0.1"
 ```
 
 **Rojo**: clone the repo and add `src` to your project as `ServerStorage/Ledger`.
 
 **Model file**: insert the `Ledger` module anywhere server side.
 
-## Testing
+## Running without a datastore
 
 ```luau
-local Tests = require(ServerStorage.LedgerDev.Tests)
-Tests.RunAll()
+Ledger.UseMock({ Players = 30 })  -- every store goes in memory, real limits, no API access needed
+Ledger.UseReal()                  -- back to the real datastore
 ```
+
+Stricter than Studio on purpose, since Studio reports budgets a live server never gets. See
+[the API reference](docs/api.md) for the options and the clock swap that goes with it.
+
+## Testing
+
+Ledger is tested against a simulated datastore that can be told to lose writes, acknowledge writes
+it dropped, corrupt records, partition servers, kill them mid write and skew the clock, all driven
+by one seed so any failure replays exactly.
+
+```luau
+local Simulation = ServerStorage.LedgerDev.Simulation
+
+require(Simulation.Cases).Run()          -- 166 hand built cases, one rule each, about 10 seconds
+require(Simulation.Harnesses).Run()      -- 7 property harnesses, sessions, crash restart, rolling deploy
+require(Simulation.Fuzz).Run(Seed)       -- one seed decides a whole randomised run
+require(Simulation.Fuzz).Sweep(1, 500)   -- grind a seed range, returns what broke and on which seeds
+```
+
+`Cases` is the gate. `Fuzz` generates random workloads of edits, transfers, transactions and
+sessions across up to eight servers, then asserts the properties any correct ledger must hold:
+money is conserved, every transaction applies to all of its keys or none, nothing stays pending once
+things go quiet, and no balance goes negative.
 
 ## Docs
 

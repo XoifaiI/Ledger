@@ -3,8 +3,8 @@
 
 -- pure replay, base state plus every op through the reducer. a rejected, throwing, yielding or tx stamped op is skipped
 
-local NoYield = require("./Util/NoYield")
-local Types = require("./Types")
+local Step = require("./Step")
+local Types = require("../Types")
 
 type Op = Types.Op
 type Reducer<S> = Types.Reducer<S>
@@ -17,8 +17,8 @@ local function Fold<S>(Base: S, Ops: { Op }, Reducer: Reducer<S>, Mark: string?)
 		if Op.Tx ~= nil then
 			continue
 		end
-		local Ok, Next = pcall(NoYield, Reducer, State, Op)
-		if Ok and type(Next) == "table" then
+		local Next = Step(Reducer, State, Op)
+		if Next ~= nil then
 			State = Next
 			if Op.Id == Mark then
 				Took = true

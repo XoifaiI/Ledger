@@ -8,7 +8,13 @@ local Measure = require("./Measure")
 local MAX_DEPTH = 64
 local MAX_BYTES = 1024 * 1024
 
+local RESERVED = "__"
+
 local OVER = `op is larger than the {MAX_BYTES} byte per op limit`
+
+local function IsReservedKind(Kind: string): boolean
+	return string.sub(Kind, 1, #RESERVED) == RESERVED
+end
 
 local Check: (Value: any, Path: string, Seen: { [any]: boolean }, Depth: number) -> (boolean, string)
 
@@ -88,12 +94,13 @@ function Check(Value: any, Path: string, Seen: { [any]: boolean }, Depth: number
 end
 
 local function IsStorable(Op: any): (boolean, string?)
-	if type(Op) == "table" and type(Op.Kind) == "string" and string.sub(Op.Kind, 1, 2) == "__" then
-		return false, `kind '{Op.Kind}' uses the __ prefix reserved for Ledger's internal ops`
-	end
-
-	if type(Op) == "table" and (Op.Tx ~= nil or Op.TxHome ~= nil or Op.TxSticky ~= nil or Op.TxAt ~= nil) then
-		return false, "the Tx, TxHome, TxSticky and TxAt fields are reserved for the transaction path"
+	if type(Op) == "table" then
+		if type(Op.Kind) == "string" and IsReservedKind(Op.Kind) then
+			return false, `kind '{Op.Kind}' uses the {RESERVED} prefix reserved for Ledger's internal ops`
+		end
+		if Op.Tx ~= nil or Op.TxHome ~= nil or Op.TxSticky ~= nil or Op.TxAt ~= nil or Op.TxGen ~= nil then
+			return false, "the Tx, TxHome, TxSticky, TxAt and TxGen fields are reserved for the transaction path"
+		end
 	end
 
 	local Ok, Where = Check(Op, "op", {}, 0)
@@ -108,8 +115,17 @@ local function IsStorable(Op: any): (boolean, string?)
 	return true, nil
 end
 
-local function IsValueStorable(Value: any): (boolean, string?)
+local function IsStructureStorable(Value: any): (boolean, string?)
 	local Ok, Where = Check(Value, "value", {}, 0)
+	if not Ok then
+		return false, Where
+	end
+
+	return true, nil
+end
+
+local function IsValueStorable(Value: any): (boolean, string?)
+	local Ok, Where = IsStructureStorable(Value)
 	if not Ok then
 		return false, Where
 	end
@@ -123,5 +139,7 @@ end
 
 return table.freeze({
 	Op = IsStorable,
-	Value = IsValueStorable
+	Value = IsValueStorable,
+	Structure = IsStructureStorable,
+	Reserved = IsReservedKind
 })

@@ -6,7 +6,7 @@
 
 ```toml
 [server-dependencies]
-Ledger = "xoifaii/ledger@3.0.0"
+Ledger = "xoifaii/ledger@3.0.1"
 ```
 
 **Rojo**: drop the `src` folder into your project as `ServerStorage/Ledger`.

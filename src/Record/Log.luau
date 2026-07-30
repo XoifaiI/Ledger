@@ -3,14 +3,16 @@
 
 -- op log persistence, read a record, append ops idempotently by id, or compact them into a fresh snapshot
 
-local NoYield = require("./Util/NoYield")
-local TableUtil = require("./Util/TableUtil")
-local DataStoreWrapper = require("./Util/DataStoreWrapper")
+local NoYield = require("../Util/NoYield")
+local TableUtil = require("../Util/TableUtil")
+local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Dedupe = require("./Dedupe")
 local Fold = require("./Fold")
 local Measure = require("./Measure")
 local Reconcile = require("./Reconcile")
-local Types = require("./Types")
+local Step = require("./Step")
+local IsStorable = require("./Storable")
+local Types = require("../Types")
 
 type Op = Types.Op
 type Record = Types.Record<any>
@@ -19,23 +21,38 @@ type Migration = Types.Migration
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 
 type Allow = (Record) -> boolean
-type Step = (Record) -> Record?
+type Transform = (Record) -> Record?
 
 export type Shape<S> = Types.Shape<S>
 export type Log = Types.LogHandle
 export type Outcome = Types.LogOutcome
 export type Resolution = Types.LogResolution
+export type Verdict = Types.LogVerdict
+export type Prepared = Types.LogPrepared
+export type Fated = Types.LogFated
 
 local ENVELOPE = 1
 local SEEN_LIMIT = 2048
 local MAX_BYTES = 4 * 1024 * 1024
 local WARN_BYTES = MAX_BYTES - 512 * 1024
 
+local COMPACT_OPS = 128
+local COMPACT_BYTES = 1024 * 1024
+local COMPACT_SAMPLE = 16
+
+local OWNED: Fated = "Owned"
+local DEAD: Fated = "Dead"
+
+local PREPARED: Prepared = "Prepared"
+local SETTLED: Prepared = "Settled"
+local BUSY: Prepared = "Busy"
+local REJECTED: Prepared = "Rejected"
+
 local VERDICT = table.freeze({
-	Prepared = "Prepared",
-	Settled = "Settled",
-	Busy = "Busy",
-	Rejected = "Rejected"
+	Prepared = PREPARED,
+	Settled = SETTLED,
+	Busy = BUSY,
+	Rejected = REJECTED
 })
 
 local function Materialize(Value: any): Record
@@ -102,6 +119,49 @@ local function FloorOf(Steps: { Migration }): number
 	return 0
 end
 
+local function Oversized(Ops: number, Bytes: number): boolean
+	return Ops >= COMPACT_OPS or Bytes >= COMPACT_BYTES
+end
+
+local function Overgrown(Record: Record): boolean
+	local Count = #Record.Ops
+	if Count >= COMPACT_OPS then
+		return true
+	end
+	if Count < COMPACT_SAMPLE then
+		return false
+	end
+	return Measure(Record.Ops) >= COMPACT_BYTES
+end
+
+local function Detached(Record: Record): Record
+	return {
+		Snapshot = if type(Record.Snapshot) == "table" then TableUtil.DeepCopy(Record.Snapshot) else nil,
+		Ops = Record.Ops,
+		Seen = Record.Seen,
+		Version = Record.Version,
+		Floor = Record.Floor
+	}
+end
+
+local function Unstamped(Op: Op): Op
+	local Plain = table.clone(Op)
+	Plain.Tx = nil
+	Plain.TxHome = nil
+	Plain.TxGen = nil
+	return Plain
+end
+
+local function Landed(Ops: { Op }, Txid: string): { Op }
+	local Out = table.clone(Ops)
+	for Index, Existing in Out do
+		if Existing.Tx == Txid then
+			Out[Index] = Unstamped(Existing)
+		end
+	end
+	return Out
+end
+
 local function HasPending(Record: Record): boolean
 	for _, Op in Record.Ops do
 		if Op.Tx ~= nil then
@@ -113,6 +173,58 @@ end
 
 local function NotPending(Record: Record): boolean
 	return not HasPending(Record)
+end
+
+local function Holds(Record: Record, Id: string): boolean
+	for _, Op in Record.Ops do
+		if Op.Id == Id then
+			return true
+		end
+	end
+	return false
+end
+
+local function Known(Record: Record, Op: Op, Format: Shape<any>): Prepared?
+	for _, Existing in Record.Ops do
+		if Existing.Id == Op.Id then
+			return if Existing.Tx == nil
+				then VERDICT.Settled
+				elseif Existing.TxGen == Op.TxGen then VERDICT.Prepared
+				else VERDICT.Busy
+		end
+	end
+
+	for _, Id in Record.Seen do
+		if Id == Op.Id then
+			return VERDICT.Settled
+		end
+	end
+
+	if type(Op.Tx) ~= "string" then
+		return nil
+	end
+
+	if Dedupe.Has((Format:Fold(Detached(Record)) :: any)._Received, Dedupe.TX, Op.Tx) then
+		return VERDICT.Settled
+	end
+	return nil
+end
+
+local function Fate(Op: Op, Verdict: Verdict): Fated?
+	local Gen = Op.TxGen
+	if type(Gen) ~= "string" or Gen == Verdict.Gen then
+		return OWNED
+	end
+
+	if Verdict.Commit then
+		return nil
+	end
+
+	local Since, At = Verdict.Since, Op.TxAt
+	if Since ~= nil and type(At) == "number" and At < Since then
+		return DEAD
+	end
+	return nil
 end
 
 local function PendingTx(Record: Record): { [string]: string | true }
@@ -158,12 +270,44 @@ local function Missing(Record: Record, Ops: { Op }): { [string]: boolean }
 	return Wanted
 end
 
-local Shape = {} :: any
-Shape.__index = Shape
+local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
+	if HasPending(Record) then
+		return nil
+	end
 
-function Shape.New<S>(Reducer: Types.Reducer<S>, Initial: S, Migrations: { Migration }?): Shape<S>
-	return setmetatable({ Reducer = Reducer, Initial = Initial, Migrations = Migrations or {} }, Shape) :: any
+	local Snapshot = Fold(Format:Rehydrate(Record), Record.Ops, Format.Reducer)
+	local Storable, Where = IsStorable.Structure(Snapshot)
+	if not Storable then
+		warn(`Ledger: key '{Key}' cannot be compacted, your reducer built state a datastore cannot hold, {Where}. the log is left alone rather than lose that field. no gaps in arrays, no mixing array and string keys, no nan`)
+		return nil
+	end
+
+	local Seen = table.clone(Record.Seen)
+	for _, Op in Record.Ops do
+		table.insert(Seen, Op.Id)
+	end
+	local Keep = math.max(SEEN_LIMIT, #Record.Ops)
+	local Overflow = #Seen - Keep
+	if Overflow > 0 then
+		Seen = table.move(Seen, Overflow + 1, #Seen, 1, {})
+	end
+
+	local Steps = Format.Migrations
+	local Stored = Record.Version or 0
+	local Ahead = Stored > #Steps
+
+	return {
+		Envelope = ENVELOPE,
+		Snapshot = Snapshot,
+		Ops = {},
+		Seen = Seen,
+		Version = if Ahead then Stored else #Steps,
+		Floor = if Ahead then Record.Floor or Stored else FloorOf(Steps)
+	}
 end
+
+local Shape = {} :: Types.ShapeImpl<any>
+Shape.__index = Shape
 
 function Shape.Floor(self: Shape<any>): number
 	return FloorOf(self.Migrations)
@@ -200,30 +344,55 @@ function Shape.Fold(self: Shape<any>, Record: Record): any
 	return Fold(self:Rehydrate(Record), Record.Ops, self.Reducer)
 end
 
-function Shape.Accepted(self: Shape<any>, Record: Record, Id: string): boolean
-	local _, Took = Fold(self:Rehydrate(Record), Record.Ops, self.Reducer, Id)
-	return Took
+function Shape.Certain(self: Shape<any>, Record: Record, Id: string): (boolean, boolean)
+	local Base = self:Rehydrate(Record)
+	local _, Took = Fold(Base, Record.Ops, self.Reducer, Id)
+
+	local Pending: { [string]: boolean } = {}
+	local Count = 0
+	for _, Op in Record.Ops do
+		if type(Op.Tx) == "string" and not Pending[Op.Tx] then
+			Pending[Op.Tx] = true
+			Count += 1
+		end
+	end
+	if Count == 0 then
+		return Took, true
+	end
+	if Count > 1 then
+		return Took, false
+	end
+
+	local _, Also = Fold(Base, Landed(Record.Ops, next(Pending) :: string), self.Reducer, Id)
+	return Took, Took == Also
+end
+
+local function NewShape<S>(Reducer: Types.Reducer<S>, Initial: S, Migrations: { Migration }?): Shape<S>
+	return setmetatable({ Reducer = Reducer, Initial = Initial, Migrations = Migrations or {} }, Shape) :: any
 end
 
 table.freeze(Shape)
 
-local Log = {} :: any
+local Log = {} :: Types.LogImpl
 Log.__index = Log
 
-function Log.New(Wrapper: DataStoreWrapper): Log
-	return setmetatable({ Wrapper = Wrapper }, Log) :: any
-end
-
-function Log.Update(self: Log, Key: string, Apply: Step): Outcome
+function Log.Update(self: Log, Key: string, Apply: Transform): Outcome
 	local Before: Record = nil :: any
+	local Wrote = false
 	local Ok, Value = self.Wrapper:UpdateAsync(Key, function(Current: any): Record?
 		Before = Materialize(Current)
-		return Apply(Before)
+		local Next = Apply(Before)
+		Wrote = Next ~= nil
+		return Next
 	end)
 
 	if not Ok then
 		error(Value)
 	end
+
+	assert(Before ~= nil, `the write to '{Key}' reported success without ever running its transform`)
+	assert(Wrote == (Value ~= nil), `the write to '{Key}' disagreed with the datastore about whether it happened`)
+
 	if Value == nil then
 		return { Before = Before, After = Before, Changed = false }
 	end
@@ -273,46 +442,22 @@ function Log.AppendUnlessPending(self: Log, Key: string, Ops: { Op }): Record
 	return self:Append(Key, Ops, NotPending)
 end
 
-function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): string
+function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepared
 	local Verdict = VERDICT.Rejected
 	self:Update(Key, function(Record: Record): Record?
-		for _, Existing in Record.Ops do
-			if Existing.Id == Op.Id then
-				Verdict = if Existing.Tx == nil then VERDICT.Settled else VERDICT.Prepared
-				return nil
-			end
-			if Existing.Tx ~= nil then
-				Verdict = VERDICT.Busy
-				return nil
-			end
-		end
-
-		for _, Id in Record.Seen do
-			if Id == Op.Id then
-				Verdict = VERDICT.Settled
-				return nil
-			end
-		end
-
-		local View: Record = {
-			Snapshot = if type(Record.Snapshot) == "table" then TableUtil.DeepCopy(Record.Snapshot) else nil,
-			Ops = Record.Ops,
-			Seen = Record.Seen,
-			Version = Record.Version,
-			Floor = Record.Floor
-		}
-		local State = Format:Fold(View)
-
-		if type(Op.Tx) == "string" and Dedupe.Has(State._Received, Dedupe.TX, Op.Tx) then
-			Verdict = VERDICT.Settled
+		local Already = Known(Record, Op, Format)
+		if Already ~= nil then
+			Verdict = Already
 			return nil
 		end
 
-		local Probe = table.clone(Op)
-		Probe.Tx = nil
-		Probe.TxHome = nil
-		local Stepped, Next = pcall(NoYield, Format.Reducer, State, Probe :: Op)
-		if not Stepped or type(Next) ~= "table" then
+		if HasPending(Record) then
+			Verdict = VERDICT.Busy
+			return nil
+		end
+
+		local State = Format:Fold(Detached(Record))
+		if Step(Format.Reducer, State, Unstamped(Op)) == nil then
 			Verdict = VERDICT.Rejected
 			return nil
 		end
@@ -325,27 +470,34 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): string
 	return Verdict
 end
 
-function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: boolean }): Resolution
+function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): Resolution
 	local Counts: { [string]: number } = {}
 	local Result = self:Update(Key, function(Record: Record): Record?
 		table.clear(Counts)
 		local Kept: { Op } = {}
+		local Retired = 0
 		for _, Existing in Record.Ops do
 			local Txid = Existing.Tx
-			if type(Txid) == "string" and Verdicts[Txid] ~= nil then
-				Counts[Txid] = (Counts[Txid] or 0) + 1
-				if Verdicts[Txid] then
-					local Live = table.clone(Existing)
-					Live.Tx = nil
-					Live.TxHome = nil
-					table.insert(Kept, Live)
-				end
-			else
+			local Verdict = if type(Txid) == "string" then Verdicts[Txid] else nil
+			local Fated = if Verdict ~= nil then Fate(Existing, Verdict) else nil
+			if Fated == nil then
 				table.insert(Kept, Existing)
+				continue
 			end
+			if Fated == DEAD then
+				Retired += 1
+				continue
+			end
+
+			Counts[Txid] = (Counts[Txid] or 0) + 1
+			if not (Verdict :: Verdict).Commit then
+				continue
+			end
+
+			table.insert(Kept, Unstamped(Existing))
 		end
 
-		if next(Counts) == nil then
+		if next(Counts) == nil and Retired == 0 then
 			return nil
 		end
 
@@ -358,56 +510,54 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: boolean }): R
 end
 
 function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
-	local Steps = Format.Migrations
-	local KnownFloor = FloorOf(Steps)
-
 	local Result = self:Update(Key, function(Record: Record): Record?
-		if HasPending(Record) then
-			return nil
-		end
-		local Base = Format:Rehydrate(Record)
-
-		local Seen = table.clone(Record.Seen)
-		for _, Op in Record.Ops do
-			table.insert(Seen, Op.Id)
-		end
-		local Keep = math.max(SEEN_LIMIT, #Record.Ops)
-		local Overflow = #Seen - Keep
-		if Overflow > 0 then
-			Seen = table.move(Seen, Overflow + 1, #Seen, 1, {})
-		end
-
-		local Stored = Record.Version or 0
-		local Ahead = Stored > #Steps
-
-		return {
-			Envelope = ENVELOPE,
-			Snapshot = Fold(Base, Record.Ops, Format.Reducer),
-			Ops = {},
-			Seen = Seen,
-			Version = if Ahead then Stored else #Steps,
-			Floor = if Ahead then Record.Floor or Stored else KnownFloor
-		}
+		return Packed(Key, Record, Format)
 	end)
 
 	if not Result.Changed then
 		return Result.After
 	end
 
+	assert(#Result.After.Ops == 0, `compacting '{Key}' left {#Result.After.Ops} op(s) behind`)
+
 	local Bytes = Measure(Result.After)
 	if Bytes > WARN_BYTES then
-		warn(`Ledger: key '{Key}' is {Bytes} bytes, near the {MAX_BYTES} byte datastore limit, saves will start failing if the data keeps growing{Hint(Result.After.Snapshot)}`)
+		warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {MAX_BYTES}. saves will start failing if it keeps growing{Hint(Result.After.Snapshot)}`)
 	end
 	return Result.After
+end
+
+function Log.Trim(self: Log, Key: string, Format: Shape<any>, Record: Record): Record
+	if not Overgrown(Record) then
+		return Record
+	end
+
+	local Ok, Packed = pcall(function(): Record
+		return self:Compact(Key, Format)
+	end)
+	if Ok then
+		return Packed
+	end
+
+	warn(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
+	return Record
+end
+
+local function NewLog(Wrapper: DataStoreWrapper): Log
+	return setmetatable({ Wrapper = Wrapper }, Log) :: any
 end
 
 table.freeze(Log)
 
 return table.freeze({
-	New = Log.New,
-	Shape = Shape.New,
+	New = NewLog,
+	Shape = NewShape,
 	Verdict = VERDICT,
 	FloorOf = FloorOf,
 	HasPending = HasPending,
-	PendingTx = PendingTx
+	Holds = Holds,
+	Known = Known,
+	PendingTx = PendingTx,
+	Oversized = Oversized,
+	Overgrown = Overgrown
 })

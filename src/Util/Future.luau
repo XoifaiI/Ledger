@@ -90,7 +90,12 @@ end
 local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: Future<Ret...>, ...: Args...)
 	local Private = ToPrivate(Inst)
 
-	Private.Result = Pack(pcall(Callback, ...))
+	local Result = Pack(pcall(Callback, ...))
+	Private.Result = Result
+
+	if not Result[1] then
+		warn(`Future callback errored: {tostring(Result[2])}`)
+	end
 
 	Finish(Private, Unpack(Private))
 end

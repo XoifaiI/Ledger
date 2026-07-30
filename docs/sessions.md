@@ -125,7 +125,9 @@ end
 `if Session:Apply(...) then` still works; the reason is there when you want it.
 
 `Flush`, `Compact` and `Release` answer with a plain boolean. `Release` returning `false` is the
-one that costs you: those ops die with this server. `CloseAll` retries it three times first.
+one that costs you: those ops die with this server. The datastore wrapper retries the write
+itself, and `CloseAll` lowers it to two quick attempts so shutdown fits inside the time Roblox
+gives it.
 
 Two things worth knowing about `Commit`. A local refusal does not stop it, because a foreign
 write may have landed in between, so the fold over the stored log decides. And a reducer that

@@ -12,7 +12,9 @@ local function Finish(Thread: thread, Success: boolean, ...: any): ...any
 	end
 
 	if coroutine.status(Thread) ~= "dead" then
-		error(debug.traceback(Thread, YIELDED), 2)
+		local Trace = debug.traceback(Thread, YIELDED)
+		coroutine.close(Thread)
+		error(Trace, 2)
 	end
 
 	return ...

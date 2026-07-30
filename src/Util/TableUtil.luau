@@ -3,6 +3,10 @@
 
 -- small grab bag of table helpers, add to it only when something actually needs it
 
+local function Occupied(Value: any): boolean
+	return type(Value) == "table" and next(Value) ~= nil
+end
+
 local function DeepCopy<T>(Value: T, Seen: {[any]: any}?): T
 	if type(Value) ~= "table" then
 		return Value
@@ -51,6 +55,7 @@ local function FreezeDelta<T>(Value: T): T
 end
 
 return table.freeze({
+	Occupied = Occupied,
 	DeepCopy = DeepCopy,
 	DeepFreeze = DeepFreeze,
 	FreezeDelta = FreezeDelta

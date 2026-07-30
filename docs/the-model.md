@@ -115,8 +115,9 @@ Session:Apply("QuestReward", { Quest = "SlimeHunt" }) -- changes meaning when yo
 ```luau
 State._Held, State._Received  -- Ledger's transfer bookkeeping
 Op.Kind = "__Anything"        -- refused, __ is Ledger's prefix
-Op.Tx, Op.TxHome              -- refused, the transaction path owns these
-Op.Id, Op.Kind                -- overwritten with a warning if you pass them
+Op.Tx, Op.TxHome, Op.TxSticky -- refused, the transaction path owns these
+Op.TxAt, Op.TxGen             -- refused, the transaction path owns these
+Op.Id, Op.Kind, Op.OnceAt     -- overwritten with a warning if you pass them
 ```
 
 A `_` prefixed key in your `Default` is refused at build time.

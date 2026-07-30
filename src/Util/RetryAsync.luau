@@ -5,23 +5,23 @@
 
 type Handler = (() -> ...any) -> (boolean, ...any)
 
-export type Options = {
+export type Limits = {
 	Attempts: number?,
 	Constant: number?,
 	Exponent: number?,
-	Handler: Handler?
+	Jitter: number?
 }
 
 local DEFAULT_ATTEMPTS = 5
 local DEFAULT_CONSTANT = 1
 local DEFAULT_EXPONENT = 1.5
+local DEFAULT_JITTER = 0.5
 
-local function RetryAsync(Callback: () -> ...any, Options: Options?): (boolean, ...any)
-	local Config: Options = Options or {}
-	local Attempts = Config.Attempts or DEFAULT_ATTEMPTS
-	local Constant = Config.Constant or DEFAULT_CONSTANT
-	local Exponent = Config.Exponent or DEFAULT_EXPONENT
-	local Handler = Config.Handler
+local function RetryAsync(Callback: () -> ...any, Limits: Limits?, Handler: Handler?): (boolean, ...any)
+	local Bounds: Limits = Limits or {}
+	local Constant = Bounds.Constant or DEFAULT_CONSTANT
+	local Exponent = Bounds.Exponent or DEFAULT_EXPONENT
+	local Jitter = Bounds.Jitter or DEFAULT_JITTER
 
 	local Attempt = 0
 
@@ -35,15 +35,19 @@ local function RetryAsync(Callback: () -> ...any, Options: Options?): (boolean, 
 			Result = table.pack(pcall(Callback))
 		end
 
+		local Allowed = Bounds.Attempts or DEFAULT_ATTEMPTS
 		if not Result[1] then
-			warn(`RetryAsync attempt {Attempt}/{Attempts}: {Result[2]}`)
+			warn(`RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
 		end
 
-		if Result[1] or Attempt >= Attempts then
+		if Result[1] or Attempt >= Allowed then
 			return table.unpack(Result, 1, Result.n)
 		end
 
-		task.wait(Constant + Exponent ^ Attempt + math.random() * 0.5)
+		local Backoff = Constant + Exponent ^ Attempt + math.random() * Jitter
+		if Backoff > 0 then
+			task.wait(Backoff)
+		end
 	end
 end
 

@@ -28,6 +28,8 @@ type DataStoreWrapperImpl = {
 		Handler: Handler?
 	) -> (boolean, any),
 	GetVersionAsync: (self: DataStoreWrapper, Key: string, Version: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
+	ListKeysAsync: (self: DataStoreWrapper, Prefix: string?, PageSize: number?, Handler: Handler?) -> (boolean, any),
+	Budget: (self: DataStoreWrapper, Kind: Enum.DataStoreRequestType) -> number,
 	SkipAllQueuesToLastEnqueued: (self: DataStoreWrapper) -> ()
 }
 
@@ -36,13 +38,38 @@ export type DataStoreWrapper = setmetatable<{
 	Attempts: number?,
 	Constant: number?,
 	Exponent: number?,
+	Jitter: number?,
+	Direct: boolean?,
+	Store: DataStore?,
+	Budgets: ((Kind: Enum.DataStoreRequestType) -> number)?,
 	Queues: { [string]: ThreadQueue }
 }, DataStoreWrapperImpl>
 
 local DataStoreWrapper = {} :: DataStoreWrapperImpl
 DataStoreWrapper.__index = DataStoreWrapper
 
+local Backend: ((Name: string) -> any)? = nil
+local Budgets: ((Kind: Enum.DataStoreRequestType) -> number)? = nil
+
+local function Use(Named: ((Name: string) -> any)?, Ask: ((Kind: Enum.DataStoreRequestType) -> number)?)
+	Backend = Named
+	Budgets = Ask
+end
+
+local function Swapped(): boolean
+	return Backend ~= nil
+end
+
 local function GetStore(self: DataStoreWrapper): DataStore
+	local Own = self.Store
+	if Own ~= nil then
+		return Own
+	end
+
+	local Named = Backend
+	if Named ~= nil then
+		return Named(self.Name)
+	end
 	return DataStoreService:GetDataStore(self.Name)
 end
 
@@ -102,6 +129,20 @@ function DataStoreWrapper.GetVersionAsync(self: DataStoreWrapper, Key: string, V
 	end, Handler)
 end
 
+function DataStoreWrapper.ListKeysAsync(self: DataStoreWrapper, Prefix: string?, PageSize: number?, Handler: Handler?): (boolean, any)
+	return AttemptAsync(self, "", function(Store: DataStore)
+		return Store:ListKeysAsync(Prefix or "", PageSize, nil, true)
+	end, Handler)
+end
+
+function DataStoreWrapper.Budget(self: DataStoreWrapper, Kind: Enum.DataStoreRequestType): number
+	local Ask = self.Budgets or Budgets
+	if Ask ~= nil then
+		return Ask(Kind)
+	end
+	return DataStoreService:GetRequestBudgetForRequestType(Kind)
+end
+
 function DataStoreWrapper.SkipAllQueuesToLastEnqueued(self: DataStoreWrapper)
 	KeyedRetryQueue.SkipAllToLastEnqueued(self)
 end
@@ -119,5 +160,7 @@ end
 table.freeze(DataStoreWrapper)
 
 return table.freeze({
-	New = New
+	New = New,
+	Use = Use,
+	Swapped = Swapped
 })

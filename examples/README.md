@@ -9,9 +9,9 @@ They are type-checked against `src`, so they cannot quietly drift out of date.
 | file | shows |
 | --- | --- |
 | [Shop](Shop.luau) | `Apply`, and why a purchase is one op |
-| [Purchases](Purchases.luau) | `ProcessReceipt` with `CommitOp`, the receipt id as the op id |
+| [Purchases](Purchases.luau) | `ProcessReceipt` with `Once`, and answering from `DidApply` |
 | [Trading](Trading.luau) | `Tx` between two players, named so a retry is safe |
-| [Economy](Economy.luau) | `Transfer` with a dedupe key, `Edit` for offline players, `Peek` |
+| [Economy](Economy.luau) | `Transfer` with a dedupe key, `Edit` and `Once` for offline players, `Peek` |
 | [Clans](Clans.luau) | an entity store, and a transaction across two stores |
 | [Effects](Effects.luau) | getting time into a pure reducer, and rendering gameplay from state |
 

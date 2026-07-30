@@ -3,7 +3,7 @@
 
 -- fills default keys missing from stored data, stored values always win so a returning player keeps theirs
 
-local TableUtil = require("./Util/TableUtil")
+local TableUtil = require("../Util/TableUtil")
 
 local function Reconcile(Defaults: any, Stored: any): any
 	if type(Defaults) ~= "table" or type(Stored) ~= "table" then

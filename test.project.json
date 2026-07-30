@@ -8,8 +8,8 @@
 				"src": {
 					"$path": "src"
 				},
-				"Tests": {
-					"$path": "Tests"
+				"Simulation": {
+					"$path": "Simulation"
 				},
 				"examples": {
 					"$path": "examples"

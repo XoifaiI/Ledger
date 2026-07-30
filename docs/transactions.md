@@ -113,6 +113,9 @@ Store:Tx(Name, Legs)                          -- leg prepared, 100 gold at this 
 Store:Edit(Key, "SpendGold", { Amount = 100 }) -- folds after it, may now be refused
 ```
 
+If the leg is still undecided when the edit answers, an edit the leg's outcome could overturn
+answers `Unresolved` rather than guessing; one it cannot affect answers normally.
+
 ## Crashes
 
 A crashed coordinator cannot wedge a key. Any server that runs into a pending leg resolves it

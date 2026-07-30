@@ -43,6 +43,17 @@ local function Reducer(State: Profile, Op: Ledger.Op): Profile?
 		local Next = table.clone(State)
 		Next.Gold += Amount
 		return Next
+	elseif Op.Kind == "Compensate" then
+		local Amount = Op.Amount :: number
+		if Amount <= 0 then
+			return nil
+		end
+
+		local Next = table.clone(State)
+		Next.Gold += Amount
+		Next.Mail = table.clone(State.Mail)
+		table.insert(Next.Mail, Op.Text :: string)
+		return Next
 	elseif Op.Kind == "Mail" then
 		local Next = table.clone(State)
 		Next.Mail = table.clone(State.Mail)
@@ -67,15 +78,20 @@ end
 
 --[[ compensation, a support grant, a scheduled reward: works offline ]]
 
-local function Grant(Store: Ledger.Store<Profile>, UserId: number, Amount: number, Reason: string)
-	Store:Edit(UserId, "AddGold", { Amount = Amount })
-	Store:Edit(UserId, "Mail", { Text = Reason })
+local function Grant(Store: Ledger.Store<Profile>, UserId: number, Amount: number, Reason: string, GrantId: string): boolean
+	local Name = `grant:{GrantId}`
+	Store:Edit(UserId, "Compensate", { Amount = Amount, Text = Reason, Once = Name }):Wait()
+	return Store:DidApply(UserId, Name):Wait()
 end
 
-local function GrantMany(Store: Ledger.Store<Profile>, Recipients: { number }, Amount: number)
+local function GrantMany(Store: Ledger.Store<Profile>, Recipients: { number }, Amount: number, GrantId: string): number
+	local Granted = 0
 	for _, UserId in Recipients do
-		Store:Edit(UserId, "AddGold", { Amount = Amount })
+		if Grant(Store, UserId, Amount, "a gift for everyone", `{GrantId}:{UserId}`) then
+			Granted += 1
+		end
 	end
+	return Granted
 end
 
 --[[ reading someone else's profile, for a viewer or support tool ]]
@@ -100,6 +116,17 @@ end
 
     an Edit cannot create invalid state any more than gameplay can. it goes through the same
     reducer. so an offline grant of a negative amount is refused exactly like a live one.
+
+    the gold and the mail are one op, not two. two ops can half land, and a player told they
+    were compensated with nothing in their balance is a support ticket. same rule as Shop.
+
+    the grant is named, so running the whole job twice pays nobody twice. name it after the
+    thing being paid for, never the clock. Grant answers from DidApply rather than the Edit,
+    because a rerun changes nothing and is still granted.
+
+    GrantMany waits on each one. a loop that fires Futures without waiting starts every write
+    at once, and a few hundred recipients will empty the request budget in one go. if the list
+    is long, run it in the background and let it take the time it takes.
 --]]
 
 return table.freeze({

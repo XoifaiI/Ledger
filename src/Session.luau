@@ -8,24 +8,26 @@ local NoYield = require("./Util/NoYield")
 local Observer = require("./Util/Observer")
 local TableUtil = require("./Util/TableUtil")
 local DataStoreWrapper = require("./Util/DataStoreWrapper")
-local Fold = require("./Fold")
-local Log = require("./Log")
+local Dedupe = require("./Record/Dedupe")
+local Fold = require("./Record/Fold")
+local Log = require("./Record/Log")
 local Tx = require("./Tx")
-local MakeOp = require("./MakeOp")
-local Measure = require("./Measure")
-local IsStorable = require("./Storable")
+local MakeOp = require("./Record/MakeOp")
+local Measure = require("./Record/Measure")
+local Reasons = require("./Reason")
+local Step = require("./Record/Step")
+local IsStorable = require("./Record/Storable")
 local Types = require("./Types")
 
 type Op = Types.Op
 type Record<S> = Types.Record<S>
 type Reason = Types.Reason
-type Reducer<S> = Types.Reducer<S>
 type Future<T...> = Future.Future<T...>
 type Observer<T> = Observer.Observer<T>
 type Subject<T> = Observer.Subject<T>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type SessionImpl<S> = Types.SessionImpl<S>
-type Verdict<S> = { Why: Reason?, Next: S?, Bytes: number? }
+type Admitted<S> = Types.Admitted<S>
 
 export type Session<S> = Types.Session<S>
 
@@ -39,12 +41,12 @@ local PENDING_POLL = 5
 
 local AUDITING = game:GetService("RunService"):IsStudio()
 
-local REFUSED: Reason = "Refused"
-local CLOSED: Reason = "Closed"
-local BACKLOG: Reason = "Backlog"
-local FULL: Reason = "Full"
-local INVALID: Reason = "Invalid"
-local UNRESOLVED: Reason = "Unresolved"
+local REFUSED = Reasons.Refused
+local CLOSED = Reasons.Closed
+local BACKLOG = Reasons.Backlog
+local FULL = Reasons.Full
+local INVALID = Reasons.Invalid
+local UNRESOLVED = Reasons.Unresolved
 
 local function Guard<S>(State: S): S
 	return TableUtil.FreezeDelta(State)
@@ -54,7 +56,7 @@ local function Rejected(Why: Reason?): Future<boolean, Reason?>
 	return Future.Completed(false, Why)
 end
 
-local Session = {}
+local Session = {} :: SessionImpl<any>
 Session.__index = Session
 
 local function SumBytes(Ops: { Op }): number
@@ -63,11 +65,6 @@ local function SumBytes(Ops: { Op }): number
 		Total += Measure(Op)
 	end
 	return Total
-end
-
-local function Step<S>(Reducer: Reducer<S>, State: S, Op: Op): S?
-	local Ok, Next = pcall(NoYield, Reducer, State, Op)
-	return if Ok and type(Next) == "table" then Next else nil
 end
 
 function Session.ApplyPending<S>(self: Session<S>, State: S, Applied: { [string]: boolean }): S
@@ -149,7 +146,7 @@ function Session.CheckPurity<S>(self: Session<S>, Stored: Record<any>, Folded: S
 	end
 
 	warn(
-		`Ledger: the reducer for '{self.Key}' is not deterministic, so two servers folding this log would disagree. replaying the same ops changed {Where}. a reducer may read only its two arguments: capture os.time, math.random and anything else at the call site and pass it in the op`
+		`Ledger: the reducer for '{self.Key}' is not deterministic, so two servers would fold this log differently. replaying the same ops changed {Where}. read only the two arguments, and pass os.time or math.random in on the op instead`
 	)
 end
 
@@ -195,7 +192,7 @@ function Session.Settled<S>(self: Session<S>, Stored: Record<any>): Record<any>
 	if Ok then
 		return Resolved
 	end
-	warn(`Ledger: could not settle a pending transaction leg on '{self.Key}', folding without it: {Resolved}`)
+	warn(`Ledger: could not settle a pending transaction leg on '{self.Key}', so this fold leaves it out for now: {Resolved}`)
 	return Stored
 end
 
@@ -207,41 +204,50 @@ function Session.Observe<S>(self: Session<S>): Observer<S>
 	return self.Changed
 end
 
-function Session.Admit<S>(self: Session<S>, Op: Op, OpBytes: number): Verdict<S>
+function Session.DidApply<S>(self: Session<S>, Id: string): boolean
+	assert(type(Id) == "string" and #Id > 0, "DidApply needs the same Once name the op was written under")
+	return Dedupe.Has((self.State :: any)._Received, Dedupe.ONCE, Id)
+end
+
+function Session.Admit<S>(self: Session<S>, Op: Op, OpBytes: number): Admitted<S>
 	if self.Released then
-		warn(`Ledger: rejected op '{Op.Kind}', the session was already released (the player left)`)
-		return { Why = CLOSED }
+		warn(`Ledger: rejected op '{Op.Kind}', that session closed when the player left`)
+		return { Outcome = "Refused", Why = CLOSED }
 	end
 
 	if self.LogBytes + OpBytes > MAX_LOG_BYTES then
-		warn(`Ledger: rejected op '{Op.Kind}', the unsaved op backlog is at the {MAX_LOG_BYTES} byte cap (a datastore outage is likely blocking saves)`)
-		return { Why = BACKLOG }
+		warn(`Ledger: rejected op '{Op.Kind}', unsaved ops have hit the {MAX_LOG_BYTES} byte cap. saves are not going through, check the datastore`)
+		return { Outcome = "Refused", Why = BACKLOG }
 	end
 
 	local Next = NoYield(self.Shape.Reducer, self.State, Op)
 	if Next ~= nil and type(Next) ~= "table" then
-		warn(`Ledger: rejected op '{Op.Kind}', the reducer returned a {typeof(Next)} instead of the next state table`)
-		return { Why = INVALID }
+		warn(`Ledger: rejected op '{Op.Kind}', your reducer handed back a {typeof(Next)} instead of the next state table`)
+		return { Outcome = "Refused", Why = INVALID }
 	end
-	if Next ~= nil and self.StateBytes + OpBytes > STATE_CHECK_FLOOR then
-		local Bytes = Measure(Next)
-		if Bytes > MAX_STATE_BYTES and Bytes > Measure(self.State) then
-			warn(`Ledger: rejected op '{Op.Kind}', the profile is at the {MAX_STATE_BYTES} byte cap and this op would grow it`)
-			return { Why = FULL }
-		end
-		return { Next = Next, Bytes = Bytes }
+	if Next == nil then
+		return { Outcome = "Rejected" }
 	end
 
-	return { Next = Next }
+	if self.StateBytes + OpBytes > STATE_CHECK_FLOOR then
+		local Bytes = Measure(Next)
+		if Bytes > MAX_STATE_BYTES and Bytes > Measure(self.State) then
+			warn(`Ledger: rejected op '{Op.Kind}', this profile is already at the {MAX_STATE_BYTES} byte cap and the op would make it bigger`)
+			return { Outcome = "Refused", Why = FULL }
+		end
+		return { Outcome = "Accepted", Next = Next, Bytes = Bytes }
+	end
+
+	return { Outcome = "Accepted", Next = Next }
 end
 
 function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }?): (boolean, Reason?)
 	if #self.Pending >= MAX_PENDING then
-		warn(`Ledger: rejected op '{Kind}', {MAX_PENDING} ops are already pending (a datastore outage is likely blocking saves)`)
+		warn(`Ledger: rejected op '{Kind}', {MAX_PENDING} ops are already pending. saves are not going through, check the datastore`)
 		return false, BACKLOG
 	end
 
-	local Op = MakeOp(Kind, Fields)
+	local Op = MakeOp.New(Kind, Fields)
 
 	local Storable, Unstorable = IsStorable.Op(Op)
 	if not Storable then
@@ -251,10 +257,10 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 
 	local OpBytes = Measure(Op)
 	local Ruling = self:Admit(Op, OpBytes)
-	if Ruling.Why ~= nil then
+	if Ruling.Outcome == "Refused" then
 		return false, Ruling.Why
 	end
-	if Ruling.Next == nil then
+	if Ruling.Outcome == "Rejected" then
 		return false, REFUSED
 	end
 
@@ -273,14 +279,21 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		return Rejected(INVALID)
 	end
 
+	local Named = (Op :: any).Once
+	if Named ~= nil and not (type(Named) == "string" and #Named > 0) then
+		warn(`Ledger: rejected commit '{Op.Kind}', Once has to be a string with something in it if you pass one`)
+		return Rejected(INVALID)
+	end
+
 	local Storable, Unstorable = IsStorable.Op(Op)
 	if not Storable then
 		warn(`Ledger: rejected commit '{Op.Kind}', {Unstorable}`)
 		return Rejected(INVALID)
 	end
+	MakeOp.Stamp(Op)
 
 	local Ruling = self:Admit(Op, Measure(Op))
-	if Ruling.Why ~= nil then
+	if Ruling.Outcome == "Refused" then
 		return Rejected(Ruling.Why)
 	end
 
@@ -297,7 +310,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 
 			local Blocked = Log.HasPending(Stored)
 			if Blocked then
-				warn(`Ledger: commit '{Op.Kind}' finished against a record with a stuck transaction on it, so this answer may change once that transaction clears`)
+				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on the record, so this answer can change once that clears`)
 			end
 
 			local _, Took = self:Rebuild(Stored, Op.Id)
@@ -306,7 +319,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		end)
 
 		if not Ok then
-			warn(`Ledger: commit '{Op.Kind}' could not be written, it may still have landed: {Accepted}`)
+			warn(`Ledger: commit '{Op.Kind}' could not be written, though it might still have gone through: {Accepted}`)
 			return false, UNRESOLVED
 		end
 		if Accepted then
@@ -318,7 +331,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 end
 
 function Session.Commit<S>(self: Session<S>, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
-	return Session.CommitOp(self, MakeOp(Kind, Fields))
+	return Session.CommitOp(self, MakeOp.New(Kind, Fields))
 end
 
 function Session.Flush<S>(self: Session<S>): Future<boolean>
@@ -332,7 +345,7 @@ function Session.Flush<S>(self: Session<S>): Future<boolean>
 			return true
 		end
 
-		warn(`Ledger: flush for '{self.Key}' failed, its ops stay pending for the next one: {Err}`)
+		warn(`Ledger: flush for '{self.Key}' failed. its ops stay pending and the next flush picks them up: {Err}`)
 		return false
 	end)
 end
@@ -361,7 +374,7 @@ function Session.Compact<S>(self: Session<S>): Future<boolean>
 			return true
 		end
 
-		warn(`Ledger: compaction for '{self.Key}' failed, the log stays as it is: {Err}`)
+		warn(`Ledger: compaction for '{self.Key}' failed, so its log just stays long for now: {Err}`)
 		return false
 	end)
 end
@@ -377,7 +390,7 @@ function Session.Release<S>(self: Session<S>): Future<boolean>
 			return true
 		end
 
-		warn(`Ledger: final save for '{self.Key}' failed, {#self.Pending} unsaved op(s) are lost with this server: {Err}`)
+		warn(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
 		return false
 	end)
 end
@@ -404,7 +417,7 @@ local function Load<S>(Records: Log.Log, Format: Log.Shape<S>, Key: string, TxSt
 			Active:Rebuild(Active:Settled(Records:Read(Key)))
 		end)
 		if not Ok then
-			warn(`Ledger: could not load '{Key}', the player will be asked to rejoin: {Reason}`)
+			warn(`Ledger: could not load '{Key}', so the player gets kicked and asked to rejoin: {Reason}`)
 			error(Reason)
 		end
 
