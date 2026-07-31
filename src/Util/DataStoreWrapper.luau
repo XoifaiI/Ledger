@@ -35,6 +35,7 @@ type DataStoreWrapperImpl = {
 
 export type DataStoreWrapper = setmetatable<{
 	Name: string,
+	Spent: number,
 	Attempts: number?,
 	Constant: number?,
 	Exponent: number?,
@@ -80,6 +81,7 @@ local function AttemptAsync(
 	Handler: Handler?
 ): ...any
 	return KeyedRetryQueue.Run(self, Key, function()
+		self.Spent += 1
 		return Operation(GetStore(self))
 	end, Handler)
 end
@@ -150,6 +152,7 @@ end
 local function New(Name: string, Attempts: number?, Constant: number?, Exponent: number?): DataStoreWrapper
 	return setmetatable({
 		Name = Name,
+		Spent = 0,
 		Attempts = Attempts,
 		Constant = Constant,
 		Exponent = Exponent,

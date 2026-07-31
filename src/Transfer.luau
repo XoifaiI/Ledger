@@ -41,11 +41,11 @@ local REDRIVE_HORIZON = 7 * 86400
 local EXPIRE_MARGIN = 86400
 local PRUNE_HORIZON = 30 * 86400
 local RECOVER_LIMIT = 32
+local TOMB_HORIZON = REDRIVE_HORIZON + EXPIRE_MARGIN
 
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
-local UNRESOLVED = Reasons.Unresolved
 
 local function AnyOlderThan(Received: { [string]: any }, Floor: number): boolean
 	for _, Stamp in Received do
@@ -142,16 +142,22 @@ local function Settling(Data: { [any]: any }, Op: Op): { [any]: any }?
 	return Next
 end
 
-local function Pruning(Data: { [any]: any }): { [any]: any }?
+local function Pruning(Data: { [any]: any }, Op: Op): { [any]: any }?
 	local Received = Data._Received
-	if type(Received) ~= "table" then
+	if type(Received) ~= "table" or type(Op.At) ~= "number" then
 		return nil
 	end
 
+	local Floor = Op.At - REDRIVE_HORIZON - EXPIRE_MARGIN
 	local Kept: { [string]: any } = {}
 	local Dropped = false
 	for Id, Stamp in Received do
-		if Dedupe.Tagged(Id, Dedupe.ONCE) or Dedupe.Tagged(Id, Dedupe.TX) then
+		local Keep = Dedupe.Tagged(Id, Dedupe.ONCE)
+			or Dedupe.Tagged(Id, Dedupe.TX)
+			or type(Stamp) ~= "number"
+			or Stamp >= Floor
+
+		if Keep then
 			Kept[Id] = Stamp
 		else
 			Dropped = true
@@ -196,7 +202,7 @@ local function Wrap<S>(GameReducer: Reducer<S>, Field: string): Reducer<S>
 		elseif Kind == SETTLE then
 			return Settling(Data, Op) :: any
 		elseif Kind == PRUNE then
-			return Pruning(Data) :: any
+			return Pruning(Data, Op) :: any
 		end
 
 		return Carried(GameReducer(State, Op), Data) :: any
@@ -275,9 +281,22 @@ local function Settle(Records: Log.Log, From: number | string, Tid: string): Typ
 	return Records:Append(tostring(From), { SettleOp })
 end
 
+local function Entombed(Record: Types.Record<any>): boolean
+	local At = Record.Erased
+	return type(At) == "number" and Clock.Now() - At <= TOMB_HORIZON
+end
+
+local function NotEntombed(Record: Types.Record<any>): boolean
+	return not Entombed(Record)
+end
+
 local function Post(Records: Log.Log, Format: Log.Shape<any>, From: number | string, Tid: string, To: number | string, Amount: number)
 	local DeliverOp: Op = { Id = `{DELIVER_ID}:{Tid}`, Kind = DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now() }
-	local Landed = Records:Append(tostring(To), { DeliverOp })
+	local Landed = Records:Append(tostring(To), { DeliverOp }, NotEntombed)
+	if not Carries(Landed, DeliverOp.Id) then
+		error(Fault.New(REFUSED, `'{To}' was erased, so transfer {Tid} cannot be delivered and the money stays with {From} until it is given back`))
+	end
+
 	local Cleared = Settle(Records, From, Tid)
 
 	Records:Trim(tostring(To), Format, Landed)
@@ -285,7 +304,7 @@ local function Post(Records: Log.Log, Format: Log.Shape<any>, From: number | str
 end
 
 local function Prune(Records: Log.Log, UserId: number | string)
-	local PruneOp: Op = { Id = `{PRUNE_ID}:{HttpService:GenerateGUID(false)}`, Kind = PRUNE }
+	local PruneOp: Op = { Id = `{PRUNE_ID}:{HttpService:GenerateGUID(false)}`, Kind = PRUNE, At = Clock.Now() }
 	Records:Append(tostring(UserId), { PruneOp })
 end
 
@@ -313,7 +332,7 @@ local function Drive(Records: Log.Log, Format: Log.Shape<any>, From: number | st
 	warn(
 		`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`
 	)
-	return false, UNRESOLVED, true
+	return false, Fault.Named(Why), true
 end
 
 local function Expire(Records: Log.Log, Format: Log.Shape<any>, From: number | string, Tid: string, Entry: any, Age: number?)
@@ -400,5 +419,7 @@ return table.freeze({
 	Post = Post,
 	Prune = Prune,
 	Drive = Drive,
-	Recover = Recover
+	Recover = Recover,
+	Entombed = Entombed,
+	TOMB_HORIZON = TOMB_HORIZON
 })

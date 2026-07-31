@@ -95,6 +95,9 @@ local function Materialize(Value: any): Record
 	if type(Value.Version) ~= "number" then
 		Value.Version = nil
 	end
+	if type(Value.Erased) ~= "number" then
+		Value.Erased = nil
+	end
 	if type(Value.Floor) ~= "number" then
 		Value.Floor = nil
 	end
@@ -431,8 +434,15 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?): Record
 		end
 
 		Record.Envelope = ENVELOPE
+		Record.Erased = nil
 		return Record
 	end).After
+end
+
+function Log.Entomb(self: Log, Key: string, At: number): Record
+	return self:Update(Key, function(): Record?
+		return { Ops = {}, Seen = {}, Envelope = ENVELOPE, Erased = At }
+	end).Before
 end
 
 function Log.AppendUnlessPending(self: Log, Key: string, Ops: { Op }): Record

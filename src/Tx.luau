@@ -1,7 +1,7 @@
 --!strict
 --!optimize 2
 
--- lock free multi key transactions, every leg is an op stamped so folds skip it until a marker decides the whole set
+-- lock free multi key transactions, every leg is an op stamped so folds skip it until a marker decides the whole set. legs are prepared one after another, so how long a coordinator may take before a bystander calls it dead is per leg times the leg count the marker already carries
 
 local HttpService = game:GetService("HttpService")
 
@@ -16,7 +16,8 @@ local IsStorable = require("./Record/Storable")
 local Transfer = require("./Transfer")
 local Types = require("./Types")
 
-local TIMEOUT = 60
+local LEG_TIMEOUT = 30
+local TIMEOUT = LEG_TIMEOUT * 2
 local MAX_LEGS = 4
 local PASSES = 3
 local REAP_HORIZON = 3600
@@ -247,7 +248,7 @@ local function DecideMarker(TxStore: DataStoreWrapper, Txid: string, To: Status,
 	return Decided.Status
 end
 
-local function StatusOf(TxStore: DataStoreWrapper, Txid: string, Timeout: number): (Status?, string?, number)
+local function StatusOf(TxStore: DataStoreWrapper, Txid: string, PerLeg: number): (Status?, string?, number)
 	local Looked = Clock.Now()
 	local Ok, Value, Info = TxStore:GetAsync(Txid)
 	if not Ok then
@@ -263,8 +264,9 @@ local function StatusOf(TxStore: DataStoreWrapper, Txid: string, Timeout: number
 		return Marker.Status, Gen, Born
 	end
 
+	local Legs = if type(Marker.Total) == "number" and Marker.Total > 0 then Marker.Total else MAX_LEGS
 	local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
-	if Clock.Now() - Updated >= Timeout then
+	if Clock.Now() - Updated >= PerLeg * Legs then
 		return DecideMarker(TxStore, Txid, ABORTED) or PENDING, Gen, Born
 	end
 	return PENDING, Gen, Born
@@ -401,8 +403,8 @@ local function HomeOf(TxStore: DataStoreWrapper, Home: string | true): DataStore
 	return Elsewhere(Home)
 end
 
-local function Settle(Records: Log.Log, TxStore: DataStoreWrapper, Key: string, Record: Record<any>, Timeout: number?): Record<any>
-	local Limit = Timeout or TIMEOUT
+local function Settle(Records: Log.Log, TxStore: DataStoreWrapper, Key: string, Record: Record<any>, PerLeg: number?): Record<any>
+	local Limit = PerLeg or LEG_TIMEOUT
 	local Pending = Log.PendingTx(Record)
 	if next(Pending) == nil then
 		return Record
@@ -437,8 +439,8 @@ local function Settle(Records: Log.Log, TxStore: DataStoreWrapper, Key: string, 
 	return Resolved
 end
 
-local function PrepareLeg(Leg: Leg, Op: Op, Timeout: number?): Log.Prepared
-	local Record = Settle(Leg.Log, Leg.TxStore, Leg.Key, Leg.Log:Read(Leg.Key), Timeout)
+local function PrepareLeg(Leg: Leg, Op: Op, PerLeg: number?): Log.Prepared
+	local Record = Settle(Leg.Log, Leg.TxStore, Leg.Key, Leg.Log:Read(Leg.Key), PerLeg)
 
 	local Already = Log.Known(Record, Op, Leg.Shape)
 	if Already ~= nil then
@@ -481,12 +483,12 @@ local function Heal(TxStore: DataStoreWrapper, Legs: { Leg }, Txid: string, Gen:
 	DecideMarker(TxStore, Txid, ABORTED, 0)
 end
 
-local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, Timeout: number?): (number, number, Reason?)
+local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: number?): (number, number, Reason?)
 	local Prepared = Floor
 	local Settled = 0
 
 	for Index, Leg in Legs do
-		local Fine, Verdict = pcall(PrepareLeg, Leg, Ops[Index], Timeout)
+		local Fine, Verdict = pcall(PrepareLeg, Leg, Ops[Index], PerLeg)
 
 		if not Fine then
 			return Prepared, Settled, UNRESOLVED
@@ -513,7 +515,7 @@ local function RunOnce(
 	Keys: string,
 	Terms: string,
 	Floor: number,
-	Timeout: number?
+	PerLeg: number?
 ): Pass
 	local Created, Gen, Born = CreateMarker(TxStore, Txid, #Legs, Keys, Terms)
 	if Created == MISMATCH then
@@ -533,7 +535,7 @@ local function RunOnce(
 		return { Committed = false, Why = SPENT, Again = true, Reached = Floor }
 	end
 
-	local Prepared, Settled, Cause = PrepareAll(Legs, Ops, Floor, Timeout)
+	local Prepared, Settled, Cause = PrepareAll(Legs, Ops, Floor, PerLeg)
 	local Clean = Cause == nil
 
 	if Clean and Settled == #Legs then
@@ -582,7 +584,7 @@ local function LegOp(Id: string, Index: number, Leg: Leg, Home: string): Op
 	return Op :: Op
 end
 
-local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Timeout: number?): (boolean, Reason?)
+local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLeg: number?): (boolean, Reason?)
 	assert(type(Id) == "string" and #Id > 0, "a transaction needs an Id, a stable name derived from the thing being settled")
 	assert(#Legs >= 2 and #Legs <= MAX_LEGS, `a transaction takes 2 to {MAX_LEGS} legs, got {#Legs}`)
 
@@ -607,7 +609,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Timeo
 	local Last: Reason = UNRESOLVED
 	local Floor = 0
 	for _ = 1, PASSES do
-		local Attempt = RunOnce(TxStore, Legs, Ops, Id, Keys, Shape, Floor, Timeout)
+		local Attempt = RunOnce(TxStore, Legs, Ops, Id, Keys, Shape, Floor, PerLeg)
 		Floor = Attempt.Reached
 		if Attempt.Committed then
 			return true, nil
@@ -642,6 +644,7 @@ return table.freeze({
 	Settle = Settle,
 	Reap = Reap,
 	ShutdownHomes = ShutdownHomes,
+	LEG_TIMEOUT = LEG_TIMEOUT,
 	TIMEOUT = TIMEOUT,
 	MAX_LEGS = MAX_LEGS,
 	REAP_HORIZON = REAP_HORIZON

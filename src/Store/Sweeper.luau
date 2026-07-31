@@ -113,7 +113,7 @@ function Sweeper.Pass(self: Sweeper)
 			continue
 		end
 		if not Affordable(Entry.Store) then
-			return
+			continue
 		end
 
 		Entry.Tries += 1

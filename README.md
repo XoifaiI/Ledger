@@ -81,27 +81,12 @@ validates them.
 
 ```toml
 [server-dependencies]
-Ledger = "xoifaii/ledger@3.1.0"
+Ledger = "xoifaii/ledger@3.1.1"
 ```
 
 **Rojo**: clone the repo and add `src` to your project as `ServerStorage/Ledger`.
 
 **Model file**: insert the `Ledger` module anywhere server side.
-
-## Running without a datastore
-
-```luau
-Ledger.UseMock({ Players = 30 })  -- every store goes in memory, real limits, no API access needed
-Ledger.UseReal()                  -- back to the real datastore
-```
-
-Stricter than Studio on purpose, since Studio reports budgets a live server never gets. See
-[the API reference](docs/api.md) for the options and the clock swap that goes with it.
-
-`Cases` is the gate. `Fuzz` generates random workloads of edits, transfers, transactions and
-sessions across up to eight servers, then asserts the properties any correct ledger must hold:
-money is conserved, every transaction applies to all of its keys or none, nothing stays pending once
-things go quiet, and no balance goes negative.
 
 ## License
 

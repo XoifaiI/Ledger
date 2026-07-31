@@ -5,6 +5,7 @@
 
 local HttpService = game:GetService("HttpService")
 
+local NoYield = require("./Util/NoYield")
 local Clock = require("./Clock")
 
 local MAX_NAME = 50
@@ -15,6 +16,7 @@ local KEEP_VERSIONS = 30
 local REFILL_WINDOW = 60
 local QUEUE_LIMIT = 30
 local QUEUE_STEP = 0.05
+local CONFLICT_LIMIT = 32
 local PAGE_LIMIT = 100
 
 local READ_BYTES = 25 * 1024 * 1024
@@ -378,14 +380,29 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 	CheckKey(Key)
 	Reach(self, Enum.DataStoreRequestType.UpdateAsync)
 
-	local Was, Info = Current(self, Key)
-	local Next = Transform(Was, Info)
-	if Next == nil then
-		return nil, nil
+	for _ = 1, CONFLICT_LIMIT do
+		local Latest = Newest(Held(self, Key))
+		local Before = if Latest then Latest.Label else nil
+
+		local Was, Info = Current(self, Key)
+		local Ran, Next = pcall(NoYield, Transform, Was, Info)
+		if not Ran then
+			error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)
+		end
+		if Next == nil then
+			return nil, nil
+		end
+
+		local Moved = Newest(Held(self, Key))
+		if (if Moved then Moved.Label else nil) ~= Before then
+			continue
+		end
+
+		local Fresh = Put(self, Key, Next)
+		return Decode(Fresh.Text), MakeInfo(Fresh.Label, Fresh.Written)
 	end
 
-	local Fresh = Put(self, Key, Next)
-	return Decode(Fresh.Text), MakeInfo(Fresh.Label, Fresh.Written)
+	error(`Ledger mock: UpdateAsync on '{Key}' could not settle, too many conflicting writes`, 0)
 end
 
 function Store.SetAsync(self: Store, Key: string, Value: any): string

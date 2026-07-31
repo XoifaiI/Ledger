@@ -1,7 +1,7 @@
 --!strict
 --!optimize 2
 
--- the store object Ledger.New hands back. one per datastore name, owning every key under it and every session live on this server
+-- the store object Ledger.New hands back. one per datastore name, owning every key under it and every session live on this server. the datastore budget belongs to the whole server, so when it runs short the sessions holding the most unsaved work save first
 
 local Players = game:GetService("Players")
 
@@ -10,6 +10,7 @@ local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
 local Threads = require("../Util/Threads")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Clock = require("../Clock")
 local Fault = require("../Fault")
 local Dedupe = require("../Record/Dedupe")
 local Log = require("../Record/Log")
@@ -42,6 +43,8 @@ type LegTarget = { Store: DataStore, Key: string }
 
 local AUTOSAVE_INTERVAL = 30
 local MIN_WRITE_BUDGET = 4
+local MIN_HEAVY_BUDGET = 1
+local HEAVY_PENDING = 256
 
 local MAX_KEY = 50
 local MAX_TRANSFER_ID = 64
@@ -350,7 +353,10 @@ function DataStore.Maintain(self: DataStore, Key: string, Record: Record): Recor
 	end
 
 	self:Watch(Key, Settled)
-	self:Records():Trim(Key, self:Format(), Settled)
+	local Trimmed = self:Records():Trim(Key, self:Format(), Settled)
+	if Log.HasPending(Trimmed) and Log.Overgrown(Trimmed) then
+		self:Swelling(Key, Trimmed)
+	end
 	return Settled
 end
 
@@ -398,6 +404,51 @@ function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, G
 	return Why == nil, Why
 end
 
+function DataStore.Swelling(self: DataStore, Key: string, Record: Record)
+	local Meter = self.Meter
+	Meter.Swollen += 1
+
+	local Now = Clock.Now()
+	if Now - Meter.Said < AUTOSAVE_INTERVAL then
+		return
+	end
+
+	local Blocking = "a transaction"
+	for Txid in Log.PendingTx(Record) do
+		Blocking = `transaction '{Txid}'`
+		break
+	end
+
+	warn(
+		`Ledger: '{Key}' is carrying {#Record.Ops} ops it cannot compact away because {Blocking} is still parked on it, so the record keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`
+	)
+
+	Meter.Swollen = 0
+	Meter.Said = Now
+end
+
+function DataStore.Starved(self: DataStore, Pool: Enum.DataStoreRequestType)
+	local Meter = self.Meter
+	Meter.Skipped += 1
+
+	local Now = Clock.Now()
+	if Now - Meter.At < AUTOSAVE_INTERVAL then
+		return
+	end
+
+	local Records = self.Wrapper.Spent - Meter.Records
+	local Markers = self.TxWrapper.Spent - Meter.Markers
+
+	warn(
+		`Ledger: {Meter.Skipped} autosave(s) skipped on '{self.Options.Name}' with {Pool.Name} budget at {self.Wrapper:Budget(Pool)}, so unsaved ops are piling up. this server spent {Records} request(s) on records and {Markers} on transaction markers since the last of these`
+	)
+
+	Meter.Skipped = 0
+	Meter.At = Now
+	Meter.Records = self.Wrapper.Spent
+	Meter.Markers = self.TxWrapper.Spent
+end
+
 function DataStore.Autosave(self: DataStore, UserId: number)
 	local Entry = self.Loaded[UserId]
 	if Entry == nil then
@@ -407,8 +458,10 @@ function DataStore.Autosave(self: DataStore, UserId: number)
 	local Active = Entry.Active
 	local Writing = #Active.Pending > 0 or Log.Oversized(Active.LogSize, Active.LogBytes)
 	local Pool = if Writing then Enum.DataStoreRequestType.UpdateAsync else Enum.DataStoreRequestType.GetAsync
-	if self.Wrapper:Budget(Pool) < MIN_WRITE_BUDGET then
-		warn(`Ledger: skipped the autosave for {UserId}, this server is out of datastore budget and unsaved ops are piling up`)
+
+	local Floor = if #Active.Pending >= HEAVY_PENDING then MIN_HEAVY_BUDGET else MIN_WRITE_BUDGET
+	if self.Wrapper:Budget(Pool) < Floor then
+		self:Starved(Pool)
 		return
 	end
 
@@ -428,6 +481,50 @@ function DataStore.Save(self: DataStore, Active: Session<any>): Future<boolean>
 	return Job
 end
 
+function DataStore.Buried(self: DataStore, Key: string, Replaced: Record)
+	local Field = self.Options.Balance
+	if Field == nil then
+		return
+	end
+
+	local Ok, State = pcall(function(): any
+		return self:Fold(Replaced)
+	end)
+	if not Ok or type(State) ~= "table" then
+		return
+	end
+
+	local Balance = (State :: any)[Field]
+	if type(Balance) ~= "number" or Balance <= 0 then
+		return
+	end
+
+	warn(
+		`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Transfer.TOMB_HORIZON // 86400} days is turned away and given back to whoever sent it`
+	)
+end
+
+function DataStore.Handled(self: DataStore, Player: Player, Why: Reason): boolean
+	local Answer = self.Options.OnLoadFailed
+	if Answer == nil then
+		return false
+	end
+
+	local Ok, Took = pcall(Answer, Player, Why)
+	if not Ok then
+		warn(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
+		return false
+	end
+	if Took ~= true then
+		return false
+	end
+
+	if Player.Parent ~= nil and Players:GetPlayerByUserId(Player.UserId) ~= nil then
+		warn(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
+	end
+	return true
+end
+
 function DataStore.Load(self: DataStore, Player: Player)
 	self:ExpectPlayers("Load")
 	local UserId = Player.UserId
@@ -443,14 +540,16 @@ function DataStore.Load(self: DataStore, Player: Player)
 	self.Loads[UserId] = "Loading"
 
 	local Job = Session.Load(self:Records(), self:Format(), tostring(UserId), self.TxWrapper)
-	local Active = Job:Wait()
+	local Active, Why = Job:Wait()
 
 	local Left = self.Loads[UserId] == "Leaving"
 	self.Loads[UserId] = nil
 
-	if not Job:Happened() or Active == nil then
-		Player:Kick("Your data failed to load, please rejoin")
+	if Active == nil then
 		self:Wake(UserId, nil)
+		if not self:Handled(Player, Why or UNRESOLVED) then
+			Player:Kick("Your data failed to load, please rejoin")
+		end
 		return
 	end
 
@@ -460,7 +559,7 @@ function DataStore.Load(self: DataStore, Player: Player)
 		return
 	end
 
-	if Left or not Player.Parent then
+	if Left or self.Closed or not Player.Parent then
 		Active:Release()
 		self:Wake(UserId, nil)
 		return
@@ -769,20 +868,27 @@ function DataStore.Erase(self: DataStore, Key: KeyLike): Future<boolean, Reason?
 			Holds, Amount = HandOver(self, Resolved)
 		end
 
-		local Ok, Why = pcall(function()
-			local Gone, Reason = self.Wrapper:RemoveAsync(Resolved)
-			if not Gone then
-				error(Reason)
-			end
+		local Ok, Replaced = pcall(function(): Record
+			return self:Records():Entomb(Resolved, Clock.Now())
 		end)
 
 		if not Ok then
-			return false, Failed("erase", Resolved, Why)
+			return false, Failed("erase", Resolved, Replaced)
 		end
 
 		if Holds > 0 then
 			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} were still in flight, so that money is gone for good. check the audit log and pay the receivers back by hand`)
 		end
+
+		local Before = Replaced :: Record
+		if Before.Erased ~= nil and not Transfer.Entombed(Before) then
+			pcall(function()
+				self.Wrapper:RemoveAsync(Resolved)
+			end)
+			return true, nil
+		end
+
+		self:Buried(Resolved, Before)
 		return true, nil
 	end)
 end
@@ -855,6 +961,7 @@ local function New<D>(Config: Config<D>): Store<D>
 		Waiters = {},
 		Loads = {},
 		Saving = {},
+		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
 		Closed = false
 	}
 	local Built: DataStore = setmetatable(Body :: any, DataStore) :: any

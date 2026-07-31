@@ -8,6 +8,7 @@ local NoYield = require("./Util/NoYield")
 local Observer = require("./Util/Observer")
 local TableUtil = require("./Util/TableUtil")
 local DataStoreWrapper = require("./Util/DataStoreWrapper")
+local Fault = require("./Fault")
 local Dedupe = require("./Record/Dedupe")
 local Fold = require("./Record/Fold")
 local Log = require("./Record/Log")
@@ -395,8 +396,8 @@ function Session.Release<S>(self: Session<S>): Future<boolean>
 	end)
 end
 
-local function Load<S>(Records: Log.Log, Format: Log.Shape<S>, Key: string, TxStore: DataStoreWrapper?): Future<Session<S>>
-	return Future.New(function(): Session<S>
+local function Load<S>(Records: Log.Log, Format: Log.Shape<S>, Key: string, TxStore: DataStoreWrapper?): Future<Session<S>?, Reason?>
+	return Future.New(function(): (Session<S>?, Reason?)
 		local Body = {
 			Log = Records,
 			Shape = Format,
@@ -417,11 +418,11 @@ local function Load<S>(Records: Log.Log, Format: Log.Shape<S>, Key: string, TxSt
 			Active:Rebuild(Active:Settled(Records:Read(Key)))
 		end)
 		if not Ok then
-			warn(`Ledger: could not load '{Key}', so the player gets kicked and asked to rejoin: {Reason}`)
-			error(Reason)
+			warn(`Ledger: could not load '{Key}': {Reason}`)
+			return nil, Fault.Named(Reason)
 		end
 
-		return Active
+		return Active, nil
 	end)
 end
 

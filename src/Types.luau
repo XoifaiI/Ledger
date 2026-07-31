@@ -24,7 +24,8 @@ export type Record<S> = {
 	Seen: { string },
 	Version: number?,
 	Floor: number?,
-	Envelope: number?
+	Envelope: number?,
+	Erased: number?
 }
 
 export type HistoryEntry = {
@@ -84,6 +85,7 @@ export type LogImpl = {
 	ReadVersion: (self: LogHandle, Key: string, Version: string) -> Record<any>,
 	Append: (self: LogHandle, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?) -> Record<any>,
 	AppendUnlessPending: (self: LogHandle, Key: string, Ops: { Op }) -> Record<any>,
+	Entomb: (self: LogHandle, Key: string, At: number) -> Record<any>,
 	Prepare: (self: LogHandle, Key: string, Op: Op, Format: Shape<any>) -> LogPrepared,
 	Resolve: (self: LogHandle, Key: string, Verdicts: { [string]: LogVerdict }) -> LogResolution,
 	Compact: (self: LogHandle, Key: string, Format: Shape<any>) -> Record<any>,
@@ -180,7 +182,8 @@ export type Config<D> = {
 	read Default: D,
 	read Balance: string?,
 	read Migrations: { Migration }?,
-	read Keys: KeysMode?
+	read Keys: KeysMode?,
+	read OnLoadFailed: ((Player: Player, Why: Reason) -> boolean)?
 }
 
 type LoadedEntry = {
@@ -189,6 +192,15 @@ type LoadedEntry = {
 }
 
 type LoadPhase = "Loading" | "Leaving"
+
+type Meter = {
+	Skipped: number,
+	At: number,
+	Records: number,
+	Markers: number,
+	Swollen: number,
+	Said: number
+}
 
 type StoreFields = {
 	Options: Config<any>,
@@ -202,6 +214,7 @@ type StoreFields = {
 	Waiters: { [number]: { thread } },
 	Loads: { [number]: LoadPhase },
 	Saving: { [Future<boolean>]: boolean },
+	Meter: Meter,
 	Closed: boolean
 }
 
@@ -227,8 +240,12 @@ export type DataStoreImpl = {
 	Append: (self: DataStore, Key: string, Op: Op, Guard: ((Record<any>) -> boolean)?) -> Record<any>,
 	Maintain: (self: DataStore, Key: string, Record: Record<any>) -> Record<any>,
 	Written: (self: DataStore, Key: string, Op: Op, What: string, Guard: ((Record<any>) -> boolean)?, Denied: Reason?) -> (boolean, Reason?),
+	Starved: (self: DataStore, Pool: Enum.DataStoreRequestType) -> (),
+	Swelling: (self: DataStore, Key: string, Record: Record<any>) -> (),
 	Autosave: (self: DataStore, UserId: number) -> (),
 	Save: (self: DataStore, Active: Session<any>) -> Future<boolean>,
+	Buried: (self: DataStore, Key: string, Replaced: Record<any>) -> (),
+	Handled: (self: DataStore, Player: Player, Why: Reason) -> boolean,
 
 	Load: (self: DataStore, Player: Player) -> (),
 	Unload: (self: DataStore, Player: Player) -> (),

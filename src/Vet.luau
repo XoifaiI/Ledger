@@ -53,6 +53,14 @@ local function Named<D>(Options: Config<D>)
 		Options.Keys == nil or Options.Keys == "Player" or Options.Keys == "String",
 		`Keys must be "Player" or "String"`
 	)
+	assert(
+		Options.OnLoadFailed == nil or type(Options.OnLoadFailed) == "function",
+		"OnLoadFailed must be a (Player, Reason) -> boolean function if you pass one"
+	)
+	assert(
+		Options.OnLoadFailed == nil or Options.Keys ~= "String",
+		"OnLoadFailed only fires for Store:Load, which needs Keys to be \"Player\""
+	)
 end
 
 local function Storable<D>(Options: Config<D>)
