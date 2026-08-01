@@ -307,7 +307,7 @@ function DataStore.ReapMarkers(self: DataStore): number
 	return 0
 end
 
-function DataStore.Resettle(self: DataStore, Key: string): boolean
+function DataStore.Repair(self: DataStore, Key: string): boolean
 	local Record = Tx.Settle(self:Records(), self.TxWrapper, Key, self:ReadRecord(Key))
 	if Log.HasPending(Record) then
 		return false
@@ -475,7 +475,7 @@ function DataStore.Autosave(self: DataStore, UserId: number)
 	warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
 end
 
-function DataStore.Save(self: DataStore, Active: Session<any>): Future<boolean>
+function DataStore.Save(self: DataStore, Active: Session<any>): Future<boolean, Reason?>
 	local Job = Active:Release()
 	self.Saving[Job] = true
 	return Job
@@ -490,7 +490,11 @@ function DataStore.Buried(self: DataStore, Key: string, Replaced: Record)
 	local Ok, State = pcall(function(): any
 		return self:Fold(Replaced)
 	end)
-	if not Ok or type(State) ~= "table" then
+	if not Ok then
+		warn(`Ledger: erased '{Key}' but could not read back what was on it, so this cannot say what went with it: {State}`)
+		return
+	end
+	if type(State) ~= "table" then
 		return
 	end
 
@@ -575,13 +579,12 @@ function DataStore.Load(self: DataStore, Player: Player)
 
 	local Held = Active:Get()._Held
 	if TableUtil.Occupied(Held) then
+		local Records, Format = self:Records(), self:Format()
 		task.spawn(function()
-			Transfer.Recover(
-				self:Records(),
-				self:Format(),
-				UserId,
-				Held
-			)
+			local Ok, Why = pcall(Transfer.Recover, Records, Format, UserId, Held)
+			if not Ok then
+				Failed("pick up the unfinished transfers on", tostring(UserId), Why)
+			end
 		end)
 	end
 end
@@ -724,6 +727,20 @@ function DataStore.PeekVersion(self: DataStore, Key: KeyLike, Version: string): 
 	end)
 end
 
+function DataStore.Inspect(self: DataStore, Key: KeyLike): Future<Record?, Reason?>
+	local Resolved = self:Resolve(Key, "Inspect")
+
+	return Future.New(function(): (Record?, Reason?)
+		local Ok, Stored = pcall(function(): Record
+			return self:ReadRecord(Resolved)
+		end)
+		if not Ok then
+			return nil, Failed("inspect", Resolved, Stored)
+		end
+		return TableUtil.DeepFreeze(TableUtil.DeepCopy(Stored)), nil
+	end)
+end
+
 function DataStore.Edit(self: DataStore, Key: KeyLike, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Edit")
 
@@ -811,6 +828,20 @@ function DataStore.Tx(self: DataStore, Id: string, Legs: { TxLeg }): Future<bool
 	end)
 end
 
+function DataStore.Resettle(self: DataStore, Key: KeyLike): Future<boolean, Reason?>
+	local Resolved = self:Resolve(Key, "Resettle")
+
+	return Future.New(function(): (boolean, Reason?)
+		local Ok, Clean = pcall(function(): boolean
+			return self:Repair(Resolved)
+		end)
+		if not Ok then
+			return false, Failed("finish what is unsettled on", Resolved, Clean)
+		end
+		return Clean, if Clean then nil else BUSY
+	end)
+end
+
 function DataStore.RecoverTransfers(self: DataStore, Key: KeyLike): Future<boolean, Reason?>
 	self:ExpectBalance("RecoverTransfers")
 	local Resolved = self:Resolve(Key, "RecoverTransfers")
@@ -882,9 +913,12 @@ function DataStore.Erase(self: DataStore, Key: KeyLike): Future<boolean, Reason?
 
 		local Before = Replaced :: Record
 		if Before.Erased ~= nil and not Transfer.Entombed(Before) then
-			pcall(function()
-				self.Wrapper:RemoveAsync(Resolved)
+			local Reached, Gone, Cause = pcall(function(): (boolean, any)
+				return self.Wrapper:RemoveAsync(Resolved)
 			end)
+			if not (Reached and Gone) then
+				Failed("take the old record off the datastore for", Resolved, if Reached then Cause else Gone)
+			end
 			return true, nil
 		end
 
@@ -909,7 +943,7 @@ function DataStore.Destroy(self: DataStore)
 	Registry.Claimed[`{self.Options.Name}_Tx`] = nil
 	Registry.Sweep:Forget(self)
 
-	local Jobs: { Future<boolean> } = {}
+	local Jobs: { Future<boolean, Reason?> } = {}
 	for UserId, Entry in self.Loaded do
 		self.Loaded[UserId] = nil
 		task.cancel(Entry.Ticker)

@@ -3,10 +3,9 @@
 
 -- builds an op with a fresh unique id, which is what makes a retried append apply once
 
-local HttpService = game:GetService("HttpService")
-
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Clock")
+local Ident = require("./Ident")
 local Types = require("../Types")
 
 type Op = Types.Op
@@ -35,7 +34,7 @@ local function MakeOp(Kind: string, Fields: { [any]: any }?): Op
 		warn(`Ledger: op '{Kind}' passed Id, Kind or OnceAt in its fields. those belong to Ledger, so they got overwritten`)
 	end
 
-	Op.Id = HttpService:GenerateGUID(false)
+	Op.Id = Ident.Fresh()
 	Op.Kind = Kind
 	Op.OnceAt = nil
 	Stamp(Op :: Op)

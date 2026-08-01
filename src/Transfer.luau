@@ -3,12 +3,11 @@
 
 -- moves a balance across two keys in three legs, reserve, deliver, settle. each leg is atomic and deduped by transfer id
 
-local HttpService = game:GetService("HttpService")
-
 local DataStoreWrapper = require("./Util/DataStoreWrapper")
 local Clock = require("./Clock")
 local Fault = require("./Fault")
 local Dedupe = require("./Record/Dedupe")
+local Ident = require("./Record/Ident")
 local Log = require("./Record/Log")
 local Reasons = require("./Reason")
 local Types = require("./Types")
@@ -243,7 +242,7 @@ local function Reserve(Records: Log.Log, Format: Log.Shape<any>, From: number | 
 		return { Outcome = "Stopped", Why = REFUSED }
 	end
 
-	local Tid = Id or HttpService:GenerateGUID(false)
+	local Tid = Id or Ident.Fresh()
 
 	if Id ~= nil and Delivered(Records, Format, To, Tid) then
 		return { Outcome = "Finished" }
@@ -304,7 +303,7 @@ local function Post(Records: Log.Log, Format: Log.Shape<any>, From: number | str
 end
 
 local function Prune(Records: Log.Log, UserId: number | string)
-	local PruneOp: Op = { Id = `{PRUNE_ID}:{HttpService:GenerateGUID(false)}`, Kind = PRUNE, At = Clock.Now() }
+	local PruneOp: Op = { Id = `{PRUNE_ID}:{Ident.Fresh()}`, Kind = PRUNE, At = Clock.Now() }
 	Records:Append(tostring(UserId), { PruneOp })
 end
 

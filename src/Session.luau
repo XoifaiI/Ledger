@@ -112,6 +112,11 @@ local function Diverged(Live: any, Folded: any, Path: string): string?
 	if Live == Folded then
 		return nil
 	end
+	if type(Live) == "buffer" and type(Folded) == "buffer" then
+		return if buffer.tostring(Live) == buffer.tostring(Folded)
+			then nil
+			else `{Path} holds different bytes live and refolded`
+	end
 	if type(Live) ~= "table" or type(Folded) ~= "table" then
 		return `{Path} is {tostring(Live)} live and {tostring(Folded)} refolded`
 	end
@@ -335,24 +340,24 @@ function Session.Commit<S>(self: Session<S>, Kind: string, Fields: { [any]: any 
 	return Session.CommitOp(self, MakeOp.New(Kind, Fields))
 end
 
-function Session.Flush<S>(self: Session<S>): Future<boolean>
-	return Future.New(function(): boolean
+function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
+	return Future.New(function(): (boolean, Reason?)
 		local Ok, Err = pcall(function()
 			local Stored = self:Settled(self:Push() or self.Log:Read(self.Key))
 			self:Rebuild(Stored)
 			self:Notify()
 		end)
 		if Ok then
-			return true
+			return true, nil
 		end
 
 		warn(`Ledger: flush for '{self.Key}' failed. its ops stay pending and the next flush picks them up: {Err}`)
-		return false
+		return false, Fault.Named(Err)
 	end)
 end
 
-function Session.Compact<S>(self: Session<S>): Future<boolean>
-	return Future.New(function(): boolean
+function Session.Compact<S>(self: Session<S>): Future<boolean, Reason?>
+	return Future.New(function(): (boolean, Reason?)
 		local Ok, Err = pcall(function()
 			self:Push()
 
@@ -372,27 +377,27 @@ function Session.Compact<S>(self: Session<S>): Future<boolean>
 			self:Notify()
 		end)
 		if Ok then
-			return true
+			return true, nil
 		end
 
 		warn(`Ledger: compaction for '{self.Key}' failed, so its log just stays long for now: {Err}`)
-		return false
+		return false, Fault.Named(Err)
 	end)
 end
 
-function Session.Release<S>(self: Session<S>): Future<boolean>
-	return Future.New(function(): boolean
+function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
+	return Future.New(function(): (boolean, Reason?)
 		self.Released = true
 
 		local Ok, Err = pcall(function()
 			self:Push()
 		end)
 		if Ok then
-			return true
+			return true, nil
 		end
 
 		warn(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
-		return false
+		return false, Fault.Named(Err)
 	end)
 end
 

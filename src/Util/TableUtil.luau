@@ -8,6 +8,11 @@ local function Occupied(Value: any): boolean
 end
 
 local function DeepCopy<T>(Value: T, Seen: {[any]: any}?): T
+	if type(Value) == "buffer" then
+		local Fresh = buffer.create(buffer.len(Value :: any))
+		buffer.copy(Fresh, 0, Value :: any)
+		return Fresh :: any
+	end
 	if type(Value) ~= "table" then
 		return Value
 	end

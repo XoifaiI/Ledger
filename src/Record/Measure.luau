@@ -7,6 +7,7 @@
 local MAX_EXACT = 2 ^ 53
 local SEVENS = 0x7F7F7F7F
 local HIGH = 0x80808080
+local BUFFER_WRAP = 35
 
 local function ZeroLanes(Word: number): number
 	local Low = bit32.band(Word, SEVENS) + SEVENS
@@ -73,6 +74,8 @@ local function Measure(Value: any): number
 		return NumberBytes(Value)
 	elseif Kind == "boolean" then
 		return 5
+	elseif Kind == "buffer" then
+		return BUFFER_WRAP + 4 * ((buffer.len(Value) + 2) // 3)
 	elseif Kind ~= "table" then
 		return 0
 	end

@@ -71,7 +71,7 @@ function Check(Value: any, Path: string, Seen: { [any]: boolean }, Depth: number
 			return false, `{Path} is not valid utf8`
 		end
 		return true, Path
-	elseif Kind == "boolean" then
+	elseif Kind == "boolean" or Kind == "buffer" then
 		return true, Path
 	elseif Kind ~= "table" then
 		return false, `{Path} is a {typeof(Value)}`

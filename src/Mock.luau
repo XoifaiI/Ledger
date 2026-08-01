@@ -30,26 +30,47 @@ local THROTTLED = "DataStore request dropped, the queue is full and this server 
 
 type Allowance = {
 	read Base: number,
-	read PerPlayer: number,
+	read PerPlayer: number
 }
 
-local STANDARD: Allowance = { Base = 60, PerPlayer = 40 }
-local LISTING: Allowance = { Base = 5, PerPlayer = 2 }
+type Budget = {
+	read Server: Allowance,
+	read Experience: Allowance
+}
 
-local ALLOWANCES: { [string]: Allowance } = {
+type Lane = {
+	read Id: string,
+	read Cap: number
+}
+
+local STANDARD: Budget = {
+	Server = { Base = 60, PerPlayer = 40 },
+	Experience = { Base = 300, PerPlayer = 40 }
+}
+local MUTATING: Budget = {
+	Server = { Base = 60, PerPlayer = 40 },
+	Experience = { Base = 300, PerPlayer = 20 }
+}
+local LISTING: Budget = {
+	Server = { Base = 5, PerPlayer = 2 },
+	Experience = { Base = 300, PerPlayer = 2 }
+}
+
+local ALLOWANCES: { [string]: Budget } = {
 	GetAsync = STANDARD,
-	UpdateAsync = STANDARD,
-	SetIncrementAsync = STANDARD,
+	UpdateAsync = MUTATING,
+	SetIncrementAsync = MUTATING,
 	GetSortedAsync = STANDARD,
-	SetIncrementSortedAsync = STANDARD,
+	SetIncrementSortedAsync = MUTATING,
 	GetVersionAsync = STANDARD,
 	RemoveVersionAsync = STANDARD,
 	OnUpdate = STANDARD,
-	ListAsync = LISTING,
+	ListAsync = LISTING
 }
 
 export type Options = {
 	Players: number?,
+	CCU: number?,
 	Throttled: boolean?,
 }
 
@@ -129,6 +150,7 @@ export type Service = setmetatable<{
 	Filled: { [string]: number },
 	Queued: number,
 	Players: number,
+	CCU: number,
 	Throttled: boolean,
 }, ServiceImpl>
 
@@ -225,9 +247,20 @@ local function MakePages(Rows: { any }, PageSize: number?, Fallback: number): Pa
 	}, Pages)
 end
 
-local function Ceiling(self: Service, Kind: Enum.DataStoreRequestType): number
-	local Allowance = ALLOWANCES[Kind.Name] or STANDARD
-	return Allowance.Base + Allowance.PerPlayer * self.Players
+local function Ceiling(Allowance: Allowance, Players: number): number
+	return Allowance.Base + Allowance.PerPlayer * Players
+end
+
+local function ServerCap(self: Service, Kind: Enum.DataStoreRequestType): number
+	return Ceiling((ALLOWANCES[Kind.Name] or STANDARD).Server, self.Players)
+end
+
+local function LanesFor(self: Service, Kind: Enum.DataStoreRequestType): { Lane }
+	local Budget = ALLOWANCES[Kind.Name] or STANDARD
+	return {
+		{ Id = `s\0{Kind.Name}`, Cap = Ceiling(Budget.Server, self.Players) },
+		{ Id = `x\0{Kind.Name}`, Cap = Ceiling(Budget.Experience, self.CCU) }
+	}
 end
 
 local function Refill(self: Service, Id: string, Cap: number): number
@@ -241,9 +274,24 @@ local function Refill(self: Service, Id: string, Cap: number): number
 	return Held
 end
 
-local function Await(self: Service, Id: string, Cap: number, Cost: number)
-	if Refill(self, Id, Cap) >= Cost then
-		self.Tokens[Id] -= Cost
+local function Ready(self: Service, Lanes: { Lane }, Cost: number): boolean
+	for _, Lane in Lanes do
+		if Refill(self, Lane.Id, Lane.Cap) < Cost then
+			return false
+		end
+	end
+	return true
+end
+
+local function Take(self: Service, Lanes: { Lane }, Cost: number)
+	for _, Lane in Lanes do
+		self.Tokens[Lane.Id] -= Cost
+	end
+end
+
+local function Await(self: Service, Lanes: { Lane }, Cost: number)
+	if Ready(self, Lanes, Cost) then
+		Take(self, Lanes, Cost)
 		return
 	end
 
@@ -252,22 +300,22 @@ local function Await(self: Service, Id: string, Cap: number, Cost: number)
 	end
 
 	self.Queued += 1
-	while Refill(self, Id, Cap) < Cost do
+	while not Ready(self, Lanes, Cost) do
 		task.wait(QUEUE_STEP)
 	end
 	self.Queued -= 1
-	self.Tokens[Id] -= Cost
+	Take(self, Lanes, Cost)
 end
 
 function Service.GetRequestBudgetForRequestType(self: Service, Kind: Enum.DataStoreRequestType): number
-	return math.floor(Refill(self, `q\0{Kind.Name}`, Ceiling(self, Kind)))
+	return math.floor(Refill(self, `s\0{Kind.Name}`, ServerCap(self, Kind)))
 end
 
 function Service.Spend(self: Service, Kind: Enum.DataStoreRequestType)
 	if not self.Throttled then
 		return
 	end
-	Await(self, `q\0{Kind.Name}`, Ceiling(self, Kind), 1)
+	Await(self, LanesFor(self, Kind), 1)
 end
 
 function Service.Carry(self: Service, Way: string, Store: string, Key: string, Bytes: number)
@@ -276,7 +324,7 @@ function Service.Carry(self: Service, Way: string, Store: string, Key: string, B
 	end
 
 	local Cap = if Way == WRITING then WRITE_BYTES else READ_BYTES
-	Await(self, `{Way}\0{Store}\0{Key}`, Cap, math.min(Bytes, Cap))
+	Await(self, { { Id = `{Way}\0{Store}\0{Key}`, Cap = Cap } }, math.min(Bytes, Cap))
 end
 
 function Service.Clear(self: Service)
@@ -508,12 +556,14 @@ end
 
 local function New(Options: Options?): Service
 	local Config: Options = Options or {}
+	local Players = Config.Players or 0
 	return setmetatable({
 		Stores = {},
 		Tokens = {},
 		Filled = {},
 		Queued = 0,
-		Players = Config.Players or 0,
+		Players = Players,
+		CCU = Config.CCU or Players,
 		Throttled = Config.Throttled ~= false,
 	}, Service)
 end

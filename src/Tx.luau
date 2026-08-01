@@ -3,12 +3,11 @@
 
 -- lock free multi key transactions, every leg is an op stamped so folds skip it until a marker decides the whole set. legs are prepared one after another, so how long a coordinator may take before a bystander calls it dead is per leg times the leg count the marker already carries
 
-local HttpService = game:GetService("HttpService")
-
 local TableUtil = require("./Util/TableUtil")
 local Clock = require("./Clock")
 local DataStoreWrapper = require("./Util/DataStoreWrapper")
 local Dedupe = require("./Record/Dedupe")
+local Ident = require("./Record/Ident")
 local Log = require("./Record/Log")
 local Mark = require("./Mark")
 local Reasons = require("./Reason")
@@ -193,7 +192,7 @@ local function CreateMarker(
 			return {
 				Status = PENDING,
 				Total = Total,
-				Gen = HttpService:GenerateGUID(false),
+				Gen = Ident.Fresh(),
 				At = Born,
 				Adopted = {},
 				Keys = Keys,

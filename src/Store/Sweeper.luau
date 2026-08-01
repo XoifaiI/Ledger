@@ -118,11 +118,20 @@ function Sweeper.Pass(self: Sweeper)
 
 		Entry.Tries += 1
 		local Ok, Clean = pcall(function(): boolean
-			return Entry.Store:Resettle(Entry.Key)
+			return Entry.Store:Repair(Entry.Key)
 		end)
-		if (Ok and Clean) or Entry.Tries >= SWEEP_TRIES then
+		if Ok and Clean then
 			self:Drop(Mark)
+			continue
 		end
+		if Entry.Tries < SWEEP_TRIES then
+			continue
+		end
+
+		warn(
+			`Ledger: gave up retrying '{Entry.Key}' after {SWEEP_TRIES} goes, so whatever is unfinished on it waits for the next write. call Resettle on it yourself: {if Ok then "it still had something pending" else tostring(Clean)}`
+		)
+		self:Drop(Mark)
 	end
 end
 

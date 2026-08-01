@@ -91,7 +91,7 @@ end
 
 local function Settle()
 	for _, Store in Registry.Stores do
-		local Jobs: { Future<boolean> } = {}
+		local Jobs: { Future<boolean, Types.Reason?> } = {}
 		for Job in Store.Saving do
 			table.insert(Jobs, Job)
 		end
