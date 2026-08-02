@@ -26,6 +26,7 @@ export type Reason = Types.Reason
 export type TxLeg = Types.TxLeg
 export type Migration = Types.Migration
 export type Config<D> = Types.Config<D>
+export type HistoryEntry = Types.HistoryEntry
 
 export type Export = {
 	read Reason: typeof(Reasons),

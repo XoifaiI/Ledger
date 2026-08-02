@@ -129,13 +129,12 @@ local function LegStore(Coordinator: DataStore, Index: number, Leg: TxLeg): Data
 	return Leg.Store :: any
 end
 
-local function LegOpIsStorable(Index: number, Leg: TxLeg)
+local function LegStorable(Leg: TxLeg): (boolean, string?)
 	local Probe: { [any]: any } = if Leg.Fields then table.clone(Leg.Fields) else {}
 	Probe.Id = "probe"
 	Probe.Kind = Leg.Kind
 
-	local Storable, Unstorable = IsStorable.Op(Probe)
-	assert(Storable, `Tx leg {Index} cannot be stored: {Unstorable}`)
+	return IsStorable.Op(Probe)
 end
 
 local function MapLeg(
@@ -151,7 +150,6 @@ local function MapLeg(
 		Leg.Fields == nil or (Leg.Fields :: any).Once == nil,
 		`Tx leg {Index} carries Once, but the transaction Id already makes every leg land at most once. drop it`
 	)
-	LegOpIsStorable(Index, Leg)
 
 	local Target = LegStore(Coordinator, Index, Leg)
 	local Raw = if Target.Keys == "Player" then Leg.UserId else Leg.Key
@@ -196,7 +194,7 @@ end
 local function HandOver(Store: DataStore, Key: string): (number, number)
 	local Read, Held = HeldOn(Store, Key)
 	if not Read then
-		warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still in flight is gone for good: {Held}`)
+		warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
 		return 0, 0
 	end
 	if not TableUtil.Occupied(Held) then
@@ -212,7 +210,7 @@ local function HandOver(Store: DataStore, Key: string): (number, number)
 
 	local Again, Left = HeldOn(Store, Key)
 	if not Again then
-		warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still in flight is gone for good: {Left}`)
+		warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
 		return 0, 0
 	end
 	return CountHeld(Left)
@@ -745,6 +743,13 @@ function DataStore.Edit(self: DataStore, Key: KeyLike, Kind: string, Fields: { [
 	local Resolved = self:Resolve(Key, "Edit")
 
 	local Op = MakeOp.New(Kind, Fields)
+
+	local Named, Unnamed = MakeOp.Stamp(Op)
+	if not Named then
+		warn(`Ledger: Edit rejected op '{Kind}', {Unnamed}`)
+		return Rejected(INVALID)
+	end
+
 	local Storable, Unstorable = IsStorable.Op(Op)
 	if not Storable then
 		warn(`Ledger: Edit rejected op '{Kind}', {Unstorable}`)
@@ -808,6 +813,12 @@ function DataStore.Tx(self: DataStore, Id: string, Legs: { TxLeg }): Future<bool
 
 	for Index, Leg in Legs do
 		Mapped[Index], Targets[Index] = MapLeg(self, Index, Leg, Touched)
+
+		local Storable, Unstorable = LegStorable(Leg)
+		if not Storable then
+			warn(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
+			return Rejected(INVALID)
+		end
 	end
 
 	return Future.New(function(): (boolean, Reason?)
@@ -908,7 +919,7 @@ function DataStore.Erase(self: DataStore, Key: KeyLike): Future<boolean, Reason?
 		end
 
 		if Holds > 0 then
-			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} were still in flight, so that money is gone for good. check the audit log and pay the receivers back by hand`)
+			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} had not finished, so that money is gone for good. check the audit log and pay the receivers back by hand`)
 		end
 
 		local Before = Replaced :: Record

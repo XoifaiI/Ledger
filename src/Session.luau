@@ -255,6 +255,12 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 
 	local Op = MakeOp.New(Kind, Fields)
 
+	local Named, Unnamed = MakeOp.Stamp(Op)
+	if not Named then
+		warn(`Ledger: rejected op '{Kind}', {Unnamed}`)
+		return false, INVALID
+	end
+
 	local Storable, Unstorable = IsStorable.Op(Op)
 	if not Storable then
 		warn(`Ledger: rejected op '{Kind}', {Unstorable}`)
@@ -285,9 +291,9 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		return Rejected(INVALID)
 	end
 
-	local Named = (Op :: any).Once
-	if Named ~= nil and not (type(Named) == "string" and #Named > 0) then
-		warn(`Ledger: rejected commit '{Op.Kind}', Once has to be a string with something in it if you pass one`)
+	local Named, Unnamed = MakeOp.Stamp(Op)
+	if not Named then
+		warn(`Ledger: rejected commit '{Op.Kind}', {Unnamed}`)
 		return Rejected(INVALID)
 	end
 
@@ -296,7 +302,6 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		warn(`Ledger: rejected commit '{Op.Kind}', {Unstorable}`)
 		return Rejected(INVALID)
 	end
-	MakeOp.Stamp(Op)
 
 	local Ruling = self:Admit(Op, Measure(Op))
 	if Ruling.Outcome == "Refused" then

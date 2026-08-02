@@ -81,7 +81,7 @@ validates them.
 
 ```toml
 [server-dependencies]
-Ledger = "xoifaii/ledger@3.1.2"
+Ledger = "xoifaii/ledger@3.2.0"
 ```
 
 **Rojo**: clone the repo and add `src` to your project as `ServerStorage/Ledger`.
