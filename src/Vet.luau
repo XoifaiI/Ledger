@@ -33,23 +33,6 @@ local function Named<D>(Options: Config<D>)
 	)
 end
 
-local function Blobs(Value: any, Path: string): string?
-	if type(Value) == "buffer" then
-		return Path
-	end
-	if type(Value) ~= "table" then
-		return nil
-	end
-
-	for Key, Inner in Value do
-		local Found = Blobs(Inner, `{Path}.{tostring(Key)}`)
-		if Found ~= nil then
-			return Found
-		end
-	end
-	return nil
-end
-
 local function Storable<D>(Options: Config<D>)
 	for Key in Options.Default :: any do
 		assert(
@@ -60,12 +43,6 @@ local function Storable<D>(Options: Config<D>)
 
 	local Fine, Unstorable = IsStorable.Value(Options.Default)
 	assert(Fine, `Default cannot be stored: {Unstorable}`)
-
-	local Blob = Blobs(Options.Default, "Default")
-	assert(
-		Blob == nil,
-		`{Blob} is a buffer. every key that has not stored one yet reads the same Default, and a buffer cannot be frozen, so one key writing into it would change what every other key reads. build the buffer in your reducer instead`
-	)
 end
 
 local function Stepped<D>(Options: Config<D>)

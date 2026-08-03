@@ -74,7 +74,8 @@ export type ShapeImpl<S> = {
 export type Shape<S> = setmetatable<{
 	read Reducer: Reducer<S>,
 	read Initial: S,
-	read Migrations: { Migration }
+	read Migrations: { Migration },
+	read Blobbed: boolean
 }, ShapeImpl<S>>
 
 export type LogImpl = {

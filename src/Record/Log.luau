@@ -351,7 +351,7 @@ end
 
 function Shape.Rehydrate(self: Shape<any>, Record: Record): any
 	if Record.Snapshot == nil then
-		return self.Initial
+		return if self.Blobbed then TableUtil.DeepCopy(self.Initial) else self.Initial
 	end
 
 	local Steps = self.Migrations
@@ -407,8 +407,37 @@ function Shape.Certain(self: Shape<any>, Record: Record, Id: string): (boolean, 
 	return Took, Took == Also
 end
 
+local Blobbed: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+local function AnyBuffer(Value: any): boolean
+	if type(Value) == "buffer" then
+		return true
+	end
+	if type(Value) ~= "table" then
+		return false
+	end
+
+	for _, Inner in Value do
+		if AnyBuffer(Inner) then
+			return true
+		end
+	end
+	return false
+end
+
 local function NewShape<S>(Reducer: Types.Reducer<S>, Initial: S, Migrations: { Migration }?): Shape<S>
-	return setmetatable({ Reducer = Reducer, Initial = Initial, Migrations = Migrations or {} }, Shape) :: any
+	local Blobs = Blobbed[Initial :: any]
+	if Blobs == nil then
+		Blobs = AnyBuffer(Initial)
+		Blobbed[Initial :: any] = Blobs
+	end
+
+	return setmetatable({
+		Reducer = Reducer,
+		Initial = Initial,
+		Migrations = Migrations or {},
+		Blobbed = Blobs
+	}, Shape) :: any
 end
 
 table.freeze(Shape)
