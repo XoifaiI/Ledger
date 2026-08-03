@@ -43,12 +43,17 @@ local function ToPrivate<T>(self: any): Private<T>
 end
 
 local function Deliver<T>(self: Private<T>, Value: T)
-	local Snapshot: { (T) -> () } = {}
-	for _, Listener in self.Listeners do
-		table.insert(Snapshot, Listener)
+	local Snapshot: { Connection } = {}
+	for Link in self.Listeners do
+		table.insert(Snapshot, Link)
 	end
 
-	for _, Listener in Snapshot do
+	for _, Link in Snapshot do
+		local Listener = self.Listeners[Link]
+		if Listener == nil then
+			continue
+		end
+
 		local Ok, Err = pcall(NoYield, Listener, Value)
 		if not Ok then
 			warn(`Observer listener errored: {Err}`)
@@ -77,6 +82,7 @@ function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connecti
 			end
 
 			Self.Connected = false
+			assert(Private.Listeners[Connection] ~= nil, "a connection disconnected while the stream had already forgotten it")
 			Private.Listeners[Connection] = nil
 
 			if next(Private.Listeners) == nil and Private.Teardown then
@@ -87,6 +93,7 @@ function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connecti
 	}
 
 	local WasEmpty = next(Private.Listeners) == nil
+	assert(not WasEmpty or Private.Teardown == nil, "the stream is holding a teardown while nobody is listening")
 	Private.Listeners[Connection] = Listener
 
 	if WasEmpty and Private.Activate then

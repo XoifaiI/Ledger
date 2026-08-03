@@ -40,6 +40,19 @@ local function Of(Err: unknown): Reason?
 	return Tagged.Why :: Reason
 end
 
+local function Broke(Message: string)
+	warn(`Ledger: {Message}. that is a rule Ledger holds itself to, so this is a bug in Ledger and not in your game. please report it`)
+end
+
+local function Holds(Condition: any, Message: string)
+	if Condition then
+		return
+	end
+
+	Broke(Message)
+	error(New(UNRESOLVED, Message), 0)
+end
+
 local function Named(Err: unknown): Reason
 	local Tagged = Of(Err)
 	if Tagged ~= nil then
@@ -54,5 +67,7 @@ end
 return table.freeze({
 	New = New,
 	Of = Of,
-	Named = Named
+	Named = Named,
+	Broke = Broke,
+	Holds = Holds
 })

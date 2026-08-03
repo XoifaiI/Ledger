@@ -7,9 +7,11 @@ local DataStoreWrapper = require("./Util/DataStoreWrapper")
 local Clock = require("./Clock")
 local Fault = require("./Fault")
 local Dedupe = require("./Record/Dedupe")
+local Fingerprint = require("./Record/Fingerprint")
 local Ident = require("./Record/Ident")
 local Log = require("./Record/Log")
 local Reasons = require("./Reason")
+local Step = require("./Record/Step")
 local Types = require("./Types")
 
 type Op = Types.Op
@@ -48,15 +50,16 @@ local SPENT = Reasons.Spent
 
 local function AnyOlderThan(Received: { [string]: any }, Floor: number): boolean
 	for _, Stamp in Received do
-		if type(Stamp) == "number" and Stamp < Floor then
+		local When = Dedupe.At(Stamp)
+		if When ~= nil and When < Floor then
 			return true
 		end
 	end
 	return false
 end
 
-local function Remember(Received: any, Id: string, At: any): { [string]: any }
-	local Mark = if type(At) == "number" then At else true
+local function Remember(Received: any, Id: string, At: any, Print: string?): { [string]: any }
+	local Mark = Dedupe.Entry(At, Print)
 	if type(Received) ~= "table" then
 		return { [Id] = Mark }
 	end
@@ -71,7 +74,8 @@ local function Remember(Received: any, Id: string, At: any): { [string]: any }
 
 	local Next: { [string]: any } = {}
 	for Tid, Stamp in Received do
-		if type(Stamp) ~= "number" or Stamp >= (Floor :: number) then
+		local When = Dedupe.At(Stamp)
+		if When == nil or When >= (Floor :: number) then
 			Next[Tid] = Stamp
 		end
 	end
@@ -81,6 +85,19 @@ end
 
 local function Some(Entries: { [any]: any }): { [any]: any }?
 	return if next(Entries) == nil then nil else Entries
+end
+
+local function Holding(Data: { [any]: any }): number
+	local Held = Data._Held
+	if type(Held) ~= "table" then
+		return 0
+	end
+
+	local Count = 0
+	for _ in Held do
+		Count += 1
+	end
+	return Count
 end
 
 local function Reserving(Data: { [any]: any }, Op: Op, Field: string): { [any]: any }?
@@ -97,6 +114,15 @@ local function Reserving(Data: { [any]: any }, Op: Op, Field: string): { [any]: 
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) - Op.Amount
 	Next._Held = Some(Held)
+
+	if Next[Field] < 0 then
+		Fault.Broke(`setting {Op.Amount} aside for transfer {Op.Tid} took '{Field}' below zero`)
+		return nil
+	end
+	if Holding(Next) ~= Holding(Data) + 1 then
+		Fault.Broke(`setting aside for transfer {Op.Tid} did not leave exactly one more hold on the key`)
+		return nil
+	end
 	return Next
 end
 
@@ -108,7 +134,16 @@ local function Delivering(Data: { [any]: any }, Op: Op, Field: string): { [any]:
 
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) + Op.Amount
-	Next._Received = Remember(Received, Dedupe.Key(Dedupe.TRANSFER, Op.Tid), Op.At)
+	Next._Received = Remember(Received, Dedupe.Key(Dedupe.TRANSFER, Op.Tid), Op.At, Op.Print)
+
+	if not Dedupe.Has(Next._Received, Dedupe.TRANSFER, Op.Tid) then
+		Fault.Broke(`transfer {Op.Tid} was paid in without being remembered, so the same delivery could pay again`)
+		return nil
+	end
+	if Holding(Next) ~= Holding(Data) then
+		Fault.Broke(`paying in transfer {Op.Tid} changed what the receiver has set aside`)
+		return nil
+	end
 	return Next
 end
 
@@ -125,6 +160,15 @@ local function Expiring(Data: { [any]: any }, Op: Op, Field: string): { [any]: a
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) + Entry.Amount
 	Next._Held = Some(Rest)
+
+	if Holding(Next) ~= Holding(Data) - 1 then
+		Fault.Broke(`giving transfer {Op.Tid} back did not clear exactly the one hold it was held under`)
+		return nil
+	end
+	if Next[Field] < (Data[Field] or 0) then
+		Fault.Broke(`giving transfer {Op.Tid} back left the sender with less than they started with`)
+		return nil
+	end
 	return Next
 end
 
@@ -138,6 +182,12 @@ local function Settling(Data: { [any]: any }, Op: Op): { [any]: any }?
 
 	local Next = table.clone(Data)
 	Next._Held = Some(Held)
+	Next._Received = Remember(Data._Received, Dedupe.Key(Dedupe.SENT, Op.Tid), Op.At, Op.Print)
+
+	if Holding(Next) ~= Holding(Data) - 1 then
+		Fault.Broke(`finishing transfer {Op.Tid} did not clear exactly the one hold it was held under`)
+		return nil
+	end
 	return Next
 end
 
@@ -147,14 +197,16 @@ local function Pruning(Data: { [any]: any }, Op: Op): { [any]: any }?
 		return nil
 	end
 
-	local Floor = Op.At - REDRIVE_HORIZON - EXPIRE_MARGIN
+	local Floor = Op.At - PRUNE_HORIZON
 	local Kept: { [string]: any } = {}
 	local Dropped = false
 	for Id, Stamp in Received do
+		local When = Dedupe.At(Stamp)
 		local Keep = Dedupe.Tagged(Id, Dedupe.ONCE)
 			or Dedupe.Tagged(Id, Dedupe.TX)
-			or type(Stamp) ~= "number"
-			or Stamp >= Floor
+			or Dedupe.Tagged(Id, Dedupe.SENT)
+			or When == nil
+			or When >= Floor
 
 		if Keep then
 			Kept[Id] = Stamp
@@ -179,6 +231,13 @@ local function Carried(Next: any, Data: { [any]: any }): any
 	local Plain = Next :: { [any]: any }
 	if Plain._Held == Data._Held and Plain._Received == Data._Received then
 		return Next
+	end
+
+	if Plain._Held ~= nil and Plain._Held ~= Data._Held then
+		Fault.Broke("your reducer wrote its own _Held, so Ledger put the money set aside back")
+	end
+	if Plain._Received ~= nil and Plain._Received ~= Data._Received then
+		Fault.Broke("your reducer wrote its own _Received, so Ledger put the applied names back")
 	end
 
 	local Merged = table.clone(Plain)
@@ -224,17 +283,39 @@ local function Carries(Record: Types.Record<any>, Id: string): boolean
 	return false
 end
 
-local function LandedOn(Format: Log.Shape<any>, Record: Types.Record<any>, Tid: string): boolean
-	if Carries(Record, `{DELIVER_ID}:{Tid}`) then
-		return true
+local function Terms(To: number | string, Amount: number): string
+	return Fingerprint.Of(Fingerprint.Canon({ To = tostring(To), Amount = Amount }))
+end
+
+local function Written(Record: Types.Record<any>, Id: string): (boolean, string?)
+	for _, Op in Record.Ops do
+		if Op.Id == Id then
+			return true, Op.Print
+		end
+	end
+	for _, Seen in Record.Seen do
+		if Seen == Id then
+			return true, nil
+		end
+	end
+	return false, nil
+end
+
+local function LandedOn(Format: Log.Shape<any>, Record: Types.Record<any>, Tid: string, Print: string?): Dedupe.Recalled
+	local Held, Meant = Written(Record, `{DELIVER_ID}:{Tid}`)
+	if Held then
+		if Meant == nil or Print == nil then
+			return Dedupe.SAME
+		end
+		return if Meant == Print then Dedupe.SAME else Dedupe.OTHER
 	end
 
 	local State: any = Format:Fold(Record)
-	return Dedupe.Has(State._Received, Dedupe.TRANSFER, Tid)
+	return Dedupe.Recall(State._Received, Dedupe.TRANSFER, Tid, Print)
 end
 
-local function Delivered(Records: Log.Log, Format: Log.Shape<any>, To: number | string, Tid: string): boolean
-	return LandedOn(Format, Records:Read(tostring(To)), Tid)
+local function Delivered(Records: Log.Log, Format: Log.Shape<any>, To: number | string, Tid: string, Print: string?): Dedupe.Recalled
+	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print)
 end
 
 local function Reserve(Records: Log.Log, Format: Log.Shape<any>, From: number | string, To: number | string, Amount: number, Id: string?): Reserved
@@ -243,14 +324,29 @@ local function Reserve(Records: Log.Log, Format: Log.Shape<any>, From: number | 
 	end
 
 	local Tid = Id or Ident.Fresh()
+	local Print = Terms(To, Amount)
 
-	if Id ~= nil and Delivered(Records, Format, To, Tid) then
-		return { Outcome = "Finished" }
+	if Id ~= nil then
+		local Already = Delivered(Records, Format, To, Tid, Print)
+		if Already == Dedupe.SAME then
+			return { Outcome = "Finished" }
+		end
+		if Already == Dedupe.OTHER then
+			warn(
+				`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`
+			)
+			return { Outcome = "Stopped", Why = SPENT }
+		end
 	end
 
 	local ReserveOp: Op = { Id = `{RESERVE_ID}:{Tid}`, Kind = RESERVE, To = To, Amount = Amount, Tid = Tid, At = Clock.Now() }
 
-	local Record = Records:AppendUnlessPending(tostring(From), { ReserveOp })
+	local Record = Records:Append(tostring(From), { ReserveOp }, function(Stored: Types.Record<any>): boolean
+		if Log.HasPending(Stored) then
+			return false
+		end
+		return Step(Format.Reducer, Format:Fold(Log.Detached(Stored)), ReserveOp) ~= nil
+	end)
 	local State = Format:Fold(Record)
 
 	local Holds: any = State._Held
@@ -262,7 +358,14 @@ local function Reserve(Records: Log.Log, Format: Log.Shape<any>, From: number | 
 		return { Outcome = "Escrowed", Tid = Tid, Hold = Escrowed }
 	end
 
-	if Carries(Record, `{SETTLE_ID}:{Tid}`) then
+	local Spend = Dedupe.Recall((State :: any)._Received, Dedupe.SENT, Tid, Print)
+	if Spend == Dedupe.OTHER then
+		warn(
+			`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`
+		)
+		return { Outcome = "Stopped", Why = SPENT }
+	end
+	if Spend == Dedupe.SAME or Carries(Record, `{SETTLE_ID}:{Tid}`) then
 		return { Outcome = "Finished" }
 	end
 	if Carries(Record, `{EXPIRE_ID}:{Tid}`) then
@@ -275,8 +378,8 @@ local function Reserve(Records: Log.Log, Format: Log.Shape<any>, From: number | 
 	return { Outcome = "Stopped", Why = REFUSED }
 end
 
-local function Settle(Records: Log.Log, From: number | string, Tid: string): Types.Record<any>
-	local SettleOp: Op = { Id = `{SETTLE_ID}:{Tid}`, Kind = SETTLE, Tid = Tid }
+local function Settle(Records: Log.Log, From: number | string, Tid: string, Print: string?): Types.Record<any>
+	local SettleOp: Op = { Id = `{SETTLE_ID}:{Tid}`, Kind = SETTLE, Tid = Tid, At = Clock.Now(), Print = Print }
 	return Records:Append(tostring(From), { SettleOp })
 end
 
@@ -290,13 +393,20 @@ local function NotEntombed(Record: Types.Record<any>): boolean
 end
 
 local function Post(Records: Log.Log, Format: Log.Shape<any>, From: number | string, Tid: string, To: number | string, Amount: number)
-	local DeliverOp: Op = { Id = `{DELIVER_ID}:{Tid}`, Kind = DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now() }
+	Fault.Holds(tostring(From) ~= tostring(To), `transfer {Tid} is being delivered to the key it came from, so the money would be counted twice`)
+	Fault.Holds(Amount > 0, `transfer {Tid} is being delivered with nothing in it`)
+
+	local DeliverOp: Op = { Id = `{DELIVER_ID}:{Tid}`, Kind = DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Terms(To, Amount) }
 	local Landed = Records:Append(tostring(To), { DeliverOp }, NotEntombed)
 	if not Carries(Landed, DeliverOp.Id) then
 		error(Fault.New(REFUSED, `'{To}' was erased, so transfer {Tid} cannot be delivered and the money stays with {From} until it is given back`))
 	end
 
-	local Cleared = Settle(Records, From, Tid)
+	local Cleared = Settle(Records, From, Tid, Terms(To, Amount))
+	Fault.Holds(
+		Carries(Cleared, `{SETTLE_ID}:{Tid}`),
+		`transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`
+	)
 
 	Records:Trim(tostring(To), Format, Landed)
 	Records:Trim(tostring(From), Format, Cleared)
@@ -335,19 +445,21 @@ local function Drive(Records: Log.Log, Format: Log.Shape<any>, From: number | st
 end
 
 local function Expire(Records: Log.Log, Format: Log.Shape<any>, From: number | string, Tid: string, Entry: any, Age: number?)
-	if LandedOn(Format, Records:Read(tostring(Entry.To)), Tid) then
-		Settle(Records, From, Tid)
+	if LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, nil) ~= Dedupe.UNSEEN then
+		Settle(Records, From, Tid, Terms(Entry.To, Entry.Amount))
 		return
 	end
 
-	if Age ~= nil and Age <= PRUNE_HORIZON then
+	if Age == nil or Age <= PRUNE_HORIZON then
 		local ExpireOp: Op = { Id = `{EXPIRE_ID}:{Tid}`, Kind = EXPIRE, Tid = Tid }
 		Records:Append(tostring(From), { ExpireOp })
 		return
 	end
 
+	assert(Age > PRUNE_HORIZON, "a transfer is being written off before it is old enough, so money would be destroyed early")
+
 	warn(`Ledger: transfer {Tid} from {From} has been stuck over {PRUNE_HORIZON // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`)
-	Settle(Records, From, Tid)
+	Settle(Records, From, Tid, Terms(Entry.To, Entry.Amount))
 end
 
 local function Redeliver(Records: Log.Log, Format: Log.Shape<any>, From: number | string, Tid: string, Entry: any): boolean
@@ -370,13 +482,13 @@ local function GiveBack(Records: Log.Log, Format: Log.Shape<any>, From: number |
 	return Ok
 end
 
-local function Recover(Records: Log.Log, Format: Log.Shape<any>, From: number | string, Held: any): boolean
+local function Recover(Records: Log.Log, Format: Log.Shape<any>, From: number | string, Held: any): (boolean, boolean)
 	if type(Held) ~= "table" then
-		return true
+		return true, false
 	end
 
 	local Now = Clock.Now()
-	local Failures, Handled, Waiting = 0, 0, 0
+	local Failures, Handled, Waiting, Moved = 0, 0, 0, 0
 
 	for Tid, Entry in Held do
 		if type(Entry) ~= "table" then
@@ -386,6 +498,8 @@ local function Recover(Records: Log.Log, Format: Log.Shape<any>, From: number | 
 		local Age = if type(Entry.At) == "number" then Now - Entry.At else nil
 		local Fresh = Age ~= nil and Age <= REDRIVE_HORIZON
 		local Overdue = Age == nil or Age > REDRIVE_HORIZON + EXPIRE_MARGIN
+		assert(not (Fresh and Overdue), `transfer {Tid} counts as both still worth sending and long overdue, so recovery cannot tell whether to deliver it or give it back`)
+
 		if not Fresh and not Overdue then
 			continue
 		end
@@ -399,7 +513,9 @@ local function Recover(Records: Log.Log, Format: Log.Shape<any>, From: number | 
 		local Ok = if Fresh
 			then Redeliver(Records, Format, From, Tid, Entry)
 			else GiveBack(Records, Format, From, Tid, Entry, Age)
-		if not Ok then
+		if Ok then
+			Moved += 1
+		else
 			Failures += 1
 		end
 	end
@@ -408,7 +524,9 @@ local function Recover(Records: Log.Log, Format: Log.Shape<any>, From: number | 
 		warn(`Ledger: {From} has more than {RECOVER_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
 	end
 
-	return Failures == 0 and Waiting == 0
+	assert(Handled <= RECOVER_LIMIT, "one recovery pass took on more holds than its own limit allows")
+	assert(Moved + Failures == Handled, "a recovery pass neither finished nor failed one of the holds it took on")
+	return Failures == 0 and Waiting == 0, Moved > 0
 end
 
 return table.freeze({

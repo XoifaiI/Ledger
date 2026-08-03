@@ -20,8 +20,9 @@ local function Stamp(Op: Op): (boolean, string?)
 		return false, "Once has to be a string with something in it if you pass one"
 	end
 
-	if type(Loose.OnceAt) ~= "number" then
-		Loose.OnceAt = Clock.Now()
+	local Now = Clock.Now()
+	if type(Loose.OnceAt) ~= "number" or not (Loose.OnceAt <= Now) then
+		Loose.OnceAt = Now
 	end
 	return true, nil
 end

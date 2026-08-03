@@ -12,7 +12,7 @@ local function Reconcile(Defaults: any, Stored: any): any
 
 	for Key, Value in Defaults do
 		if Stored[Key] == nil then
-			Stored[Key] = if type(Value) == "table" then TableUtil.DeepCopy(Value) else Value
+			Stored[Key] = TableUtil.DeepCopy(Value)
 		elseif type(Value) == "table" and #Value == 0 then
 			Reconcile(Value, Stored[Key])
 		end

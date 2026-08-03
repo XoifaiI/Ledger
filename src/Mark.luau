@@ -14,7 +14,9 @@ local function ToCount(Prefix: string): number?
 end
 
 local function Of(Store: string, Key: string): string
-	return `{#Store}{FIELD}{Store}{Key}`
+	local Made = `{#Store}{FIELD}{Store}{Key}`
+	assert(string.sub(Made, #tostring(#Store) + 2, #tostring(#Store) + 1 + #Store) == Store, "a mark cannot read back the store it was built from")
+	return Made
 end
 
 local function Split(Mark: string): (string?, string?)
@@ -31,11 +33,17 @@ local function Split(Mark: string): (string?, string?)
 end
 
 local function Pack(Parts: { string }): string
-	local Sized = table.create(#Parts)
+	local Sized: { string } = table.create(#Parts) :: { string }
+	local Total = 0
 	for Index, Part in Parts do
-		Sized[Index] = `{#Part}{LIST}{Part}`
+		local Framed = `{#Part}{LIST}{Part}`
+		Sized[Index] = Framed
+		Total += #Framed
 	end
-	return table.concat(Sized)
+
+	local Packed = table.concat(Sized)
+	assert(#Packed == Total, "packing marks lost bytes, so one of them holds a byte the format cannot carry")
+	return Packed
 end
 
 local function Unpack(Packed: string): { string }
@@ -49,7 +57,9 @@ local function Unpack(Packed: string): { string }
 			return string.split(Packed, LIST)
 		end
 
-		table.insert(Parts, string.sub(Packed, Stop + 1, Stop + Count))
+		local Part = string.sub(Packed, Stop + 1, Stop + Count)
+		assert(#Part == Count, "unpacking a mark read fewer bytes than its own length said it had")
+		table.insert(Parts, Part)
 		At = Stop + Count + 1
 	end
 

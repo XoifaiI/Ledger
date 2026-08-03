@@ -80,6 +80,7 @@ local function AttemptAsync(
 	Operation: (Store: DataStore) -> ...any,
 	Handler: Handler?
 ): ...any
+	assert(type(Key) == "string", "a datastore call was queued under something that is not a key")
 	return KeyedRetryQueue.Run(self, Key, function()
 		self.Spent += 1
 		return Operation(GetStore(self))
@@ -139,10 +140,9 @@ end
 
 function DataStoreWrapper.Budget(self: DataStoreWrapper, Kind: Enum.DataStoreRequestType): number
 	local Ask = self.Budgets or Budgets
-	if Ask ~= nil then
-		return Ask(Kind)
-	end
-	return DataStoreService:GetRequestBudgetForRequestType(Kind)
+	local Left = if Ask ~= nil then Ask(Kind) else DataStoreService:GetRequestBudgetForRequestType(Kind)
+	assert(type(Left) == "number" and Left >= 0, `the request budget for {Kind.Name} came back as something other than a count`)
+	return Left
 end
 
 function DataStoreWrapper.SkipAllQueuesToLastEnqueued(self: DataStoreWrapper)

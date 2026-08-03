@@ -58,7 +58,7 @@ export type LogResolution = { Record: Record<any>, Counts: { [string]: number } 
 
 export type LogVerdict = { Commit: boolean, Gen: string?, Since: number? }
 
-export type LogPrepared = "Prepared" | "Settled" | "Busy" | "Rejected"
+export type LogPrepared = "Prepared" | "Settled" | "Busy" | "Rejected" | "Spent"
 
 export type LogFated = "Owned" | "Dead"
 
@@ -85,7 +85,7 @@ export type LogImpl = {
 	ReadVersion: (self: LogHandle, Key: string, Version: string) -> Record<any>,
 	Append: (self: LogHandle, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?) -> Record<any>,
 	AppendUnlessPending: (self: LogHandle, Key: string, Ops: { Op }) -> Record<any>,
-	Entomb: (self: LogHandle, Key: string, At: number) -> Record<any>,
+	Entomb: (self: LogHandle, Key: string, At: number, Bury: ((Record<any>) -> Record<any>)?) -> Record<any>,
 	Prepare: (self: LogHandle, Key: string, Op: Op, Format: Shape<any>) -> LogPrepared,
 	Resolve: (self: LogHandle, Key: string, Verdicts: { [string]: LogVerdict }) -> LogResolution,
 	Compact: (self: LogHandle, Key: string, Format: Shape<any>) -> Record<any>,
@@ -114,7 +114,7 @@ export type Live<S> = {
 export type Admitted<S> =
 	{ read Outcome: "Refused", read Why: Reason }
 	| { read Outcome: "Rejected" }
-	| { read Outcome: "Accepted", read Next: S, read Bytes: number? }
+	| { read Outcome: "Accepted", read Next: S, read Bytes: number?, read Also: S? }
 
 export type SessionImpl<S> = {
 	__index: SessionImpl<S>,
@@ -126,7 +126,7 @@ export type SessionImpl<S> = {
 	Notify: (self: Session<S>) -> (),
 	SettlePending: (self: Session<S>, Stored: Record<any>) -> Record<any>,
 	Settled: (self: Session<S>, Stored: Record<any>) -> Record<any>,
-	Admit: (self: Session<S>, Op: Op, OpBytes: number) -> Admitted<S>,
+	Admit: (self: Session<S>, Op: Op, OpBytes: number, Durable: boolean?) -> Admitted<S>,
 
 	Get: (self: Session<S>) -> S,
 	Apply: (self: Session<S>, Kind: string, Fields: { [any]: any }?) -> (boolean, Reason?),
@@ -145,6 +145,7 @@ export type Session<S> = setmetatable<{
 	Key: string,
 	TxStore: DataStoreWrapper?,
 	State: S,
+	Landed: S?,
 	Applied: { [string]: boolean },
 	Pending: { Op },
 	LogSize: number,
@@ -236,7 +237,7 @@ export type DataStoreImpl = {
 	ReadRecord: (self: DataStore, Key: string) -> Record<any>,
 	Watch: (self: DataStore, Key: string, Record: Record<any>) -> (),
 	WatchHeld: (self: DataStore, Key: string, State: any) -> (),
-	Repair: (self: DataStore, Key: string) -> boolean,
+	Repair: (self: DataStore, Key: string) -> (boolean, boolean),
 	ReapMarkers: (self: DataStore) -> number,
 	Wake: (self: DataStore, UserId: number, Active: Session<any>?) -> (),
 	Append: (self: DataStore, Key: string, Op: Op, Guard: ((Record<any>) -> boolean)?) -> Record<any>,

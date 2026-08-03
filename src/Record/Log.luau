@@ -40,7 +40,7 @@ local WARN_BYTES = MAX_BYTES - 512 * 1024
 
 local COMPACT_OPS = 128
 local COMPACT_BYTES = 1024 * 1024
-local COMPACT_SAMPLE = 16
+local MAX_LOG_BYTES = 1536 * 1024
 
 local OWNED: Fated = "Owned"
 local DEAD: Fated = "Dead"
@@ -49,7 +49,8 @@ local VERDICT = table.freeze({
 	Prepared = "Prepared" :: Prepared,
 	Settled = "Settled" :: Prepared,
 	Busy = "Busy" :: Prepared,
-	Rejected = "Rejected" :: Prepared
+	Rejected = "Rejected" :: Prepared,
+	Spent = "Spent" :: Prepared
 })
 
 local function Materialize(Value: any): Record
@@ -109,6 +110,17 @@ local function StepApply(Migration: Migration, State: any): any
 	return NoYield(if type(Migration) == "function" then Migration else Migration.Apply, State)
 end
 
+local function Migrate(Steps: { Migration }, Snapshot: any, From: number): any?
+	local State = Snapshot
+	for Index = From + 1, #Steps do
+		State = StepApply(Steps[Index], State)
+		if type(State) ~= "table" then
+			return nil
+		end
+	end
+	return State
+end
+
 local function FloorOf(Steps: { Migration }): number
 	for Index = #Steps, 1, -1 do
 		local Migration = Steps[Index]
@@ -124,12 +136,8 @@ local function Oversized(Ops: number, Bytes: number): boolean
 end
 
 local function Overgrown(Record: Record): boolean
-	local Count = #Record.Ops
-	if Count >= COMPACT_OPS then
+	if #Record.Ops >= COMPACT_OPS then
 		return true
-	end
-	if Count < COMPACT_SAMPLE then
-		return false
 	end
 	return Measure(Record.Ops) >= COMPACT_BYTES
 end
@@ -152,10 +160,10 @@ local function Unstamped(Op: Op): Op
 	return Plain
 end
 
-local function Landed(Ops: { Op }, Txid: string): { Op }
+local function Landed(Ops: { Op }, Txid: string?): { Op }
 	local Out = table.clone(Ops)
 	for Index, Existing in Out do
-		if Existing.Tx == Txid then
+		if Existing.Tx ~= nil and (Txid == nil or Existing.Tx == Txid) then
 			Out[Index] = Unstamped(Existing)
 		end
 	end
@@ -184,13 +192,27 @@ local function Holds(Record: Record, Id: string): boolean
 	return false
 end
 
+local function Meant(Held: any, Wanted: any): boolean
+	return type(Held) ~= "string" or type(Wanted) ~= "string" or Held == Wanted
+end
+
 local function Known(Record: Record, Op: Op, Format: Shape<any>): Prepared?
 	for _, Existing in Record.Ops do
 		if Existing.Id == Op.Id then
-			return if Existing.Tx == nil
-				then VERDICT.Settled
-				elseif Existing.TxGen == Op.TxGen then VERDICT.Prepared
-				else VERDICT.Busy
+			if Existing.Tx == nil then
+				return if Meant(Existing.TxTerms, Op.TxTerms) then VERDICT.Settled else VERDICT.Spent
+			end
+			return if Existing.TxGen == Op.TxGen then VERDICT.Prepared else VERDICT.Busy
+		end
+	end
+
+	if type(Op.Tx) == "string" and type(Op.TxTerms) == "string" then
+		local Recalled = Dedupe.Recall((Format:Fold(Detached(Record)) :: any)._Received, Dedupe.TX, Op.Tx, Op.TxTerms)
+		if Recalled == Dedupe.OTHER then
+			return VERDICT.Spent
+		end
+		if Recalled == Dedupe.SAME then
+			return VERDICT.Settled
 		end
 	end
 
@@ -291,12 +313,13 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 	if Overflow > 0 then
 		Seen = table.move(Seen, Overflow + 1, #Seen, 1, {})
 	end
+	assert(#Seen >= #Record.Ops, "a compaction kept fewer applied ids than the ops it absorbed, so one could apply again")
 
 	local Steps = Format.Migrations
 	local Stored = Record.Version or 0
 	local Ahead = Stored > #Steps
 
-	return {
+	local Packed: Record = {
 		Envelope = ENVELOPE,
 		Snapshot = Snapshot,
 		Ops = {},
@@ -304,6 +327,19 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 		Version = if Ahead then Stored else #Steps,
 		Floor = if Ahead then Record.Floor or Stored else FloorOf(Steps)
 	}
+
+	Fault.Holds((Packed.Version :: number) >= Stored, `compacting '{Key}' moved it to an older version, so an older server could overwrite it`)
+	Fault.Holds((Packed.Floor :: number) >= (Record.Floor or 0), `compacting '{Key}' lowered the version floor, so a server that cannot read it would think it can`)
+
+	local Known: { [string]: boolean } = {}
+	for _, Id in Seen do
+		Known[Id] = true
+	end
+	for _, Op in Record.Ops do
+		Fault.Holds(Known[Op.Id], `compacting '{Key}' absorbed op {Op.Id} without remembering it, so that op could apply a second time`)
+	end
+
+	return Packed
 end
 
 local Shape = {} :: Types.ShapeImpl<any>
@@ -337,7 +373,11 @@ function Shape.Rehydrate(self: Shape<any>, Record: Record): any
 		end
 	end
 
-	return Reconcile(self.Initial, Snapshot)
+	local Ready = Reconcile(self.Initial, Snapshot)
+	for Field in self.Initial :: any do
+		assert((Ready :: any)[Field] ~= nil, `loading dropped '{tostring(Field)}', which your Default declares, so the profile came back missing a field`)
+	end
+	return Ready
 end
 
 function Shape.Fold(self: Shape<any>, Record: Record): any
@@ -416,7 +456,21 @@ function Log.ReadVersion(self: Log, Key: string, Version: string): Record
 end
 
 function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?): Record
-	return self:Update(Key, function(Record: Record): Record?
+	local Added = 0
+	local Before = 0
+
+	local Owned = false
+	for _, Op in Ops do
+		assert(
+			Op.Tx == nil,
+			`op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`
+		)
+		if not IsStorable.Reserved(Op.Kind) then
+			Owned = true
+		end
+	end
+
+	local Outcome = self:Update(Key, function(Record: Record): Record?
 		if Guard ~= nil and not Guard(Record) then
 			return nil
 		end
@@ -433,15 +487,37 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?): Record
 			return nil
 		end
 
+		if Owned and Measure(Record.Ops) > MAX_LOG_BYTES then
+			error(Fault.New(
+				Reasons.Full,
+				`'{Key}' is carrying {MAX_LOG_BYTES} bytes of ops that have not been compacted away, so this one cannot go on as well`
+			))
+		end
+
+		Before, Added = Had, #Record.Ops - Had
 		Record.Envelope = ENVELOPE
 		Record.Erased = nil
 		return Record
-	end).After
+	end)
+
+	if Outcome.Changed then
+		Fault.Holds(Added > 0, `an append on '{Key}' rewrote the record without adding any of the ops it was given`)
+		Fault.Holds(
+			#Outcome.After.Ops == Before + Added,
+			`the ops an append wrote to '{Key}' did not all come back, so the write was only partly stored`
+		)
+	end
+	return Outcome.After
 end
 
-function Log.Entomb(self: Log, Key: string, At: number): Record
-	return self:Update(Key, function(): Record?
-		return { Ops = {}, Seen = {}, Envelope = ENVELOPE, Erased = At }
+function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record
+	return self:Update(Key, function(Record: Record): Record?
+		local Body: Record = if Bury ~= nil then Bury(Record) else { Ops = {}, Seen = {} }
+		Body.Ops = {}
+		Body.Seen = {}
+		Body.Envelope = ENVELOPE
+		Body.Erased = At
+		return Body
 	end).Before
 end
 
@@ -450,8 +526,10 @@ function Log.AppendUnlessPending(self: Log, Key: string, Ops: { Op }): Record
 end
 
 function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepared
+	assert(type(Op.Tx) == "string", "a transaction leg is being prepared without the transaction it belongs to")
+
 	local Verdict = VERDICT.Rejected
-	self:Update(Key, function(Record: Record): Record?
+	local Outcome = self:Update(Key, function(Record: Record): Record?
 		local Already = Known(Record, Op, Format)
 		if Already ~= nil then
 			Verdict = Already
@@ -474,6 +552,13 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 		Verdict = VERDICT.Prepared
 		return Record
 	end)
+
+	if Verdict == VERDICT.Prepared then
+		Fault.Holds(
+			Holds(Outcome.After, Op.Id),
+			`leg {Op.Id} reported as prepared but is not on '{Key}', so the transaction would wait on nothing`
+		)
+	end
 	return Verdict
 end
 
@@ -508,10 +593,20 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 			return nil
 		end
 
+		assert(#Kept <= #Record.Ops, "resolving a transaction leg left more ops on the key than it started with")
 		Record.Ops = Kept
 		Record.Envelope = ENVELOPE
 		return Record
 	end)
+
+	for Txid in Counts do
+		for _, Op in Result.After.Ops do
+			Fault.Holds(
+				Op.Tx ~= Txid,
+				`transaction '{Txid}' was resolved on '{Key}' but a leg is still stamped with it, so the key stays busy forever`
+			)
+		end
+	end
 
 	return { Record = Result.After, Counts = Counts }
 end
@@ -560,8 +655,12 @@ return table.freeze({
 	New = NewLog,
 	Shape = NewShape,
 	Verdict = VERDICT,
+	MAX_LOG_BYTES = MAX_LOG_BYTES,
 	FloorOf = FloorOf,
+	Migrate = Migrate,
 	HasPending = HasPending,
+	Detached = Detached,
+	Landed = Landed,
 	Holds = Holds,
 	Known = Known,
 	PendingTx = PendingTx,

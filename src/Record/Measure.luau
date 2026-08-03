@@ -8,6 +8,9 @@ local MAX_EXACT = 2 ^ 53
 local SEVENS = 0x7F7F7F7F
 local HIGH = 0x80808080
 local BUFFER_WRAP = 35
+local MAX_DEPTH = 64
+
+local TOO_DEEP = "Measure went deeper than a storable value can nest, so the value is cyclic"
 
 local function ZeroLanes(Word: number): number
 	local Low = bit32.band(Word, SEVENS) + SEVENS
@@ -66,7 +69,7 @@ local function NumberBytes(Value: number): number
 	return Digits
 end
 
-local function Measure(Value: any): number
+local function Measure(Value: any, Depth: number?): number
 	local Kind = type(Value)
 	if Kind == "string" then
 		return StringBytes(Value)
@@ -80,12 +83,15 @@ local function Measure(Value: any): number
 		return 0
 	end
 
+	local Deeper = (Depth or 0) + 1
+	assert(Deeper <= MAX_DEPTH, TOO_DEEP)
+
 	local Total = 2
 	for Key, Inner in Value do
 		if type(Key) == "string" then
 			Total += StringBytes(Key) + 1
 		end
-		Total += Measure(Inner) + 1
+		Total += Measure(Inner, Deeper) + 1
 	end
 	return Total
 end

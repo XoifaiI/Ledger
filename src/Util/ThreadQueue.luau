@@ -30,6 +30,7 @@ local function TraceHandler(Err: any): string
 end
 
 local function Drain(self: ThreadQueue)
+	assert(self.Busy, "the queue is draining without being marked busy, so a second drain could run beside it")
 	while self.Tasks[1] do
 		local Entry = table.remove(self.Tasks, 1) :: Entry
 		local Result = table.pack(xpcall(Entry.Callback, TraceHandler))
@@ -78,6 +79,7 @@ function ThreadQueue.SkipToLastEnqueued(self: ThreadQueue)
 
 	local Dropped = table.move(self.Tasks, 1, Count - 1, 1, {})
 	local Last = self.Tasks[Count]
+	assert(Last ~= nil, "the queue lost the task it was told to keep")
 	table.clear(self.Tasks)
 	self.Tasks[1] = Last
 

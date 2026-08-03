@@ -58,6 +58,7 @@ local UNRESOLVED = Reasons.Unresolved
 local BUSY = Reasons.Busy
 local CLOSED = Reasons.Closed
 local BEHIND = Reasons.Behind
+local FULL = Reasons.Full
 
 local function Failed(What: string, Key: string, Err: any): Reason
 	local Why = Fault.Named(Err)
@@ -105,7 +106,12 @@ local function WrapSystem(GameReducer: Types.Reducer<any>, Initial: any, Steps: 
 			return nil
 		end
 
-		local Next = Reconcile(Initial, TableUtil.DeepCopy(Snapshot))
+		local Migrated = Log.Migrate(Steps, TableUtil.DeepCopy(Snapshot), Version)
+		if Migrated == nil then
+			return nil
+		end
+
+		local Next = Reconcile(Initial, Migrated)
 		Next._Received = State._Received
 		Next._Held = State._Held
 		return Next
@@ -305,15 +311,15 @@ function DataStore.ReapMarkers(self: DataStore): number
 	return 0
 end
 
-function DataStore.Repair(self: DataStore, Key: string): boolean
+function DataStore.Repair(self: DataStore, Key: string): (boolean, boolean)
 	local Record = Tx.Settle(self:Records(), self.TxWrapper, Key, self:ReadRecord(Key))
 	if Log.HasPending(Record) then
-		return false
+		return false, false
 	end
 
 	local Held = self:Fold(Record)._Held
 	if not TableUtil.Occupied(Held) then
-		return true
+		return true, false
 	end
 
 	return Transfer.Recover(self:Records(), self:Format(), Key, Held)
@@ -372,6 +378,10 @@ function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, G
 			warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
 			return false, BEHIND
 		end
+		if Named == FULL then
+			warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
+			return false, FULL
+		end
 
 		warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
 		return false, UNRESOLVED
@@ -389,6 +399,10 @@ function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, G
 		end
 
 		local Took, Sure = self:Format():Certain(Settled, Op.Id)
+		assert(
+			Sure or Log.HasPending(Settled),
+			`the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`
+		)
 		if not Sure then
 			return UNRESOLVED
 		end
@@ -474,17 +488,19 @@ function DataStore.Autosave(self: DataStore, UserId: number)
 end
 
 function DataStore.Save(self: DataStore, Active: Session<any>): Future<boolean, Reason?>
+	for UserId, Entry in self.Loaded do
+		assert(
+			(Entry.Active :: any) ~= (Active :: any),
+			`the session for {UserId} is being saved on the way out while the store still lists it as live`
+		)
+	end
+
 	local Job = Active:Release()
 	self.Saving[Job] = true
 	return Job
 end
 
 function DataStore.Buried(self: DataStore, Key: string, Replaced: Record)
-	local Field = self.Options.Balance
-	if Field == nil then
-		return
-	end
-
 	local Ok, State = pcall(function(): any
 		return self:Fold(Replaced)
 	end)
@@ -493,6 +509,11 @@ function DataStore.Buried(self: DataStore, Key: string, Replaced: Record)
 		return
 	end
 	if type(State) ~= "table" then
+		return
+	end
+
+	local Field = self.Options.Balance
+	if Field == nil then
 		return
 	end
 
@@ -539,6 +560,8 @@ function DataStore.Load(self: DataStore, Player: Player)
 		warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
 		return
 	end
+
+	assert(self.Loaded[UserId] == nil, `{Player.Name} is starting a load while they already have a live session, so two sessions would write the same key`)
 	self.Loads[UserId] = "Loading"
 
 	local Job = Session.Load(self:Records(), self:Format(), tostring(UserId), self.TxWrapper)
@@ -561,11 +584,13 @@ function DataStore.Load(self: DataStore, Player: Player)
 		return
 	end
 
-	if Left or self.Closed or not Player.Parent then
-		Active:Release()
+	if Left or self.Closed or Registry.Shutting.Now or not Player.Parent then
+		self:Save(Active)
 		self:Wake(UserId, nil)
 		return
 	end
+
+	assert(self.Loads[UserId] == nil, "a load finished while this player was still marked as loading")
 
 	self.Loaded[UserId] = {
 		Active = Active,
@@ -574,6 +599,10 @@ function DataStore.Load(self: DataStore, Player: Player)
 		end)
 	}
 	self:Wake(UserId, Active)
+
+	if Active.Landed ~= nil then
+		Registry.Sweep:Add(self, tostring(UserId))
+	end
 
 	local Held = Active:Get()._Held
 	if TableUtil.Occupied(Held) then
@@ -821,6 +850,8 @@ function DataStore.Tx(self: DataStore, Id: string, Legs: { TxLeg }): Future<bool
 		end
 	end
 
+	assert(#Mapped == #Legs and #Targets == #Legs, "a transaction ended up with a different number of legs than it was given")
+
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Committed, Why = pcall(function(): (boolean, Reason?)
 			return Tx.Drive(self.TxWrapper, Mapped, Id)
@@ -844,7 +875,7 @@ function DataStore.Resettle(self: DataStore, Key: KeyLike): Future<boolean, Reas
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Clean = pcall(function(): boolean
-			return self:Repair(Resolved)
+			return (self:Repair(Resolved))
 		end)
 		if not Ok then
 			return false, Failed("finish what is unsettled on", Resolved, Clean)
@@ -858,14 +889,14 @@ function DataStore.RecoverTransfers(self: DataStore, Key: KeyLike): Future<boole
 	local Resolved = self:Resolve(Key, "RecoverTransfers")
 
 	return Future.New(function(): (boolean, Reason?)
-		local Ok, Why = pcall(function()
+		local Ok, Clean = pcall(function(): boolean
 			local Held = self:Fold(self:ReadRecord(Resolved))._Held
-			Transfer.Recover(self:Records(), self:Format(), Resolved, Held)
+			return (Transfer.Recover(self:Records(), self:Format(), Resolved, Held))
 		end)
 		if not Ok then
-			return false, Failed("recover the transfers set aside on", Resolved, Why)
+			return false, Failed("recover the transfers set aside on", Resolved, Clean)
 		end
-		return true, nil
+		return Clean, if Clean then nil else BUSY
 	end)
 end
 
@@ -888,7 +919,7 @@ function DataStore.Reset(self: DataStore, Key: KeyLike): Future<boolean, Reason?
 
 	local Steps = self.Migrations
 	local Known = #Steps
-	local Op = MakeOp.New(RESET_KIND, { State = self.Options.Default, Version = Known, Floor = Log.FloorOf(Steps) })
+	local Op = MakeOp.New(RESET_KIND, { State = self.Initial, Version = Known, Floor = Log.FloorOf(Steps) })
 
 	return Future.New(function(): (boolean, Reason?)
 		return self:Written(Resolved, Op, "reset", function(Record: Record): boolean
@@ -910,8 +941,28 @@ function DataStore.Erase(self: DataStore, Key: KeyLike): Future<boolean, Reason?
 			Holds, Amount = HandOver(self, Resolved)
 		end
 
+		local Steps = self.Migrations
 		local Ok, Replaced = pcall(function(): Record
-			return self:Records():Entomb(Resolved, Clock.Now())
+			return self:Records():Entomb(Resolved, Clock.Now(), function(Record: Record): Record
+				local Fine, State = pcall(function(): any
+					return self:Fold(Record)
+				end)
+
+				local Names = if Fine and type(State) == "table" then (State :: any)._Received else nil
+				if type(Names) ~= "table" or next(Names) == nil then
+					return { Ops = {}, Seen = {} }
+				end
+
+				local Fresh: any = TableUtil.DeepCopy(self.Initial)
+				Fresh._Received = TableUtil.DeepCopy(Names)
+				return {
+					Ops = {},
+					Seen = {},
+					Snapshot = Fresh,
+					Version = #Steps,
+					Floor = Log.FloorOf(Steps)
+				}
+			end)
 		end)
 
 		if not Ok then

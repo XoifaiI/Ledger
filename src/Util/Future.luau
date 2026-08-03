@@ -71,6 +71,7 @@ local function Finish<T...>(self: Private<T...>, ...: any)
 
 	table.clear(self.Waiting)
 	table.clear(self.Timeouts)
+	assert(self.Result ~= nil, "a future woke its waiters without an answer for them")
 end
 
 local function TimeoutTask<T...>(Inst: Future<T...>, Caller: thread)
@@ -89,6 +90,7 @@ end
 
 local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: Future<Ret...>, ...: Args...)
 	local Private = ToPrivate(Inst)
+	assert(Private.Result == nil, "a future settled twice, so a waiting thread would be resumed with the wrong answer")
 
 	local Result = Pack(pcall(Callback, ...))
 	Private.Result = Result

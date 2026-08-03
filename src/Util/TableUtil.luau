@@ -32,13 +32,19 @@ local function DeepCopy<T>(Value: T, Seen: {[any]: any}?): T
 	return Result :: any
 end
 
-local function DeepFreeze<T>(Value: T): T
+local function DeepFreeze<T>(Value: T, Seen: { [any]: boolean }?): T
 	if type(Value) ~= "table" then
 		return Value
 	end
 
+	local Tracked = Seen or {}
+	if Tracked[Value] then
+		return Value
+	end
+	Tracked[Value] = true
+
 	for _, Inner in Value :: any do
-		DeepFreeze(Inner)
+		DeepFreeze(Inner, Tracked)
 	end
 
 	if not table.isfrozen(Value :: any) then
@@ -47,12 +53,18 @@ local function DeepFreeze<T>(Value: T): T
 	return Value
 end
 
+local Ours: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
 local function FreezeDelta<T>(Value: T): T
-	if type(Value) ~= "table" or table.isfrozen(Value :: any) then
+	if type(Value) ~= "table" or Ours[Value :: any] then
 		return Value
 	end
 
-	table.freeze(Value :: any)
+	if not table.isfrozen(Value :: any) then
+		table.freeze(Value :: any)
+	end
+	Ours[Value :: any] = true
+
 	for _, Inner in Value :: any do
 		FreezeDelta(Inner)
 	end

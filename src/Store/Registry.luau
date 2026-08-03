@@ -13,5 +13,6 @@ local Stores: { DataStore } = {}
 return table.freeze({
 	Stores = Stores,
 	Claimed = {} :: { [string]: boolean },
+	Shutting = { Now = false },
 	Sweep = Sweeper.New(Stores)
 })

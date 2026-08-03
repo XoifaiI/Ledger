@@ -3,10 +3,12 @@
 
 -- an in memory datastore that keeps the real one's limits, budgets and queueing, so saves work offline
 
+local EncodingService = game:GetService("EncodingService")
 local HttpService = game:GetService("HttpService")
 
 local NoYield = require("./Util/NoYield")
 local Clock = require("./Clock")
+local Fault = require("./Fault")
 
 local MAX_NAME = 50
 local MAX_KEY = 50
@@ -24,6 +26,8 @@ local WRITE_BYTES = 4 * 1024 * 1024
 
 local READING = "r"
 local WRITING = "w"
+
+local BLOB = "__Buffer"
 
 local UNSTORABLE = "value cannot be stored, a datastore only holds json"
 local THROTTLED = "DataStore request dropped, the queue is full and this server is out of budget"
@@ -199,7 +203,40 @@ local function CheckKey(Key: string)
 	end
 end
 
-local function Encode(Value: any): string
+local function Packed(Value: any): any
+	if type(Value) == "buffer" then
+		return { [BLOB] = buffer.tostring(EncodingService:Base64Encode(Value)) }
+	end
+	if type(Value) ~= "table" then
+		return Value
+	end
+
+	local Out: { [any]: any } = {}
+	for Key, Inner in Value do
+		Out[Key] = Packed(Inner)
+	end
+	return Out
+end
+
+local function Unpacked(Value: any): any
+	if type(Value) ~= "table" then
+		return Value
+	end
+
+	local Blob = Value[BLOB]
+	if type(Blob) == "string" and next(Value, next(Value) :: any) == nil then
+		return EncodingService:Base64Decode(buffer.fromstring(Blob))
+	end
+
+	local Out: { [any]: any } = {}
+	for Key, Inner in Value do
+		Out[Key] = Unpacked(Inner)
+	end
+	return Out
+end
+
+local function Encode(Raw: any): string
+	local Value = Packed(Raw)
 	local Fine, Text = pcall(function(): string
 		return HttpService:JSONEncode(Value)
 	end)
@@ -209,6 +246,11 @@ local function Encode(Value: any): string
 	if #Text > MAX_VALUE then
 		error(`Ledger mock: value is larger than the {MAX_VALUE} byte limit`, 0)
 	end
+
+	local Fine2, Back = pcall(function(): any
+		return HttpService:JSONDecode(Text)
+	end)
+	assert(Fine2 and Back ~= nil, "the mock encoded a value it cannot decode again, so a round trip would lose it")
 	return Text
 end
 
@@ -220,7 +262,7 @@ local function Decode(Text: string?): any
 	local Fine, Value = pcall(function(): any
 		return HttpService:JSONDecode(Text :: string)
 	end)
-	return if Fine then Value else nil
+	return if Fine then Unpacked(Value) else nil
 end
 
 function Pages.GetCurrentPage(self: Pages): { any }
@@ -286,6 +328,7 @@ end
 local function Take(self: Service, Lanes: { Lane }, Cost: number)
 	for _, Lane in Lanes do
 		self.Tokens[Lane.Id] -= Cost
+		assert(self.Tokens[Lane.Id] >= 0, "the mock spent request budget it did not have, so it is more generous than a real server")
 	end
 end
 
@@ -304,6 +347,7 @@ local function Await(self: Service, Lanes: { Lane }, Cost: number)
 		task.wait(QUEUE_STEP)
 	end
 	self.Queued -= 1
+	assert(self.Queued >= 0, "the mock let more requests off its queue than it ever put on")
 	Take(self, Lanes, Cost)
 end
 
@@ -397,6 +441,8 @@ local function Commit(self: Store, Key: string, Text: string?, Deleted: boolean)
 		Slot.Entries = table.move(Slot.Entries, Spare + 1, #Slot.Entries, 1, {})
 	end
 
+	assert(#Slot.Entries <= KEEP_VERSIONS, "the mock is keeping more versions of a key than a real datastore would")
+	assert(Newest(Slot) == Fresh, "the mock wrote a version that is not the one a read would hand back")
 	return Fresh
 end
 
@@ -435,6 +481,9 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 		local Was, Info = Current(self, Key)
 		local Ran, Next = pcall(NoYield, Transform, Was, Info)
 		if not Ran then
+			if Fault.Of(Next) ~= nil then
+				error(Next, 0)
+			end
 			error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)
 		end
 		if Next == nil then
@@ -447,7 +496,9 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 		end
 
 		local Fresh = Put(self, Key, Next)
-		return Decode(Fresh.Text), MakeInfo(Fresh.Label, Fresh.Written)
+		local Read = Decode(Fresh.Text)
+		assert(Read ~= nil, "the mock stored a transform result it cannot read back, so a round trip loses data")
+		return Read, MakeInfo(Fresh.Label, Fresh.Written)
 	end
 
 	error(`Ledger mock: UpdateAsync on '{Key}' could not settle, too many conflicting writes`, 0)

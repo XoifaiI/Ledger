@@ -3,7 +3,6 @@
 
 -- everything Ledger.New refuses, so a store configured wrong throws at build time rather than misbehaving later
 
-local TableUtil = require("./Util/TableUtil")
 local IsStorable = require("./Record/Storable")
 local Types = require("./Types")
 
@@ -12,35 +11,6 @@ type Migration = Types.Migration
 
 local MAX_NAME = 47
 local RESERVED = "_"
-
-local function Drops<D>(Options: Config<D>): { string }
-	local Steps = Options.Migrations
-	if Steps == nil or #Steps == 0 then
-		return {}
-	end
-
-	local Ran, Migrated = pcall(function(): any
-		local State: any = TableUtil.DeepCopy(Options.Default)
-		for _, Step in Steps :: { Migration } do
-			State = if type(Step) == "function" then Step(State) else Step.Apply(State)
-			if type(State) ~= "table" then
-				return nil
-			end
-		end
-		return State
-	end)
-	if not Ran or type(Migrated) ~= "table" then
-		return {}
-	end
-
-	local Dropped: { string } = {}
-	for Key in Options.Default :: any do
-		if Migrated[Key] == nil then
-			table.insert(Dropped, tostring(Key))
-		end
-	end
-	return Dropped
-end
 
 local function Named<D>(Options: Config<D>)
 	assert(
@@ -63,6 +33,23 @@ local function Named<D>(Options: Config<D>)
 	)
 end
 
+local function Blobs(Value: any, Path: string): string?
+	if type(Value) == "buffer" then
+		return Path
+	end
+	if type(Value) ~= "table" then
+		return nil
+	end
+
+	for Key, Inner in Value do
+		local Found = Blobs(Inner, `{Path}.{tostring(Key)}`)
+		if Found ~= nil then
+			return Found
+		end
+	end
+	return nil
+end
+
 local function Storable<D>(Options: Config<D>)
 	for Key in Options.Default :: any do
 		assert(
@@ -73,6 +60,12 @@ local function Storable<D>(Options: Config<D>)
 
 	local Fine, Unstorable = IsStorable.Value(Options.Default)
 	assert(Fine, `Default cannot be stored: {Unstorable}`)
+
+	local Blob = Blobs(Options.Default, "Default")
+	assert(
+		Blob == nil,
+		`{Blob} is a buffer. every key that has not stored one yet reads the same Default, and a buffer cannot be frozen, so one key writing into it would change what every other key reads. build the buffer in your reducer instead`
+	)
 end
 
 local function Stepped<D>(Options: Config<D>)
@@ -110,10 +103,6 @@ local function Vet<D>(Options: Config<D>)
 	Storable(Options)
 	Stepped(Options)
 	Balanced(Options)
-
-	for _, Dropped in Drops(Options) do
-		warn(`Ledger: a migration on '{Options.Name}' drops '{Dropped}' but your Default still declares it, so every load puts it back. take it out of Default too`)
-	end
 end
 
 return Vet

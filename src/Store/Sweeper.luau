@@ -62,6 +62,7 @@ function Sweeper.Drop(self: Sweeper, Mark: string)
 	if self.Entries[Mark] == nil then
 		return
 	end
+	assert(self.Count > 0, "the sweep is dropping a key it is following while its count says it follows none")
 	self.Entries[Mark] = nil
 	self.Count -= 1
 end
@@ -116,14 +117,15 @@ function Sweeper.Pass(self: Sweeper)
 			continue
 		end
 
-		Entry.Tries += 1
-		local Ok, Clean = pcall(function(): boolean
+		local Ok, Clean, Moved = pcall(function(): (boolean, boolean)
 			return Entry.Store:Repair(Entry.Key)
 		end)
 		if Ok and Clean then
 			self:Drop(Mark)
 			continue
 		end
+
+		Entry.Tries = if Ok and Moved then 0 else Entry.Tries + 1
 		if Entry.Tries < SWEEP_TRIES then
 			continue
 		end

@@ -104,10 +104,12 @@ local function Settle()
 end
 
 local function CloseAll()
+	Registry.Shutting.Now = true
 	Registry.Sweep:Stop()
 	Hurry()
 	Release()
 	Settle()
+	Registry.Shutting.Now = false
 end
 
 return table.freeze({
