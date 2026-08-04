@@ -442,10 +442,6 @@ function DataStore.Maintain(self: DataStore, Key: string, Record: Record): Recor
 end
 
 function DataStore.Applies(self: DataStore, Op: Op, Record: Record): boolean
-	if Log.HasPending(Record) then
-		return true
-	end
-
 	if Log.Holds(Record, Op.Id) then
 		return true
 	end
@@ -455,11 +451,20 @@ function DataStore.Applies(self: DataStore, Op: Op, Record: Record): boolean
 		end
 	end
 
-	local Read, Next = pcall(function(): any
+	local Read, Holds = pcall(function(): boolean
 		local Format = self:Format()
-		return Step(Format.Reducer, Format:Fold(Log.Detached(Record)), Op)
+		if Step(Format.Reducer, Format:Fold(Log.Detached(Record)), Op) ~= nil then
+			return true
+		end
+		if not Log.HasPending(Record) then
+			return false
+		end
+
+		local Committed = Log.Detached(Record)
+		Committed.Ops = Log.Landed(Record.Ops, nil)
+		return Step(Format.Reducer, Format:Fold(Committed), Op) ~= nil
 	end)
-	return not Read or Next ~= nil
+	return not Read or Holds
 end
 
 function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?): (boolean, Reason?)

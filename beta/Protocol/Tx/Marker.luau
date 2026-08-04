@@ -1,0 +1,271 @@
+--!strict
+--!optimize 2
+
+--[=[
+	Marker: The one key that decides a transaction.
+	
+	No marker means aborted. A server that never wrote one therefore leaves nothing behind.
+	A marker is taken away only after each leg has reported.
+	A marker that nothing has touched for longer than the whole transaction may take is dead,
+	and any server may decide it. The time is counted per leg, because the legs are prepared
+	one after the other.
+	Ledger keeps a handle to each other store that holds a marker. A game chooses how many of those
+	stores there are, so the set is small.
+	
+	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
+	Example usage:
+		local Marker = require("./Marker")
+		local Status = Marker.StatusOf(TxStore, "order1", 30)
+--]=]
+
+local TableUtil = require("../../Util/TableUtil")
+local Clock = require("../../Util/Clock")
+local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Fault = require("../../Contract/Fault")
+local Ident = require("../../Encode/Ident")
+local Mark = require("../../Encode/Mark")
+local Types = require("./Types")
+
+type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
+type Marker = Types.Marker
+type Status = Types.Status
+type Opened = Types.Opened
+
+local LEG_TIMEOUT = 30
+local MAX_LEGS = 4
+local MAX_HOMES = 64
+
+local CREATED = "Created" :: "Created"
+local MISMATCH = "Mismatch" :: "Mismatch"
+local UNWRITTEN = "Unwritten" :: "Unwritten"
+local HUSK = "Husk" :: "Husk"
+
+local PENDING = "Pending" :: "Pending"
+local COMMITTED = "Committed" :: "Committed"
+local ABORTED = "Aborted" :: "Aborted"
+
+local Homes: { [string]: DataStoreWrapper } = {}
+local Kept = 0
+local Said = false
+
+local function GenOf(Value: any): string?
+	if type(Value) ~= "table" or type(Value.Gen) ~= "string" then
+		return nil
+	end
+	return Value.Gen
+end
+
+local function BornAt(Value: any, Fallback: number): number
+	if type(Value) ~= "table" or type(Value.At) ~= "number" then
+		return Fallback
+	end
+	return Value.At
+end
+
+local function MarkOf(Wrapper: DataStoreWrapper, Key: string): string
+	return Mark.Of(Wrapper.Name, Key)
+end
+
+local function Elsewhere(Name: string): DataStoreWrapper
+	local Cached = Homes[Name]
+	if Cached ~= nil then
+		return Cached
+	end
+
+	local Fresh = DataStoreWrapper.New(Name)
+	if Kept < MAX_HOMES then
+		Homes[Name] = Fresh
+		Kept += 1
+		return Fresh
+	end
+
+	if not Said then
+		Said = true
+		warn(
+			`Ledger: this server holds {MAX_HOMES} transaction homes, so '{Name}' gets a new handle each time. its writes no longer queue, and a shutdown cannot stop its retries. use fewer stores in your transactions`
+		)
+	end
+	return Fresh
+end
+
+local function HomeOf(TxStore: DataStoreWrapper, Home: string | true): DataStoreWrapper
+	if Home == true or Home == TxStore.Name then
+		return TxStore
+	end
+
+	return Elsewhere(Home)
+end
+
+local function Create(
+	TxStore: DataStoreWrapper,
+	Txid: string,
+	Total: number,
+	Keys: string,
+	Terms: string
+): (Opened, string?, number, boolean)
+	Fault.Holds(Total > 0, "a transaction marker is being opened for no legs at all")
+
+	local Clash = false
+	local Minted = false
+	local Born = Clock.Now()
+	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
+		Clash = false
+		Minted = false
+		if type(Current) ~= "table" then
+			Minted = true
+			return {
+				Status = PENDING,
+				Total = Total,
+				Gen = Ident.Fresh(),
+				At = Born,
+				Adopted = {},
+				Keys = Keys,
+				Terms = Terms
+			}
+		end
+		if type(Current.Keys) == "string" and Current.Keys ~= Keys then
+			Clash = true
+			return nil
+		end
+		if type(Current.Terms) == "string" and Current.Terms ~= Terms then
+			Clash = true
+			return nil
+		end
+
+		return Current
+	end)
+
+	if Clash then
+		return MISMATCH, nil, Born, false
+	end
+	if Ok ~= true then
+		return UNWRITTEN, nil, Born, false
+	end
+	if type(Value) == "table" and (Value :: Marker).Status == ABORTED then
+		return HUSK, GenOf(Value), BornAt(Value, Born), Minted
+	end
+	return CREATED, GenOf(Value), BornAt(Value, Born), Minted
+end
+
+local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrink: number?): Status?
+	Fault.Holds(To ~= PENDING, "a transaction is being decided back to pending, which would let it start over")
+
+	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
+		if type(Current) ~= "table" then
+			return nil
+		end
+		if Current.Status == PENDING then
+			Current.Status = To
+		end
+		if Shrink ~= nil and Current.Status == ABORTED and Shrink < Current.Total then
+			Current.Total = Shrink
+		end
+		return Current
+	end)
+
+	if not Ok or type(Value) ~= "table" then
+		return nil
+	end
+	local Decided = Value :: Marker
+	Fault.Holds(
+		Decided.Status ~= PENDING,
+		`transaction '{Txid}' was decided but its marker is still pending, so another server could decide it the other way`
+	)
+
+	if Shrink ~= nil and Decided.Status == ABORTED and (Decided.Total <= 0 or TableUtil.Count(Decided.Adopted) >= Decided.Total) then
+		TxStore:RemoveAsync(Txid)
+	end
+	return Decided.Status
+end
+
+local function StatusOf(TxStore: DataStoreWrapper, Txid: string, PerLeg: number): (Status?, string?, number)
+	local Looked = Clock.Now()
+	local Ok, Value, Info = TxStore:GetAsync(Txid)
+	if not Ok then
+		return nil, nil, Looked
+	end
+	if type(Value) ~= "table" then
+		return ABORTED, nil, Looked
+	end
+
+	local Marker = Value :: Marker
+	local Gen, Born = GenOf(Value), BornAt(Value, 0)
+	if Marker.Status ~= PENDING then
+		return Marker.Status, Gen, Born
+	end
+
+	local Legs = if type(Marker.Total) == "number" and Marker.Total > 0 then Marker.Total else MAX_LEGS
+	local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
+	if Clock.Now() - Updated >= PerLeg * Legs then
+		return Decide(TxStore, Txid, ABORTED) or PENDING, Gen, Born
+	end
+	return PENDING, Gen, Born
+end
+
+local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string })
+	if #Marks == 0 then
+		return
+	end
+
+	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
+		if type(Current) ~= "table" then
+			return nil
+		end
+
+		local Adopted: { [string]: boolean } = if type(Current.Adopted) == "table"
+			then Current.Adopted :: { [string]: boolean }
+			else {}
+		for _, Mark in Marks do
+			Adopted[Mark] = true
+		end
+		Current.Adopted = Adopted
+		return Current
+	end)
+
+	if not Ok or type(Value) ~= "table" then
+		return
+	end
+
+	local Marker = Value :: Marker
+	local Done = if Marker.Total > 0 then TableUtil.Count(Marker.Adopted) >= Marker.Total else Marker.Status == ABORTED
+	if Done then
+		Fault.Holds(
+			Marker.Status ~= PENDING,
+			`transaction '{Txid}' is having its marker taken away while it is still undecided, so a retry would run it again`
+		)
+		TxStore:RemoveAsync(Txid)
+	end
+end
+
+local function ShutdownHomes(Attempts: number)
+	for _, Wrapper in Homes do
+		Wrapper:SkipAllQueuesToLastEnqueued()
+		Wrapper.Attempts = Attempts
+	end
+end
+
+return table.freeze({
+	Create = Create,
+	Decide = Decide,
+	StatusOf = StatusOf,
+	Adopt = Adopt,
+	GenOf = GenOf,
+	BornAt = BornAt,
+	MarkOf = MarkOf,
+	Elsewhere = Elsewhere,
+	HomeOf = HomeOf,
+	ShutdownHomes = ShutdownHomes,
+
+	CREATED = CREATED,
+	MISMATCH = MISMATCH,
+	UNWRITTEN = UNWRITTEN,
+	HUSK = HUSK,
+
+	PENDING = PENDING,
+	COMMITTED = COMMITTED,
+	ABORTED = ABORTED,
+
+	LEG_TIMEOUT = LEG_TIMEOUT,
+	MAX_LEGS = MAX_LEGS,
+	MAX_HOMES = MAX_HOMES
+})
