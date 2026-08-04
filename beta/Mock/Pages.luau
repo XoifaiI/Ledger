@@ -36,13 +36,14 @@ local function Edge(self: Pages)
 	self.Cursor = if type(Mark) == "string" then Mark else ""
 end
 
-local function New(Rows: { any }, PageSize: number?, Fallback: number, Field: string?): Pages
+local function New(Rows: { any }, PageSize: number?, Fallback: number, Field: string?, Spend: (() -> ())?): Pages
 	local Size = math.clamp(PageSize or Fallback, 1, PAGE_LIMIT)
 	local Book: Pages = setmetatable({
 		Rows = Rows,
 		At = 1,
 		Size = Size,
 		Field = Field,
+		Spend = Spend,
 		Cursor = "",
 		IsFinished = true
 	}, Pages) :: any
@@ -59,6 +60,11 @@ end
 function Pages.AdvanceToNextPageAsync(self: Pages)
 	if self.IsFinished then
 		error("Ledger mock: there are no pages left to advance to", 0)
+	end
+
+	local Spend = self.Spend
+	if Spend ~= nil then
+		Spend()
 	end
 
 	self.At += self.Size

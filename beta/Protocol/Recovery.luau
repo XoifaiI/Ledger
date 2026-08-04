@@ -12,6 +12,9 @@
 	with the amount, and a person decides. A reservation that old is written off for the same reason.
 	One pass handles a fixed number of holds and a fixed number of reservations. The windows and
 	that cap are in Contract/Horizons.
+	A hold between the two windows is left alone on purpose, so nothing delivers it while another
+	server gives it back. It still means the key is not finished, and a pass that only rested counts
+	as progress, so the sweep keeps the key without spending a try on it.
 	
 	Return type: A table with Transfers, Bookings and PASS_LIMIT.
 	Example usage:
@@ -83,7 +86,7 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 	end
 
 	local Now = Clock.Now()
-	local Failures, Handled, Waiting, Moved = 0, 0, 0, 0
+	local Failures, Handled, Waiting, Moved, Resting = 0, 0, 0, 0, 0
 
 	for Tid, Entry in Held do
 		if type(Entry) ~= "table" then
@@ -96,6 +99,7 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 		Fault.Holds(not (Fresh and Overdue), `transfer {Tid} counts as both still worth sending and long overdue, so recovery cannot tell whether to deliver it or give it back`)
 
 		if not Fresh and not Overdue then
+			Resting += 1
 			continue
 		end
 
@@ -121,7 +125,7 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 
 	Fault.Holds(Handled <= PASS_LIMIT, "one recovery pass took on more holds than its own limit allows")
 	Fault.Holds(Moved + Failures == Handled, "a recovery pass neither finished nor failed one of the holds it took on")
-	return Failures == 0 and Waiting == 0, Moved > 0
+	return Failures == 0 and Waiting == 0 and Resting == 0, Moved > 0 or Resting > 0
 end
 
 local function Bookings(Records: Log, Format: Format, Key: string, State: any, Read: (string) -> any): boolean

@@ -29,6 +29,7 @@ local IsStorable = require("../Encode/Storable")
 local Entries = require("../Kernel/Entries")
 local Log = require("../Record/Log")
 local MakeOp = require("../Record/MakeOp")
+local Stamp = require("../Record/Stamp")
 local Booking = require("../Feature/Booking")
 local Tally = require("../Feature/Tally")
 local Transfer = require("../Protocol/Transfer")
@@ -186,7 +187,11 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any 
 		))
 	end
 
-	Records:Append(Key, { Booking.Take(Rid) })
+	local Cleared = Records:Append(Key, { Booking.Take(Rid) })
+	Fault.Holds(
+		not Stamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`),
+		`booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`
+	)
 	return true
 end
 

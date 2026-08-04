@@ -8,6 +8,8 @@
 	A transform can hit a conflict when two writes land on one key. The version mark is read before
 	and after the transform, and a change means that another write came in between. The transform
 	then runs again against what that write left, which is what a real UpdateAsync does.
+	A transform that yields raises. A transform that throws for any other reason cancels the write
+	and tells the caller nothing, which is what a real one does, measured on a live datastore.
 	
 	Return type: A table with New, MAX_KEY and KEEP_VERSIONS.
 	Example usage:
@@ -17,7 +19,6 @@
 
 local NoYield = require("../Util/NoYield")
 local Clock = require("../Util/Clock")
-local Fault = require("../Contract/Fault")
 local Codec = require("./Codec")
 local Pages = require("./Pages")
 local Types = require("./Types")
@@ -31,6 +32,7 @@ type Transform = Types.Transform
 local MAX_KEY = 50
 local KEEP_VERSIONS = 30
 local CONFLICT_LIMIT = 32
+local YIELDED = "must complete without yielding"
 
 local function NoIds(_self: KeyInfo): { number }
 	return {}
@@ -149,10 +151,10 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 		local Was, Info = Current(self, Key)
 		local Ran, Next = pcall(NoYield, Transform, Was, Info)
 		if not Ran then
-			if Fault.Of(Next) ~= nil then
-				error(Next, 0)
+			if type(Next) == "string" and string.find(Next, YIELDED, 1, true) ~= nil then
+				error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)
 			end
-			error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)
+			return nil, nil
 		end
 		if Next == nil then
 			return nil, nil
@@ -274,7 +276,9 @@ function Store.ListKeysAsync(
 		table.insert(Rows, { KeyName = Key })
 	end
 
-	return Pages.New(Rows, PageSize, 50, "KeyName")
+	return Pages.New(Rows, PageSize, 50, "KeyName", function()
+		Reach(self, Enum.DataStoreRequestType.ListAsync)
+	end)
 end
 
 table.freeze(Store)

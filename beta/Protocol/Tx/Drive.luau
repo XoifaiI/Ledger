@@ -47,6 +47,7 @@ local PASSES = 3
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
+local FULL = Reasons.Full
 local UNRESOLVED = Reasons.Unresolved
 
 local Canon = Fingerprint.Canon
@@ -124,6 +125,11 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 			return Prepared, Settled, SPENT
 		elseif Verdict == "Rejected" then
 			return Prepared, Settled, REFUSED
+		elseif Verdict == "Full" then
+			warn(
+				`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key is carrying more ops than it can hold until it compacts. nothing was applied`
+			)
+			return Prepared, Settled, FULL
 		else
 			local Unreachable: never = Verdict
 			return Prepared, Settled, Unreachable

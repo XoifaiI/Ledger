@@ -27,7 +27,7 @@ export type Resolution = { Record: Record<any>, Counts: { [string]: number } }
 
 export type Verdict = { Commit: boolean, Gen: string?, Since: number? }
 
-export type Prepared = "Prepared" | "Settled" | "Busy" | "Rejected" | "Spent"
+export type Prepared = "Prepared" | "Settled" | "Busy" | "Rejected" | "Spent" | "Full"
 
 export type Fated = "Owned" | "Dead"
 

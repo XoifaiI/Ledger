@@ -11,7 +11,9 @@
 	and not left to a reader to notice.
 
 	A reservation cannot be handed over once its hold runs out, and its units are not taken back until
-	a margin after that. Nothing can therefore hand the units over and give them back at the same time.
+	a margin after that. The margin covers how long a hand over can take, which is a few writes behind
+	a queue and their retries, and not how long the hold is. It makes that race rare and does not make
+	it impossible, so both sides also say so when they meet.
 
 	Return type: A table of the windows in seconds, and the caps on one pass.
 	Example usage:
@@ -26,7 +28,7 @@ local TOMB = 8 * DAY
 local REDRIVE = 7 * DAY
 local EXPIRE_MARGIN = DAY
 local BOOK = 15 * 60
-local BOOK_MARGIN = 60
+local BOOK_MARGIN = 5 * 60
 local REAP = 3600
 
 local PASS_LIMIT = 32
@@ -38,8 +40,8 @@ assert(
 assert(TOMB < PRUNE, "a delivery id has to outlive the tomb of the key it was delivered to, or a refund could pay twice")
 assert(BOOK + BOOK_MARGIN < REDRIVE, "a reservation has to run out before a transfer does, or stock would be held longer than money")
 assert(
-	BOOK_MARGIN > 0,
-	"a reservation that can no longer be handed over has to stay held for a while, or one server could give the units away while another gives them back"
+	BOOK_MARGIN > 0 and BOOK_MARGIN < BOOK,
+	"a reservation is held past its hold so a slow hand over cannot race the recovery that gives its units back, and that wait is added to the hold a game asked for, so it has to be the smaller of the two"
 )
 
 return table.freeze({

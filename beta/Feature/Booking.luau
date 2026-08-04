@@ -291,6 +291,7 @@ return table.freeze({
 	Overdue = Overdue,
 	Granted = Granted,
 	Delivered = Delivered,
+	FREE_ID = FREE_ID,
 	BOOK_HORIZON = BOOK_HORIZON,
 	BOOK_MARGIN = BOOK_MARGIN
 })

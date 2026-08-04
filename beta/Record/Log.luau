@@ -5,9 +5,20 @@
 	Log: The record on one key.
 	
 	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, or fold its log.
+	Every way of writing a record asks first whether this build is allowed to. To erase one is the most
+	final of them, so it asks as well.
+	A transaction leg is an op of a game, so it stops at the same two ceilings that an ordinary write
+	stops at, the bytes of the log and the size of the state it folds to. Prepare does not run the
+	rules, so it carries both itself. The state is measured only when the record is near the cap.
+	A compaction knows the size of the state it just wrote, so it says so while there is still room
+	to act. It names the largest field, which is what tells a reader where the size went.
 	An append adds only the ops that the record has not seen. An append that runs two times
 	therefore applies one time.
 	Materialize does not trust a field that it reads back, because another build can write a record.
+	A datastore swallows whatever a transform throws and cancels the write, so a reason raised inside
+	one never reaches the caller on its own. Update therefore keeps what was raised and raises it
+	again once the write has returned. It is kept for one run only, because a transform runs again
+	when two writes meet, and the run that counts is the last one.
 	
 	Return type: A table with New, Verdict, MAX_LOG_BYTES, TOMB_HORIZON, Entombed, NotEntombed and Known.
 	Example usage:
@@ -50,6 +61,9 @@ local ENVELOPE = Contract.ENVELOPE
 
 local MAX_BYTES = Contract.MAX_VALUE_BYTES
 local WARN_BYTES = MAX_BYTES - 512 * 1024
+local MAX_STATE_BYTES = Contract.MAX_STATE_BYTES
+local STATE_CHECK_FLOOR = MAX_STATE_BYTES - IsStorable.MAX_BYTES
+local STATE_WARN_BYTES = MAX_STATE_BYTES - 512 * 1024
 local MAX_LOG_BYTES = Rules.MAX_LOG_BYTES
 local TOMB_HORIZON = Rules.TOMB_HORIZON
 
@@ -61,7 +75,8 @@ local VERDICT = table.freeze({
 	Settled = "Settled" :: "Settled",
 	Busy = "Busy" :: "Busy",
 	Rejected = "Rejected" :: "Rejected",
-	Spent = "Spent" :: "Spent"
+	Spent = "Spent" :: "Spent",
+	Full = "Full" :: "Full"
 })
 
 local function Materialize(Value: any): Record
@@ -205,13 +220,28 @@ end
 function Log.Update(self: Log, Key: string, Apply: Transform): Outcome
 	local Before: Record = nil :: any
 	local Wrote = false
+	local Raised: any = nil
+
 	local Ok, Value = self.Wrapper:UpdateAsync(Key, function(Current: any): Record?
-		Before = Materialize(Current)
-		local Next = Apply(Before)
+		Wrote = false
+		Raised = nil
+
+		local Fine, Next = pcall(function(): Record?
+			Before = Materialize(Current)
+			return Apply(Before)
+		end)
+		if not Fine then
+			Raised = Next
+			return nil
+		end
+
 		Wrote = Next ~= nil
 		return Next
 	end)
 
+	if Raised ~= nil then
+		error(Raised, 0)
+	end
 	if not Ok then
 		error(Value)
 	end
@@ -270,6 +300,7 @@ end
 
 function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record
 	return self:Update(Key, function(Record: Record): Record?
+		Legible(self, Key, Record)
 		if Stamp.HasPending(Record) then
 			error(Fault.New(Reasons.Busy, `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`))
 		end
@@ -306,12 +337,26 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 		end
 
 		local State = Format:Fold(Shape.Detached(Record))
-		if Step(Format.Reducer, State, Stamp.Unstamped(Op)) == nil then
+		local Next = Step(Format.Reducer, State, Stamp.Unstamped(Op))
+		if Next == nil then
 			Verdict = VERDICT.Rejected
 			return nil
 		end
 
+		if Compact.Bulk(Record) + Measure(Record.Ops) + Measure(Op) > STATE_CHECK_FLOOR then
+			local Bytes = Measure(Next)
+			if Bytes > MAX_STATE_BYTES and Bytes > Measure(State) then
+				Verdict = VERDICT.Full
+				return nil
+			end
+		end
+
 		table.insert(Record.Ops, Op)
+		if Measure(Record.Ops) > MAX_LOG_BYTES then
+			Verdict = VERDICT.Full
+			return nil
+		end
+
 		Record.Envelope = ENVELOPE
 		if type(self.Floor) == "number" and self.Floor > (Record.Floor or 0) then
 			Record.Floor = self.Floor
@@ -395,6 +440,11 @@ function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
 	local Bytes = Measure(Result.After)
 	if Bytes > WARN_BYTES then
 		warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {MAX_BYTES}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
+	end
+
+	local State = Result.After.Bytes
+	if type(State) == "number" and State > STATE_WARN_BYTES then
+		warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {MAX_STATE_BYTES}{Compact.Hint(Result.After.Snapshot)}. take out what the game no longer reads, or spread it over more keys`)
 	end
 	return Result.After
 end

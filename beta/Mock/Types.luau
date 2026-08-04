@@ -68,6 +68,7 @@ export type Pages = setmetatable<{
 	At: number,
 	Size: number,
 	Field: string?,
+	Spend: (() -> ())?,
 	Cursor: string,
 	IsFinished: boolean
 }, PagesImpl>
