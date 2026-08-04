@@ -83,31 +83,51 @@ function Session.ApplyPending<S>(self: Session<S>, State: S, Applied: { [string]
 	return State
 end
 
-function Session.Push<S>(self: Session<S>): Record<any>?
+function Session.Push<S>(self: Session<S>): (Record<any>?, boolean?)
 	local Count = #self.Pending
 	if Count == 0 then
-		return nil
+		return nil, true
 	end
 
 	local Batch = table.move(self.Pending, 1, Count, 1, {})
-	local Stored = self.Log:Append(self.Key, Batch)
+	local Fence = self.Fence
+	local Stored = self.Log:Append(self.Key, Batch, function(Record: Record<any>): boolean
+		return Record.Erased == Fence
+	end)
 
-	local InBatch: { [Op]: boolean } = {}
-	for _, Op in Batch do
-		InBatch[Op] = true
+	local Landed: { [string]: boolean } = {}
+	for _, Op in Stored.Ops do
+		Landed[Op.Id] = true
+	end
+	for _, Id in Stored.Seen do
+		Landed[Id] = true
 	end
 
 	local Kept: { Op } = {}
 	for _, Op in self.Pending do
-		if not InBatch[Op] then
+		if not Landed[Op.Id] then
 			table.insert(Kept, Op)
 		end
 	end
-	assert(#Kept <= #self.Pending - Count, "a push kept more ops than it started with, so one was queued twice")
 	self.Pending = Kept
 
+	local Missed = 0
+	for _, Op in Batch do
+		if not Landed[Op.Id] then
+			Missed += 1
+		end
+	end
+	assert(Missed <= Count, "a push lost more ops than it was given, so one was counted twice")
+
+	if Missed == Count and Stored.Erased ~= Fence then
+		self.Released = true
+		warn(
+			`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`
+		)
+	end
+
 	self.LogSize = #Stored.Ops
-	return Stored
+	return Stored, Missed == 0
 end
 
 local function Diverged(Live: any, Folded: any, Path: string): string?
@@ -162,9 +182,14 @@ function Session.Rebuild<S>(self: Session<S>, Stored: Record<any>, Mark: string?
 	local Base: S = self.Shape:Rehydrate(Stored)
 	local State, Accepted = Fold(Base, Stored.Ops, self.Shape.Reducer, Mark)
 	local Applied: { [string]: boolean } = {}
+	local Waiting: { [string]: boolean } = {}
+	local Parked = 0
 	for _, Op in Stored.Ops do
 		if Op.Tx == nil then
 			Applied[Op.Id] = true
+		elseif type(Op.Tx) == "string" and not Waiting[Op.Tx] then
+			Waiting[Op.Tx] = true
+			Parked += 1
 		end
 	end
 
@@ -173,8 +198,9 @@ function Session.Rebuild<S>(self: Session<S>, Stored: Record<any>, Mark: string?
 	self:CheckPurity(Stored, State)
 
 	self.State = Guard(State)
-	self.Landed = if Log.HasPending(Stored)
-		then Guard(self:ApplyPending(Fold(self.Shape:Rehydrate(Stored), Log.Landed(Stored.Ops), self.Shape.Reducer), {}))
+	self.Parked = Parked
+	self.Landed = if Parked == 1
+		then Guard(self:ApplyPending(Fold(self.Shape:Rehydrate(Stored), Log.Landed(Stored.Ops, next(Waiting) :: string), self.Shape.Reducer), {}))
 		else nil
 	self.StateBytes = Measure(State)
 	self.Applied = Applied
@@ -235,7 +261,7 @@ function Session.Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bo
 	end
 
 	if self.LogBytes + OpBytes > MAX_LOG_BYTES then
-		if self.Landed ~= nil then
+		if self.Parked > 0 then
 			warn(
 				`Ledger: rejected op '{Op.Kind}', '{self.Key}' has hit the {MAX_LOG_BYTES} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`
 			)
@@ -255,6 +281,13 @@ function Session.Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bo
 	end
 
 	assert(Next ~= self.State, `your reducer handed back the very table it was given for op '{Op.Kind}', so it changed live state in place`)
+
+	if self.Parked > 1 and not Durable then
+		warn(
+			`Ledger: rejected op '{Op.Kind}', more than one transaction is parked on '{self.Key}' and this op only holds for some of the ways they can settle. ask again once they clear`
+		)
+		return { Outcome = "Refused", Why = UNRESOLVED }
+	end
 
 	local Also: S? = nil
 	local Parked = self.Landed
@@ -350,7 +383,10 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		local Ok, Accepted, Stuck = pcall(function(): (boolean, boolean)
 			self:Push()
 
-			local Stored = self:Settled(self.Log:Append(self.Key, { Op }))
+			local Fence = self.Fence
+			local Stored = self:Settled(self.Log:Append(self.Key, { Op }, function(Record: Record<any>): boolean
+				return Record.Erased == Fence
+			end))
 			local Deadline = os.clock() + Tx.TIMEOUT + PENDING_POLL
 			while Log.HasPending(Stored) and os.clock() < Deadline do
 				task.wait(PENDING_POLL)
@@ -385,12 +421,18 @@ end
 
 function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 	return Future.New(function(): (boolean, Reason?)
+		local Whole = true
 		local Ok, Err = pcall(function()
-			local Stored = self:Settled(self:Push() or self.Log:Read(self.Key))
+			local Pushed, Landed = self:Push()
+			Whole = Landed ~= false
+			local Stored = self:Settled(Pushed or self.Log:Read(self.Key))
 			self:Rebuild(Stored)
 			self:Notify()
 		end)
 		if Ok then
+			if not Whole then
+				return false, REFUSED
+			end
 			return true, nil
 		end
 
@@ -415,6 +457,7 @@ function Session.Compact<S>(self: Session<S>): Future<boolean, Reason?>
 			table.clear(self.Applied)
 			self.State = Guard(self:ApplyPending(Base, self.Applied))
 			self.Landed = nil
+			self.Parked = 0
 			self.StateBytes = Measure(self.State)
 			self.LogSize = 0
 			self.LogBytes = SumBytes(self.Pending)
@@ -433,10 +476,16 @@ function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 	return Future.New(function(): (boolean, Reason?)
 		self.Released = true
 
+		local Whole = true
 		local Ok, Err = pcall(function()
-			self:Push()
+			local _, Landed = self:Push()
+			Whole = Landed ~= false
 		end)
 		if Ok then
+			if not Whole then
+				warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+				return false, REFUSED
+			end
 			return true, nil
 		end
 
@@ -454,6 +503,8 @@ local function Load<S>(Records: Log.Log, Format: Log.Shape<S>, Key: string, TxSt
 			TxStore = TxStore,
 			State = Format.Initial,
 			Landed = nil,
+			Fence = nil,
+			Parked = 0,
 			Applied = {},
 			Pending = {},
 			LogSize = 0,
@@ -465,7 +516,9 @@ local function Load<S>(Records: Log.Log, Format: Log.Shape<S>, Key: string, TxSt
 
 		local Active: Session<S> = setmetatable(Body :: any, Session) :: any
 		local Ok, Reason = pcall(function()
-			Active:Rebuild(Active:Settled(Records:Read(Key)))
+			local Stored = Active:Settled(Records:Read(Key))
+			Active.Fence = Stored.Erased
+			Active:Rebuild(Stored)
 		end)
 		if not Ok then
 			warn(`Ledger: could not load '{Key}': {Reason}`)

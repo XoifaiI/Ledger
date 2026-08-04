@@ -42,11 +42,17 @@ local REDRIVE_HORIZON = 7 * 86400
 local EXPIRE_MARGIN = 86400
 local PRUNE_HORIZON = 30 * 86400
 local RECOVER_LIMIT = 32
-local TOMB_HORIZON = REDRIVE_HORIZON + EXPIRE_MARGIN
+local TOMB_HORIZON = Log.TOMB_HORIZON
+
+assert(
+	REDRIVE_HORIZON + EXPIRE_MARGIN == TOMB_HORIZON,
+	"a tomb has to outlast the last redelivery of a transfer, or money could be sent to a key that has already stopped turning it away"
+)
 
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
+local HELD = Reasons.Held
 
 local function AnyOlderThan(Received: { [string]: any }, Floor: number): boolean
 	for _, Stamp in Received do
@@ -202,13 +208,7 @@ local function Pruning(Data: { [any]: any }, Op: Op): { [any]: any }?
 	local Dropped = false
 	for Id, Stamp in Received do
 		local When = Dedupe.At(Stamp)
-		local Keep = Dedupe.Tagged(Id, Dedupe.ONCE)
-			or Dedupe.Tagged(Id, Dedupe.TX)
-			or Dedupe.Tagged(Id, Dedupe.SENT)
-			or When == nil
-			or When >= Floor
-
-		if Keep then
+		if When == nil or When >= Floor then
 			Kept[Id] = Stamp
 		else
 			Dropped = true
@@ -383,13 +383,8 @@ local function Settle(Records: Log.Log, From: number | string, Tid: string, Prin
 	return Records:Append(tostring(From), { SettleOp })
 end
 
-local function Entombed(Record: Types.Record<any>): boolean
-	local At = Record.Erased
-	return type(At) == "number" and Clock.Now() - At <= TOMB_HORIZON
-end
-
 local function NotEntombed(Record: Types.Record<any>): boolean
-	return not Entombed(Record)
+	return not Log.Entombed(Record)
 end
 
 local function Post(Records: Log.Log, Format: Log.Shape<any>, From: number | string, Tid: string, To: number | string, Amount: number)
@@ -399,7 +394,7 @@ local function Post(Records: Log.Log, Format: Log.Shape<any>, From: number | str
 	local DeliverOp: Op = { Id = `{DELIVER_ID}:{Tid}`, Kind = DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Terms(To, Amount) }
 	local Landed = Records:Append(tostring(To), { DeliverOp }, NotEntombed)
 	if not Carries(Landed, DeliverOp.Id) then
-		error(Fault.New(REFUSED, `'{To}' was erased, so transfer {Tid} cannot be delivered and the money stays with {From} until it is given back`))
+		error(Fault.New(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`))
 	end
 
 	local Cleared = Settle(Records, From, Tid, Terms(To, Amount))
@@ -536,7 +531,5 @@ return table.freeze({
 	Post = Post,
 	Prune = Prune,
 	Drive = Drive,
-	Recover = Recover,
-	Entombed = Entombed,
-	TOMB_HORIZON = TOMB_HORIZON
+	Recover = Recover
 })

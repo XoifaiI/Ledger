@@ -16,5 +16,6 @@ return table.freeze({
 	Backlog = "Backlog" :: Reason,
 	Full = "Full" :: Reason,
 	Invalid = "Invalid" :: Reason,
-	Behind = "Behind" :: Reason
+	Behind = "Behind" :: Reason,
+	Held = "Held" :: Reason
 })

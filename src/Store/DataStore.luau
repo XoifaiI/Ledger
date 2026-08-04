@@ -10,6 +10,7 @@ local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
 local Threads = require("../Util/Threads")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Booking = require("../Record/Booking")
 local Clock = require("../Clock")
 local Fault = require("../Fault")
 local Dedupe = require("../Record/Dedupe")
@@ -20,6 +21,8 @@ local Reconcile = require("../Record/Reconcile")
 local Mark = require("../Mark")
 local Reasons = require("../Reason")
 local Session = require("../Session")
+local Step = require("../Record/Step")
+local Tally = require("../Record/Tally")
 local Transfer = require("../Transfer")
 local Tx = require("../Tx")
 local Types = require("../Types")
@@ -42,13 +45,17 @@ type Allow = (Record) -> boolean
 type LegTarget = { Store: DataStore, Key: string }
 
 local AUTOSAVE_INTERVAL = 30
+local IDLE_EVERY = 4
 local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
 
+local FREE_LIMIT = 32
+
 local MAX_KEY = 50
 local MAX_TRANSFER_ID = 64
 local MAX_TX_ID = 50
+local MAX_BOOKING_ID = 64
 
 local RESET_KIND = "__Reset"
 
@@ -59,6 +66,11 @@ local BUSY = Reasons.Busy
 local CLOSED = Reasons.Closed
 local BEHIND = Reasons.Behind
 local FULL = Reasons.Full
+local HELD = Reasons.Held
+
+local function NotEntombed(Record: Record): boolean
+	return not Log.Entombed(Record)
+end
 
 local function Failed(What: string, Key: string, Err: any): Reason
 	local Why = Fault.Named(Err)
@@ -262,11 +274,25 @@ function DataStore.ExpectBalance(self: DataStore, What: string)
 end
 
 function DataStore.Records(self: DataStore): Log.Log
-	return Log.New(self.Wrapper)
+	local Books = self.Books
+	if Books ~= nil and Books.Wrapper == self.Wrapper then
+		return Books
+	end
+
+	Books = Log.New(self.Wrapper, #self.Migrations)
+	self.Books = Books
+	return Books
 end
 
 function DataStore.Format(self: DataStore): Log.Shape<any>
-	return Log.Shape(self.Reducer, self.Initial, self.Migrations)
+	local Shaped = self.Shaped
+	if Shaped ~= nil then
+		return Shaped
+	end
+
+	Shaped = Log.Shape(self.Reducer, self.Initial, self.Migrations)
+	self.Shaped = Shaped
+	return Shaped
 end
 
 function DataStore.Fold(self: DataStore, Record: Record): any
@@ -285,7 +311,8 @@ end
 
 function DataStore.WatchHeld(self: DataStore, Key: string, State: any)
 	local Held = if type(State) == "table" then State._Held else nil
-	if TableUtil.Occupied(Held) then
+	local Booked = if type(State) == "table" then State._Booked else nil
+	if TableUtil.Occupied(Held) or TableUtil.Occupied(Booked) then
 		Registry.Sweep:Add(self, Key)
 	end
 end
@@ -293,7 +320,7 @@ end
 function DataStore.ReapMarkers(self: DataStore): number
 	local Name = self.Wrapper.Name
 
-	local Ok, Reaped = pcall(function(): number
+	local Ok, Reaped, Next = pcall(function(): (number, number)
 		return Tx.Reap(self.TxWrapper, function(Store: string): Log.Log?
 			for _, Known in Registry.Stores do
 				if Known.Wrapper.Name == Store then
@@ -301,14 +328,60 @@ function DataStore.ReapMarkers(self: DataStore): number
 				end
 			end
 			return nil
-		end)
+		end, nil, nil, self.ReapAt)
 	end)
 	if Ok then
+		self.ReapAt = Next
 		return Reaped
 	end
 
 	warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
 	return 0
+end
+
+function DataStore.Freed(self: DataStore, Key: string, State: any): boolean
+	local Late = Booking.Overdue(State, Clock.Now())
+	if #Late == 0 then
+		return false
+	end
+
+	local Booked = (State :: any)._Booked
+	local Ops: { Op } = {}
+	for _, Rid in Late do
+		if #Ops >= FREE_LIMIT then
+			warn(`Ledger: '{Key}' has more than {FREE_LIMIT} overdue reservations, so the rest wait for the next pass`)
+			break
+		end
+
+		local Held = Booking.Entry(Booked, Rid)
+		local To = if Held ~= nil then Held.To else nil
+
+		if type(To) ~= "string" then
+			table.insert(Ops, Booking.Free(Rid))
+			continue
+		end
+
+		local Read, Landed = pcall(function(): boolean
+			return Booking.Delivered(self:Fold(self:ReadRecord(To)), Rid)
+		end)
+		if not Read then
+			warn(`Ledger: could not check '{To}' before giving back booking {Rid}, so it waits for the next pass`)
+			continue
+		end
+		table.insert(Ops, if Landed then Booking.Take(Rid) else Booking.Free(Rid))
+	end
+
+	if #Ops == 0 then
+		return false
+	end
+
+	local Gave = pcall(function()
+		self:Records():Append(Key, Ops)
+	end)
+	if not Gave then
+		warn(`Ledger: could not settle {#Ops} overdue reservation(s) on '{Key}', so they wait for the next pass`)
+	end
+	return Gave
 end
 
 function DataStore.Repair(self: DataStore, Key: string): (boolean, boolean)
@@ -317,12 +390,16 @@ function DataStore.Repair(self: DataStore, Key: string): (boolean, boolean)
 		return false, false
 	end
 
-	local Held = self:Fold(Record)._Held
+	local State = self:Fold(Record)
+	local Gave = self:Freed(Key, State)
+
+	local Held = State._Held
 	if not TableUtil.Occupied(Held) then
-		return true, false
+		return true, Gave
 	end
 
-	return Transfer.Recover(self:Records(), self:Format(), Key, Held)
+	local Clean, Moved = Transfer.Recover(self:Records(), self:Format(), Key, Held)
+	return Clean, Moved or Gave
 end
 
 function DataStore.Wake(self: DataStore, UserId: number, Active: Session<any>?)
@@ -364,9 +441,38 @@ function DataStore.Maintain(self: DataStore, Key: string, Record: Record): Recor
 	return Settled
 end
 
+function DataStore.Applies(self: DataStore, Op: Op, Record: Record): boolean
+	if Log.HasPending(Record) then
+		return true
+	end
+
+	if Log.Holds(Record, Op.Id) then
+		return true
+	end
+	for _, Id in Record.Seen do
+		if Id == Op.Id then
+			return true
+		end
+	end
+
+	local Read, Next = pcall(function(): any
+		local Format = self:Format()
+		return Step(Format.Reducer, Format:Fold(Log.Detached(Record)), Op)
+	end)
+	return not Read or Next ~= nil
+end
+
 function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?): (boolean, Reason?)
+	local Applies = true
 	local Landed, Result = pcall(function(): Record
-		return self:Append(Key, Op, Guard)
+		return self:Append(Key, Op, function(Record: Record): boolean
+			if Guard ~= nil and not Guard(Record) then
+				return false
+			end
+
+			Applies = self:Applies(Op, Record)
+			return Applies
+		end)
 	end)
 
 	if not Landed then
@@ -382,6 +488,9 @@ function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, G
 			warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
 			return false, FULL
 		end
+		if Named == BUSY then
+			return false, BUSY
+		end
 
 		warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
 		return false, UNRESOLVED
@@ -390,6 +499,9 @@ function DataStore.Written(self: DataStore, Key: string, Op: Op, What: string, G
 	local Stored: Record = Result
 	if Guard ~= nil and not Guard(Stored) then
 		return false, Denied or REFUSED
+	end
+	if not Applies then
+		return false, REFUSED
 	end
 
 	local Ok, Why = pcall(function(): Reason?
@@ -468,7 +580,13 @@ function DataStore.Autosave(self: DataStore, UserId: number)
 	end
 
 	local Active = Entry.Active
-	local Writing = #Active.Pending > 0 or Log.Oversized(Active.LogSize, Active.LogBytes)
+	local Writing = #Active.Pending > 0 or Log.Oversized(Active.LogSize, Active.LogBytes, Active.StateBytes)
+
+	Entry.Ticks += 1
+	if not Writing and Active.Parked == 0 and Entry.Ticks % IDLE_EVERY ~= 0 then
+		return
+	end
+
 	local Pool = if Writing then Enum.DataStoreRequestType.UpdateAsync else Enum.DataStoreRequestType.GetAsync
 
 	local Floor = if #Active.Pending >= HEAVY_PENDING then MIN_HEAVY_BUDGET else MIN_WRITE_BUDGET
@@ -478,7 +596,7 @@ function DataStore.Autosave(self: DataStore, UserId: number)
 	end
 
 	local Ok = Entry.Active:Flush():Wait()
-	if Ok and Log.Oversized(Entry.Active.LogSize, Entry.Active.LogBytes) then
+	if Ok and Log.Oversized(Entry.Active.LogSize, Entry.Active.LogBytes, Entry.Active.StateBytes) then
 		Ok = Entry.Active:Compact():Wait()
 	end
 	if Ok then
@@ -497,6 +615,10 @@ function DataStore.Save(self: DataStore, Active: Session<any>): Future<boolean, 
 
 	local Job = Active:Release()
 	self.Saving[Job] = true
+	task.spawn(function()
+		Job:Wait()
+		self.Saving[Job] = nil
+	end)
 	return Job
 end
 
@@ -523,7 +645,7 @@ function DataStore.Buried(self: DataStore, Key: string, Replaced: Record)
 	end
 
 	warn(
-		`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Transfer.TOMB_HORIZON // 86400} days is turned away and given back to whoever sent it`
+		`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Log.TOMB_HORIZON // 86400} days is turned away and given back to whoever sent it`
 	)
 end
 
@@ -594,6 +716,7 @@ function DataStore.Load(self: DataStore, Player: Player)
 
 	self.Loaded[UserId] = {
 		Active = Active,
+		Ticks = 0,
 		Ticker = SetInterval(AUTOSAVE_INTERVAL, function()
 			self:Autosave(UserId)
 		end)
@@ -827,6 +950,160 @@ function DataStore.Transfer(self: DataStore, From: KeyLike, To: KeyLike, Amount:
 	end)
 end
 
+local function BookingId(self: DataStore, Id: any, What: string): string
+	assert(
+		type(Id) == "string" and #Id > 0 and #Id <= MAX_BOOKING_ID and utf8.len(Id) ~= nil,
+		`{What} needs an Id, a stable name of 1 to {MAX_BOOKING_ID} characters for the units being set aside`
+	)
+	return Id
+end
+
+function DataStore.Reserve(self: DataStore, Key: KeyLike, Field: string, Amount: number, Id: string, Options: Types.HoldOptions?): Future<boolean, Reason?>
+	local Resolved = self:Resolve(Key, "Reserve")
+	assert(
+		type(Field) == "string" and #Field > 0 and type((self.Initial :: any)[Field]) == "number",
+		`Reserve needs Field to name a numeric field your Default declares, got '{tostring(Field)}'`
+	)
+	assert(
+		type(Amount) == "number" and Amount > 0 and Amount < math.huge,
+		`Reserve needs a positive finite Amount, got {tostring(Amount)}`
+	)
+
+	local Extra: Types.HoldOptions = Options or {}
+	assert(type(Extra) == "table", "Reserve takes an options table after the Id when you pass one")
+
+	local Hold = Extra.Hold
+	assert(
+		Hold == nil or (type(Hold) == "number" and Hold > 0 and Hold < math.huge),
+		`Reserve Hold must be a positive number of seconds when given, got {tostring(Hold)}`
+	)
+
+	local To: string? = nil
+	if Extra.To ~= nil then
+		To = self:Resolve(Extra.To, "Reserve To")
+		assert(To ~= Resolved, `Reserve needs To to be a different key, both resolved to '{Resolved}'`)
+	end
+
+	local Op = Booking.Book(BookingId(self, Id, "Reserve"), Field, Amount, Hold, To)
+
+	return Future.New(function(): (boolean, Reason?)
+		return self:Written(Resolved, Op, `reserve {Amount} {Field}`)
+	end)
+end
+
+function DataStore.Confirm(self: DataStore, Key: KeyLike, Id: string): Future<boolean, Reason?>
+	local Resolved = self:Resolve(Key, "Confirm")
+	local Op = Booking.Take(BookingId(self, Id, "Confirm"))
+
+	return Future.New(function(): (boolean, Reason?)
+		return self:Written(Resolved, Op, `confirm booking '{Id}'`)
+	end)
+end
+
+function DataStore.Release(self: DataStore, Key: KeyLike, Id: string): Future<boolean, Reason?>
+	local Resolved = self:Resolve(Key, "Release")
+	local Op = Booking.Free(BookingId(self, Id, "Release"))
+
+	return Future.New(function(): (boolean, Reason?)
+		return self:Written(Resolved, Op, `release booking '{Id}'`)
+	end)
+end
+
+function DataStore.Handed(self: DataStore, Key: string, Rid: string, Held: { [any]: any }): boolean
+	local To = Held.To
+	if type(To) ~= "string" then
+		return false
+	end
+
+	local Records = self:Records()
+	local Given = Booking.Give(Rid, Held.Field, Held.Amount)
+	local Landed = Records:Append(To, { Given }, function(Record: Record): boolean
+		return NotEntombed(Record) and self:Applies(Given, Record)
+	end)
+
+	if not Booking.Delivered(self:Fold(Landed), Rid) then
+		error(Fault.New(
+			HELD,
+			`'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`
+		))
+	end
+
+	Records:Append(Key, { Booking.Take(Rid) })
+	return true
+end
+
+function DataStore.Grant(self: DataStore, Key: KeyLike, Id: string): Future<boolean, Reason?>
+	local Resolved = self:Resolve(Key, "Grant")
+	local Rid = BookingId(self, Id, "Grant")
+
+	return Future.New(function(): (boolean, Reason?)
+		local Ok, Gave = pcall(function(): boolean
+			local Held = Booking.Entry(self:Fold(self:ReadRecord(Resolved))._Booked, Rid)
+			if Held == nil then
+				return false
+			end
+			assert(type(Held.To) == "string", `booking '{Rid}' was not reserved with a To, so there is nowhere to hand it to`)
+			return self:Handed(Resolved, Rid, Held)
+		end)
+		if not Ok then
+			Registry.Sweep:Add(self, Resolved)
+			return false, Failed(`hand over booking '{Rid}' on`, Resolved, Gave)
+		end
+		return Gave, if Gave then nil else REFUSED
+	end)
+end
+
+local function TallyName(self: DataStore, Name: any, Field: any, What: string): string
+	self:Live(What)
+	assert(self.Keys == "String", `{What} is for string keyed stores, '{self.Options.Name}' uses player keys`)
+	assert(
+		type(Name) == "string" and #Name > 0 and #Name + #Tally.PART + 2 <= MAX_KEY and utf8.len(Name) ~= nil,
+		`{What} needs a Name short enough to carry a shard number, up to {MAX_KEY - #Tally.PART - 2} characters`
+	)
+	assert(
+		type(Field) == "string" and #Field > 0 and type((self.Initial :: any)[Field]) == "number",
+		`{What} needs Field to name a numeric field your Default declares, got '{tostring(Field)}'`
+	)
+	return Name
+end
+
+function DataStore.Bump(self: DataStore, Name: string, Field: string, Amount: number): Future<boolean, Reason?>
+	TallyName(self, Name, Field, "Bump")
+	assert(
+		type(Amount) == "number" and Amount > 0 and Amount < math.huge,
+		`Bump needs a positive finite Amount. a tally is spread over keys that cannot see each other, so nothing can be taken back out of one`
+	)
+
+	local Key = Tally.Shard(Name, Tally.Mine())
+	local Op = Tally.Bump(Field, Amount)
+
+	return Future.New(function(): (boolean, Reason?)
+		return self:Written(Key, Op, `add {Amount} to '{Name}'`)
+	end)
+end
+
+function DataStore.Total(self: DataStore, Name: string, Field: string): Future<number?, Reason?>
+	TallyName(self, Name, Field, "Total")
+
+	-- every shard starts at what Default says the field is, so that baseline is taken back off. a
+	-- total answers what has been added to it, not what sixteen fresh keys happen to hold
+	local Base = (self.Initial :: any)[Field] or 0
+
+	return Future.New(function(): (number?, Reason?)
+		local Sum = 0
+		for _, Key in Tally.Shards(Name) do
+			local Ok, State = pcall(function(): any
+				return self:Fold(self:ReadRecord(Key))
+			end)
+			if not Ok then
+				return nil, Failed(`read a shard of '{Name}' for`, Key, State)
+			end
+			Sum += ((State :: any)[Field] or 0) - Base
+		end
+		return Sum, nil
+	end)
+end
+
 function DataStore.Tx(self: DataStore, Id: string, Legs: { TxLeg }): Future<boolean, Reason?>
 	self:Live("Tx")
 	assert(
@@ -923,6 +1200,9 @@ function DataStore.Reset(self: DataStore, Key: KeyLike): Future<boolean, Reason?
 
 	return Future.New(function(): (boolean, Reason?)
 		return self:Written(Resolved, Op, "reset", function(Record: Record): boolean
+			if Log.HasPending(Record) then
+				error(Fault.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
+			end
 			return (Record.Version or 0) <= Known
 		end, BEHIND)
 	end)
@@ -974,7 +1254,7 @@ function DataStore.Erase(self: DataStore, Key: KeyLike): Future<boolean, Reason?
 		end
 
 		local Before = Replaced :: Record
-		if Before.Erased ~= nil and not Transfer.Entombed(Before) then
+		if Before.Erased ~= nil and not Log.Entombed(Before) then
 			local Reached, Gone, Cause = pcall(function(): (boolean, any)
 				return self.Wrapper:RemoveAsync(Resolved)
 			end)
@@ -1041,10 +1321,13 @@ local function New<D>(Config: Config<D>): Store<D>
 	if Config.Balance then
 		Base = Transfer.Wrap(Base, Config.Balance)
 	end
+	Base = Booking.Wrap(Base)
+	Base = Tally.Wrap(Base)
 	Base = Tx.Wrap(Base)
 
 	local Initial = MakeInitial(Config.Default)
 	local Steps: { Migration } = Config.Migrations or {}
+
 	local Body = {
 		Options = Config,
 		Reducer = WrapSystem(Base, Initial, Steps),
@@ -1052,12 +1335,15 @@ local function New<D>(Config: Config<D>): Store<D>
 		TxWrapper = DataStoreWrapper.New(`{Config.Name}_Tx`),
 		Initial = Initial,
 		Migrations = Steps,
+		Books = nil,
+		Shaped = nil,
 		Keys = Config.Keys or "Player",
 		Loaded = {},
 		Waiters = {},
 		Loads = {},
 		Saving = {},
 		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
+		ReapAt = 0,
 		Closed = false
 	}
 	local Built: DataStore = setmetatable(Body :: any, DataStore) :: any

@@ -35,6 +35,7 @@ end
 
 return table.freeze({
 	Fresh = Fresh,
+	Home = Home,
 	Restart = Restart,
 	NODE_CHARS = NODE_CHARS
 })

@@ -23,6 +23,8 @@ local MAX_LEGS = 4
 local PASSES = 3
 local REAP_HORIZON = 3600
 local REAP_LIMIT = 64
+local REAP_PAGES = 8
+local MAX_HOMES = 64
 
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
@@ -59,6 +61,7 @@ type Pass = {
 }
 
 local Homes: { [string]: DataStoreWrapper } = {}
+local Kept = 0
 
 export type Leg = {
 	Key: string,
@@ -328,6 +331,36 @@ local function Spent(Record: Record<any>, Txid: string, Gen: string?, Born: numb
 	return true
 end
 
+local function Elsewhere(Name: string): DataStoreWrapper
+	local Cached = Homes[Name]
+	if Cached ~= nil then
+		return Cached
+	end
+
+	local Fresh = DataStoreWrapper.New(Name)
+	if Kept < MAX_HOMES then
+		Homes[Name] = Fresh
+		Kept += 1
+	end
+	return Fresh
+end
+
+local function HomeOf(TxStore: DataStoreWrapper, Home: string | true): DataStoreWrapper
+	if Home == true or Home == TxStore.Name then
+		return TxStore
+	end
+
+	return Elsewhere(Home)
+end
+
+local function Anywhere(Lookup: Lookup, Name: string): Log.Log
+	local Known = Lookup(Name)
+	if Known ~= nil then
+		return Known
+	end
+	return Log.New(Elsewhere(Name))
+end
+
 local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born: number): boolean
 	if type(Keys) ~= "string" or #Keys == 0 then
 		return false
@@ -339,11 +372,7 @@ local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born
 			return false
 		end
 
-		local Records = Lookup(Store)
-		if Records == nil then
-			return false
-		end
-
+		local Records = Anywhere(Lookup, Store)
 		local Read, Record = pcall(function(): Record<any>
 			return Records:Read(Key :: string)
 		end)
@@ -355,56 +384,74 @@ local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born
 	return true
 end
 
-local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?, Limit: number?): number
+local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?, Limit: number?, Skip: number?): (number, number)
 	local Ok, Pages = TxStore:ListKeysAsync("", Limit or REAP_LIMIT)
 	if not Ok then
 		error(Pages)
 	end
 
+	local Book = Pages :: DataStoreKeyPages
 	local Older = Horizon or REAP_HORIZON
 	local Now = Clock.Now()
 	local Reaped = 0
+	local Walked = 0
+	local Wrapped = false
 
-	for _, Entry in (Pages :: DataStoreKeyPages):GetCurrentPage() do
-		local Txid = (Entry :: any).KeyName
-		local Read, Value, Info = TxStore:GetAsync(Txid)
-		if not Read or type(Value) ~= "table" then
-			continue
-		end
+	local From = math.clamp(Skip or 0, 0, REAP_PAGES - 1)
+	local Budget = REAP_PAGES - From
 
-		local Marker = Value :: Marker
-		local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
-		if Now - Updated < Older then
-			continue
+	for _ = 1, From do
+		if Book.IsFinished then
+			Wrapped = true
+			break
 		end
-
-		if Marker.Status ~= ABORTED and not Quiet(Txid, Marker.Keys, Lookup, GenOf(Value), BornAt(Value, 0)) then
-			continue
-		end
-
-		if (TxStore:RemoveAsync(Txid)) then
-			Reaped += 1
-		end
+		Book:AdvanceToNextPageAsync()
 	end
 
-	return Reaped
-end
+	for _ = 1, Budget do
+		local Took = Reaped
+		Walked += 1
 
-local function Elsewhere(Name: string): DataStoreWrapper
-	local Cached = Homes[Name]
-	if Cached == nil then
-		Cached = DataStoreWrapper.New(Name)
-		Homes[Name] = Cached
+		for _, Entry in Book:GetCurrentPage() do
+			local Txid = (Entry :: any).KeyName
+			local Read, Value, Info = TxStore:GetAsync(Txid)
+			if not Read or type(Value) ~= "table" then
+				continue
+			end
+
+			local Marker = Value :: Marker
+			local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
+			if Now - Updated < Older then
+				continue
+			end
+
+			if Marker.Status ~= ABORTED and not Quiet(Txid, Marker.Keys, Lookup, GenOf(Value), BornAt(Value, 0)) then
+				continue
+			end
+
+			if (TxStore:RemoveAsync(Txid)) then
+				Reaped += 1
+			end
+		end
+
+		if Reaped > Took then
+			break
+		end
+		if Book.IsFinished then
+			Wrapped = true
+			break
+		end
+
+		Book:AdvanceToNextPageAsync()
 	end
-	return Cached
-end
 
-local function HomeOf(TxStore: DataStoreWrapper, Home: string | true): DataStoreWrapper
-	if Home == true or Home == TxStore.Name then
-		return TxStore
+	if not Wrapped and Reaped == 0 then
+		warn(
+			`Ledger: '{TxStore.Name}' holds more transaction markers than one pass can walk on its list budget, and this pass tidied none. the next pass starts further along`
+		)
 	end
 
-	return Elsewhere(Home)
+	return Reaped, if Wrapped then 0 else (From + Walked) % REAP_PAGES
 end
 
 local function Settle(Records: Log.Log, TxStore: DataStoreWrapper, Key: string, Record: Record<any>, PerLeg: number?): Record<any>
@@ -444,12 +491,12 @@ local function Settle(Records: Log.Log, TxStore: DataStoreWrapper, Key: string, 
 end
 
 local function PrepareLeg(Leg: Leg, Op: Op, PerLeg: number?): Log.Prepared
-	local Record = Settle(Leg.Log, Leg.TxStore, Leg.Key, Leg.Log:Read(Leg.Key), PerLeg)
-
-	local Already = Log.Known(Record, Op, Leg.Shape)
-	if Already ~= nil then
-		return Already
+	local Verdict = Leg.Log:Prepare(Leg.Key, Op, Leg.Shape)
+	if Verdict ~= Log.Verdict.Busy then
+		return Verdict
 	end
+
+	local Record = Settle(Leg.Log, Leg.TxStore, Leg.Key, Leg.Log:Read(Leg.Key), PerLeg)
 	if Log.HasPending(Record) then
 		return Log.Verdict.Busy
 	end

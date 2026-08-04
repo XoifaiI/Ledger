@@ -1,12 +1,13 @@
 --!strict
 --!optimize 2
 
--- the applied id set a key keeps in its own state, namespaced so a transfer, a transaction and a Once name cant collide. an entry holds when the name was applied and what it meant, so an honest retry reads differently from the same name reused for something else
+-- the applied id set a key keeps in its own state, namespaced so a transfer, a transaction and a Once name cant collide. an entry holds when the name was applied and what it meant, so an honest retry reads differently from the same name reused for something else. every entry carries the time it was applied and is dropped once it is older than the prune horizon, which is what keeps the set bounded
 
 local TRANSFER = "t:"
 local TX = "x:"
 local ONCE = "o:"
 local SENT = "s:"
+local GRANT = "g:"
 
 local MEANT = "#"
 
@@ -18,8 +19,8 @@ local OTHER: Recalled = "Other"
 
 local function Key(Tag: string, Id: string): string
 	assert(
-		Tag == TRANSFER or Tag == TX or Tag == ONCE or Tag == SENT,
-		"an applied name has to be tagged transfer, transaction, once or sent"
+		Tag == TRANSFER or Tag == TX or Tag == ONCE or Tag == SENT or Tag == GRANT,
+		"an applied name has to be tagged transfer, transaction, once, sent or grant"
 	)
 	assert(type(Id) == "string" and #Id > 0, "an applied name cannot be empty, or two of them would share an entry")
 	return `{Tag}{Id}`
@@ -91,6 +92,7 @@ return table.freeze({
 	TX = TX,
 	ONCE = ONCE,
 	SENT = SENT,
+	GRANT = GRANT,
 
 	UNSEEN = UNSEEN,
 	SAME = SAME,
