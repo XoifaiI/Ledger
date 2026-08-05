@@ -61,17 +61,14 @@ local function Older(To: number | string, Amount: number): string
 	return Fingerprint.Of(Fingerprint.Canon({ To = tostring(To), Amount = Amount }))
 end
 
-local function Means(Held: string?, From: number | string, To: number | string, Amount: number): boolean
-	return Held == nil or Held == Terms(From, To, Amount) or Held == Older(To, Amount)
-end
-
 local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, Before: string?): Entries.Recalled
 	local Held, Meant = Stamp.Written(Record, `{Escrow.DELIVER_ID}:{Tid}`)
-	if Held then
-		if Meant == nil or Print == nil then
-			return Entries.SAME
-		end
+	if Held and Meant ~= nil and Print ~= nil then
 		return if Meant == Print or Meant == Before then Entries.SAME else Entries.OTHER
+	end
+
+	if Held and Print == nil then
+		return Entries.SAME
 	end
 
 	local State: any = Format:Fold(Record)
@@ -170,16 +167,24 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 
 	local DeliverOp: Op = { Id = `{Escrow.DELIVER_ID}:{Tid}`, Kind = Escrow.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Terms(From, To, Amount) }
 	local Landed = Records:Append(tostring(To), { DeliverOp }, Log.NotEntombed)
-	local Carried, Meant = Stamp.Written(Landed, DeliverOp.Id)
-	if not Carried then
+	if not Stamp.Carries(Landed, DeliverOp.Id) then
 		error(Fault.New(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`))
 	end
 
-	if not Means(Meant, From, To, Amount) then
+	local Landing = LandedOn(Format, Landed, Tid, DeliverOp.Print, Older(To, Amount))
+	if Landing == Entries.OTHER then
 		error(
 			Fault.New(
 				SPENT,
 				`transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back, and a transfer name belongs to one sender`
+			)
+		)
+	end
+	if Landing == Entries.UNSEEN then
+		error(
+			Fault.New(
+				HELD,
+				`transfer {Tid} cannot be shown to have reached '{To}'. its delivery was folded into the snapshot and the name has aged out, so the {Amount} stays set aside on '{From}' rather than settle against a delivery that may belong to someone else`
 			)
 		)
 	end

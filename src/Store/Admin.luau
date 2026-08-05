@@ -250,6 +250,10 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 			if Stamp.HasPending(Record) then
 				error(Fault.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
 			end
+			
+			if Booking.Owed((self:Fold(Record) :: any)._Booked) then
+				error(Fault.New(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`))
+			end
 			return (Record.Version or 0) <= Known
 		end, BEHIND)
 	end)
