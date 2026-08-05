@@ -7,7 +7,7 @@
 	Each tier agrees on these shapes. No module above may write them again.
 	The envelope is the format of the record. A record with a higher envelope comes from a newer build.
 	
-	Return type: A table with ENVELOPE. The types are Op, Record, HistoryEntry, KeyLike, KeysMode, Reducer and Migration.
+	Return type: A table with ENVELOPE, MAX_VALUE_BYTES and MAX_STATE_BYTES. The types are Op, Record, HistoryEntry, KeyLike, KeysMode, Reducer and Migration.
 	Example usage:
 		local Contract = require("./Op")
 		type Op = Contract.Op

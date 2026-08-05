@@ -14,7 +14,7 @@
 	A booking that is late can no longer be handed over, and its units come back only after a margin
 	past that. Nothing therefore hands the units over while something else gives them back.
 
-	Return type: A table with Layered, Book, Take, Free, Give, Terms, Entry, Late, Overdue, Granted, Delivered and BOOK_HORIZON.
+	Return type: A table with Layered, Book, Take, Free, Give, Terms, Entry, Late, Overdue, Granted, Delivered, FREE_ID, BOOK_HORIZON and BOOK_MARGIN.
 	Example usage:
 		local Booking = require("./Booking")
 		local Op = Booking.Book("order1", "Stock", 1)

@@ -18,7 +18,7 @@
 	A sift decides op by op whether the record will take one. An op that it turns away is named in the
 	pass, so the caller can drop it rather than offer it again for ever.
 
-	Return type: A table with Legible, Allowed, Fresh, Capped, Format, Tomb, Entombed, MAX_LOG_BYTES and TOMB_HORIZON.
+	Return type: A table with Legible, Allowed, Fresh, Capped, Format, Tomb, Entombed, MAX_LOG_BYTES, MAX_HELD_BYTES and TOMB_HORIZON.
 	Example usage:
 		local Rules = require("./Rules")
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }

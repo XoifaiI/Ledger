@@ -62,8 +62,6 @@ local function ApplyPending<S>(self: Session<S>, State: S, Applied: { [string]: 
 	return State
 end
 
--- the session already checked these ops against its own view. that view is only stale if somebody
--- else wrote to the key since the last rebuild, and folding the record to find out is not free
 local function Sifted<S>(self: Session<S>): (Record) -> (Op) -> boolean
 	local Expect = self.LogSize
 	local Format = self.Shape
@@ -107,8 +105,6 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 		Landed[Id] = true
 	end
 
-	-- an op the record turned away never applies, so it leaves the queue rather than being offered
-	-- again on every flush. it still counts as missing, which is what tells the caller
 	local Dropped: { [string]: boolean } = {}
 	for _, Id in Turned do
 		Dropped[Id] = true

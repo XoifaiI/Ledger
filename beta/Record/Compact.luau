@@ -11,7 +11,7 @@
 	An op that the reducer refuses is held back and not dropped, even when this build knows its kind.
 	A later build may read it another way, and to absorb it would answer for that build.
 	
-	Return type: A table with Packed, Worthwhile, Oversized, Overgrown, Hint and SEEN_LIMIT.
+	Return type: A table with Packed, Worthwhile, Oversized, Overgrown, Bulk, Hint and SEEN_LIMIT.
 	Example usage:
 		local Compact = require("./Compact")
 		if Compact.Overgrown(Record) then Fold() end

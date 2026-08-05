@@ -9,7 +9,7 @@
 	A write drops each name that is older than the horizon. The set is therefore bounded by the
 	window, and not by the age of the key.
 	
-	Return type: A table with the five tags, Key, Entry, At, Meant, Find, Has, Recall, Tagged, Remember, Prune and PRUNE_HORIZON.
+	Return type: A table with the five tags, the three recalls, Key, Entry, At, Meant, Find, Has, Recall, Tagged, Remember, Prune and PRUNE_HORIZON.
 	Example usage:
 		local Entries = require("./Entries")
 		if Entries.Has(Names, Entries.ONCE, "gift") then return end
