@@ -70,8 +70,9 @@ local function Overgrown(Record: Record): boolean
 	return Worthwhile(Count, Bytes, Bulk(Record))
 end
 
-local function Accounted(State: any, Op: Op): boolean
-	if IsStorable.Reserved(Op.Kind) then
+local function Accounted(State: any, Op: Op, Format: Shape<any>): boolean
+	local Handles = Format.Handles
+	if if Handles ~= nil then Handles[Op.Kind] == true else IsStorable.Reserved(Op.Kind) then
 		return true
 	end
 
@@ -93,7 +94,7 @@ local function Absorbable(Record: Record, Format: Shape<any>): (any, number, str
 			Taken += 1
 			continue
 		end
-		if Accounted(State, Op) then
+		if Accounted(State, Op, Format) then
 			Taken += 1
 			continue
 		end

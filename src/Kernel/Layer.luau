@@ -8,7 +8,7 @@
 	A game reducer that writes one of those fields gets that field put back.
 	A layer that is added later therefore cannot forget to protect its own field.
 	
-	Return type: A table with Wrap and Stack.
+	Return type: A table with Wrap, Stack and Handles.
 	Example usage:
 		local Layer = require("./Layer")
 		local Reducer = Layer.Stack({ Escrow, Booking }, Game)
@@ -80,6 +80,16 @@ local function Wrap<S>(Inner: Reducer<S>, Layer: Layer): Reducer<S>
 	return Combined
 end
 
+local function Handles(Layers: { Layer }): { [string]: boolean }
+	local Named: { [string]: boolean } = {}
+	for _, Layer in Layers do
+		for Kind in Layer.Kinds do
+			Named[Kind] = true
+		end
+	end
+	return table.freeze(Named)
+end
+
 local function Stack<S>(Layers: { Layer }, GameReducer: Reducer<S>): Reducer<S>
 	local Built = GameReducer
 	for _, Layer in Layers do
@@ -90,5 +100,6 @@ end
 
 return table.freeze({
 	Wrap = Wrap,
-	Stack = Stack
+	Stack = Stack,
+	Handles = Handles
 })

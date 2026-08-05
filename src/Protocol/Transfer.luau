@@ -15,7 +15,7 @@
 	Post proves the hold cleared by reading the applied name back out of the state. An op sits in the
 	log whether or not the reducer took it, so the log alone proves nothing.
 	
-	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms and LandedOn.
+	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms, Older and LandedOn.
 	Example usage:
 		local Transfer = require("./Transfer")
 		local Ok, Why = Transfer.Drive(Books, Format, "a", "b", 30, "tip1")
@@ -53,25 +53,37 @@ local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
 local HELD = Reasons.Held
 
-local function Terms(To: number | string, Amount: number): string
+local function Terms(From: number | string, To: number | string, Amount: number): string
+	return Fingerprint.Of(Fingerprint.Canon({ From = tostring(From), To = tostring(To), Amount = Amount }))
+end
+
+local function Older(To: number | string, Amount: number): string
 	return Fingerprint.Of(Fingerprint.Canon({ To = tostring(To), Amount = Amount }))
 end
 
-local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?): Entries.Recalled
+local function Means(Held: string?, From: number | string, To: number | string, Amount: number): boolean
+	return Held == nil or Held == Terms(From, To, Amount) or Held == Older(To, Amount)
+end
+
+local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, Before: string?): Entries.Recalled
 	local Held, Meant = Stamp.Written(Record, `{Escrow.DELIVER_ID}:{Tid}`)
 	if Held then
 		if Meant == nil or Print == nil then
 			return Entries.SAME
 		end
-		return if Meant == Print then Entries.SAME else Entries.OTHER
+		return if Meant == Print or Meant == Before then Entries.SAME else Entries.OTHER
 	end
 
 	local State: any = Format:Fold(Record)
-	return Entries.Recall(State._Received, Entries.TRANSFER, Tid, Print)
+	local Recalled = Entries.Recall(State._Received, Entries.TRANSFER, Tid, Print)
+	if Recalled == Entries.OTHER and Before ~= nil then
+		return Entries.Recall(State._Received, Entries.TRANSFER, Tid, Before)
+	end
+	return Recalled
 end
 
-local function Delivered(Records: Log, Format: Format, To: number | string, Tid: string, Print: string?): Entries.Recalled
-	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print)
+local function Delivered(Records: Log, Format: Format, To: number | string, Tid: string, Print: string?, Before: string?): Entries.Recalled
+	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print, Before)
 end
 
 local function Reserve(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): Reserved
@@ -80,10 +92,11 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	end
 
 	local Tid = Id or Ident.Fresh()
-	local Print = Terms(To, Amount)
+	local Print = Terms(From, To, Amount)
+	local Before = Older(To, Amount)
 
 	if Id ~= nil then
-		local Already = Delivered(Records, Format, To, Tid, Print)
+		local Already = Delivered(Records, Format, To, Tid, Print, Before)
 		if Already == Entries.SAME then
 			return { Outcome = "Finished" }
 		end
@@ -125,6 +138,9 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 	local Spend = Entries.Recall((State :: any)._Received, Entries.SENT, Tid, Print)
 	if Spend == Entries.OTHER then
+		Spend = Entries.Recall((State :: any)._Received, Entries.SENT, Tid, Before)
+	end
+	if Spend == Entries.OTHER then
 		warn(
 			`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`
 		)
@@ -152,13 +168,23 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 	Fault.Holds(tostring(From) ~= tostring(To), `transfer {Tid} is being delivered to the key it came from, so the money would be counted twice`)
 	Fault.Holds(Amount > 0, `transfer {Tid} is being delivered with nothing in it`)
 
-	local DeliverOp: Op = { Id = `{Escrow.DELIVER_ID}:{Tid}`, Kind = Escrow.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Terms(To, Amount) }
+	local DeliverOp: Op = { Id = `{Escrow.DELIVER_ID}:{Tid}`, Kind = Escrow.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Terms(From, To, Amount) }
 	local Landed = Records:Append(tostring(To), { DeliverOp }, Log.NotEntombed)
-	if not Stamp.Carries(Landed, DeliverOp.Id) then
+	local Carried, Meant = Stamp.Written(Landed, DeliverOp.Id)
+	if not Carried then
 		error(Fault.New(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`))
 	end
 
-	local Cleared = Settle(Records, From, Tid, Terms(To, Amount))
+	if not Means(Meant, From, To, Amount) then
+		error(
+			Fault.New(
+				SPENT,
+				`transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back, and a transfer name belongs to one sender`
+			)
+		)
+	end
+
+	local Cleared = Settle(Records, From, Tid, Terms(From, To, Amount))
 	Fault.Holds(
 		Entries.Has((Format:Fold(Cleared) :: any)._Received, Entries.SENT, Tid),
 		`transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`
@@ -211,5 +237,6 @@ return table.freeze({
 	Prune = Prune,
 	Drive = Drive,
 	Terms = Terms,
+	Older = Older,
 	LandedOn = LandedOn
 })

@@ -95,7 +95,7 @@ function Store.Format(self: Store): LogTypes.Shape<any>
 		return Shaped
 	end
 
-	Shaped = Shape.New(self.Reducer, self.Initial, self.Migrations)
+	Shaped = Shape.New(self.Reducer, self.Initial, self.Migrations, self.Handles)
 	self.Shaped = Shaped
 	return Shaped
 end
