@@ -44,6 +44,7 @@ export type Shape<S> = setmetatable<{
 	read Reducer: Reducer<S>,
 	read Initial: S,
 	read Migrations: { Migration },
+	read Handles: { [string]: boolean }?,
 	read Blobbed: boolean
 }, ShapeImpl<S>>
 

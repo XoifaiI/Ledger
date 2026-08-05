@@ -85,7 +85,7 @@ end
 
 local Shape = {} :: Types.ShapeImpl<any>
 Shape.__index = Shape
-local function NewShape<S>(Reducer: Contract.Reducer<S>, Initial: S, Migrations: { Migration }?): Shape<S>
+local function NewShape<S>(Reducer: Contract.Reducer<S>, Initial: S, Migrations: { Migration }?, Handles: { [string]: boolean }?): Shape<S>
 	local Blobs = Blobbed[Initial :: any]
 	if Blobs == nil then
 		Blobs = AnyBuffer(Initial)
@@ -96,6 +96,7 @@ local function NewShape<S>(Reducer: Contract.Reducer<S>, Initial: S, Migrations:
 		Reducer = Reducer,
 		Initial = Initial,
 		Migrations = Migrations or {},
+		Handles = Handles,
 		Blobbed = Blobs
 	}, Shape) :: any
 end

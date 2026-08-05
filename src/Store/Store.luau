@@ -129,6 +129,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 	end
 
 	local Base = Names.Wrap(Layer.Stack(Layers, Config.Reducer :: any))
+	local Handled = Layer.Handles(Layers)
 
 	local Initial = MakeInitial(Config.Default)
 	local Steps: { Migration } = Config.Migrations or {}
@@ -140,6 +141,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 		TxWrapper = DataStoreWrapper.New(`{Config.Name}_Tx`),
 		Initial = Initial,
 		Migrations = Steps,
+		Handles = Handled,
 		Books = nil,
 		Shaped = nil,
 		Keys = (Config.Keys or "Player") :: Contract.KeysMode,

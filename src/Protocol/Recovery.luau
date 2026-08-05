@@ -43,8 +43,10 @@ local PRUNE_HORIZON = Horizons.PRUNE
 local PASS_LIMIT = Horizons.PASS_LIMIT
 
 local function Expire(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any, Age: number?)
-	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, nil) ~= Entries.UNSEEN then
-		Transfer.Settle(Records, From, Tid, Transfer.Terms(Entry.To, Entry.Amount))
+	local Print = Transfer.Terms(From, Entry.To, Entry.Amount)
+	local Before = Transfer.Older(Entry.To, Entry.Amount)
+	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, Before) == Entries.SAME then
+		Transfer.Settle(Records, From, Tid, Print)
 		return
 	end
 
@@ -57,7 +59,7 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 	Fault.Holds(Age > PRUNE_HORIZON, "a transfer is being written off before it is old enough, so money would be destroyed early")
 
 	warn(`Ledger: transfer {Tid} from {From} has been stuck over {PRUNE_HORIZON // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`)
-	Transfer.Settle(Records, From, Tid, Transfer.Terms(Entry.To, Entry.Amount))
+	Transfer.Settle(Records, From, Tid, Transfer.Terms(From, Entry.To, Entry.Amount))
 end
 
 local function Redeliver(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any): boolean

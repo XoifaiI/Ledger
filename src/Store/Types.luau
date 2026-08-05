@@ -63,6 +63,7 @@ export type Fields = {
 	TxWrapper: DataStoreWrapper,
 	Initial: any,
 	Migrations: { Migration },
+	Handles: { [string]: boolean },
 	Books: LogTypes.Log?,
 	Shaped: LogTypes.Shape<any>?,
 	Keys: KeysMode,
