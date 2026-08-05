@@ -1,7 +1,17 @@
 --!strict
 --!optimize 2
 
--- retry an async call with backoff, hands back pcall style (ok, ...) once it succeeds or runs out of goes. an error that already named its own reason has settled, so it stops the retries rather than spending them all on the same answer
+--[=[
+	RetryAsync: Calls a function again after a failure.
+	
+	The delay increases after each attempt.
+	An error that carries a reason has already settled, so the retries stop.
+	
+	Return type: A function that gives back (Ok, Result).
+	Example usage:
+		local RetryAsync = require("./RetryAsync")
+		local Ok, Value = RetryAsync(Call, { Attempts = 3 })
+--]=]
 
 type Handler = (() -> ...any) -> (boolean, ...any)
 

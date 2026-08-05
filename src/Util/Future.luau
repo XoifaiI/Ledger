@@ -1,12 +1,20 @@
 --!strict
 --!optimize 2
 
--- eager async result, runs your callback on its own thread and you grab the result with :Wait()
+--[=[
+	Future: Holds the result of work that runs on its own thread.
+
+	The work starts immediately. Wait gives you the result.
+	If the work fails, Wait gives you nothing, and Happened tells you that it failed.
+
+	Return type: A table with New, Completed and Errored.
+	Example usage:
+		local Future = require("./Future")
+		local Job = Future.New(function() return 1 end)
+		local Value = Job:Wait()
+--]=]
 
 local Threads = require("./Threads")
-
-local Future = {}
-Future.__index = Future
 
 type Packed = { n: number, [number]: any }
 
@@ -26,6 +34,11 @@ type Private<T...> = {
 	Thread: thread?
 }
 
+local EMPTY: Packed = table.freeze({ n = 0 }) :: any
+
+local Future = {} :: FutureImpl<...any>
+Future.__index = Future
+
 local function ToPrivate<T...>(self: Future<T...>): Private<T...>
 	return self :: any
 end
@@ -39,8 +52,6 @@ local function TryRemove(List: { any }, Value: any): boolean
 	local Position = table.find(List, Value)
 	return Position ~= nil and table.remove(List, Position) ~= nil
 end
-
-local EMPTY: Packed = table.freeze({ n = 0 }) :: any
 
 local function Pack(...: any): Packed
 	return table.pack(...)
@@ -102,6 +113,16 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: 
 	Finish(Private, Unpack(Private))
 end
 
+local function Settled<T...>(Result: Packed): Future<T...>
+	local Body: Private<T...> = {
+		Result = Result,
+		Waiting = {},
+		Timeouts = {}
+	}
+
+	return setmetatable(Body :: any, Future)
+end
+
 local function New<Args..., Ret...>(Callback: (Args...) -> Ret..., ...: Args...): Future<Ret...>
 	local Body: Private<Ret...> = {
 		Waiting = {},
@@ -113,6 +134,14 @@ local function New<Args..., Ret...>(Callback: (Args...) -> Ret..., ...: Args...)
 	Body.Thread = task.spawn(FutureTask, Callback, NewFuture, ...)
 
 	return NewFuture
+end
+
+local function NewCompleted<T...>(...: T...): Future<T...>
+	return Settled(Pack(true, ...))
+end
+
+local function NewErrored<T...>(Reason: string): Future<T...>
+	return Settled(Pack(false, Reason))
 end
 
 function Future.Wait<T...>(self: Future<T...>, Timeout: number?): T...
@@ -146,24 +175,6 @@ function Future.Happened<T...>(self: Future<T...>, Wait: boolean?): boolean
 	end
 
 	return false
-end
-
-local function Settled<T...>(Result: Packed): Future<T...>
-	local Body: Private<T...> = {
-		Result = Result,
-		Waiting = {},
-		Timeouts = {}
-	}
-
-	return setmetatable(Body :: any, Future)
-end
-
-local function NewCompleted<T...>(...: T...): Future<T...>
-	return Settled(Pack(true, ...))
-end
-
-local function NewErrored<T...>(Reason: string): Future<T...>
-	return Settled(Pack(false, Reason))
 end
 
 table.freeze(Future)

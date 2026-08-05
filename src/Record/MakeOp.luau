@@ -1,14 +1,25 @@
 --!strict
 --!optimize 2
 
--- builds an op with a fresh unique id, which is what makes a retried append apply once
+--[=[
+	MakeOp: Builds an op that has a new unique id.
+	
+	The id is what makes an append that runs two times apply one time.
+	A caller can put its own OnceAt on an op, but only in the past. A time in the future would hold
+	the name past its own horizon.
+	
+	Return type: A table with New and Stamp.
+	Example usage:
+		local MakeOp = require("./MakeOp")
+		local Op = MakeOp.New("Add", { Amount = 5 })
+--]=]
 
 local TableUtil = require("../Util/TableUtil")
-local Clock = require("../Clock")
-local Ident = require("./Ident")
-local Types = require("../Types")
+local Clock = require("../Util/Clock")
+local Ident = require("../Encode/Ident")
+local Contract = require("../Contract/Op")
 
-type Op = Types.Op
+type Op = Contract.Op
 
 local function Stamp(Op: Op): (boolean, string?)
 	local Loose: { [any]: any } = Op :: any

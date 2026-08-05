@@ -107,31 +107,48 @@ local function Inspect(Store: Ledger.Store<Profile>, UserId: number): Profile?
 end
 
 --[[
-    Peek is eventually consistent, because a live session somewhere may be holding unflushed
-    ops. show it, never decide on it. decisions belong in ops, where the reducer arbitrates.
+    Peek can give an old answer, because a live session on a different server can hold ops
+    that it has not written yet. Show the result to the player. Do not make a decision from
+    the result. Put each decision in an op, where the reducer approves it.
 
-    a false Transfer always carries a reason. Refused and Busy both mean nothing moved, so they
-    are safe to show the player. Unresolved means Ledger is still finishing it, so re-read the
-    keys later and never call it again under a new id.
+    A false Transfer always has a reason. There are five reasons:
 
-    that is why the id is worth passing even though it is optional: a retry with the same one
-    is safe, a retry without one is a second transfer. a tip id and a trade id may now be the
-    same string without colliding, since transfers and transactions are namespaced apart in the
-    applied-id set.
+        Refused     The move is not permitted. The sender does not hold enough. Nothing
+                    moved. Tell the player.
+        Busy        A different write holds the sender. Nothing moved. Send the transfer
+                    again in a moment.
+        Spent       A different transfer already used this Id. Use a new Id.
+        Held        The amount left the sender and waits in escrow for the receiver. The
+                    money did move. Do not tell the player that nothing moved. Ledger
+                    delivers the amount, or gives the amount back after the window. An
+                    amount that stays too long is written off, and Ledger writes a warning
+                    that a person must read.
+        Unresolved  Ledger has not finished the transfer. Read both keys again later. Do not
+                    send the transfer again with a new Id.
 
-    an Edit cannot create invalid state any more than gameplay can. it goes through the same
-    reducer. so an offline grant of a negative amount is refused exactly like a live one.
+    Refused and Busy are the only two reasons that mean nothing moved.
 
-    the gold and the mail are one op, not two. two ops can half land, and a player told they
-    were compensated with nothing in their balance is a support ticket. same rule as Shop.
+    The Id is optional, but always give an Id. A transfer that you send again with the same
+    Id moves the amount one time. A transfer that you send again with no Id moves the amount
+    a second time. A tip Id and a trade Id can be the same text, because Ledger keeps the
+    names of transfers apart from the names of transactions.
 
-    the grant is named, so running the whole job twice pays nobody twice. name it after the
-    thing being paid for, never the clock. Grant answers from DidApply rather than the Edit,
-    because a rerun changes nothing and is still granted.
+    An Edit cannot make a state that gameplay cannot make. An Edit uses the same reducer. The
+    reducer refuses an offline grant of a negative amount, and it refuses a live grant of a
+    negative amount.
 
-    GrantMany waits on each one. a loop that fires Futures without waiting starts every write
-    at once, and a few hundred recipients will empty the request budget in one go. if the list
-    is long, run it in the background and let it take the time it takes.
+    The gold and the mail are one op. They are not two ops. If they are two ops, one op can
+    apply and the other op can fail. A player who reads a message about a gift, and who has
+    no more gold, sends a support request. Shop gives the same rule.
+
+    Each grant has a name, so a job that you run two times pays each player one time. Get the
+    name from the thing that you pay for. Do not get the name from the clock. Grant reads the
+    result of DidApply, and not the result of the Edit, because a second run changes nothing
+    and is still a grant.
+
+    GrantMany waits for each grant. A loop that does not wait starts all of the writes at the
+    same time, and a few hundred players use all of the request budget. If the list is long,
+    run the job on a different thread, and let the job take the time that it needs.
 --]]
 
 return table.freeze({

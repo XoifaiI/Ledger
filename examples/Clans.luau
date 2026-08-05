@@ -66,6 +66,27 @@ local function ClanReducer(State: Clan, Op: Ledger.Op): Clan?
 	return nil
 end
 
+--[[ the player store's reducer, which owns the other half of a deposit ]]
+
+local function Reducer(State: Profile, Op: Ledger.Op): Profile?
+	if Op.Kind == "SpendGold" then
+		local Amount = Op.Amount :: number
+		if Amount <= 0 or Amount > State.Gold then
+			return nil
+		end
+
+		local Next = table.clone(State)
+		Next.Gold -= Amount
+		return Next
+	elseif Op.Kind == "SetClan" then
+		local Next = table.clone(State)
+		Next.Clan = Op.Tag :: string
+		return Next
+	end
+
+	return nil
+end
+
 --[[
     built alongside the player store
 
@@ -118,18 +139,26 @@ local function Deposit(
 end
 
 --[[
-    a hot clan bank is the case where Transfer beats Tx. a transaction holds a key while it is
-    pending, so ten servers depositing at once means one succeeds and nine answer busy. if the
-    move is only a balance, name Balance on both stores and use Transfer instead, which does
-    not hold either key.
+    A transaction holds each of its keys until the transaction is complete. If ten servers
+    deposit into the same clan at the same time, one transaction gets the keys. The other
+    nine transactions get Busy.
 
-    do not route a global counter through an entity store. a million { Add, 1 } ops is churn
-    with nothing for a reducer to validate. a counter wants a sharded UpdateAsync on plain
-    keys.
+    Busy changes nothing. Send the same transaction again after a short delay, and use the
+    same DepositId. A retry with the same Id is safe.
+
+    Transfer does not help here. Transfer moves a balance between two keys of one store. It
+    cannot move a balance from one store to a different store.
+
+    If the clan bank only holds a total, and no player key must change at the same moment,
+    use Bump and Total. Bump and Total divide the count across many keys.
+
+    Do not keep a global counter in an entity store. A million Add ops give the reducer
+    nothing to approve.
 --]]
 
 return table.freeze({
 	ClanReducer = ClanReducer,
+	Reducer = Reducer,
 	Join = Join,
 	SetMotd = SetMotd,
 	Read = Read,

@@ -1,10 +1,39 @@
 --!strict
 --!optimize 2
 
--- small grab bag of table helpers, add to it only when something actually needs it
+--[=[
+	TableUtil: Small helpers for tables.
+	
+	FreezeDelta remembers each table that it froze, so it does not walk the same table two times.
+	The cost of a freeze is therefore equal to the part of the state that changed.
+	
+	Return type: A table with Occupied, Count, Some, DeepCopy, DeepFreeze and FreezeDelta.
+	Example usage:
+		local TableUtil = require("./TableUtil")
+		local Copy = TableUtil.DeepCopy(State)
+--]=]
 
 local function Occupied(Value: any): boolean
 	return type(Value) == "table" and next(Value) ~= nil
+end
+
+local function Count(Value: any): number
+	if type(Value) ~= "table" then
+		return 0
+	end
+
+	local Total = 0
+	for _ in Value do
+		Total += 1
+	end
+	return Total
+end
+
+local function Some<T>(Entries: T): T?
+	if type(Entries) ~= "table" then
+		return nil
+	end
+	return if next(Entries :: any) == nil then nil else Entries
 end
 
 local function DeepCopy<T>(Value: T, Seen: {[any]: any}?): T
@@ -73,6 +102,8 @@ end
 
 return table.freeze({
 	Occupied = Occupied,
+	Count = Count,
+	Some = Some,
 	DeepCopy = DeepCopy,
 	DeepFreeze = DeepFreeze,
 	FreezeDelta = FreezeDelta

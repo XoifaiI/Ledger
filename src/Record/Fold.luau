@@ -1,14 +1,24 @@
 --!strict
 --!optimize 2
 
--- pure replay, base state plus every op through the reducer. a rejected, throwing, yielding or tx stamped op is skipped
+--[=[
+	Fold: Replays each op on top of a base state.
+	
+	An op that a reducer refuses is skipped. An op that carries a transaction stamp is also skipped,
+	because a marker has not decided that transaction yet.
+	
+	Return type: A function that gives back the state, and whether the marked op applied.
+	Example usage:
+		local Fold = require("./Fold")
+		local State = Fold(Base, Record.Ops, Reducer)
+--]=]
 
 local TableUtil = require("../Util/TableUtil")
 local Step = require("./Step")
-local Types = require("../Types")
+local Op = require("../Contract/Op")
 
-type Op = Types.Op
-type Reducer<S> = Types.Reducer<S>
+type Op = Op.Op
+type Reducer<S> = Op.Reducer<S>
 
 local function Fold<S>(Base: S, Ops: { Op }, Reducer: Reducer<S>, Mark: string?): (S, boolean)
 	local State = TableUtil.FreezeDelta(Base)

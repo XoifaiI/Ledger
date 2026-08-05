@@ -1,7 +1,20 @@
 --!strict
 --!optimize 2
 
--- serial task queue, SubmitAsync yields until your task runs in order and hands back its results
+--[=[
+	ThreadQueue: Runs tasks one after the other.
+	
+	SubmitAsync waits until your task runs, then gives you what the task returned.
+	SkipToLastEnqueued removes all tasks but the last one. Each removed caller gets an error.
+	The queue records the thread that runs a task. If that thread dies before the task ends, the next
+	caller takes the queue. Without this a cancelled thread stops the queue for the life of the server.
+	
+	Return type: A table with New and the SKIPPED message.
+	Example usage:
+		local ThreadQueue = require("./ThreadQueue")
+		local Queue = ThreadQueue.New()
+		local Value = Queue:SubmitAsync(Work)
+--]=]
 
 type Entry = {
 	Callback: () -> ...any,
@@ -17,20 +30,26 @@ type ThreadQueueImpl = {
 
 export type ThreadQueue = setmetatable<{
 	Tasks: { Entry },
-	Busy: boolean
+	Busy: boolean,
+	Holder: thread?
 }, ThreadQueueImpl>
 
 local SKIPPED = "ThreadQueue task skipped"
 
 local ThreadQueue = {} :: ThreadQueueImpl
 ThreadQueue.__index = ThreadQueue
-
 local function TraceHandler(Err: any): string
 	return debug.traceback(tostring(Err), 1)
 end
 
+local function Abandoned(self: ThreadQueue): boolean
+	local Holder = self.Holder
+	return Holder ~= nil and coroutine.status(Holder) == "dead"
+end
+
 local function Drain(self: ThreadQueue)
 	assert(self.Busy, "the queue is draining without being marked busy, so a second drain could run beside it")
+	self.Holder = coroutine.running()
 	while self.Tasks[1] do
 		local Entry = table.remove(self.Tasks, 1) :: Entry
 		local Result = table.pack(xpcall(Entry.Callback, TraceHandler))
@@ -38,14 +57,29 @@ local function Drain(self: ThreadQueue)
 			task.spawn(Entry.Caller, table.unpack(Result, 1, Result.n))
 		end
 	end
+	self.Holder = nil
 	self.Busy = false
 end
 
+local function New(): ThreadQueue
+	return setmetatable({
+		Tasks = {},
+		Busy = false,
+		Holder = nil
+	}, ThreadQueue) :: ThreadQueue
+end
+
 function ThreadQueue.SubmitAsync(self: ThreadQueue, Callback: () -> ...any): ...any
-	if not self.Busy then
+	if not self.Busy or Abandoned(self) then
+		if self.Busy then
+			warn(`ThreadQueue took over a queue whose thread was cancelled, {#self.Tasks} task(s) were waiting on it`)
+		end
+
 		self.Busy = true
+		self.Holder = coroutine.running()
 		local Straight = table.pack(xpcall(Callback, TraceHandler))
 
+		self.Holder = nil
 		if self.Tasks[1] then
 			task.defer(Drain, self)
 		else
@@ -88,13 +122,6 @@ function ThreadQueue.SkipToLastEnqueued(self: ThreadQueue)
 			task.spawn(Entry.Caller, false, SKIPPED)
 		end
 	end
-end
-
-local function New(): ThreadQueue
-	return setmetatable({
-		Tasks = {},
-		Busy = false
-	}, ThreadQueue) :: ThreadQueue
 end
 
 table.freeze(ThreadQueue)

@@ -8,9 +8,6 @@
 				"src": {
 					"$path": "src"
 				},
-				"beta": {
-					"$path": "beta"
-				},
 				"Simulation": {
 					"$path": "Simulation"
 				},

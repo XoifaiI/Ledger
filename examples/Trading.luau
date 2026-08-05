@@ -86,23 +86,26 @@ local function BuyFrom(
 end
 
 --[[
-    the id is the first argument because it is what makes the call safe to repeat. derive it
-    from the trade, never from the clock, or every retry is a second trade.
+    The Id is the first argument, because the Id makes the call safe to repeat. Get the Id
+    from the trade. Do not get the Id from the clock. A different Id makes a second trade.
 
-    false always comes with a reason, and there are only four:
+    A false result always has a reason. There are five reasons:
 
-        Refused     a leg's reducer said no. the seller no longer had the item, or the buyer
-                    could not afford it. permanent, so tell the player
-        Busy        another transaction holds one of those keys. nothing was applied, so this
-                    is safe to offer again in a moment
-        Spent       this trade id cannot be used again. use a new one
-        Unresolved  the datastore never answered. it may still commit, so do not report a
-                    failure and do not retry under a new name, just re-read the profiles
+        Refused     A reducer refused a leg. The seller no longer has the item, or the buyer
+                    cannot pay. This result is permanent. Tell the player.
+        Busy        A different transaction holds one of these keys. Nothing changed. Offer
+                    the trade again in a moment.
+        Spent       A different trade already used this Id. Use a new Id.
+        Invalid     A leg carries a field that Ledger cannot store. This result is a fault in
+                    the caller. Ledger writes a warning that gives the number of the leg.
+        Unresolved  The datastore did not answer. The trade can still commit. Do not tell the
+                    player that the trade failed. Do not send the trade again with a new Id.
+                    Read both profiles again.
 
-    a lost acknowledgement, a stale marker and a torn verdict never reach here, Tx retries
-    those itself.
+    Tx sends a transaction again after a lost acknowledgement, a stale marker or a torn
+    verdict. These three conditions do not reach the caller.
 
-    do not reach for Tx on one key. a swap within one player's own inventory is one op.
+    Do not use Tx for one key. A swap inside the inventory of one player is one op.
 --]]
 
 return table.freeze({

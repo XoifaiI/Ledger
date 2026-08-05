@@ -1,7 +1,21 @@
 --!strict
 --!optimize 2
 
--- a value stream you push to and subscribe to, listeners run inline so they must not yield
+--[=[
+	Observer: Sends each value to each listener.
+	
+	A listener runs immediately when you push a value, so a listener must not yield.
+	Map, Filter and Changed each make a new stream from this one.
+	Destroy marks each connection of the stream as gone. To disconnect one after that is therefore
+	nothing, and not a fault.
+	
+	Return type: A table with New, which gives you a subject that you can push to.
+	Example usage:
+		local Observer = require("./Observer")
+		local Stream = Observer.New()
+		Stream:Subscribe(print)
+		Stream:Push(1)
+--]=]
 
 local NoYield = require("./NoYield")
 
@@ -68,6 +82,10 @@ local function Make<T>(Activate: Activate<T>?): Observer<T>
 	}
 
 	return setmetatable(Body :: any, Observer) :: any
+end
+
+local function New<T>(): Subject<T>
+	return Make() :: any
 end
 
 function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connection
@@ -157,15 +175,14 @@ function Observer.Destroy<T>(self: Observer<T>)
 		Private.Teardown = nil
 	end
 
+	for Link in Private.Listeners do
+		Link.Connected = false
+	end
 	table.clear(Private.Listeners)
 end
 
 function Observer.Push<T>(self: Subject<T>, Value: T)
 	Deliver(ToPrivate(self), Value)
-end
-
-local function New<T>(): Subject<T>
-	return Make() :: any
 end
 
 table.freeze(Observer)

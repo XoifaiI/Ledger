@@ -2,15 +2,16 @@
 --!optimize 2
 
 --[=[
-	Clock: Gives the time that Ledger writes on a record.
-	
+	Clock: Gives the time that Ledger writes on a record, and the wait that Ledger polls on.
+
 	A test can replace the source of the time. The test can then hold the time still, or move it forward.
 	The default source is os.time.
 	Ledger counts each of its windows in seconds since 1970. A new source is read once and checked
 	against the real clock. A source in other units would make a key forget the names that stop a
 	payment happening two times.
+	A test can replace the wait for the same reason. The default wait is task.wait.
 
-	Return type: A table with Set and Now.
+	Return type: A table with Set, Now and Wait.
 	Example usage:
 		local Clock = require("./Clock")
 		Clock.Set(function() return 1000 end)
@@ -23,7 +24,12 @@ local function Real(): number
 	return os.time()
 end
 
+local function Sleep(Seconds: number)
+	task.wait(Seconds)
+end
+
 local Source: () -> number = Real
+local Waits: (Seconds: number) -> () = Sleep
 
 local function Vet(Reads: () -> number)
 	local Ok, Value = pcall(Reads)
@@ -42,18 +48,28 @@ local function Vet(Reads: () -> number)
 	)
 end
 
-local function Set(Reads: (() -> number)?)
+local function Set(Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?)
 	if Reads ~= nil then
 		Vet(Reads)
 	end
+	assert(
+		Sleeps == nil or type(Sleeps) == "function",
+		"the wait given to Ledger.UseClock has to be a function that takes a number of seconds"
+	)
 	Source = Reads or Real
+	Waits = Sleeps or Sleep
 end
 
 local function Now(): number
 	return Source()
 end
 
+local function Wait(Seconds: number)
+	Waits(Seconds)
+end
+
 return table.freeze({
 	Set = Set,
-	Now = Now
+	Now = Now,
+	Wait = Wait
 })

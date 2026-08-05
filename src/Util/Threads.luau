@@ -1,7 +1,16 @@
 --!strict
 --!optimize 2
 
--- resume a parked thread, but only if its still parked, so one dead waiter cant strand a wake up loop
+--[=[
+	Threads: Starts a thread again, but only if that thread waits.
+	
+	A thread that is dead stays dead. One dead thread therefore cannot stop a loop that wakes many threads.
+	
+	Return type: A table with Resume.
+	Example usage:
+		local Threads = require("./Threads")
+		Threads.Resume(Thread, Value)
+--]=]
 
 local function Resume(Thread: thread, ...: any): boolean
 	if coroutine.status(Thread) ~= "suspended" then

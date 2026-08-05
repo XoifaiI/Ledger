@@ -1,7 +1,17 @@
 --!strict
 --!optimize 2
 
--- runs a callback that must finish synchronously, throwing with a traceback if it yields
+--[=[
+	NoYield: Runs a function that must not yield.
+	
+	If the function yields, this throws and shows you where.
+	An error that carries a reason goes through unchanged, because the caller reads that reason.
+	
+	Return type: A function that gives back what the callback returned.
+	Example usage:
+		local NoYield = require("./NoYield")
+		local Value = NoYield(Callback, 1, 2)
+--]=]
 
 local YIELDED = "the callback must complete without yielding"
 

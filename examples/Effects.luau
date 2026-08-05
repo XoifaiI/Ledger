@@ -89,12 +89,15 @@ end
 --[[
     Observe fires on every accepted op, so a raw subscription repaints even when the field you
     draw did not move. map to the field, then drop repeats.
+
+    disconnecting the last subscriber tears the whole chain down, so one teardown is enough for
+    the Map and the Changed as well.
 --]]
 
-local function ShowGold(Session: Ledger.Session<Profile>, Label: TextLabel)
+local function ShowGold(Session: Ledger.Session<Profile>, Label: TextLabel): () -> ()
 	Label.Text = tostring(Session:Get().Gold)
 
-	Session:Observe()
+	local Connection = Session:Observe()
 		:Map(function(State: Profile): number
 			return State.Gold
 		end)
@@ -102,6 +105,10 @@ local function ShowGold(Session: Ledger.Session<Profile>, Label: TextLabel)
 		:Subscribe(function(Gold: number)
 			Label.Text = tostring(Gold)
 		end)
+
+	return function()
+		Connection:Disconnect()
+	end
 end
 
 --[[

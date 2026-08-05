@@ -1,7 +1,18 @@
 --!strict
 --!optimize 2
 
--- thin datastore wrapper, a per key queue keeps requests in order and every call retries with backoff
+--[=[
+	DataStoreWrapper: Calls a datastore, and calls again when a call fails.
+	
+	Each key has its own queue, so the writes to one key stay in order.
+	Use puts a different backend behind every wrapper. A test uses this to install a fake datastore.
+	
+	Return type: A table with New, Use and Swapped.
+	Example usage:
+		local Wrapper = require("./DataStoreWrapper")
+		local Books = Wrapper.New("Players")
+		local Ok, Value = Books:GetAsync("1")
+--]=]
 
 local DataStoreService = game:GetService("DataStoreService")
 
@@ -28,7 +39,7 @@ type DataStoreWrapperImpl = {
 		Handler: Handler?
 	) -> (boolean, any),
 	GetVersionAsync: (self: DataStoreWrapper, Key: string, Version: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
-	ListKeysAsync: (self: DataStoreWrapper, Prefix: string?, PageSize: number?, Handler: Handler?) -> (boolean, any),
+	ListKeysAsync: (self: DataStoreWrapper, Prefix: string?, PageSize: number?, Cursor: string?, Handler: Handler?) -> (boolean, any),
 	Budget: (self: DataStoreWrapper, Kind: Enum.DataStoreRequestType) -> number,
 	SkipAllQueuesToLastEnqueued: (self: DataStoreWrapper) -> ()
 }
@@ -48,7 +59,6 @@ export type DataStoreWrapper = setmetatable<{
 
 local DataStoreWrapper = {} :: DataStoreWrapperImpl
 DataStoreWrapper.__index = DataStoreWrapper
-
 local Backend: ((Name: string) -> any)? = nil
 local Budgets: ((Kind: Enum.DataStoreRequestType) -> number)? = nil
 
@@ -85,6 +95,17 @@ local function AttemptAsync(
 		self.Spent += 1
 		return Operation(GetStore(self))
 	end, Handler)
+end
+
+local function New(Name: string, Attempts: number?, Constant: number?, Exponent: number?): DataStoreWrapper
+	return setmetatable({
+		Name = Name,
+		Spent = 0,
+		Attempts = Attempts,
+		Constant = Constant,
+		Exponent = Exponent,
+		Queues = {}
+	}, DataStoreWrapper) :: DataStoreWrapper
 end
 
 function DataStoreWrapper.GetAsync(self: DataStoreWrapper, Key: string, Handler: Handler?): (boolean, any, DataStoreKeyInfo?)
@@ -132,9 +153,9 @@ function DataStoreWrapper.GetVersionAsync(self: DataStoreWrapper, Key: string, V
 	end, Handler)
 end
 
-function DataStoreWrapper.ListKeysAsync(self: DataStoreWrapper, Prefix: string?, PageSize: number?, Handler: Handler?): (boolean, any)
+function DataStoreWrapper.ListKeysAsync(self: DataStoreWrapper, Prefix: string?, PageSize: number?, Cursor: string?, Handler: Handler?): (boolean, any)
 	return AttemptAsync(self, "", function(Store: DataStore)
-		return Store:ListKeysAsync(Prefix or "", PageSize, nil, true)
+		return Store:ListKeysAsync(Prefix or "", PageSize, Cursor, true)
 	end, Handler)
 end
 
@@ -147,17 +168,6 @@ end
 
 function DataStoreWrapper.SkipAllQueuesToLastEnqueued(self: DataStoreWrapper)
 	KeyedRetryQueue.SkipAllToLastEnqueued(self)
-end
-
-local function New(Name: string, Attempts: number?, Constant: number?, Exponent: number?): DataStoreWrapper
-	return setmetatable({
-		Name = Name,
-		Spent = 0,
-		Attempts = Attempts,
-		Constant = Constant,
-		Exponent = Exponent,
-		Queues = {}
-	}, DataStoreWrapper) :: DataStoreWrapper
 end
 
 table.freeze(DataStoreWrapper)

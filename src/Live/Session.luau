@@ -17,6 +17,7 @@
 		local Active = Session.Load(Books, Format, "1", TxStore):Wait()
 --]=]
 
+local Clock = require("../Util/Clock")
 local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local TableUtil = require("../Util/TableUtil")
@@ -204,9 +205,9 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 			local Stored = self:Settled((self.Log:Append(self.Key, { Op }, function(Record: Record): boolean
 				return Record.Erased == Fence
 			end)))
-			local Deadline = os.clock() + Tx.TIMEOUT + PENDING_POLL
-			while Stamp.HasPending(Stored) and os.clock() < Deadline do
-				task.wait(PENDING_POLL)
+			local Deadline = Clock.Now() + Tx.TIMEOUT + PENDING_POLL
+			while Stamp.HasPending(Stored) and Clock.Now() < Deadline do
+				Clock.Wait(PENDING_POLL)
 				Stored = self:Settled(self.Log:Read(self.Key))
 			end
 

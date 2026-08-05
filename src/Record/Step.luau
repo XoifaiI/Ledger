@@ -1,13 +1,22 @@
 --!strict
 --!optimize 2
 
--- one op through a reducer with the guard rails on. a reducer that throws, yields or hands back anything but a table refused the op
+--[=[
+	Step: Puts one op through a reducer, with the guards on.
+	
+	A reducer that throws, yields, or gives back something that is not a table has refused the op.
+	
+	Return type: A function that gives back the next state, or nothing.
+	Example usage:
+		local Step = require("./Step")
+		local Next = Step(Reducer, State, Op)
+--]=]
 
 local NoYield = require("../Util/NoYield")
-local Types = require("../Types")
+local Op = require("../Contract/Op")
 
-type Op = Types.Op
-type Reducer<S> = Types.Reducer<S>
+type Op = Op.Op
+type Reducer<S> = Op.Reducer<S>
 
 local function Step<S>(Reducer: Reducer<S>, State: S, Op: Op): S?
 	local Ok, Next = pcall(NoYield, Reducer, State, Op)
