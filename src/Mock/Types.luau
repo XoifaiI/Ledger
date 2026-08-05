@@ -1,0 +1,121 @@
+--!strict
+--!optimize 2
+
+--[=[
+	Types: The declarations of the fake datastore.
+	
+	These are private to this folder. This file holds declarations, and never logic.
+	A service hands out stores, and each store spends from its service. Both shapes are therefore
+	named here, and not in either of those files.
+	
+	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, Store and Service.
+	Example usage:
+		local Types = require("./Types")
+		type Service = Types.Service
+--]=]
+
+export type Options = {
+	Players: number?,
+	CCU: number?,
+	Throttled: boolean?
+}
+
+export type KeyInfo = {
+	read Version: string,
+	read CreatedTime: number,
+	read UpdatedTime: number,
+	read GetUserIds: (self: KeyInfo) -> { number },
+	read GetMetadata: (self: KeyInfo) -> { [string]: any }
+}
+
+export type Entry = {
+	Text: string?,
+	Written: number,
+	Deleted: boolean,
+	Label: string
+}
+
+export type Slot = {
+	Live: string?,
+	Entries: { Entry }
+}
+
+export type Transform = (Current: any, Info: KeyInfo?) -> ...any
+
+export type Allowance = {
+	read Base: number,
+	read PerPlayer: number
+}
+
+export type Budget = {
+	read Server: Allowance,
+	read Experience: Allowance
+}
+
+export type Lane = {
+	read Id: string,
+	read Cap: number
+}
+
+export type PagesImpl = {
+	__index: PagesImpl,
+	GetCurrentPage: (self: Pages) -> { any },
+	AdvanceToNextPageAsync: (self: Pages) -> ()
+}
+
+export type Pages = setmetatable<{
+	Rows: { any },
+	At: number,
+	Size: number,
+	Field: string?,
+	Spend: (() -> ())?,
+	Cursor: string,
+	IsFinished: boolean
+}, PagesImpl>
+
+export type StoreImpl = {
+	__index: StoreImpl,
+	GetAsync: (self: Store, Key: string) -> (any, KeyInfo?),
+	UpdateAsync: (self: Store, Key: string, Transform: Transform) -> (any, KeyInfo?),
+	SetAsync: (self: Store, Key: string, Value: any) -> string,
+	RemoveAsync: (self: Store, Key: string) -> (any, KeyInfo?),
+	GetVersionAsync: (self: Store, Key: string, Version: string) -> (any, KeyInfo?),
+	ListVersionsAsync: (
+		self: Store,
+		Key: string,
+		Direction: Enum.SortDirection?,
+		MinDate: number?,
+		MaxDate: number?,
+		PageSize: number?
+	) -> Pages,
+	ListKeysAsync: (self: Store, Prefix: string?, PageSize: number?, Cursor: string?, ExcludeDeleted: boolean?) -> Pages
+}
+
+export type Store = setmetatable<{
+	Name: string,
+	Scope: string,
+	Service: Service,
+	Slots: { [string]: Slot },
+	Ticket: number
+}, StoreImpl>
+
+export type ServiceImpl = {
+	__index: ServiceImpl,
+	GetDataStore: (self: Service, Name: string, Scope: string?) -> Store,
+	GetRequestBudgetForRequestType: (self: Service, Kind: Enum.DataStoreRequestType) -> number,
+	Spend: (self: Service, Kind: Enum.DataStoreRequestType) -> (),
+	Carry: (self: Service, Way: string, Store: string, Key: string, Bytes: number) -> (),
+	Clear: (self: Service) -> ()
+}
+
+export type Service = setmetatable<{
+	Stores: { [string]: Store },
+	Tokens: { [string]: number },
+	Filled: { [string]: number },
+	Queued: number,
+	Players: number,
+	CCU: number,
+	Throttled: boolean
+}, ServiceImpl>
+
+return table.freeze({})

@@ -1,0 +1,22 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Rojo: serve dev",
+			"type": "shell",
+			"command": "rojo serve test.project.json",
+			"problemMatcher": [],
+			"isBackground": true,
+			"group": { "kind": "build", "isDefault": true },
+			"presentation": { "reveal": "silent", "panel": "dedicated" },
+			"detail": "Serves the DataModel project. default.project.json is the model used to build the package and cannot be synced into a place."
+		},
+		{
+			"label": "Rojo: build model",
+			"type": "shell",
+			"command": "rojo build default.project.json --output Ledger.rbxm",
+			"problemMatcher": [],
+			"presentation": { "reveal": "silent", "panel": "dedicated" }
+		}
+	]
+}

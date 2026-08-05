@@ -1,0 +1,9 @@
+*.rbxm
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+*.ps1
+sourcemap.json
+Packages/
+Simulation/
