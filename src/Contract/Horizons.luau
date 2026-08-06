@@ -28,7 +28,7 @@ local TOMB = 8 * DAY
 local REDRIVE = 7 * DAY
 local EXPIRE_MARGIN = DAY
 local BOOK = 15 * 60
-local BOOK_MARGIN = 5 * 60
+local BOOK_MARGIN = 10 * 60
 local REAP = 3600
 
 local PASS_LIMIT = 32
