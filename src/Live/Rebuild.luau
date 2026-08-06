@@ -18,7 +18,7 @@
 	That test only runs when the log has moved since the last rebuild. A key that nobody else wrote to
 	holds exactly what this session already checked against.
 	
-	Return type: A table with Push, Rebuild, ApplyPending and SumBytes.
+	Return type: A table with Push, Sifted, Rebuild, ApplyPending and SumBytes.
 	Example usage:
 		local Rebuild = require("./Rebuild")
 		local Stored, Whole = Rebuild.Push(Active)
@@ -227,6 +227,7 @@ end
 
 return table.freeze({
 	Push = Push,
+	Sifted = Sifted,
 	Rebuild = Rebuild,
 	ApplyPending = ApplyPending,
 	SumBytes = SumBytes
