@@ -204,7 +204,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 			local Fence = self.Fence
 			local Stored = self:Settled((self.Log:Append(self.Key, { Op }, function(Record: Record): boolean
 				return Record.Erased == Fence
-			end)))
+			end, Rebuild.Sifted(self))))
 			local Deadline = Clock.Now() + Tx.TIMEOUT + PENDING_POLL
 			while Stamp.HasPending(Stored) and Clock.Now() < Deadline do
 				Clock.Wait(PENDING_POLL)
