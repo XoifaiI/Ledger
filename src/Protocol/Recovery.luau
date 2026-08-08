@@ -45,7 +45,7 @@ local PASS_LIMIT = Horizons.PASS_LIMIT
 local function Expire(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any, Age: number?)
 	local Print = Transfer.Terms(From, Entry.To, Entry.Amount)
 	local Before = Transfer.Older(Entry.To, Entry.Amount)
-	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, Before) == Entries.SAME then
+	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, Before, From) == Entries.SAME then
 		Transfer.Settle(Records, From, Tid, Print)
 		return
 	end

@@ -61,8 +61,19 @@ local function Older(To: number | string, Amount: number): string
 	return Fingerprint.Of(Fingerprint.Canon({ To = tostring(To), Amount = Amount }))
 end
 
-local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, Before: string?): Entries.Recalled
-	local Held, Meant = Stamp.Written(Record, `{Escrow.DELIVER_ID}:{Tid}`)
+local function LandedOn(
+	Format: Format,
+	Record: Record,
+	Tid: string,
+	Print: string?,
+	Before: string?,
+	From: (number | string)?
+): Entries.Recalled
+	local Held, Meant, Sender = Stamp.Written(Record, `{Escrow.DELIVER_ID}:{Tid}`)
+	if Held and Print ~= nil and Sender ~= nil and From ~= nil and tostring(Sender) ~= tostring(From) then
+		return Entries.OTHER
+	end
+
 	if Held and Meant ~= nil and Print ~= nil then
 		return if Meant == Print or Meant == Before then Entries.SAME else Entries.OTHER
 	end
@@ -79,8 +90,16 @@ local function LandedOn(Format: Format, Record: Record, Tid: string, Print: stri
 	return Recalled
 end
 
-local function Delivered(Records: Log, Format: Format, To: number | string, Tid: string, Print: string?, Before: string?): Entries.Recalled
-	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print, Before)
+local function Delivered(
+	Records: Log,
+	Format: Format,
+	To: number | string,
+	Tid: string,
+	Print: string?,
+	Before: string?,
+	From: (number | string)?
+): Entries.Recalled
+	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print, Before, From)
 end
 
 local function Reserve(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): Reserved
@@ -93,7 +112,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	local Before = Older(To, Amount)
 
 	if Id ~= nil then
-		local Already = Delivered(Records, Format, To, Tid, Print, Before)
+		local Already = Delivered(Records, Format, To, Tid, Print, Before, From)
 		if Already == Entries.SAME then
 			return { Outcome = "Finished" }
 		end
@@ -171,7 +190,7 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 		error(Fault.New(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`))
 	end
 
-	local Landing = LandedOn(Format, Landed, Tid, DeliverOp.Print, Older(To, Amount))
+	local Landing = LandedOn(Format, Landed, Tid, DeliverOp.Print, Older(To, Amount), From)
 	if Landing == Entries.OTHER then
 		error(
 			Fault.New(

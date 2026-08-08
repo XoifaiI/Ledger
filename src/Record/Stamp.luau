@@ -69,18 +69,18 @@ local function Holds(Record: Record, Id: string): boolean
 	return false
 end
 
-local function Written(Record: Record, Id: string): (boolean, string?)
+local function Written(Record: Record, Id: string): (boolean, string?, any)
 	for _, Op in Record.Ops do
 		if Op.Id == Id then
-			return true, Op.Print
+			return true, Op.Print, Op.From
 		end
 	end
 	for _, Seen in Record.Seen do
 		if Seen == Id then
-			return true, nil
+			return true, nil, nil
 		end
 	end
-	return false, nil
+	return false, nil, nil
 end
 
 local function Carries(Record: Record, Id: string): boolean
