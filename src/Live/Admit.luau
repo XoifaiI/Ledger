@@ -62,7 +62,7 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		return { Outcome = "Refused", Why = BACKLOG }
 	end
 
-	local Next = NoYield(self.Shape.Reducer, self.State, Op)
+	local Next = NoYield.Run(self.Shape.Reducer, self.State, Op)
 	if Next ~= nil and type(Next) ~= "table" then
 		warn(`Ledger: rejected op '{Op.Kind}', your reducer handed back a {typeof(Next)} instead of the next state table`)
 		return { Outcome = "Refused", Why = INVALID }

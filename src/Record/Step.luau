@@ -19,7 +19,7 @@ type Op = Op.Op
 type Reducer<S> = Op.Reducer<S>
 
 local function Step<S>(Reducer: Reducer<S>, State: S, Op: Op): S?
-	local Ok, Next = pcall(NoYield, Reducer, State, Op)
+	local Ok, Next = NoYield.Try(Reducer, State, Op)
 	return if Ok and type(Next) == "table" then Next else nil
 end
 

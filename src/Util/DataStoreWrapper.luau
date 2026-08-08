@@ -122,7 +122,7 @@ function DataStoreWrapper.UpdateAsync(
 ): (boolean, any, DataStoreKeyInfo?)
 	return AttemptAsync(self, Key, function(Store: DataStore)
 		return Store:UpdateAsync(Key, function(Current: any, KeyInfo: DataStoreKeyInfo)
-			return NoYield(Transform, Current, KeyInfo)
+			return NoYield.Run(Transform, Current, KeyInfo)
 		end)
 	end, Handler)
 end
