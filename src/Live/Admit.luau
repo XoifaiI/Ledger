@@ -68,6 +68,13 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		return { Outcome = "Refused", Why = INVALID }
 	end
 	if Next == nil then
+		local Waiting = self.Landed
+		if Waiting ~= nil and not Durable and Step(self.Shape.Reducer, Waiting, Op) ~= nil then
+			warn(
+				`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction goes through. ask again once it settles`
+			)
+			return { Outcome = "Refused", Why = UNRESOLVED }
+		end
 		return { Outcome = "Rejected" }
 	end
 
