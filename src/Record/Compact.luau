@@ -84,13 +84,15 @@ local function Accounted(State: any, Op: Op, Format: Shape<any>): boolean
 end
 
 local function Absorbable(Record: Record, Format: Shape<any>): (any, number, string?)
-	local State = TableUtil.FreezeDelta(Format:Rehydrate(Record))
+	local FreezeDelta = TableUtil.FreezeDelta
+	local Reducer = Format.Reducer
+	local State = FreezeDelta(Format:Rehydrate(Record))
 	local Taken = 0
 
 	for _, Op in Record.Ops do
-		local Next = Step(Format.Reducer, State, Op)
+		local Next = Step(Reducer, State, Op)
 		if Next ~= nil then
-			State = TableUtil.FreezeDelta(Next)
+			State = FreezeDelta(Next)
 			Taken += 1
 			continue
 		end

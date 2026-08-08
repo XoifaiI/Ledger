@@ -149,7 +149,7 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 		local Before = if Latest then Latest.Label else nil
 
 		local Was, Info = Current(self, Key)
-		local Ran, Next = pcall(NoYield, Transform, Was, Info)
+		local Ran, Next = NoYield.Try(Transform, Was, Info)
 		if not Ran then
 			if type(Next) == "string" and string.find(Next, YIELDED, 1, true) ~= nil then
 				error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)

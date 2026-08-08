@@ -31,7 +31,7 @@ type Migration = Contract.Migration
 export type Shape<S> = Types.Shape<S>
 
 local function StepApply(Migration: Migration, State: any): any
-	return NoYield(if type(Migration) == "function" then Migration else Migration.Apply, State)
+	return NoYield.Run(if type(Migration) == "function" then Migration else Migration.Apply, State)
 end
 
 local function Migrate(Steps: { Migration }, Snapshot: any, From: number): any?

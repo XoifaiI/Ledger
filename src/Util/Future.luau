@@ -29,9 +29,8 @@ export type Future<T...> = setmetatable<{}, FutureImpl<T...>>
 
 type Private<T...> = {
 	Result: Packed?,
-	Waiting: { thread },
-	Timeouts: { thread },
-	Thread: thread?
+	Waiting: { thread }?,
+	Timeouts: { thread }?
 }
 
 local EMPTY: Packed = table.freeze({ n = 0 }) :: any
@@ -44,11 +43,14 @@ local function ToPrivate<T...>(self: Future<T...>): Private<T...>
 end
 
 local function IsHappening<T...>(self: Future<T...>): boolean
-	local Thread = ToPrivate(self).Thread
-	return Thread ~= nil and coroutine.status(Thread) == "suspended"
+	return ToPrivate(self).Result == nil
 end
 
-local function TryRemove(List: { any }, Value: any): boolean
+local function TryRemove(List: { any }?, Value: any): boolean
+	if List == nil then
+		return false
+	end
+
 	local Position = table.find(List, Value)
 	return Position ~= nil and table.remove(List, Position) ~= nil
 end
@@ -68,20 +70,26 @@ local function Unpack<T...>(self: Private<T...>): T...
 end
 
 local function Finish<T...>(self: Private<T...>, ...: any)
-	for _, TimeoutThread in self.Timeouts do
-		if coroutine.status(TimeoutThread) ~= "suspended" then
-			continue
+	local Timeouts = self.Timeouts
+	if Timeouts ~= nil then
+		for _, TimeoutThread in Timeouts do
+			if coroutine.status(TimeoutThread) ~= "suspended" then
+				continue
+			end
+
+			task.cancel(TimeoutThread)
 		end
-
-		task.cancel(TimeoutThread)
+		table.clear(Timeouts)
 	end
 
-	for _, WaitingThread in self.Waiting do
-		Threads.Resume(WaitingThread, ...)
+	local Waiting = self.Waiting
+	if Waiting ~= nil then
+		for _, WaitingThread in Waiting do
+			Threads.Resume(WaitingThread, ...)
+		end
+		table.clear(Waiting)
 	end
 
-	table.clear(self.Waiting)
-	table.clear(self.Timeouts)
 	assert(self.Result ~= nil, "a future woke its waiters without an answer for them")
 end
 
@@ -113,25 +121,39 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: 
 	Finish(Private, Unpack(Private))
 end
 
-local function Settled<T...>(Result: Packed): Future<T...>
-	local Body: Private<T...> = {
-		Result = Result,
-		Waiting = {},
-		Timeouts = {}
-	}
+local Idle: { thread } = {}
 
+local function Runner(...)
+	FutureTask(...)
+
+	while true do
+		table.insert(Idle, coroutine.running())
+		FutureTask(coroutine.yield())
+	end
+end
+
+local function Start<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: Future<Ret...>, ...: Args...)
+	local Count = #Idle
+	if Count == 0 then
+		task.spawn(coroutine.create(Runner) :: any, Callback, Inst, ...)
+		return
+	end
+
+	local Thread = Idle[Count]
+	Idle[Count] = nil
+	task.spawn(Thread, Callback, Inst, ...)
+end
+
+local function Settled<T...>(Result: Packed): Future<T...>
+	local Body: Private<T...> = { Result = Result }
 	return setmetatable(Body :: any, Future)
 end
 
 local function New<Args..., Ret...>(Callback: (Args...) -> Ret..., ...: Args...): Future<Ret...>
-	local Body: Private<Ret...> = {
-		Waiting = {},
-		Timeouts = {}
-	}
-
+	local Body: Private<Ret...> = {}
 	local NewFuture: Future<Ret...> = setmetatable(Body :: any, Future)
 
-	Body.Thread = task.spawn(FutureTask, Callback, NewFuture, ...)
+	Start(Callback, NewFuture, ...)
 
 	return NewFuture
 end
@@ -152,10 +174,20 @@ function Future.Wait<T...>(self: Future<T...>, Timeout: number?): T...
 	end
 
 	local Caller = coroutine.running()
-	table.insert(Private.Waiting, Caller)
+	local Waiting = Private.Waiting
+	if Waiting == nil then
+		Waiting = {}
+		Private.Waiting = Waiting
+	end
+	table.insert(Waiting :: { thread }, Caller)
 
 	if Timeout then
-		table.insert(Private.Timeouts, task.delay(Timeout, TimeoutTask, self, Caller))
+		local Timeouts = Private.Timeouts
+		if Timeouts == nil then
+			Timeouts = {}
+			Private.Timeouts = Timeouts
+		end
+		table.insert(Timeouts :: { thread }, task.delay(Timeout, TimeoutTask, self, Caller))
 	end
 
 	return coroutine.yield()

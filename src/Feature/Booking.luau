@@ -262,8 +262,6 @@ local function Overdue(Data: Data, Now: number): { string }
 	return Late
 end
 
--- a reservation naming a To has units on their way to that key. this one is about the pair, where a
--- reservation without one is only about the key it sits on
 local function Owed(Booked: any): boolean
 	if type(Booked) ~= "table" then
 		return false

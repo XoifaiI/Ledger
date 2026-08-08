@@ -43,8 +43,18 @@ export type Subject<T> = Observer<T> & {
 
 type Activate<T> = (Emit: (T) -> ()) -> (() -> ())?
 
+type Node<T> = {
+	Connected: boolean,
+	Disconnect: (self: any) -> (),
+	Listener: (T) -> (),
+	Owner: Private<T>,
+	Previous: Node<T>?,
+	Next: Node<T>?
+}
+
 type Private<T> = {
-	Listeners: { [Connection]: (T) -> () },
+	Head: Node<T>?,
+	Tail: Node<T>?,
 	Activate: Activate<T>?,
 	Teardown: (() -> ())?
 }
@@ -56,30 +66,54 @@ local function ToPrivate<T>(self: any): Private<T>
 	return self
 end
 
-local function Deliver<T>(self: Private<T>, Value: T)
-	local Snapshot: { Connection } = {}
-	for Link in self.Listeners do
-		table.insert(Snapshot, Link)
+local function Unlink<T>(self: Node<T>)
+	if not self.Connected then
+		return
+	end
+	self.Connected = false
+
+	local Owner = self.Owner
+	local Previous = self.Previous
+	local Following = self.Next
+
+	if Previous ~= nil then
+		Previous.Next = Following
+	else
+		Owner.Head = Following
 	end
 
-	for _, Link in Snapshot do
-		local Listener = self.Listeners[Link]
-		if Listener == nil then
-			continue
+	if Following ~= nil then
+		Following.Previous = Previous
+	else
+		Owner.Tail = Previous
+	end
+
+	if Owner.Head == nil and Owner.Teardown then
+		Owner.Teardown()
+		Owner.Teardown = nil
+	end
+end
+
+local function Deliver<T>(self: Private<T>, Value: T)
+	local Node = self.Head
+	local Last = self.Tail
+
+	while Node ~= nil do
+		local Following = if Node == Last then nil else Node.Next
+
+		if Node.Connected then
+			local Ok, Err = NoYield.Try(Node.Listener, Value)
+			if not Ok then
+				warn(`Observer listener errored: {Err}`)
+			end
 		end
 
-		local Ok, Err = pcall(NoYield, Listener, Value)
-		if not Ok then
-			warn(`Observer listener errored: {Err}`)
-		end
+		Node = Following
 	end
 end
 
 local function Make<T>(Activate: Activate<T>?): Observer<T>
-	local Body: Private<T> = {
-		Listeners = {},
-		Activate = Activate
-	}
+	local Body: Private<T> = { Activate = Activate }
 
 	return setmetatable(Body :: any, Observer) :: any
 end
@@ -91,28 +125,25 @@ end
 function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connection
 	local Private = ToPrivate(self)
 
-	local Connection: Connection
-	Connection = {
+	local Tail = Private.Tail
+	local WasEmpty = Tail == nil
+	assert(not WasEmpty or Private.Teardown == nil, "the stream is holding a teardown while nobody is listening")
+
+	local Node: Node<T> = {
 		Connected = true,
-		Disconnect = function(Self: Connection)
-			if not Self.Connected then
-				return
-			end
-
-			Self.Connected = false
-			assert(Private.Listeners[Connection] ~= nil, "a connection disconnected while the stream had already forgotten it")
-			Private.Listeners[Connection] = nil
-
-			if next(Private.Listeners) == nil and Private.Teardown then
-				Private.Teardown()
-				Private.Teardown = nil
-			end
-		end
+		Disconnect = Unlink,
+		Listener = Listener,
+		Owner = Private,
+		Previous = Tail,
+		Next = nil
 	}
 
-	local WasEmpty = next(Private.Listeners) == nil
-	assert(not WasEmpty or Private.Teardown == nil, "the stream is holding a teardown while nobody is listening")
-	Private.Listeners[Connection] = Listener
+	if Tail ~= nil then
+		Tail.Next = Node
+	else
+		Private.Head = Node
+	end
+	Private.Tail = Node
 
 	if WasEmpty and Private.Activate then
 		Private.Teardown = Private.Activate(function(Value: T)
@@ -120,7 +151,7 @@ function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connecti
 		end)
 	end
 
-	return Connection
+	return Node :: any
 end
 
 function Observer.Use<T, U>(self: Observer<T>, Middleware: Middleware<T, U>): Observer<U>
@@ -175,10 +206,14 @@ function Observer.Destroy<T>(self: Observer<T>)
 		Private.Teardown = nil
 	end
 
-	for Link in Private.Listeners do
-		Link.Connected = false
+	local Node = Private.Head
+	while Node ~= nil do
+		Node.Connected = false
+		Node = Node.Next
 	end
-	table.clear(Private.Listeners)
+
+	Private.Head = nil
+	Private.Tail = nil
 end
 
 function Observer.Push<T>(self: Subject<T>, Value: T)
