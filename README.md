@@ -1,8 +1,6 @@
 <div align="center">
 
 # Ledger
-
-Player data as a ledger, not a document.
 [![GitHub](https://img.shields.io/badge/GitHub-Ledger-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/XoifaiI/Ledger) [![Docs](https://img.shields.io/badge/Docs-Read-8B5CF6?style=for-the-badge)](https://xoifaii.github.io/LedgerDocs/)
 
 </div>
