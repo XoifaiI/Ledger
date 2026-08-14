@@ -15,8 +15,10 @@
 	may change the state that it gets, so to build it a second time would run each migration again.
 	An op is only written if the record it lands in will take it, the way a store write is. An op that
 	the record turns away is dropped from the queue, because it will be turned away every time.
-	That test only runs when the log has moved since the last rebuild. A key that nobody else wrote to
-	holds exactly what this session already checked against.
+	That test runs against the record every time. How many ops a key holds does not say which record
+	it is, because a compaction gives back a count that a session has already seen while the snapshot
+	under it has moved on. An op written without the test can never be folded, and a key carrying one
+	can never be compacted again.
 	
 	Return type: A table with Push, Sifted, Rebuild, ApplyPending and SumBytes.
 	Example usage:
@@ -63,16 +65,9 @@ local function ApplyPending<S>(self: Session<S>, State: S, Applied: { [string]: 
 end
 
 local function Sifted<S>(self: Session<S>): (Record) -> (Op) -> boolean
-	local Expect = self.LogSize
 	local Format = self.Shape
 
 	return function(Record: Record)
-		if #Record.Ops == Expect then
-			return function(): boolean
-				return true
-			end
-		end
-
 		local State = Format:Fold(Shape.Detached(Record))
 		return function(Op: Op): boolean
 			local Next = Step(Format.Reducer, State, Op)
