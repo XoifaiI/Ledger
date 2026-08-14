@@ -55,7 +55,7 @@ local function Settle(Records: Log, TxStore: DataStoreWrapper, Key: string, Reco
 		if Count > 0 then
 			local Where = Markers[Txid]
 			Fault.Holds(Where ~= nil, `settled a leg for transaction '{Txid}' whose marker was never read`)
-			Marker.Adopt(Where, Txid, { Mark })
+			Marker.Adopt(Where, Txid, { Mark }, Verdicts[Txid].Gen)
 		end
 	end
 	return Resolved

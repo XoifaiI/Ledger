@@ -11,10 +11,14 @@
 	To drop it would take the units off the key.
 	A grant carries a mark of the booking that sent it. The receiver keeps that mark. A caller can
 	then tell its own grant from an earlier one that used the same name.
+	A hand over marks the booking before it reaches the receiver. Give lands on the receiver before
+	Take clears the sender, so between them the units are on both keys on purpose, and only recovery
+	can ask the receiver which way it went. The mark is what stops Release deciding that instead, and
+	giving back units the receiver already has.
 	A booking that is late can no longer be handed over, and its units come back only after a margin
 	past that. Nothing therefore hands the units over while something else gives them back.
 
-	Return type: A table with Layered, Book, Take, Free, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, FREE_ID, BOOK_HORIZON and BOOK_MARGIN.
+	Return type: A table with Layered, Book, Take, Free, Hand, Undo, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, the three ids, BOOK_HORIZON and BOOK_MARGIN.
 	Example usage:
 		local Booking = require("./Booking")
 		local Op = Booking.Book("order1", "Stock", 1)
@@ -36,11 +40,15 @@ local BOOK = "__Book"
 local TAKE = "__Take"
 local FREE = "__Free"
 local GIVEN = "__Given"
+local HAND = "__Hand"
+local UNHAND = "__Unhand"
 
 local BOOK_ID = "bk"
 local TAKE_ID = "tk"
 local FREE_ID = "fr"
 local GIVEN_ID = "gv"
+local HAND_ID = "hd"
+local UNHAND_ID = "uh"
 
 local BOOK_HORIZON = Horizons.BOOK
 local BOOK_MARGIN = Horizons.BOOK_MARGIN
@@ -81,7 +89,7 @@ local function Stale(Data: Data, Booked: Data, Now: number): (Data, { [string]: 
 
 	for Rid, Held in Booked do
 		local Fine = Entry(Booked, Rid)
-		if Fine ~= nil and type(Data[Fine.Field]) == "number" and Expired(Fine, Now) then
+		if Fine ~= nil and not Fine.Handing and type(Data[Fine.Field]) == "number" and Expired(Fine, Now) then
 			Back[Fine.Field] = (Back[Fine.Field] or 0) + Fine.Amount
 		else
 			Kept[Rid] = Held
@@ -150,7 +158,25 @@ local function Taking(Data: Data, Op: Op): Data?
 	return Next
 end
 
-local function Freeing(Data: Data, Op: Op): Data?
+local function Handing(Data: Data, Op: Op): Data?
+	local Booked = Data._Booked
+	local Held = Entry(Booked, Op.Rid)
+	if Held == nil or Held.Handing then
+		return nil
+	end
+
+	local Marked = table.clone(Held)
+	Marked.Handing = true
+
+	local Kept = table.clone(Booked :: Data)
+	Kept[Op.Rid] = Marked
+
+	local Next = table.clone(Data)
+	Next._Booked = Kept
+	return Next
+end
+
+local function Refund(Data: Data, Op: Op): Data?
 	local Booked = Data._Booked
 	local Held = Entry(Booked, Op.Rid)
 	if Held == nil then
@@ -172,6 +198,18 @@ local function Freeing(Data: Data, Op: Op): Data?
 		return nil
 	end
 	return Next
+end
+
+local function Freeing(Data: Data, Op: Op): Data?
+	local Held = Entry(Data._Booked, Op.Rid)
+	if Held ~= nil and Held.Handing then
+		return nil
+	end
+	return Refund(Data, Op)
+end
+
+local function Unhanding(Data: Data, Op: Op): Data?
+	return Refund(Data, Op)
 end
 
 local function Giving(Data: Data, Op: Op): Data?
@@ -222,6 +260,14 @@ end
 
 local function Free(Rid: string): Op
 	return { Id = `{FREE_ID}:{Rid}`, Kind = FREE, Rid = Rid, At = Clock.Now() } :: any
+end
+
+local function Hand(Rid: string): Op
+	return { Id = `{HAND_ID}:{Rid}`, Kind = HAND, Rid = Rid, At = Clock.Now() } :: any
+end
+
+local function Undo(Rid: string): Op
+	return { Id = `{UNHAND_ID}:{Rid}`, Kind = UNHAND, Rid = Rid, At = Clock.Now() } :: any
 end
 
 local function Give(Rid: string, Field: string, Amount: number, Print: string?): Op
@@ -280,7 +326,9 @@ local Held: Layer.Layer = {
 		[BOOK] = Booking,
 		[TAKE] = Taking,
 		[FREE] = Freeing,
-		[GIVEN] = Giving
+		[GIVEN] = Giving,
+		[HAND] = Handing,
+		[UNHAND] = Unhanding
 	},
 	Owns = {
 		{ Field = "_Booked", Says = "the units set aside" }
@@ -297,6 +345,8 @@ return table.freeze({
 	Book = Book,
 	Take = Take,
 	Free = Free,
+	Hand = Hand,
+	Undo = Undo,
 	Give = Give,
 	Terms = Terms,
 	Entry = Entry,
@@ -306,6 +356,8 @@ return table.freeze({
 	Granted = Granted,
 	Delivered = Delivered,
 	FREE_ID = FREE_ID,
+	HAND_ID = HAND_ID,
+	UNHAND_ID = UNHAND_ID,
 	BOOK_HORIZON = BOOK_HORIZON,
 	BOOK_MARGIN = BOOK_MARGIN
 })

@@ -9,6 +9,7 @@
 	A marker that nothing has touched for longer than the whole transaction may take is dead,
 	and any server may decide it. The time is counted per leg, because the legs are prepared
 	one after the other.
+
 	Ledger keeps a handle to each other store that holds a marker. A game chooses how many of those
 	stores there are, so the set is small.
 	
@@ -60,6 +61,11 @@ local function BornAt(Value: any, Fallback: number): number
 		return Fallback
 	end
 	return Value.At
+end
+
+local function Ours(Current: any, Gen: string?): boolean
+	local Held = GenOf(Current)
+	return type(Held) ~= "string" or type(Gen) ~= "string" or Held == Gen
 end
 
 local function MarkOf(Wrapper: DataStoreWrapper, Key: string): string
@@ -147,11 +153,11 @@ local function Create(
 	return CREATED, GenOf(Value), BornAt(Value, Born), Minted
 end
 
-local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrink: number?): Status?
+local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrink: number?, Gen: string?): Status?
 	Fault.Holds(To ~= PENDING, "a transaction is being decided back to pending, which would let it start over")
 
 	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
-		if type(Current) ~= "table" then
+		if type(Current) ~= "table" or not Ours(Current, Gen) then
 			return nil
 		end
 		if Current.Status == PENDING then
@@ -197,18 +203,18 @@ local function StatusOf(TxStore: DataStoreWrapper, Txid: string, PerLeg: number)
 	local Legs = if type(Marker.Total) == "number" and Marker.Total > 0 then Marker.Total else MAX_LEGS
 	local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
 	if Clock.Now() - Updated >= PerLeg * Legs then
-		return Decide(TxStore, Txid, ABORTED) or PENDING, Gen, Born
+		return Decide(TxStore, Txid, ABORTED, nil, Gen) or PENDING, Gen, Born
 	end
 	return PENDING, Gen, Born
 end
 
-local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string })
+local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string }, Gen: string?)
 	if #Marks == 0 then
 		return
 	end
 
 	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
-		if type(Current) ~= "table" then
+		if type(Current) ~= "table" or not Ours(Current, Gen) then
 			return nil
 		end
 

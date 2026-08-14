@@ -425,6 +425,7 @@ end
 
 function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
 	local Result = self:Update(Key, function(Record: Record): Record?
+		Legible(self, Key, Record)
 		return Compact.Packed(Key, Record, Format)
 	end)
 
