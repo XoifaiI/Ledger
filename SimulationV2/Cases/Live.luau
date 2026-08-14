@@ -1003,4 +1003,35 @@ Cases.Case("a commit refused at its landed position leaves nothing in the log", 
 	T:Is("gold once the race is over", Bank:Amount("raced"), 0)
 end)
 
+Cases.Case("a commit is checked against a record that compacted back to the op count it loaded on", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("folded", { Gold = 100, Touches = 0 })
+
+	local Active: any = Session.Load(Bank:Log(), Bank:Format(), "folded"):Wait()
+	T:Is("the ops the session loaded on", Active.LogSize, 0)
+
+	Bank.Store:Edit("folded", "Give", { Amount = -100 }):Wait()
+	Bank:Log():Compact("folded", Bank:Format())
+	T:Is("the ops on the record now", #Bank:Record("folded").Ops, 0)
+	T:Is("gold on the record now", Bank:Amount("folded"), 0)
+
+	local Ok, Why = Active:CommitOp({ Id = "folded1", Kind = "Give", Amount = -100 } :: any):Wait()
+
+	local Stranded = false
+	for _, Op in Bank:Record("folded").Ops do
+		if Op.Id == "folded1" then
+			Stranded = true
+		end
+	end
+
+	Bank:Log():Compact("folded", Bank:Format())
+
+	T:Is("the commit", Ok, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("the op the record cannot fold being left in the log", Stranded, false)
+	T:Is("ops still held back after a compaction", #Bank:Record("folded").Ops, 0)
+	T:Is("gold once the stale commit is over", Bank:Amount("folded"), 0)
+	T:Silent("no warning that the key cannot be compacted", "cannot be compacted")
+end)
+
 return Cases
