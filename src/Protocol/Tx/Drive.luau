@@ -96,8 +96,8 @@ end
 
 local function Heal(TxStore: DataStoreWrapper, Legs: { Leg }, Txid: string, Gen: string?, Born: number)
 	local Verdict: Log.Verdict = { Commit = false, Gen = Gen, Since = Born }
-	Marker.Adopt(TxStore, Txid, Adopted(Legs, Txid, Verdict, #Legs, false))
-	Marker.Decide(TxStore, Txid, Marker.ABORTED, 0)
+	Marker.Adopt(TxStore, Txid, Adopted(Legs, Txid, Verdict, #Legs, false), Gen)
+	Marker.Decide(TxStore, Txid, Marker.ABORTED, 0, Gen)
 end
 
 local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: number?): (number, number, Reason?)
@@ -174,7 +174,7 @@ local function RunOnce(
 	Fault.Holds(Prepared <= #Legs, "the transaction prepared past its own last leg")
 
 	if Clean and Settled == #Legs then
-		Marker.Decide(TxStore, Txid, Marker.ABORTED, 0)
+		Marker.Decide(TxStore, Txid, Marker.ABORTED, 0, Gen)
 		return { Committed = true, Why = nil, Again = false, Reached = Prepared }
 	end
 
@@ -182,14 +182,14 @@ local function RunOnce(
 	local Aborting = not Clean or Split
 	local Disown = Cause == SPENT and Minted
 	local Shrink = if Aborting then (if Disown then 0 else Prepared) else nil
-	local Final = Marker.Decide(TxStore, Txid, if Aborting then Marker.ABORTED else Marker.COMMITTED, Shrink)
+	local Final = Marker.Decide(TxStore, Txid, if Aborting then Marker.ABORTED else Marker.COMMITTED, Shrink, Gen)
 	if Final == nil then
 		return { Committed = false, Why = UNRESOLVED, Again = true, Reached = Prepared }
 	end
 
 	local Landed = Final == Marker.COMMITTED
 	local Verdict: Log.Verdict = { Commit = Landed, Gen = Gen, Since = Born }
-	Marker.Adopt(TxStore, Txid, Adopted(Legs, Txid, Verdict, if Landed then #Legs else Prepared, true))
+	Marker.Adopt(TxStore, Txid, Adopted(Legs, Txid, Verdict, if Landed then #Legs else Prepared, true), Gen)
 
 	if Landed then
 		return { Committed = true, Why = nil, Again = false, Reached = Prepared }

@@ -149,7 +149,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 		local To = if Held ~= nil then Held.To else nil
 
 		if type(To) ~= "string" then
-			table.insert(Ops, Booking.Free(Rid))
+			table.insert(Ops, Booking.Undo(Rid))
 			continue
 		end
 
@@ -166,7 +166,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 		end
 		if Ruling == Entries.OTHER then
 			warn(`Ledger: '{To}' holds a booking named {Rid} that came from somewhere else, so this one never arrived. its units go back to '{Key}'`)
-			table.insert(Ops, Booking.Free(Rid))
+			table.insert(Ops, Booking.Undo(Rid))
 			continue
 		end
 
@@ -176,7 +176,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 			table.insert(Ops, Booking.Take(Rid))
 			continue
 		end
-		table.insert(Ops, Booking.Free(Rid))
+		table.insert(Ops, Booking.Undo(Rid))
 	end
 
 	if #Ops == 0 then

@@ -153,10 +153,21 @@ end
 
 function Store.Release(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Release")
-	local Op = Booking.Free(Arg.Name(Id, MAX_BOOKING_ID, "Release", false) :: string)
+	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Release", false) :: string
+	local Op = Booking.Free(Rid)
 
 	return Future.New(function(): (boolean, Reason?)
-		return self:Written(Resolved, Op, `release booking '{Id}'`)
+		local Ok, Why = self:Written(Resolved, Op, `release booking '{Rid}'`, function(Record: Record): boolean
+			local Booked = Booking.Entry((self:Fold(Record) :: any)._Booked, Rid)
+			return Booked == nil or Booked.Handing ~= true
+		end, HELD)
+
+		if Why == HELD then
+			warn(
+				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to give back. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
+			)
+		end
+		return Ok, Why
 	end)
 end
 
@@ -167,6 +178,9 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any 
 	end
 
 	local Records = self:Records()
+
+	Records:Append(Key, { Booking.Hand(Rid) })
+
 	local Print = Booking.Terms(Key, Rid, Held)
 	local Given = Booking.Give(Rid, Held.Field, Held.Amount, Print)
 	local Landed = Records:Append(To, { Given }, function(Record: Record): boolean
