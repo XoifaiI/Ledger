@@ -9,6 +9,10 @@
 	Grant writes the receiver first and clears the hold second. That is the order that a transfer
 	uses, and for the same reason. A server that stops between the two leaves the units on both keys,
 	which recovery can see and settle.
+	A hand over marks the booking on the sender before it writes the receiver, and goes on only once
+	that mark is on the key. Reading the mark back out of the state is what proves it, because an op
+	sits in the log whether or not the reducer took it. Something else took the booking in between
+	means nothing is handed over at all.
 	A leg that names another store must carry the class that Ledger.New gives a store.
 	Grant turns away a booking that has run past its hold. Recovery takes those units back a margin
 	later, so the two cannot both act on one booking.
@@ -144,10 +148,21 @@ end
 
 function Store.Confirm(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Confirm")
-	local Op = Booking.Take(Arg.Name(Id, MAX_BOOKING_ID, "Confirm", false) :: string)
+	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Confirm", false) :: string
+	local Op = Booking.Take(Rid)
 
 	return Future.New(function(): (boolean, Reason?)
-		return self:Written(Resolved, Op, `confirm booking '{Id}'`)
+		local Ok, Why = self:Written(Resolved, Op, `confirm booking '{Rid}'`, function(Record: Record): boolean
+			local Booked = Booking.Entry((self:Fold(Record) :: any)._Booked, Rid)
+			return Booked == nil or Booked.Handing ~= true
+		end, HELD)
+
+		if Why == HELD then
+			warn(
+				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to spend. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
+			)
+		end
+		return Ok, Why
 	end)
 end
 
@@ -179,7 +194,11 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any 
 
 	local Records = self:Records()
 
-	Records:Append(Key, { Booking.Hand(Rid) })
+	local Marked = Records:Append(Key, { Booking.Hand(Rid) })
+	local Mine = Booking.Entry((self:Fold(Marked) :: any)._Booked, Rid)
+	if Mine == nil or not Mine.Handing then
+		return false
+	end
 
 	local Print = Booking.Terms(Key, Rid, Held)
 	local Given = Booking.Give(Rid, Held.Field, Held.Amount, Print)
@@ -201,7 +220,7 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any 
 		))
 	end
 
-	local Cleared = Records:Append(Key, { Booking.Take(Rid) })
+	local Cleared = Records:Append(Key, { Booking.Sent(Rid) })
 	Fault.Holds(
 		not Stamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`),
 		`booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`

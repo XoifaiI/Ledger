@@ -270,6 +270,74 @@ Cases.Case("a grant moves the units to the other key exactly once", function(T: 
 	T:Is("stock is conserved", Shelf:Amount("shelf") + Shelf:Amount("cart"), 20)
 end)
 
+Cases.Case("confirming a booking that was handed over is refused", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf.Store:Reserve("shelf", "Stock", 3, "move1", { To = "cart" }):Wait()
+	local Gave = Shelf.Store:Grant("shelf", "move1"):Wait()
+	local Took, Why = Shelf.Store:Confirm("shelf", "move1"):Wait()
+
+	T:Is("handing it over", Gave, true)
+	T:Is("confirming units that went to another key", Took, false)
+	T:Is("the reason, since the sender never spent them itself", Why, "Refused")
+	T:Is("stock left with the sender", Shelf:Amount("shelf"), 7)
+	T:Is("stock the receiver got", Shelf:Amount("cart"), 13)
+	T:Is("stock is conserved", Shelf:Amount("shelf") + Shelf:Amount("cart"), 20)
+end)
+
+Cases.Case("a booking spent before the hand over marks it hands nothing over", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf.Store:Reserve("shelf", "Stock", 3, "move1", { To = "cart" }):Wait()
+	local Held = assert(Booking.Entry(Shelf:Stored("shelf")._Booked, "move1"), "the reservation was not set aside")
+
+	Shelf.Store:Confirm("shelf", "move1"):Wait()
+	local Gave = Shelf.Store:Handed("shelf", "move1", Held)
+
+	T:Is("handing over a booking that was confirmed first", Gave, false)
+	T:Is("stock the receiver never got", Shelf:Amount("cart"), 10)
+	T:Is("stock left with the sender, which the confirm spent", Shelf:Amount("shelf"), 7)
+	T:Is("anything still set aside", Shelf:Booked("shelf"), 0)
+end)
+
+Cases.Case("a booking given back before the hand over marks it hands nothing over", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf.Store:Reserve("shelf", "Stock", 3, "move1", { To = "cart" }):Wait()
+	local Held = assert(Booking.Entry(Shelf:Stored("shelf")._Booked, "move1"), "the reservation was not set aside")
+
+	Shelf.Store:Release("shelf", "move1"):Wait()
+	local Gave = Shelf.Store:Handed("shelf", "move1", Held)
+
+	T:Is("handing over a booking that was released first", Gave, false)
+	T:Is("stock the receiver never got", Shelf:Amount("cart"), 10)
+	T:Is("stock given back to the sender", Shelf:Amount("shelf"), 10)
+	T:Is("stock is conserved", Shelf:Amount("shelf") + Shelf:Amount("cart"), 20)
+end)
+
+Cases.Case("a grant racing a confirm leaves the units in exactly one place", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("shelf", "Stock", 3, "move1", { To = "cart" }):Wait()
+
+	local Gave, Took = false, false
+	T:Race({
+		function()
+			Gave = (Shelf.Store:Grant("shelf", "move1"):Wait())
+		end,
+		function()
+			Took = (Shelf.Store:Confirm("shelf", "move1"):Wait())
+		end
+	})
+
+	local Delivered = Booking.Delivered(Shelf:Stored("cart"), "move1")
+	local Places = (if Shelf:Amount("shelf") == 10 then 1 else 0) + (if Delivered then 1 else 0) + (if Took then 1 else 0)
+
+	T:Is("how many places the units ended up in", Places, 1)
+	T:Is("how many callers were told they got them", (if Gave then 1 else 0) + (if Took then 1 else 0), 1)
+	T:Is("the receiver holds them only if the grant said so", Delivered, Gave)
+	T:Is("anything still set aside", Shelf:Booked("shelf"), 0)
+end)
+
 Cases.Case("a grant that dies after delivering is finished not given back", function(T: Case)
 	local Shelf = T:Shelf()
 
