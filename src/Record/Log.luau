@@ -145,7 +145,17 @@ local function Meant(Held: any, Wanted: any): boolean
 	return type(Held) ~= "string" or type(Wanted) ~= "string" or Held == Wanted
 end
 
-local function Known(Record: Record, Op: Op, Format: Shape<any>): Prepared?
+local function Held(Record: Record, Format: Shape<any>, Hold: { any }): any
+	local Folded = Hold[1]
+	if Folded == nil then
+		Folded = Format:Fold(Shape.Detached(Record))
+		Hold[1] = Folded
+	end
+	return Folded
+end
+
+local function Known(Record: Record, Op: Op, Format: Shape<any>, Hold: { any }?): Prepared?
+	local Folded: { any } = Hold or {}
 	for _, Existing in Record.Ops do
 		if Existing.Id == Op.Id then
 			if Existing.Tx == nil then
@@ -156,7 +166,7 @@ local function Known(Record: Record, Op: Op, Format: Shape<any>): Prepared?
 	end
 
 	if type(Op.Tx) == "string" and type(Op.TxTerms) == "string" then
-		local Recalled = Entries.Recall((Format:Fold(Shape.Detached(Record)) :: any)._Received, Entries.TX, Op.Tx, Op.TxTerms)
+		local Recalled = Entries.Recall((Held(Record, Format, Folded) :: any)._Received, Entries.TX, Op.Tx, Op.TxTerms)
 		if Recalled == Entries.OTHER then
 			return VERDICT.Spent
 		end
@@ -175,7 +185,7 @@ local function Known(Record: Record, Op: Op, Format: Shape<any>): Prepared?
 		return nil
 	end
 
-	if Entries.Has((Format:Fold(Shape.Detached(Record)) :: any)._Received, Entries.TX, Op.Tx) then
+	if Entries.Has((Held(Record, Format, Folded) :: any)._Received, Entries.TX, Op.Tx) then
 		return VERDICT.Settled
 	end
 	return nil
@@ -324,8 +334,9 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 	local Verdict: Prepared = VERDICT.Rejected
 	local Outcome = self:Update(Key, function(Record: Record): Record?
 		Verdict = VERDICT.Rejected
+		local Folded: { any } = {}
 		Legible(self, Key, Record)
-		local Already = Known(Record, Op, Format)
+		local Already = Known(Record, Op, Format, Folded)
 		if Already ~= nil then
 			Verdict = Already
 			return nil
@@ -336,7 +347,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 			return nil
 		end
 
-		local State = Format:Fold(Shape.Detached(Record))
+		local State = Held(Record, Format, Folded)
 		local Next = Step(Format.Reducer, State, Stamp.Unstamped(Op))
 		if Next == nil then
 			Verdict = VERDICT.Rejected
