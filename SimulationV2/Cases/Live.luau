@@ -393,6 +393,65 @@ Cases.Case("a yielding reducer is skipped not stored", function(T: Case)
 	T:Is("gold on disk after compaction", Bank:Amount("yieldyK"), 100)
 end)
 
+Cases.Case("a reducer that gives back the state it was handed takes the op", function(T: Case)
+	local function Keeper(State: any, Op: any): any?
+		if Op.Kind ~= "Same" then
+			return nil
+		end
+		return State
+	end
+
+	local Bank = T:Store({ Default = Reducers.MONEY, Reducer = Keeper, Balance = "Gold" })
+	Bank:Seed("sameK", { Gold = 100 })
+
+	local Active = Bank:Session("sameK")
+	local Gave = false
+	local Raised = not (pcall(function()
+		Gave = (Active:Apply("Same", {}))
+	end))
+	Active:Flush():Wait()
+
+	T:No("applying an op the reducer changes nothing for, which must not raise", Raised)
+	T:Ok("it takes the op", Gave)
+	T:Is("gold, which the op does not move", Active:Get().Gold, 100)
+	T:Is("ops the key took", #Bank:Record("sameK").Ops, 1)
+	T:Is("gold a fresh fold reads", Bank:Amount("sameK"), 100)
+end)
+
+Cases.Case("a reducer that throws refuses the op rather than the call", function(T: Case)
+	local function Thrower(State: any, Op: any): any?
+		if Op.Kind == "Bang" then
+			error("the reducer blew up")
+		end
+		if Op.Kind ~= "Fund" then
+			return nil
+		end
+		return { Gold = State.Gold + Op.Amount, Touches = State.Touches }
+	end
+
+	local Bank = T:Store({ Default = Reducers.MONEY, Reducer = Thrower, Balance = "Gold" })
+	Bank:Seed("bangK", { Gold = 100 })
+
+	local Active = Bank:Session("bangK")
+	local Gave = true
+	local Reason = ""
+	local Raised = not (pcall(function()
+		local Held, Why = Active:Apply("Bang", {})
+		Gave = Held
+		Reason = tostring(Why)
+	end))
+
+	Outside(Bank, "bangK", "Bang", {})
+	Active:Flush():Wait()
+
+	T:No("applying an op whose reducer throws, which must not raise", Raised)
+	T:No("what it answers", Gave)
+	T:Ok("the reason is the one a fold gives the same op", Reason == "Refused")
+	T:Warns("it says the reducer threw", "your reducer threw", 1)
+	T:Is("gold once a throwing op is folded", Active:Get().Gold, 100)
+	T:Is("gold on disk", Bank:Amount("bangK"), 100)
+end)
+
 Cases.Case("a session refuses Ledger's own kinds", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("reservedK", { Gold = 100 })

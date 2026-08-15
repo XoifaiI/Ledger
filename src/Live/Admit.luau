@@ -6,6 +6,7 @@
 	
 	This is the only place that decides whether an op may join the session, and it answers with a
 	reason and not a boolean.
+
 	State is measured only when it could be near the cap, because a measure walks the whole profile.
 	One op can add no more than the largest that an op may be.
 	An op that makes an oversized profile smaller is still allowed, so a cleanup works when a game
@@ -62,7 +63,14 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		return { Outcome = "Refused", Why = BACKLOG }
 	end
 
-	local Next = NoYield.Run(self.Shape.Reducer, self.State, Op)
+	local Fine, Next = pcall(NoYield.Run, self.Shape.Reducer, self.State, Op)
+	if not Fine then
+		if string.find(tostring(Next), NoYield.YIELDED, 1, true) ~= nil then
+			error(Next, 0)
+		end
+		warn(`Ledger: rejected op '{Op.Kind}', your reducer threw: {tostring(Next)}`)
+		return { Outcome = "Rejected" }
+	end
 	if Next ~= nil and type(Next) ~= "table" then
 		warn(`Ledger: rejected op '{Op.Kind}', your reducer handed back a {typeof(Next)} instead of the next state table`)
 		return { Outcome = "Refused", Why = INVALID }
@@ -77,8 +85,6 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		end
 		return { Outcome = "Rejected" }
 	end
-
-	assert(Next ~= self.State, `your reducer handed back the very table it was given for op '{Op.Kind}', so it changed live state in place`)
 
 	if self.Parked > 1 and not Durable then
 		warn(
@@ -100,7 +106,11 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	end
 
 	if self.StateBytes + OpBytes > STATE_CHECK_FLOOR then
-		local Bytes = Measure(Next)
+		local Counted, Bytes = pcall(Measure, Next)
+		if not Counted then
+			warn(`Ledger: rejected op '{Op.Kind}', your reducer built state a datastore cannot hold: {tostring(Bytes)}`)
+			return { Outcome = "Refused", Why = INVALID }
+		end
 		if Bytes > MAX_STATE_BYTES and Bytes > Measure(self.State) then
 			warn(`Ledger: rejected op '{Op.Kind}', this profile is already at the {MAX_STATE_BYTES} byte cap and the op would make it bigger`)
 			return { Outcome = "Refused", Why = FULL }

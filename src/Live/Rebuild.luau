@@ -163,12 +163,12 @@ local function Diverged(Live: any, Folded: any, Path: string): string?
 	return nil
 end
 
-local function CheckPurity<S>(self: Session<S>, Stored: Record, Folded: S)
+local function CheckPurity<S>(self: Session<S>, Stored: Record, Base: S, Folded: S)
 	if not AUDITING or #Stored.Ops == 0 then
 		return
 	end
 
-	local Again = Fold(self.Shape:Rehydrate(Shape.Detached(Stored)), Stored.Ops, self.Shape.Reducer)
+	local Again = Fold(Base, Stored.Ops, self.Shape.Reducer)
 	local Where = Diverged(Folded, Again, "state")
 	if Where == nil then
 		return
@@ -194,7 +194,7 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 		end
 	end
 
-	CheckPurity(self, Stored, State)
+	CheckPurity(self, Stored, Base, State)
 
 	State = ApplyPending(self, State, Applied)
 
