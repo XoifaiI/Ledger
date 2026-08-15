@@ -463,8 +463,9 @@ local function Run(Seed: number, Options: Options?): Report
 				Pairs: { [string]: any },
 				Fat: { Now: boolean },
 				Model: Model.Model,
-				Lied: { string }
-			} = { Routes = {}, Legs = {}, Grants = {}, Pairs = {}, Fat = { Now = false }, Model = Range, Lied = {} }
+				Lied: { string },
+				Bookings: { any }
+			} = { Routes = {}, Legs = {}, Grants = {}, Pairs = {}, Fat = { Now = false }, Model = Range, Lied = {}, Bookings = {} }
 
 			local Turn = Scheduler.New(Sub())
 			Plate.Turn = Turn

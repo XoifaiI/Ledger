@@ -59,7 +59,11 @@ function Store.DidApply(self: Store, Key: KeyLike, Id: string): Future<boolean?,
 
 	return Future.New(function(): (boolean?, Reason?)
 		local Ok, Applied = pcall(function(): boolean
-			local State: any = self:Fold(self:ReadRecord(Resolved))
+			local Record = self:ReadRecord(Resolved)
+			self:Watch(Resolved, Record)
+
+			local State: any = self:Fold(Record)
+			self:WatchHeld(Resolved, State)
 			return Entries.Has(State._Received, Entries.ONCE, Id)
 		end)
 		if not Ok then
