@@ -13,7 +13,7 @@
 	the stores after it.
 	A pass calls the datastore on its own thread. Stop counts up, and a pass gives up between keys once
 	that count moves. Stop therefore ends the pass that is running without also stopping a later one.
-	
+
 	Return type: A table with New.
 	Example usage:
 		local Sweeper = require("./Sweeper")

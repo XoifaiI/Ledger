@@ -49,7 +49,7 @@ server. Changes are ops with names, and a reducer validates them.
 - **Transactions** | all keys move or none do
 - **Migrations** | old servers can't corrupt new data
 - **Recovery** | 30 days of history, auto cleanup
-- **Idempotent** | retries never apply twice
+- **Idempotent** | a write retried applies one time
 - **`Once`** | receipts and webhooks land exactly once
 - **Loud misuse** | bad code throws, immediately
 

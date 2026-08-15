@@ -13,7 +13,7 @@
 	Run throws when the callback throws or yields. Try answers whether it went through instead, so a
 	caller that was going to catch the throw does not pay for one being raised.
 
-	Return type: A table with Run and Try.
+	Return type: A table with Run, Try and YIELDED.
 	Example usage:
 		local NoYield = require("./NoYield")
 		local Value = NoYield.Run(Callback, 1, 2)
@@ -100,5 +100,6 @@ end
 
 return table.freeze({
 	Run = Run,
-	Try = Try
+	Try = Try,
+	YIELDED = YIELDED
 })
