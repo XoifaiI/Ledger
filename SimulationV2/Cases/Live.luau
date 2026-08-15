@@ -845,6 +845,43 @@ Cases.Case("loading onto a parked leg enlists the key for recovery", function(T:
 	T:Is("the load enlisted the key for recovery", After - Before, 1)
 end)
 
+local function Stranded(T: Case): Fixture
+	local Bank = T:Store({ Keys = "Player", Default = Reducers.MONEY, Reducer = Reducers.Banker, Balance = "Gold" })
+	Bank:Seed("77", { Gold = 100, Touches = 0 })
+	Bank:Seed("88", { Gold = 0, Touches = 0 })
+	Bank:Append("77", {
+		{ Id = "res:strand", Kind = "__TransferReserve", To = "88", Amount = 40, Tid = "strand", At = T:Now() } :: any
+	})
+	return Bank
+end
+
+Cases.Case("a player who leaves during the load still has their transfers picked up", function(T: Case)
+	local Bank = Stranded(T)
+
+	local Fake = T:Player(77)
+	Fake.Parent = nil
+	Bank.Store:Load(Fake)
+	task.wait()
+
+	T:Is("money still set aside on the key they left", Bank:Aside("77"), 0)
+	T:Is("money the receiver got", Bank:Amount("88"), 40)
+	T:Is("a session kept for a player who is not here", Bank.Store:IsLoaded(Fake), false)
+end)
+
+Cases.Case("a server on its way down does not start picking up transfers", function(T: Case)
+	local Bank = Stranded(T)
+
+	local Fake = T:Player(77)
+	Registry.Shutting.Now = true
+	Bank.Store:Load(Fake)
+	Registry.Shutting.Now = false
+	task.wait()
+
+	T:Is("money left set aside for the next server", Bank:Aside("77"), 40)
+	T:Is("money the receiver got while the server was closing", Bank:Amount("88"), 0)
+	T:Is("a session kept while shutting down", Bank.Store:IsLoaded(Fake), false)
+end)
+
 Cases.Case("a second load while the first is still loading is ignored", function(T: Case)
 	T:Slow()
 

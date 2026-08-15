@@ -240,6 +240,25 @@ function Store.Save(self: Store, Active: any): Future<boolean, Reason?>
 	return Job
 end
 
+function Store.PickUp(self: Store, Active: any, UserId: number)
+	if Active.Landed ~= nil then
+		Registry.Sweep():Add(self, tostring(UserId))
+	end
+
+	local Held = Active:Get()._Held
+	if not TableUtil.Occupied(Held) then
+		return
+	end
+
+	local Records, Format = self:Records(), self:Format()
+	task.spawn(function()
+		local Ok, Reason = pcall(Recovery.Transfers, Records, Format, UserId, Held)
+		if not Ok then
+			Write.Failed("pick up the unfinished transfers on", tostring(UserId), Reason)
+		end
+	end)
+end
+
 function Store.Load(self: Store, Player: Player)
 	self:ExpectPlayers("Load")
 	local UserId = Player.UserId
@@ -276,7 +295,11 @@ function Store.Load(self: Store, Player: Player)
 		return
 	end
 
-	if Left or self.Closed or Registry.Shutting.Now or not Player.Parent then
+	local Stopping = self.Closed or Registry.Shutting.Now
+	if Left or Stopping or not Player.Parent then
+		if not Stopping then
+			self:PickUp(Active, UserId)
+		end
 		self:Save(Active)
 		self:Wake(UserId, nil)
 		return
@@ -292,21 +315,7 @@ function Store.Load(self: Store, Player: Player)
 		end, math.random() * AUTOSAVE_INTERVAL)
 	}
 	self:Wake(UserId, Active)
-
-	if Active.Landed ~= nil then
-		Registry.Sweep():Add(self, tostring(UserId))
-	end
-
-	local Held = Active:Get()._Held
-	if TableUtil.Occupied(Held) then
-		local Records, Format = self:Records(), self:Format()
-		task.spawn(function()
-			local Ok, Reason = pcall(Recovery.Transfers, Records, Format, UserId, Held)
-			if not Ok then
-				Write.Failed("pick up the unfinished transfers on", tostring(UserId), Reason)
-			end
-		end)
-	end
+	self:PickUp(Active, UserId)
 end
 
 function Store.Unload(self: Store, Player: Player)

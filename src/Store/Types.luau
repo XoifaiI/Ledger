@@ -107,6 +107,7 @@ export type StoreImpl = {
 	Buried: (self: Store, Key: string, Replaced: Record) -> (),
 
 	Wake: (self: Store, UserId: number, Active: Session<any>?) -> (),
+	PickUp: (self: Store, Active: Session<any>, UserId: number) -> (),
 	Handled: (self: Store, Player: Player, Why: Reason) -> boolean,
 	Autosave: (self: Store, UserId: number) -> (),
 	Save: (self: Store, Active: Session<any>) -> Future<boolean, Reason?>,

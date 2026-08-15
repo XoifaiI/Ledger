@@ -149,6 +149,7 @@ local Held = table.freeze({
 	Layered = Booking.Layered,
 	Book = Booking.Book,
 	Take = Booking.Take,
+	Sent = Booking.Sent,
 	Free = Booking.Free,
 	Hand = Booking.Hand,
 	Undo = Booking.Undo,

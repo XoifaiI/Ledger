@@ -12,13 +12,15 @@
 	A grant carries a mark of the booking that sent it. The receiver keeps that mark. A caller can
 	then tell its own grant from an earlier one that used the same name.
 	A hand over marks the booking before it reaches the receiver. Give lands on the receiver before
-	Take clears the sender, so between them the units are on both keys on purpose, and only recovery
+	Sent clears the sender, so between them the units are on both keys on purpose, and only recovery
 	can ask the receiver which way it went. The mark is what stops Release deciding that instead, and
 	giving back units the receiver already has.
+	The sender lets go of handed units under a name of its own. A Confirm can therefore tell units it
+	spent itself from units that went to another key, which are the same absent booking otherwise.
 	A booking that is late can no longer be handed over, and its units come back only after a margin
 	past that. Nothing therefore hands the units over while something else gives them back.
 
-	Return type: A table with Layered, Book, Take, Free, Hand, Undo, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, the three ids, BOOK_HORIZON and BOOK_MARGIN.
+	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, the four ids, BOOK_HORIZON and BOOK_MARGIN.
 	Example usage:
 		local Booking = require("./Booking")
 		local Op = Booking.Book("order1", "Stock", 1)
@@ -38,6 +40,7 @@ type Data = { [any]: any }
 
 local BOOK = "__Book"
 local TAKE = "__Take"
+local SENT = "__Sent"
 local FREE = "__Free"
 local GIVEN = "__Given"
 local HAND = "__Hand"
@@ -45,6 +48,7 @@ local UNHAND = "__Unhand"
 
 local BOOK_ID = "bk"
 local TAKE_ID = "tk"
+local SENT_ID = "sn"
 local FREE_ID = "fr"
 local GIVEN_ID = "gv"
 local HAND_ID = "hd"
@@ -258,6 +262,10 @@ local function Take(Rid: string): Op
 	return { Id = `{TAKE_ID}:{Rid}`, Kind = TAKE, Rid = Rid, At = Clock.Now() } :: any
 end
 
+local function Sent(Rid: string): Op
+	return { Id = `{SENT_ID}:{Rid}`, Kind = SENT, Rid = Rid, At = Clock.Now() } :: any
+end
+
 local function Free(Rid: string): Op
 	return { Id = `{FREE_ID}:{Rid}`, Kind = FREE, Rid = Rid, At = Clock.Now() } :: any
 end
@@ -325,6 +333,7 @@ local Held: Layer.Layer = {
 	Kinds = {
 		[BOOK] = Booking,
 		[TAKE] = Taking,
+		[SENT] = Taking,
 		[FREE] = Freeing,
 		[GIVEN] = Giving,
 		[HAND] = Handing,
@@ -344,6 +353,7 @@ return table.freeze({
 
 	Book = Book,
 	Take = Take,
+	Sent = Sent,
 	Free = Free,
 	Hand = Hand,
 	Undo = Undo,
@@ -356,6 +366,7 @@ return table.freeze({
 	Granted = Granted,
 	Delivered = Delivered,
 	FREE_ID = FREE_ID,
+	SENT_ID = SENT_ID,
 	HAND_ID = HAND_ID,
 	UNHAND_ID = UNHAND_ID,
 	BOOK_HORIZON = BOOK_HORIZON,
