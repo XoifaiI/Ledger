@@ -1034,4 +1034,27 @@ Cases.Case("a commit is checked against a record that compacted back to the op c
 	T:Silent("no warning that the key cannot be compacted", "cannot be compacted")
 end)
 
+Cases.Case("a session left behind by another server's compaction is not called an impure reducer", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("stale", { Gold = 100, Touches = 0 })
+
+	local Active: any = Session.Load(Bank:Log(), Bank:Format(), "stale"):Wait()
+	Active:Apply("Touch", {})
+	Active:Flush():Wait()
+	local Mine = Active:Get().Touches
+
+	for Index = 1, 12 do
+		Bank.Store:Edit("stale", "Touch", {}):Wait()
+	end
+	Bank:Log():Compact("stale", Bank:Format())
+
+	T:Is("ops left for the stale session to see", #Bank:Record("stale").Ops, 0)
+	T:Is("touches the stale session still holds", Mine, 1)
+
+	Active:Flush():Wait()
+
+	T:Is("touches once it catches up", Active:Get().Touches, 13)
+	T:Silent("the reducer is pure, so nothing says otherwise", "is not deterministic")
+end)
+
 return Cases

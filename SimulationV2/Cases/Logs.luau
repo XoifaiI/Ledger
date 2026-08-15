@@ -68,7 +68,7 @@ local function Canon(Value: any): string
 end
 
 local APPENDED = `\{Envelope=1,Ops=\{1=\{Amount=5,Id="v2case00000000:1",Kind="Add"\},2=\{Amount=7,Id="v2case00000000:2",Kind="Add"\}\},Seen=\{\}\}`
-local COMPACTED = `\{Bytes=18,Envelope=1,Floor=0,Ops=\{\},Seen=\{1="v2case00000000:1",2="v2case00000000:2"\},Snapshot=\{Gold=12,N=2\},Version=0\}`
+local COMPACTED = `\{Bytes=17,Envelope=1,Floor=0,Ops=\{\},Seen=\{1="v2case00000000:1",2="v2case00000000:2"\},Snapshot=\{Gold=12,N=2\},Version=0\}`
 
 Cases.Case("a reducer cannot write into the snapshot a fold starts from", function(T: Case)
 	local Store = T:Store({

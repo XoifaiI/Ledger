@@ -19,7 +19,7 @@
 	it is, because a compaction gives back a count that a session has already seen while the snapshot
 	under it has moved on. An op written without the test can never be folded, and a key carrying one
 	can never be compacted again.
-	
+
 	Return type: A table with Push, Sifted, Rebuild, ApplyPending and SumBytes.
 	Example usage:
 		local Rebuild = require("./Rebuild")
@@ -30,6 +30,8 @@ local TableUtil = require("../Util/TableUtil")
 local Fault = require("../Contract/Fault")
 local Contract = require("../Contract/Op")
 local Measure = require("../Encode/Measure")
+local IsStorable = require("../Encode/Storable")
+local Compact = require("../Record/Compact")
 local Fold = require("../Record/Fold")
 local Shape = require("../Record/Shape")
 local Stamp = require("../Record/Stamp")
@@ -41,6 +43,8 @@ type Record = Contract.Record<any>
 type Session<S> = Types.Session<S>
 
 local AUDITING = game:GetService("RunService"):IsStudio()
+
+local STATE_CHECK_FLOOR = Contract.MAX_STATE_BYTES - IsStorable.MAX_BYTES
 
 local function SumBytes(Ops: { Op }): number
 	local Total = 0
@@ -160,17 +164,12 @@ local function Diverged(Live: any, Folded: any, Path: string): string?
 end
 
 local function CheckPurity<S>(self: Session<S>, Stored: Record, Folded: S)
-	if not AUDITING or self.LogSize == 0 then
+	if not AUDITING or #Stored.Ops == 0 then
 		return
 	end
 
-	for _, Op in Stored.Ops do
-		if Op.Tx == nil and not self.Applied[Op.Id] then
-			return
-		end
-	end
-
-	local Where = Diverged(self.State, Folded, "state")
+	local Again = Fold(self.Shape:Rehydrate(Shape.Detached(Stored)), Stored.Ops, self.Shape.Reducer)
+	local Where = Diverged(Folded, Again, "state")
 	if Where == nil then
 		return
 	end
@@ -195,19 +194,21 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 		end
 	end
 
-	State = ApplyPending(self, State, Applied)
-
 	CheckPurity(self, Stored, State)
+
+	State = ApplyPending(self, State, Applied)
 
 	self.State = TableUtil.FreezeDelta(State)
 	self.Parked = Parked
 	self.Landed = if Parked == 1
 		then TableUtil.FreezeDelta(ApplyPending(self, Fold(Base, Stamp.Landed(Stored.Ops, next(Waiting) :: string), self.Shape.Reducer), {}))
 		else nil
-	self.StateBytes = Measure(State)
 	self.Applied = Applied
 	self.LogSize = #Stored.Ops
 	self.LogBytes = SumBytes(Stored.Ops) + SumBytes(self.Pending)
+
+	local Reach = Compact.Bulk(Stored) + self.LogBytes
+	self.StateBytes = if Reach > STATE_CHECK_FLOOR then Measure(State) else Reach
 
 	local Written: { [string]: boolean } = {}
 	for _, Op in Stored.Ops do
