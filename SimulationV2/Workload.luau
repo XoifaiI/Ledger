@@ -64,6 +64,7 @@ local GREED = 0.15
 local HOLD_LEAST = 5
 local HOLD_MOST = 1200
 local NAMES_IN_PLAY = 12
+local LEAVES = 0.15
 
 local Handlers: { [string]: (World) -> Outcome } = {}
 
@@ -119,11 +120,11 @@ local function Returned(Value: any, Why: any): Outcome
 	return { Ok = Why == nil, Why = if type(Why) == "string" then Why :: Reason else nil }
 end
 
-local function Player(Named: any): any
+local function Player(Named: any, Gone: boolean?): any
 	return {
 		UserId = tonumber(Named) or 1,
 		Name = `player{Named}`,
-		Parent = game,
+		Parent = if Gone then nil else game,
 		Kick = function() end
 	}
 end
@@ -156,7 +157,12 @@ function Handlers.Load(self: World): Outcome
 		return { Ok = false, Why = nil }
 	end
 
-	self.Store:Load(Player(Named))
+	local Gone = self.Rng:NextNumber() < LEAVES
+	self.Store:Load(Player(Named, Gone))
+	if Gone then
+		return { Ok = false, Why = nil }
+	end
+
 	local Active = self.Store:Get(Player(Named))
 	if Active ~= nil then
 		self.Sessions[tostring(Named)] = Active
@@ -545,7 +551,7 @@ for Named in Handlers do
 	assert(Known, `the workload handles '{Named}' and the catalogue does not name it`)
 end
 
-local function New(Store: any, Keys: { any }, Rng: Random, Mode: string, Open: (Key: any) -> any?, Sweep: () -> (), CloseAll: () -> (), Shared: { Routes: any, Legs: any, Grants: any, Pairs: any, Fat: any, Model: any, Lied: any }?): World
+local function New(Store: any, Keys: { any }, Rng: Random, Mode: string, Open: (Key: any) -> any?, Sweep: () -> (), CloseAll: () -> (), Shared: { Routes: any, Legs: any, Grants: any, Pairs: any, Fat: any, Model: any, Lied: any, Bookings: any }?): World
 	assert(#Keys > 0, "a workload needs at least one key to work on")
 	return {
 		Store = Store,
@@ -558,7 +564,7 @@ local function New(Store: any, Keys: { any }, Rng: Random, Mode: string, Open: (
 		CloseAll = CloseAll,
 		Mode = Mode,
 		Sessions = {},
-		Bookings = {},
+		Bookings = Shared and Shared.Bookings or {},
 		Transfers = {},
 		Routes = Shared and Shared.Routes or {},
 		Legs = Shared and Shared.Legs or {},

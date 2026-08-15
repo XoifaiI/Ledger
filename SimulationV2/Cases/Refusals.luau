@@ -668,6 +668,24 @@ Cases.Case("reading a key schedules its stranded escrow", function(T: Case)
 	T:Is("anything still set aside", Store:Aside("peekA"), 0)
 end)
 
+Cases.Case("asking what a key has applied schedules its stranded escrow too", function(T: Case)
+	local Store = Purse(T, "CaseAskHeld")
+
+	Store:Append("askA", { MakeOp.New("Add", { Amount = 100 }) })
+	Store:Append("askA", {
+		{ Id = "res:stranded", Kind = "__TransferReserve", To = "askB", Amount = 40, Tid = "stranded", At = T:Now() } :: any
+	})
+
+	T:Sweep()
+	T:Is("gold on the receiver before anyone asks about the sender", Store:Amount("askB"), 0)
+
+	Store.Store:DidApply("askA", "anything"):Wait()
+	T:Sweep()
+
+	T:Is("gold on the receiver once the question scheduled the sweep", Store:Amount("askB"), 40)
+	T:Is("anything still set aside", Store:Aside("askA"), 0)
+end)
+
 Cases.Case("the sweep keeps going while it is still clearing holds", function(T: Case)
 	local Store = Purse(T, "CaseManyHolds")
 	local Stranded = 200

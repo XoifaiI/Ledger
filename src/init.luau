@@ -61,6 +61,12 @@ local function New<D>(Options: Config<D>): Store<D>
 end
 
 local function UseMock(Options: Mock.Options?): Mock.Service
+	if DataStoreWrapper.Swapped() and #Registry.Stores > 0 then
+		warn(
+			`Ledger: UseMock was called again while {#Registry.Stores} store(s) were live, so they are all on a fresh empty datastore now and nothing they wrote before this reads back. call it one time, before you build your stores`
+		)
+	end
+
 	local Service = Mock.New(Options)
 
 	DataStoreWrapper.Use(function(Name: string): any

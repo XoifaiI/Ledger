@@ -87,6 +87,36 @@ Cases.Case("the mock keeps the limits the real service keeps", function(T: Case)
 	T:Is("a value that cannot be encoded at all", Odd, false)
 end)
 
+Cases.Case("swapping the mock under a live store warns", function(T: Case)
+	local Ledger = Suite.Insides.Ledger
+
+	local Built = Ledger.New({
+		Name = "CaseSwap",
+		Keys = "Player",
+		Default = { Gold = 0, Touches = 0 },
+		Reducer = Suite.Reducers.Banker
+	})
+
+	local Fine, Raised = pcall(function()
+		Built:Edit(4019838803, "Fund", { Amount = 100 }):Wait()
+		local Before = (Built:Peek(4019838803):Wait() :: any).Gold
+
+		Ledger.UseMock()
+		local After = (Built:Peek(4019838803):Wait() :: any).Gold
+
+		T:Is("gold the store wrote", Before, 100)
+		T:Is("gold once the mock was swapped under it", After, 0)
+		T:Warns("it said what that cost", "nothing they wrote before this reads back")
+	end)
+
+	pcall(function()
+		Built:Destroy()
+	end)
+	if not Fine then
+		T:Fail("the swap", tostring(Raised))
+	end
+end)
+
 Cases.Case("the mock runs out of experience budget while the gauge still shows room", function(T: Case)
 	local Service = Mock.New({ Players = 30 })
 	local Write = Enum.DataStoreRequestType.UpdateAsync

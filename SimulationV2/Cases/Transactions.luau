@@ -1138,6 +1138,33 @@ Cases.Case("a retry only half the keys remember is refused", function(T: Case)
 	T:Is("anything left pending in the vault", Vault:Pending("halfB"), false)
 end)
 
+Cases.Case("a leg reads the stored record and not what a session is holding", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("held", { Gold = 0, Touches = 0 })
+	Bank:Seed("other", { Gold = 0, Touches = 0 })
+
+	local Active = Bank:Session("held")
+	Active:Apply("Fund", { Amount = 500 })
+
+	local Legs = {
+		{ Key = "held", Kind = "Give", Fields = { Amount = -100 } },
+		{ Key = "other", Kind = "Fund", Fields = { Amount = 100 } }
+	}
+	local Early, EarlyWhy = Bank.Store:Tx("unflushed", Legs):Wait()
+
+	T:Is("the gold the session is holding", Active:Get().Gold, 500)
+	T:Is("the gold the record carries", Bank:Amount("held"), 0)
+	T:Is("a transaction against ops the session has not written", Early, false)
+	T:Is("the reason", EarlyWhy, "Refused")
+
+	Active:Flush():Wait()
+	local Late = Bank.Store:Tx("flushed", Legs):Wait()
+
+	T:Is("the same transaction once the session flushed", Late, true)
+	T:Is("gold on the key the leg spent from", Bank:Amount("held"), 400)
+	T:Is("gold on the other key", Bank:Amount("other"), 100)
+end)
+
 Cases.Case("a session loads even when it cannot settle", function(T: Case)
 	local Bank = T:Bank()
 
