@@ -46,7 +46,8 @@ export type Pass = {
 	read Committed: boolean,
 	read Why: Reason?,
 	read Again: boolean,
-	read Reached: number
+	read Reached: number,
+	read Parked: boolean
 }
 
 export type Lookup = (Name: string) -> LogTypes.Log?

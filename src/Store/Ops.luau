@@ -375,18 +375,24 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 	Fault.Holds(#Mapped == #Legs and #Targets == #Legs, "a transaction ended up with a different number of legs than it was given")
 
 	return Future.New(function(): (boolean, Reason?)
-		local Ok, Committed, Why = pcall(function(): (boolean, Reason?)
+		local Ok, Committed, Why, Parked = pcall(function(): (boolean, Reason?, boolean)
 			return Tx.Drive(self.TxWrapper, Mapped, Id)
 		end)
-		if not Ok then
-			warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
-			return false, UNRESOLVED
-		end
 
-		if Why == BUSY then
+		local function Follow()
 			for _, Target in Targets do
 				Registry.Sweep():Add(Target.Store, Target.Key)
 			end
+		end
+
+		if not Ok then
+			warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
+			Follow()
+			return false, UNRESOLVED
+		end
+
+		if Why == BUSY or Parked then
+			Follow()
 		end
 		return Committed :: boolean, Why :: Reason?
 	end)
