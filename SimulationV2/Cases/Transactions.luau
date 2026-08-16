@@ -1165,6 +1165,110 @@ Cases.Case("a leg reads the stored record and not what a session is holding", fu
 	T:Is("gold on the other key", Bank:Amount("other"), 100)
 end)
 
+Cases.Case("a session sees a committed leg once it flushes and not before", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("held", { Gold = 0, Touches = 0 })
+	Bank:Seed("other", { Gold = 100, Touches = 0 })
+
+	local Active = Bank:Session("held")
+	local Heard = 0
+	Active:Observe():Subscribe(function()
+		Heard += 1
+	end)
+
+	local Sent = Bank.Store:Tx("paid", {
+		{ Key = "held", Kind = "Fund", Fields = { Amount = 25 } },
+		{ Key = "other", Kind = "Give", Fields = { Amount = -25 } }
+	}):Wait()
+
+	T:Is("the transaction", Sent, true)
+	T:Is("gold the record carries straight after", Bank:Amount("held"), 25)
+	T:Is("gold the open session reports", Active:Get().Gold, 0)
+	T:Is("observers woken by a leg the session did not make", Heard, 0)
+
+	Active:Flush():Wait()
+
+	T:Is("gold the session reports once it flushed", Active:Get().Gold, 25)
+	T:Is("observers woken by the flush", Heard, 1)
+end)
+
+Cases.Case("a transaction that leaves a leg parked follows that key", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 500, Touches = 0 })
+	Bank:Seed("b", { Gold = 500, Touches = 0 })
+
+	Bank:Fault(Fault.Updates():OnKey("b"))
+	Bank:MarkerFault(Fault.Updates():After(1))
+	local Sent, Why = Bank.Store:Tx("stranded", {
+		{ Key = "a", Kind = "Give", Fields = { Amount = -50 } },
+		{ Key = "b", Kind = "Give", Fields = { Amount = 50 } }
+	}):Wait()
+	Bank:Healed()
+
+	T:Is("the transaction", Sent, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Is("a leg left parked on the key that prepared", Bank:Pending("a"), true)
+	T:Is("keys it left the sweep following", Registry.Sweep.Count, 2)
+
+	T:Advance(Tx.TIMEOUT + 60)
+	T:Sweep()
+
+	T:Is("anything left parked once the sweep ran on its own", Bank:Pending("a"), false)
+	T:Is("gold across both keys", Bank:Amount("a") + Bank:Amount("b"), 1000)
+
+	Registry.Sweep:Forget(Bank.Store)
+end)
+
+Cases.Case("a transaction that committed but could not resolve a leg follows that key", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("k", { Gold = 500, Touches = 0 })
+	Bank:Seed("l", { Gold = 0, Touches = 0 })
+
+	Bank:NoRetries()
+	Bank:Fault(Fault.Updates():OnKey("l"):After(1))
+	local Sent = Bank.Store:Tx("halfdone", {
+		{ Key = "k", Kind = "Give", Fields = { Amount = -50 } },
+		{ Key = "l", Kind = "Fund", Fields = { Amount = 50 } }
+	}):Wait()
+	Bank:Healed()
+
+	T:Is("the transaction", Sent, true)
+	T:Is("the leg whose resolve was lost", Bank:Pending("l"), true)
+	T:Is("keys it left the sweep following", Registry.Sweep.Count, 2)
+
+	T:Sweep()
+	T:Is("anything left parked once the sweep ran", Bank:Pending("l"), false)
+	T:Is("gold on the key it paid", Bank:Amount("l"), 50)
+
+	Registry.Sweep:Forget(Bank.Store)
+end)
+
+Cases.Case("a transaction that parked nothing follows no keys", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("i", { Gold = 500, Touches = 0 })
+	Bank:Seed("j", { Gold = 0, Touches = 0 })
+
+	local Committed = Bank.Store:Tx("fine", {
+		{ Key = "i", Kind = "Give", Fields = { Amount = -50 } },
+		{ Key = "j", Kind = "Fund", Fields = { Amount = 50 } }
+	}):Wait()
+
+	T:Is("a transaction that committed cleanly", Committed, true)
+	T:Is("keys it left the sweep following", Registry.Sweep.Count, 0)
+
+	local Refused, Why = Bank.Store:Tx("rolled", {
+		{ Key = "i", Kind = "Give", Fields = { Amount = -50 } },
+		{ Key = "j", Kind = "Give", Fields = { Amount = -100000 } }
+	}):Wait()
+
+	T:Is("a transaction rolled back after its first leg prepared", Refused, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("anything left parked", Bank:Pending("i"), false)
+	T:Is("keys it left the sweep following", Registry.Sweep.Count, 0)
+
+	Registry.Sweep:Forget(Bank.Store)
+end)
+
 Cases.Case("a session loads even when it cannot settle", function(T: Case)
 	local Bank = T:Bank()
 
