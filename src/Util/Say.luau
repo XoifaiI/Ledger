@@ -2,20 +2,15 @@
 --!optimize 2
 
 --[=[
-	Say: Says a thing once, and counts every time it happens again.
+	Say: Writes each different warning one time. Counts the repeats.
 
-	A warning names the situation it describes, and the situation is the line it was written on, not
-	the words it ends up with. Two of the same warning about different keys read as different text,
-	so counting the text would count almost every one of them separately. Counting the line instead
-	bounds what a run can hold by how many warnings Ledger has, and not by how long the run went on.
-	The first one through says what happened. The rest only add to its count, so a loop that goes
-	wrong fills a line of output and not a console.
-	Quiet stops the console being written to at all, and keeps counting. A run of many seeds can then
-	read what happened afterwards instead of watching it go past.
-	Reset starts a fresh set rather than emptying the one it holds, so a run that already took its
-	records away still has them after the next run begins.
-	Somewhere that cannot say which line called falls back to counting the words instead. That counts
-	the same warning about two keys twice, which is worse, but it never loses what one of them said.
+	Warn finds the line that calls it. That line is the key. Warn keeps the first message. For each
+	warning from the same line, Warn increases the count. A run therefore holds no more records than
+	Ledger has warning lines.
+	Warn must read the stack itself. The optimizer can remove a helper function and change the level.
+	If Warn cannot find the line, it uses the message as the key.
+	Quiet stops the output. Warn continues to count.
+	Reset makes a new set of records. A caller that holds the old records keeps them.
 
 	Return type: A table with Warn, Records, Total, Reset, Quiet, IsQuiet and Report. The type is Entry.
 	Example usage:
