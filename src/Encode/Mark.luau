@@ -3,10 +3,10 @@
 
 --[=[
 	Mark: Puts a store name and a key into one string.
-	
+
 	Each part has its length in front of it. A delimiter byte inside a part therefore cannot break the read.
 	Marks from an older build have no length in front, and this reads them.
-	
+
 	Return type: A table with FIELD, LIST, Of, Split, Pack and Unpack.
 	Example usage:
 		local Mark = require("./Mark")
@@ -85,5 +85,5 @@ return table.freeze({
 	Of = Of,
 	Split = Split,
 	Pack = Pack,
-	Unpack = Unpack
+	Unpack = Unpack,
 })

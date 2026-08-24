@@ -3,7 +3,7 @@
 
 --[=[
 	Reap: Removes the markers of transactions that are over.
-	
+
 	A committed marker can go only after each key that it touched has forgotten it.
 	A key that still names it would read a missing marker as an abort, and would undo a leg that
 	the transaction counted as committed.
@@ -94,9 +94,7 @@ local function Listed(TxStore: DataStoreWrapper, Limit: number, Resume: string):
 		if Carried then
 			return Onward :: DataStoreKeyPages
 		end
-		warn(
-			`Ledger: could not carry on listing the transaction markers for '{TxStore.Name}' from where the last pass stopped, so this one starts at the front`
-		)
+		warn(`Ledger: could not carry on listing the transaction markers for '{TxStore.Name}' from where the last pass stopped, so this one starts at the front`)
 	end
 
 	local Ok, Pages = TxStore:ListKeysAsync("", Limit, nil)
@@ -134,7 +132,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?,
 				continue
 			end
 
-			if (TxStore:RemoveAsync(Txid)) then
+			if TxStore:RemoveAsync(Txid) then
 				Reaped += 1
 			end
 		end
@@ -151,9 +149,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?,
 	end
 
 	if not Wrapped and Reaped == 0 then
-		warn(
-			`Ledger: '{TxStore.Name}' holds more transaction markers than one pass can walk, and this pass removed none. the next pass carries on from where this one stopped`
-		)
+		warn(`Ledger: '{TxStore.Name}' holds more transaction markers than one pass can walk, and this pass removed none. the next pass carries on from where this one stopped`)
 	end
 
 	return Reaped, if Wrapped then "" else Book.Cursor
@@ -166,5 +162,5 @@ return table.freeze({
 	Anywhere = Anywhere,
 	REAP_HORIZON = REAP_HORIZON,
 	REAP_LIMIT = REAP_LIMIT,
-	REAP_PAGES = REAP_PAGES
+	REAP_PAGES = REAP_PAGES,
 })

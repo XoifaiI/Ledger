@@ -62,7 +62,7 @@ local function Hold(Store: Fixture, UserId: number, Active: any)
 	Store.Store.Loaded[UserId] = {
 		Active = Active,
 		Ticks = 0,
-		Ticker = SetInterval(30, function() end)
+		Ticker = SetInterval(30, function() end),
 	}
 end
 

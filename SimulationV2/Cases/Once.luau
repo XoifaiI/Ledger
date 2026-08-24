@@ -121,7 +121,7 @@ Cases.Case("two servers racing one Once name apply it once", function(T: Case)
 		function()
 			Named(Right, "Fund", "grant1", 50)
 			Right:Flush():Wait()
-		end
+		end,
 	})
 
 	T:Is("gold on disk after both servers", Bank:Amount("a"), 50)
@@ -168,10 +168,12 @@ Cases.Case("a Once name and a transaction id may be the same string", function(T
 	Bank:Seed("a", { Gold = 500 })
 	Bank:Seed("b", { Gold = 0 })
 
-	Bank.Store:Tx("shared", {
-		{ Key = "a", Kind = "Give", Fields = { Amount = -100 } },
-		{ Key = "b", Kind = "Fund", Fields = { Amount = 100 } }
-	}):Wait()
+	Bank.Store
+		:Tx("shared", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -100 } },
+			{ Key = "b", Kind = "Fund", Fields = { Amount = 100 } },
+		})
+		:Wait()
 	T:Is("the transaction landed", Bank:Amount("b"), 100)
 
 	T:Is("a Once under the same string", (Bank.Store:Edit("b", "Fund", { Amount = 7, Once = "shared" }):Wait()), true)
@@ -204,10 +206,12 @@ Cases.Case("ClearDelivered keeps a transaction id it used to drop", function(T: 
 	Bank:Seed("a", { Gold = 500 })
 	Bank:Seed("b", { Gold = 0 })
 
-	Bank.Store:Tx("deal1", {
-		{ Key = "a", Kind = "Give", Fields = { Amount = -100 } },
-		{ Key = "b", Kind = "Fund", Fields = { Amount = 100 } }
-	}):Wait()
+	Bank.Store
+		:Tx("deal1", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -100 } },
+			{ Key = "b", Kind = "Fund", Fields = { Amount = 100 } },
+		})
+		:Wait()
 	T:Is("the transaction id before the prune", Bank:Knows("b", Entries.TX, "deal1"), true)
 
 	Bank.Store:ClearDelivered("b"):Wait()
@@ -221,7 +225,7 @@ Cases.Case("a transaction id is forgotten once it is older than the prune horizo
 
 	local Legs = {
 		{ Key = "a", Kind = "Fund", Fields = { Amount = 100 } },
-		{ Key = "b", Kind = "Fund", Fields = { Amount = 100 } }
+		{ Key = "b", Kind = "Fund", Fields = { Amount = 100 } },
 	}
 	Bank.Store:Tx("deal", Legs):Wait()
 	local After = Bank:Amount("a") + Bank:Amount("b")
@@ -269,7 +273,7 @@ Cases.Case("a forged OnceAt cannot erase delivery evidence", function(T: Case)
 	local After = Bank:Knows("b", Entries.TRANSFER, "tip")
 
 	Bank:Append("b", {
-		{ Id = "del2:tip", Kind = "__TransferDeliver", Tid = "tip", Amount = 40, At = T:Now() } :: any
+		{ Id = "del2:tip", Kind = "__TransferDeliver", Tid = "tip", Amount = 40, At = T:Now() } :: any,
 	})
 
 	T:Is("the delivery was remembered", Before, true)
@@ -313,14 +317,14 @@ Cases.Case("a forged OnceAt on a hand built op cannot erase delivery evidence", 
 		Kind = "Fund",
 		Amount = 1,
 		Once = "handbuilt",
-		OnceAt = T:Now() + 400 * DAY
+		OnceAt = T:Now() + 400 * DAY,
 	} :: any):Wait()
 
 	T:Is("the delivery is still remembered", Bank:Knows("b", Entries.TRANSFER, "tip"), true)
 	T:Is("the earlier Once name is still remembered", Bank:Knows("b", Entries.ONCE, "grant"), true)
 
 	Bank:Append("b", {
-		{ Id = "del2:tip", Kind = "__TransferDeliver", Tid = "tip", Amount = 40, At = T:Now() } :: any
+		{ Id = "del2:tip", Kind = "__TransferDeliver", Tid = "tip", Amount = 40, At = T:Now() } :: any,
 	})
 	T:Is("gold after the same delivery arrives again", Bank:Amount("b"), 42)
 end)
@@ -410,10 +414,12 @@ Cases.Case("a transaction leg refuses a Once name because the id already is one"
 	Bank:Seed("a", { Gold = 500 })
 
 	T:Throws("a leg carrying Once", function()
-		Bank.Store:Tx("deal1", {
-			{ Key = "a", Kind = "Give", Fields = { Amount = -100, Once = "legname" } },
-			{ Store = Side.Store, Key = "v", Kind = "Vault", Fields = { Coins = 100 } }
-		}):Wait()
+		Bank.Store
+			:Tx("deal1", {
+				{ Key = "a", Kind = "Give", Fields = { Amount = -100, Once = "legname" } },
+				{ Store = Side.Store, Key = "v", Kind = "Vault", Fields = { Coins = 100 } },
+			})
+			:Wait()
 	end)
 	T:Is("gold untouched", Bank:Amount("a"), 500)
 end)

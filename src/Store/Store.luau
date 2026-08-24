@@ -3,7 +3,7 @@
 
 --[=[
 	Store: The store object that Ledger.New gives back.
-	
+
 	One store holds one datastore name. It owns each key under that name, and each session that is
 	live on this server.
 	The five requires with no name on them are what put the methods on the class. Core, Write, Read,
@@ -15,7 +15,7 @@
 	therefore costs one request every two minutes.
 	Each session waits a different amount before its first save. Many players who join together
 	therefore spread their saves across the interval, and do not send them in one burst.
-	
+
 	Return type: A table with New.
 	Example usage:
 		local Store = require("./Store")
@@ -110,10 +110,7 @@ local function WrapSystem(GameReducer: Contract.Reducer<any>, Initial: any, Step
 end
 
 local function New<D>(Config: Config<D>): Public.Store<D>
-	assert(
-		not Registry.Claimed[Config.Name] and not Registry.Claimed[`{Config.Name}_Tx`],
-		`a store named '{Config.Name}' already exists in this server`
-	)
+	assert(not Registry.Claimed[Config.Name] and not Registry.Claimed[`{Config.Name}_Tx`], `a store named '{Config.Name}' already exists in this server`)
 	Registry.Claimed[Config.Name] = true
 	Registry.Claimed[`{Config.Name}_Tx`] = true
 
@@ -153,7 +150,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 		Staleness = Observer.New(true) :: Observer.Subject<string>,
 		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
 		ReapAt = "",
-		Closed = false
+		Closed = false,
 	}
 	local Built: Store = setmetatable(Body :: any, Store) :: any
 
@@ -227,10 +224,7 @@ end
 
 function Store.Save(self: Store, Active: any): Future<boolean, Reason?>
 	for UserId, Entry in self.Loaded do
-		Fault.Holds(
-			(Entry.Active :: any) ~= (Active :: any),
-			`the session for {UserId} is being saved on the way out while the store still lists it as live`
-		)
+		Fault.Holds((Entry.Active :: any) ~= (Active :: any), `the session for {UserId} is being saved on the way out while the store still lists it as live`)
 	end
 
 	local Job = Active:Release()
@@ -314,7 +308,7 @@ function Store.Load(self: Store, Player: Player)
 		Ticks = 0,
 		Ticker = SetInterval(AUTOSAVE_INTERVAL, function()
 			self:Autosave(UserId)
-		end, math.random() * AUTOSAVE_INTERVAL)
+		end, math.random() * AUTOSAVE_INTERVAL),
 	}
 	self:Wake(UserId, Active)
 	self:PickUp(Active, UserId)
@@ -421,5 +415,5 @@ end
 table.freeze(Store)
 
 return table.freeze({
-	New = New
+	New = New,
 })

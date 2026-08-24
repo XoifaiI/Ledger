@@ -3,7 +3,7 @@
 
 --[=[
 	Admin: The operator side of a store.
-	
+
 	It finishes what a dead server left, it resets a key, and it erases one.
 	These are the only paths that throw data away, so each one says what went with it.
 	A key with units set aside is not clean, because those units come back when their hold runs out.
@@ -15,7 +15,7 @@
 	while its tomb stands, so both erases say what went with them.
 	The erase reads the record twice, once to keep the applied names and once to say what went. The
 	second read takes a copy, because putting a record into its current format may change it.
-	
+
 	Return type: A table with Freed, Repair, ReapMarkers, Buried, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase.
 	Example usage:
 		local Admin = require("./Admin")
@@ -127,9 +127,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 			end
 		end
 		for Named, Amount in Held do
-			warn(
-				`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`
-			)
+			warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
 		end
 	end
 
@@ -143,12 +141,10 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return
 	end
 
-	warn(
-		`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Log.TOMB_HORIZON // 86400} days is turned away and given back to whoever sent it`
-	)
+	warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Log.TOMB_HORIZON // 86400} days is turned away and given back to whoever sent it`)
 end
 
-local function HeldOn(self: Store, Key: string): (boolean, any)
+function Store.HeldOn(self: Store, Key: string): (boolean, any)
 	return pcall(function(): any
 		return self:Fold(self:ReadRecord(Key))._Held
 	end)
@@ -169,8 +165,8 @@ local function CountHeld(Held: any): (number, number)
 	return Holds, Amount
 end
 
-local function HandOver(self: Store, Key: string): (number, number)
-	local Read, Held = HeldOn(self, Key)
+function Store.HandOver(self: Store, Key: string): (number, number)
+	local Read, Held = self:HeldOn(Key)
 	if not Read then
 		warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
 		return 0, 0
@@ -186,7 +182,7 @@ local function HandOver(self: Store, Key: string): (number, number)
 		warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)
 	end
 
-	local Again, Left = HeldOn(self, Key)
+	local Again, Left = self:HeldOn(Key)
 	if not Again then
 		warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
 		return 0, 0
@@ -250,7 +246,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 			if Stamp.HasPending(Record) then
 				error(Fault.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
 			end
-			
+
 			if Booking.Owed((self:Fold(Record) :: any)._Booked) then
 				error(Fault.New(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`))
 			end
@@ -269,7 +265,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	return Future.New(function(): (boolean, Reason?)
 		local Holds, Amount = 0, 0
 		if self.Options.Balance then
-			Holds, Amount = HandOver(self, Resolved)
+			Holds, Amount = self:HandOver(Resolved)
 		end
 
 		local Steps = self.Migrations
@@ -291,7 +287,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 					Seen = {},
 					Snapshot = Fresh,
 					Version = #Steps,
-					Floor = Shape.FloorOf(Steps)
+					Floor = Shape.FloorOf(Steps),
 				}
 			end)
 		end)

@@ -3,10 +3,10 @@
 
 --[=[
 	Settle: Turns what a marker says into a resolved record.
-	
+
 	Each marker is then told that its leg has reported.
 	A server that finds a leg on a key that it wants to read runs this.
-	
+
 	Return type: A table with Settle.
 	Example usage:
 		local Settle = require("./Settle")
@@ -62,5 +62,5 @@ local function Settle(Records: Log, TxStore: DataStoreWrapper, Key: string, Reco
 end
 
 return table.freeze({
-	Settle = Settle
+	Settle = Settle,
 })

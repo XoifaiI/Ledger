@@ -3,10 +3,10 @@
 
 --[=[
 	RetryAsync: Calls a function again after a failure.
-	
+
 	The delay increases after each attempt.
 	An error that carries a reason has already settled, so the retries stop.
-	
+
 	Return type: A function that gives back (Ok, Result).
 	Example usage:
 		local RetryAsync = require("./RetryAsync")
@@ -19,7 +19,7 @@ export type Limits = {
 	Attempts: number?,
 	Constant: number?,
 	Exponent: number?,
-	Jitter: number?
+	Jitter: number?,
 }
 
 local DEFAULT_ATTEMPTS = 5
@@ -51,7 +51,7 @@ local function RetryAsync(Callback: () -> ...any, Limits: Limits?, Handler: Hand
 
 		local Allowed = Bounds.Attempts or DEFAULT_ATTEMPTS
 		if not Result[1] then
-			warn(`RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
+			warn(`Ledger: RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
 		end
 
 		if Result[1] or Attempt >= Allowed or Settled(Result[2]) then

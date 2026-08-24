@@ -24,7 +24,7 @@ export type Report = {
 	Ok: boolean,
 	Left: number,
 	Rounds: number,
-	Says: string?
+	Says: string?,
 }
 
 local ROUND_SECONDS = 86400
@@ -33,14 +33,8 @@ local ROUND_LIMIT = 25
 local SWEEP_REAP_EVERY = 10
 local STUCK_LIMIT = SWEEP_REAP_EVERY + 4
 
-assert(
-	ROUND_SECONDS * ROUND_LIMIT < 30 * 86400,
-	"a convergence window that reaches the prune horizon watches recovery write money off and calls it a bug"
-)
-assert(
-	STUCK_LIMIT > SWEEP_REAP_EVERY and ROUND_LIMIT > STUCK_LIMIT,
-	"a stall window shorter than the reap cadence fails a run for waiting on the one thing that is slow on purpose"
-)
+assert(ROUND_SECONDS * ROUND_LIMIT < 30 * 86400, "a convergence window that reaches the prune horizon watches recovery write money off and calls it a bug")
+assert(STUCK_LIMIT > SWEEP_REAP_EVERY and ROUND_LIMIT > STUCK_LIMIT, "a stall window shorter than the reap cadence fails a run for waiting on the one thing that is slow on purpose")
 
 local function Waiting(Board: Disk, Where: Invariants.Where, Marks: { string }, Format: any): string
 	local Named = Invariants.Unfinished(Board, Where, Marks, Format)
@@ -81,7 +75,7 @@ local function Converge(Board: Disk, Where: Invariants.Where, Marks: { string },
 				Ok = false,
 				Left = Left,
 				Rounds = Rounds,
-				Says = "the recovery sweep threw, so nothing was going to settle on its own"
+				Says = "the recovery sweep threw, so nothing was going to settle on its own",
 			}
 		end
 		if Stuck >= STUCK_LIMIT then
@@ -89,7 +83,7 @@ local function Converge(Board: Disk, Where: Invariants.Where, Marks: { string },
 				Ok = false,
 				Left = Left,
 				Rounds = Rounds,
-				Says = `nothing moved for {STUCK_LIMIT} rounds over {Sweep.Passes - Opened} sweep pass(es), still waiting on: {Waiting(Board, Where, Marks, Format)}`
+				Says = `nothing moved for {STUCK_LIMIT} rounds over {Sweep.Passes - Opened} sweep pass(es), still waiting on: {Waiting(Board, Where, Marks, Format)}`,
 			}
 		end
 	end
@@ -99,7 +93,7 @@ local function Converge(Board: Disk, Where: Invariants.Where, Marks: { string },
 			Ok = false,
 			Left = Left,
 			Rounds = Rounds,
-			Says = `after {ROUND_LIMIT} quiet rounds over {Sweep.Passes - Opened} sweep pass(es), still waiting on: {Waiting(Board, Where, Marks, Format)}`
+			Says = `after {ROUND_LIMIT} quiet rounds over {Sweep.Passes - Opened} sweep pass(es), still waiting on: {Waiting(Board, Where, Marks, Format)}`,
 		}
 	end
 
@@ -110,5 +104,5 @@ return table.freeze({
 	Converge = Converge,
 	ROUND_SECONDS = ROUND_SECONDS,
 	STUCK_LIMIT = STUCK_LIMIT,
-	ROUND_LIMIT = ROUND_LIMIT
+	ROUND_LIMIT = ROUND_LIMIT,
 })

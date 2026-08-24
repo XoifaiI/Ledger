@@ -3,12 +3,12 @@
 
 --[=[
 	Entries: The set of applied names that a key keeps in its own state.
-	
+
 	A tag goes in front of each name, so a transfer, a transaction, a Once name and a grant
 	cannot collide. An entry holds the time of the write and a mark of what the name meant.
 	A write drops each name that is older than the horizon. The set is therefore bounded by the
 	window, and not by the age of the key.
-	
+
 	Return type: A table with the five tags, the three recalls, Key, Entry, At, Meant, Find, Has, Recall, Tagged, Remember, Prune and PRUNE_HORIZON.
 	Example usage:
 		local Entries = require("./Entries")
@@ -34,10 +34,7 @@ local SAME: Recalled = "Same"
 local OTHER: Recalled = "Other"
 
 local function Key(Tag: string, Id: string): string
-	assert(
-		Tag == TRANSFER or Tag == TX or Tag == ONCE or Tag == SENT or Tag == GRANT,
-		"an applied name has to be tagged transfer, transaction, once, sent or grant"
-	)
+	assert(Tag == TRANSFER or Tag == TX or Tag == ONCE or Tag == SENT or Tag == GRANT, "an applied name has to be tagged transfer, transaction, once, sent or grant")
 	assert(type(Id) == "string" and #Id > 0, "an applied name cannot be empty, or two of them would share an entry")
 	return `{Tag}{Id}`
 end
@@ -180,5 +177,5 @@ return table.freeze({
 
 	Remember = Remember,
 	Prune = Prune,
-	PRUNE_HORIZON = PRUNE_HORIZON
+	PRUNE_HORIZON = PRUNE_HORIZON,
 })

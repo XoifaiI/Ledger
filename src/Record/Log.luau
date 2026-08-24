@@ -3,7 +3,7 @@
 
 --[=[
 	Log: The record on one key.
-	
+
 	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, or fold its log.
 	Every way of writing a record asks first whether this build is allowed to. To erase one is the most
 	final of them, so it asks as well.
@@ -19,7 +19,7 @@
 	one never reaches the caller on its own. Update therefore keeps what was raised and raises it
 	again once the write has returned. It is kept for one run only, because a transform runs again
 	when two writes meet, and the run that counts is the last one.
-	
+
 	Return type: A table with New, Verdict, MAX_LOG_BYTES, TOMB_HORIZON, Entombed, NotEntombed and Known.
 	Example usage:
 		local Log = require("./Log")
@@ -76,7 +76,7 @@ local VERDICT = table.freeze({
 	Busy = "Busy" :: "Busy",
 	Rejected = "Rejected" :: "Rejected",
 	Spent = "Spent" :: "Spent",
-	Full = "Full" :: "Full"
+	Full = "Full" :: "Full",
 })
 
 local function Materialize(Value: any): Record
@@ -208,23 +208,21 @@ local function Fate(Op: Op, Verdict: Verdict): Fated?
 	return nil
 end
 
-local function Legible(self: Log, Key: string, Record: Record)
+local Log = {} :: Types.LogImpl
+Log.__index = Log
+
+function Log.New(Wrapper: DataStoreWrapper, Known: number?, Floor: number?): Log
+	return setmetatable({ Wrapper = Wrapper, Known = Known, Floor = Floor }, Log) :: any
+end
+
+function Log.Legible(self: Log, Key: string, Record: Record)
 	local Known = self.Known
 	local Floor = Record.Floor
 	if type(Known) ~= "number" or type(Floor) ~= "number" or Floor <= Known then
 		return
 	end
 
-	error(Fault.New(
-		Reasons.Behind,
-		`'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`
-	))
-end
-
-local Log = {} :: Types.LogImpl
-Log.__index = Log
-local function NewLog(Wrapper: DataStoreWrapper, Known: number?, Floor: number?): Log
-	return setmetatable({ Wrapper = Wrapper, Known = Known, Floor = Floor }, Log) :: any
+	error(Fault.New(Reasons.Behind, `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`))
 end
 
 function Log.Update(self: Log, Key: string, Apply: Transform): Outcome
@@ -284,25 +282,26 @@ end
 function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string })
 	local Owned = false
 	for _, Op in Ops do
-		Fault.Holds(
-			Op.Tx == nil,
-			`op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`
-		)
+		Fault.Holds(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
 		if not IsStorable.Reserved(Op.Kind) then
 			Owned = true
 		end
 	end
 
-	local Outcome = Transform.Run(function(Named: string, Apply: (Record) -> Record?)
-		return self:Update(Named, Apply)
-	end, Key, {
-		Rules.Legible(Key, self.Known),
-		Rules.Allowed(Guard),
-		Rules.Fresh(Ops, Sift),
-		Rules.Capped(Key, Owned),
-		Rules.Format(self.Floor),
-		Rules.Tomb(Key, Owned)
-	})
+	local Outcome = Transform.Run(
+		function(Named: string, Apply: (Record) -> Record?)
+			return self:Update(Named, Apply)
+		end,
+		Key,
+		{
+			Rules.Legible(Key, self.Known),
+			Rules.Allowed(Guard),
+			Rules.Fresh(Ops, Sift),
+			Rules.Capped(Key, Owned),
+			Rules.Format(self.Floor),
+			Rules.Tomb(Key, Owned),
+		}
+	)
 
 	local Turned = Outcome.Notes.Turned
 	return Outcome.After, if type(Turned) == "table" then Turned else {}
@@ -310,7 +309,7 @@ end
 
 function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record
 	return self:Update(Key, function(Record: Record): Record?
-		Legible(self, Key, Record)
+		self:Legible(Key, Record)
 		if Stamp.HasPending(Record) then
 			error(Fault.New(Reasons.Busy, `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`))
 		end
@@ -335,7 +334,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 	local Outcome = self:Update(Key, function(Record: Record): Record?
 		Verdict = VERDICT.Rejected
 		local Folded: { any } = {}
-		Legible(self, Key, Record)
+		self:Legible(Key, Record)
 		local Already = Known(Record, Op, Format, Folded)
 		if Already ~= nil then
 			Verdict = Already
@@ -377,10 +376,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 	end)
 
 	if Verdict == VERDICT.Prepared then
-		Fault.Holds(
-			Stamp.Holds(Outcome.After, Op.Id),
-			`leg {Op.Id} reported as prepared but is not on '{Key}', so the transaction would wait on nothing`
-		)
+		Fault.Holds(Stamp.Holds(Outcome.After, Op.Id), `leg {Op.Id} reported as prepared but is not on '{Key}', so the transaction would wait on nothing`)
 	end
 	return Verdict
 end
@@ -424,10 +420,7 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 
 	for Txid in Counts do
 		for _, Op in Result.After.Ops do
-			Fault.Holds(
-				Op.Tx ~= Txid,
-				`transaction '{Txid}' was resolved on '{Key}' but a leg is still stamped with it, so the key stays busy forever`
-			)
+			Fault.Holds(Op.Tx ~= Txid, `transaction '{Txid}' was resolved on '{Key}' but a leg is still stamped with it, so the key stays busy forever`)
 		end
 	end
 
@@ -436,7 +429,7 @@ end
 
 function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
 	local Result = self:Update(Key, function(Record: Record): Record?
-		Legible(self, Key, Record)
+		self:Legible(Key, Record)
 		return Compact.Packed(Key, Record, Format)
 	end)
 
@@ -456,7 +449,9 @@ function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
 
 	local State = Result.After.Bytes
 	if type(State) == "number" and State > STATE_WARN_BYTES then
-		warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {MAX_STATE_BYTES}{Compact.Hint(Result.After.Snapshot)}. take out what the game no longer reads, or spread it over more keys`)
+		warn(
+			`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {MAX_STATE_BYTES}{Compact.Hint(Result.After.Snapshot)}. take out what the game no longer reads, or spread it over more keys`
+		)
 	end
 	return Result.After
 end
@@ -478,11 +473,11 @@ end
 table.freeze(Log)
 
 return table.freeze({
-	New = NewLog,
+	New = Log.New,
 	Verdict = VERDICT,
 	MAX_LOG_BYTES = MAX_LOG_BYTES,
 	TOMB_HORIZON = TOMB_HORIZON,
 	Entombed = Entombed,
 	NotEntombed = NotEntombed,
-	Known = Known
+	Known = Known,
 })

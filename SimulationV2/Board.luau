@@ -22,7 +22,7 @@ export type Faults = {
 	Silent: number,
 	Misdirect: number,
 	Outage: number,
-	OutageFor: number
+	OutageFor: number,
 }
 
 export type Board = {
@@ -34,7 +34,7 @@ export type Board = {
 	Lost: number,
 	Moved: { string },
 	Keeping: boolean,
-	Journal: { string }
+	Journal: { string },
 }
 
 local DOWN = "SimulationV2: the request never reached the datastore"
@@ -45,7 +45,7 @@ local OUTAGE_MOST = 40
 
 local WRITES: { [string]: boolean } = {
 	UpdateAsync = true,
-	RemoveAsync = true
+	RemoveAsync = true,
 }
 
 local function Drawn(Rng: Random): Faults
@@ -60,7 +60,7 @@ local function Drawn(Rng: Random): Faults
 		Silent = Held.Silent,
 		Misdirect = 0,
 		Outage = Held.Outage * 0.05,
-		OutageFor = Rng:NextInteger(OUTAGE_LEAST, OUTAGE_MOST)
+		OutageFor = Rng:NextInteger(OUTAGE_LEAST, OUTAGE_MOST),
 	}
 end
 
@@ -74,7 +74,7 @@ local function New(Rng: Random, Faults: Faults?): Board
 		Lost = 0,
 		Moved = {},
 		Keeping = false,
-		Journal = {}
+		Journal = {},
 	}
 end
 
@@ -138,10 +138,7 @@ local function Marked(self: Board, Named: string, Key: string, Next: any)
 		Adopted += 1
 	end
 
-	table.insert(
-		self.Journal,
-		`{Named} marked '{Key}' {Next.Status}, {Adopted} of {tostring(Next.Total)} adopted, gen {tostring(Next.Gen)}, terms {Readable(Next.Terms)}`
-	)
+	table.insert(self.Journal, `{Named} marked '{Key}' {Next.Status}, {Adopted} of {tostring(Next.Total)} adopted, gen {tostring(Next.Gen)}, terms {Readable(Next.Terms)}`)
 end
 
 local function Note(self: Board, Named: string, Key: string, Had: { [string]: boolean }, Next: any)
@@ -154,10 +151,7 @@ local function Note(self: Board, Named: string, Key: string, Had: { [string]: bo
 		if type(Op) ~= "table" or Had[tostring(Op.Id)] then
 			continue
 		end
-		table.insert(
-			self.Journal,
-			`{Named} put {tostring(Op.Kind)} on '{Key}' as {tostring(Op.Id)}, name {tostring(Op.Rid or Op.Tid or Op.Tx)}, amount {tostring(Op.Amount)}`
-		)
+		table.insert(self.Journal, `{Named} put {tostring(Op.Kind)} on '{Key}' as {tostring(Op.Id)}, name {tostring(Op.Rid or Op.Tid or Op.Tx)}, amount {tostring(Op.Amount)}`)
 	end
 end
 
@@ -245,7 +239,7 @@ end
 local function Install(self: Board, Wrapper: any, Held: Disk.Disk)
 	Wrapper.Use(function(Name: string): any
 		return Wrap(self, Disk.Open(Held, Name))
-	end, function(Kind: Enum.DataStoreRequestType): number
+	end, function(_Kind: Enum.DataStoreRequestType): number
 		return if Held.Throttled then 100 else 1000
 	end)
 end
@@ -262,5 +256,5 @@ return table.freeze({
 	Heal = Heal,
 	Wrap = Wrap,
 	DOWN = DOWN,
-	SWALLOWED = SWALLOWED
+	SWALLOWED = SWALLOWED,
 })

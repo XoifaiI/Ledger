@@ -22,7 +22,24 @@ local PAGE_LIMIT = 100
 
 local Pages = {} :: Types.PagesImpl
 Pages.__index = Pages
-local function Edge(self: Pages)
+
+function Pages.New(Rows: { any }, PageSize: number?, Fallback: number, Field: string?, Spend: (() -> ())?): Pages
+	local Size = math.clamp(PageSize or Fallback, 1, PAGE_LIMIT)
+	local Book: Pages = setmetatable({
+		Rows = Rows,
+		At = 1,
+		Size = Size,
+		Field = Field,
+		Spend = Spend,
+		Cursor = "",
+		IsFinished = true,
+	}, Pages) :: any
+
+	Book:Edge()
+	return Book
+end
+
+function Pages.Edge(self: Pages)
 	self.IsFinished = self.At + self.Size > #self.Rows
 
 	local Field = self.Field
@@ -34,22 +51,6 @@ local function Edge(self: Pages)
 	local Row = self.Rows[math.min(self.At + self.Size - 1, #self.Rows)]
 	local Mark = if type(Row) == "table" then (Row :: { [string]: any })[Field] else nil
 	self.Cursor = if type(Mark) == "string" then Mark else ""
-end
-
-local function New(Rows: { any }, PageSize: number?, Fallback: number, Field: string?, Spend: (() -> ())?): Pages
-	local Size = math.clamp(PageSize or Fallback, 1, PAGE_LIMIT)
-	local Book: Pages = setmetatable({
-		Rows = Rows,
-		At = 1,
-		Size = Size,
-		Field = Field,
-		Spend = Spend,
-		Cursor = "",
-		IsFinished = true
-	}, Pages) :: any
-
-	Edge(Book)
-	return Book
 end
 
 function Pages.GetCurrentPage(self: Pages): { any }
@@ -68,12 +69,12 @@ function Pages.AdvanceToNextPageAsync(self: Pages)
 	end
 
 	self.At += self.Size
-	Edge(self)
+	self:Edge()
 end
 
 table.freeze(Pages)
 
 return table.freeze({
-	New = New,
-	PAGE_LIMIT = PAGE_LIMIT
+	New = Pages.New,
+	PAGE_LIMIT = PAGE_LIMIT,
 })

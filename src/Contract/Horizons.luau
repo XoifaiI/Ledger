@@ -33,10 +33,7 @@ local REAP = 3600
 
 local PASS_LIMIT = 32
 
-assert(
-	REDRIVE + EXPIRE_MARGIN == TOMB,
-	"a tomb has to outlast the last redelivery of a transfer, or money could be sent to a key that has already stopped turning it away"
-)
+assert(REDRIVE + EXPIRE_MARGIN == TOMB, "a tomb has to outlast the last redelivery of a transfer, or money could be sent to a key that has already stopped turning it away")
 assert(TOMB < PRUNE, "a delivery id has to outlive the tomb of the key it was delivered to, or a refund could pay twice")
 assert(BOOK + BOOK_MARGIN < REDRIVE, "a reservation has to run out before a transfer does, or stock would be held longer than money")
 assert(
@@ -53,5 +50,5 @@ return table.freeze({
 	BOOK_MARGIN = BOOK_MARGIN,
 	REAP = REAP,
 
-	PASS_LIMIT = PASS_LIMIT
+	PASS_LIMIT = PASS_LIMIT,
 })

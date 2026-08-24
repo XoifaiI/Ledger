@@ -3,10 +3,10 @@
 
 --[=[
 	Op: The shapes that a datastore holds.
-	
+
 	Each tier agrees on these shapes. No module above may write them again.
 	The envelope is the format of the record. A record with a higher envelope comes from a newer build.
-	
+
 	Return type: A table with ENVELOPE, MAX_VALUE_BYTES and MAX_STATE_BYTES. The types are Op, Record, HistoryEntry, KeyLike, KeysMode, Reducer and Migration.
 	Example usage:
 		local Contract = require("./Op")
@@ -16,7 +16,7 @@
 export type Op = {
 	Id: string,
 	Kind: string,
-	[any]: any
+	[any]: any,
 }
 
 export type Record<S> = {
@@ -27,13 +27,13 @@ export type Record<S> = {
 	Version: number?,
 	Floor: number?,
 	Envelope: number?,
-	Erased: number?
+	Erased: number?,
 }
 
 export type HistoryEntry = {
 	Version: string,
 	At: number,
-	Deleted: boolean
+	Deleted: boolean,
 }
 
 export type KeysMode = "Player" | "String"
@@ -52,5 +52,5 @@ local MAX_STATE_BYTES = 2 * 1024 * 1024
 return table.freeze({
 	ENVELOPE = ENVELOPE,
 	MAX_VALUE_BYTES = MAX_VALUE_BYTES,
-	MAX_STATE_BYTES = MAX_STATE_BYTES
+	MAX_STATE_BYTES = MAX_STATE_BYTES,
 })

@@ -70,7 +70,7 @@ local function Failing(T: Case, UserId: number, Answer: any): (Fixture, any, { a
 		OnLoadFailed = function(Player: any, Why: any): boolean
 			table.insert(Seen, { Player = Player, Why = Why })
 			return Answer(Player, Why)
-		end
+		end,
 	})
 	return Store, T:Player(UserId), Seen
 end
@@ -295,7 +295,7 @@ Cases.Case("only one of two racing commits wins", function(T: Case)
 		end,
 		function()
 			Lost = Right:Commit("Give", { Amount = -100 }):Wait()
-		end
+		end,
 	})
 
 	local Accepted = (if Won then 1 else 0) + (if Lost then 1 else 0)
@@ -641,10 +641,12 @@ Cases.Case("a write names the key it landed on as stale", function(T: Case)
 	T:Is("keys named by a transfer", table.concat(Heard, ","), "a,b")
 
 	table.clear(Heard)
-	Bank.Store:Tx("deal", {
-		{ Key = "a", Kind = "Give", Fields = { Amount = -5 } },
-		{ Key = "b", Kind = "Fund", Fields = { Amount = 5 } }
-	}):Wait()
+	Bank.Store
+		:Tx("deal", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -5 } },
+			{ Key = "b", Kind = "Fund", Fields = { Amount = 5 } },
+		})
+		:Wait()
 	table.sort(Heard)
 	T:Is("keys named by a transaction", table.concat(Heard, ","), "a,b")
 
@@ -918,7 +920,7 @@ local function Stranded(T: Case): Fixture
 	Bank:Seed("77", { Gold = 100, Touches = 0 })
 	Bank:Seed("88", { Gold = 0, Touches = 0 })
 	Bank:Append("77", {
-		{ Id = "res:strand", Kind = "__TransferReserve", To = "88", Amount = 40, Tid = "strand", At = T:Now() } :: any
+		{ Id = "res:strand", Kind = "__TransferReserve", To = "88", Amount = 40, Tid = "strand", At = T:Now() } :: any,
 	})
 	return Bank
 end

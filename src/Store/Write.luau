@@ -3,7 +3,7 @@
 
 --[=[
 	Write: Puts one op on one key, and reads what the record folds to.
-	
+
 	Each public write ends here. This is the one place that turns a datastore answer into a reason.
 	The order is fixed. The guard of the caller runs first, then Applies, then the append, then
 	Maintain, then Certain. Each step has a different answer when it fails.
@@ -270,10 +270,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		end
 
 		local Took, Sure = self:Format():Certain(Settled, Op.Id)
-		Fault.Holds(
-			Sure or Stamp.HasPending(Settled),
-			`the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`
-		)
+		Fault.Holds(Sure or Stamp.HasPending(Settled), `the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`)
 		if not Sure then
 			return UNRESOLVED
 		end
@@ -293,5 +290,5 @@ end
 
 return table.freeze({
 	Failed = Failed,
-	AUTOSAVE_INTERVAL = AUTOSAVE_INTERVAL
+	AUTOSAVE_INTERVAL = AUTOSAVE_INTERVAL,
 })

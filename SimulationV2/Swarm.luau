@@ -83,5 +83,5 @@ return table.freeze({
 	Pick = Pick,
 	Exponential = Exponential,
 	Index = Index,
-	Seed = Seed
+	Seed = Seed,
 })

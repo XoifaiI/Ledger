@@ -3,11 +3,11 @@
 
 --[=[
 	Layer: Puts the reducer layers of one key in order.
-	
+
 	A layer names the op kinds that it handles, and the bookkeeping fields that it owns.
 	A game reducer that writes one of those fields gets that field put back.
 	A layer that is added later therefore cannot forget to protect its own field.
-	
+
 	Return type: A table with Wrap, Stack and Handles.
 	Example usage:
 		local Layer = require("./Layer")
@@ -24,12 +24,12 @@ type Data = { [any]: any }
 
 export type Owned = {
 	Field: string,
-	Says: string
+	Says: string,
 }
 
 export type Layer = {
 	Kinds: { [string]: (Data, Op) -> Data? },
-	Owns: { Owned }?
+	Owns: { Owned }?,
 }
 
 local NONE: { Owned } = table.freeze({}) :: any
@@ -101,5 +101,5 @@ end
 return table.freeze({
 	Wrap = Wrap,
 	Stack = Stack,
-	Handles = Handles
+	Handles = Handles,
 })

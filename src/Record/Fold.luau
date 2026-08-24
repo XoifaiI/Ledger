@@ -3,10 +3,10 @@
 
 --[=[
 	Fold: Replays each op on top of a base state.
-	
+
 	An op that a reducer refuses is skipped. An op that carries a transaction stamp is also skipped,
 	because a marker has not decided that transaction yet.
-	
+
 	Return type: A function that gives back the state, and whether the marked op applied.
 	Example usage:
 		local Fold = require("./Fold")

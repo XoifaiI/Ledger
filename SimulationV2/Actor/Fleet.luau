@@ -29,7 +29,7 @@ export type Answer = {
 	Crashes: number,
 	Threw: { string },
 	Broken: { string },
-	Reached: { [string]: number }
+	Reached: { [string]: number },
 }
 
 export type Report = {
@@ -44,18 +44,14 @@ export type Report = {
 	Threw: { string },
 	Broken: { string },
 	Reached: { [string]: number },
-	Seconds: number
+	Seconds: number,
 }
 
 local WORKER = "Worker"
 local FOLDER = "V2Fleet"
 
 local function Build(Count: number): (Folder, { Actor }, BindableEvent)
-	local Template = ServerStorage
-		:WaitForChild("LedgerDev")
-		:WaitForChild("SimulationV2")
-		:WaitForChild("Actor")
-		:WaitForChild(WORKER)
+	local Template = ServerStorage:WaitForChild("LedgerDev"):WaitForChild("SimulationV2"):WaitForChild("Actor"):WaitForChild(WORKER)
 
 	local Old = ServerScriptService:FindFirstChild(FOLDER)
 	if Old ~= nil then
@@ -147,7 +143,7 @@ local function Sweep(From: number, To: number, Count: number, Misdirect: boolean
 		Threw = {},
 		Broken = {},
 		Reached = {},
-		Seconds = os.clock() - Started
+		Seconds = os.clock() - Started,
 	}
 
 	for _, Held in Answers do
@@ -180,5 +176,5 @@ end
 return table.freeze({
 	Sweep = Sweep,
 	Split = Split,
-	Build = Build
+	Build = Build,
 })

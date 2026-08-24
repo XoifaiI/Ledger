@@ -3,13 +3,13 @@
 
 --[=[
 	Read: The reads of a store.
-	
+
 	A state, a record, a version and its history, and whether a name has been applied.
 	Each read answers a value and a reason. A value of nil therefore always means that the read
 	failed, and never means empty.
 	Inspect copies the record and freezes it, so a caller cannot reach the record that this server
 	still folds from.
-	
+
 	Return type: A table with Peek, DidApply, History, PeekVersion and Inspect.
 	Example usage:
 		local Read = require("./Read")

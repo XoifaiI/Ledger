@@ -136,5 +136,5 @@ return table.freeze({
 	COINS = COINS,
 	SHELF = SHELF,
 	PLAIN = PLAIN,
-	STASH = STASH
+	STASH = STASH,
 })

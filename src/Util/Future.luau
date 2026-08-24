@@ -22,7 +22,7 @@ type FutureImpl<T...> = {
 	__index: FutureImpl<T...>,
 
 	Wait: (self: Future<T...>, Timeout: number?) -> T...,
-	Happened: (self: Future<T...>, Wait: boolean?) -> boolean
+	Happened: (self: Future<T...>, Wait: boolean?) -> boolean,
 }
 
 export type Future<T...> = setmetatable<{}, FutureImpl<T...>>
@@ -30,7 +30,7 @@ export type Future<T...> = setmetatable<{}, FutureImpl<T...>>
 type Private<T...> = {
 	Result: Packed?,
 	Waiting: { thread }?,
-	Timeouts: { thread }?
+	Timeouts: { thread }?,
 }
 
 local EMPTY: Packed = table.freeze({ n = 0 }) :: any
@@ -115,7 +115,7 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: 
 	Private.Result = Result
 
 	if not Result[1] then
-		warn(`Future callback errored: {tostring(Result[2])}`)
+		warn(`Ledger: Future callback errored: {tostring(Result[2])}`)
 	end
 
 	Finish(Private, Unpack(Private))
@@ -210,9 +210,10 @@ function Future.Happened<T...>(self: Future<T...>, Wait: boolean?): boolean
 end
 
 table.freeze(Future)
+
 return table.freeze({
 	New = New,
 
 	Completed = NewCompleted,
-	Errored = NewErrored
+	Errored = NewErrored,
 })

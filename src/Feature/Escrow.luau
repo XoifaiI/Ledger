@@ -3,14 +3,14 @@
 
 --[=[
 	Escrow: The reducer half of a transfer.
-	
+
 	The money leaves the sender into a hold under the transfer id. It is paid in on the receiver
 	against the set of applied names. The hold clears after both of those things happen.
 	A sender that already has this transfer written down as sent sets nothing aside for it a second
 	time. The reducer owns that record, so every way of setting money aside is covered by it, and the
 	money never leaves before the question is asked.
 	Each of the three legs is a separate op, so each one is atomic on its own key.
-	
+
 	Return type: A table with Layered, the five op kinds, the five id prefixes, REDRIVE_HORIZON and EXPIRE_MARGIN.
 	Example usage:
 		local Escrow = require("./Escrow")
@@ -164,12 +164,12 @@ local function Layered(Balance: string?): Layer.Layer?
 				return Expiring(Data, Op, Field)
 			end,
 			[SETTLE] = Settling,
-			[PRUNE] = Pruning
+			[PRUNE] = Pruning,
 		},
 		Owns = {
 			{ Field = "_Held", Says = "the money set aside" },
-			{ Field = "_Received", Says = "the applied names" }
-		}
+			{ Field = "_Received", Says = "the applied names" },
+		},
 	}
 end
 
@@ -189,5 +189,5 @@ return table.freeze({
 	EXPIRE_ID = EXPIRE_ID,
 
 	REDRIVE_HORIZON = REDRIVE_HORIZON,
-	EXPIRE_MARGIN = EXPIRE_MARGIN
+	EXPIRE_MARGIN = EXPIRE_MARGIN,
 })

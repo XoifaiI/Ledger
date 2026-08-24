@@ -3,7 +3,7 @@
 
 --[=[
 	Recovery: Picks up the work that a server left when it stopped.
-	
+
 	A transfer that is still worth sending is sent again. A transfer that is past its window is
 	given back. A reservation that is past its hold is settled or returned.
 	Each pass has a limit, so a key that has many stranded takes several passes and not one long one.
@@ -15,7 +15,7 @@
 	A hold between the two windows is left alone on purpose, so nothing delivers it while another
 	server gives it back. It still means the key is not finished, and a pass that only rested counts
 	as progress, so the sweep keeps the key without spending a try on it.
-	
+
 	Return type: A table with Transfers, Bookings and PASS_LIMIT.
 	Example usage:
 		local Recovery = require("./Recovery")
@@ -58,7 +58,9 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 
 	Fault.Holds(Age > PRUNE_HORIZON, "a transfer is being written off before it is old enough, so money would be destroyed early")
 
-	warn(`Ledger: transfer {Tid} from {From} has been stuck over {PRUNE_HORIZON // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`)
+	warn(
+		`Ledger: transfer {Tid} from {From} has been stuck over {PRUNE_HORIZON // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
+	)
 	Transfer.Settle(Records, From, Tid, Transfer.Terms(From, Entry.To, Entry.Amount))
 end
 
@@ -111,9 +113,7 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 		end
 		Handled += 1
 
-		local Ok = if Fresh
-			then Redeliver(Records, Format, From, Tid, Entry)
-			else GiveBack(Records, Format, From, Tid, Entry, Age)
+		local Ok = if Fresh then Redeliver(Records, Format, From, Tid, Entry) else GiveBack(Records, Format, From, Tid, Entry, Age)
 		if Ok then
 			Moved += 1
 		else
@@ -172,7 +172,9 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 
 		local At = if Held ~= nil then Held.At else nil
 		if Held ~= nil and type(At) == "number" and Now - At > PRUNE_HORIZON then
-			warn(`Ledger: booking {Rid} on '{Key}' has been open over {PRUNE_HORIZON // 86400} days and '{To}' has no record of it. giving it back could pay twice, so it is written off. check the audit log and give the {Held.Amount} of '{Held.Field}' back by hand if it never arrived`)
+			warn(
+				`Ledger: booking {Rid} on '{Key}' has been open over {PRUNE_HORIZON // 86400} days and '{To}' has no record of it. giving it back could pay twice, so it is written off. check the audit log and give the {Held.Amount} of '{Held.Field}' back by hand if it never arrived`
+			)
 			table.insert(Ops, Booking.Take(Rid))
 			continue
 		end
@@ -195,5 +197,5 @@ end
 return table.freeze({
 	Transfers = Transfers,
 	Bookings = Bookings,
-	PASS_LIMIT = PASS_LIMIT
+	PASS_LIMIT = PASS_LIMIT,
 })

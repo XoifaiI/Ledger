@@ -25,7 +25,7 @@ export type Scheduler = typeof(setmetatable(
 		Live: number,
 		Steps: number,
 		Stalls: number,
-		GaveUp: boolean
+		GaveUp: boolean,
 	},
 	Scheduler
 ))
@@ -39,7 +39,7 @@ function Scheduler.New(Seed: number): Scheduler
 		Live = 0,
 		Steps = 0,
 		Stalls = 0,
-		GaveUp = false
+		GaveUp = false,
 	}, Scheduler)
 end
 
@@ -113,5 +113,5 @@ table.freeze(Scheduler)
 
 return table.freeze({
 	New = Scheduler.New,
-	STALL_LIMIT = STALL_LIMIT
+	STALL_LIMIT = STALL_LIMIT,
 })

@@ -95,8 +95,8 @@ Cases.Case("a jammed log blames the parked transaction not the datastore", funct
 		Ops = {
 			{ Id = "big1", Kind = "Stash", Text = Text },
 			{ Id = "big2", Kind = "Stash", Text = Text },
-			{ Id = "tx:jam1:1", Kind = "Stash", Text = "", Tx = "jam1", TxHome = Store.Marked }
-		}
+			{ Id = "tx:jam1:1", Kind = "Stash", Text = "", Tx = "jam1", TxHome = Store.Marked },
+		},
 	})
 
 	local Active = Store:Session("jam")
@@ -136,7 +136,7 @@ Cases.Case("a log of few but huge ops is still compacted", function(T: Case)
 
 	local Landed = 0
 	for _ = 1, 8 do
-		if (Store.Store:Edit("huge", "Stash", { Text = Text }):Wait()) then
+		if Store.Store:Edit("huge", "Stash", { Text = Text }):Wait() then
 			Landed += 1
 		end
 	end

@@ -27,12 +27,12 @@ local Ledger = require("../src")
 
 export type Profile = {
 	Gold: number,
-	Gamepasses: { [string]: boolean }
+	Gamepasses: { [string]: boolean },
 }
 
 local Products = {
 	[123456] = 500,
-	[123457] = 1200
+	[123457] = 1200,
 }
 
 --[[ the reducer branch. it never has to dedupe, Once already did ]]
@@ -124,12 +124,7 @@ end
     grant not happening. hand that back so the caller retries instead of granting a second time
 --]]
 
-local function GrantOffline(
-	Store: Ledger.Store<Profile>,
-	UserId: number,
-	ProductId: number,
-	OrderId: string
-): (boolean, Ledger.Reason?)
+local function GrantOffline(Store: Ledger.Store<Profile>, UserId: number, ProductId: number, OrderId: string): (boolean, Ledger.Reason?)
 	local Name = `order:{OrderId}`
 	Store:Edit(UserId, "ProductGrant", { ProductId = ProductId, Once = Name }):Wait()
 
@@ -141,5 +136,5 @@ return table.freeze({
 	Reducer = Reducer,
 	Install = Install,
 	BuyGamepass = BuyGamepass,
-	GrantOffline = GrantOffline
+	GrantOffline = GrantOffline,
 })

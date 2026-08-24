@@ -42,7 +42,7 @@ local RENAME: { any } = {
 		State.Gold = State.Coins
 		State.Coins = nil
 		return State
-	end
+	end,
 }
 
 local CHAIN: { any } = {
@@ -52,15 +52,15 @@ local CHAIN: { any } = {
 		Apply = function(State: any): any
 			State.Gold *= 10
 			return State
-		end
-	}
+		end,
+	},
 }
 
 local function Held(T: Case, Steps: { any }?, Default: any?): Fixture
 	return T:Store({
 		Default = Default or { Gold = 0 },
 		Reducer = Keep,
-		Migrations = Steps
+		Migrations = Steps,
 	})
 end
 
@@ -91,14 +91,14 @@ local COMPATIBLE: any = {
 	Compatible = true,
 	Apply = function(State: any): any
 		return State
-	end
+	end,
 }
 
 local TENFOLD: { any } = {
 	function(State: any): any
 		State.Gold *= 10
 		return State
-	end
+	end,
 }
 
 local function Resettable(T: Case, Steps: { any }, Data: string?): Fixture
@@ -106,7 +106,7 @@ local function Resettable(T: Case, Steps: { any }, Data: string?): Fixture
 		Default = { Gold = 100 },
 		Reducer = Money,
 		Migrations = Steps,
-		Data = Data
+		Data = Data,
 	})
 end
 
@@ -407,11 +407,7 @@ Cases.Case("a default added later appears on an old record", function(T: Case)
 	Plain:Append("mig", { MakeOp.New("Add", { Amount = 100 }) })
 	Plain:Log():Compact("mig", Plain:Format())
 
-	local Active: any = Session.Load(
-		Plain:Log(),
-		Log.Shape(Settings, { Gold = 0, N = 0, Settings = { Volume = 5 } }),
-		"mig"
-	):Wait()
+	local Active: any = Session.Load(Plain:Log(), Log.Shape(Settings, { Gold = 0, N = 0, Settings = { Volume = 5 } }), "mig"):Wait()
 	local Had = Active:Get().Settings ~= nil
 	local Applied = Active:Apply("SetVol", { Amount = 10 })
 	Active:Flush():Wait()
@@ -454,7 +450,7 @@ Cases.Case("sizing is never below what json actually takes", function(T: Case)
 	local Record = {
 		Snapshot = { Gold = 5, Name = "abc", Flag = true, Nested = { List = { 1, 22, 333 } } },
 		Ops = { { Id = "op:1", Kind = "Add", Amount = 250 } },
-		Seen = { "a\nb", 'quo"te', "plain" }
+		Seen = { "a\nb", 'quo"te', "plain" },
 	}
 
 	T:Is("the estimate against real json", Measure(Record) >= #HttpService:JSONEncode(Record), true)

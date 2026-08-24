@@ -3,14 +3,14 @@
 
 --[=[
 	Session: One player and one key, with the state folded from the log.
-	
+
 	Apply is hopeful and answers immediately. Commit is durable before it answers.
 	The state is folded on load, and folded again from what each write gives back.
 	The fence is taken one time, on load. To take it again on a later fold would let a session heal
 	itself past an erase that happened while it was live.
 	A key that a newer build has claimed closes the session as well. To hold the ops would only keep
 	them until the queue is full.
-	
+
 	Return type: A table with Load and MAX_PENDING.
 	Example usage:
 		local Session = require("./Session")
@@ -60,6 +60,7 @@ end
 
 local Session = {} :: Types.SessionImpl<any>
 Session.__index = Session
+
 local function SettlePending<S>(self: Session<S>, Stored: Record): Record
 	local TxStore = self.TxStore
 	if TxStore and Stamp.HasPending(Stored) then
@@ -85,7 +86,7 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 			LogBytes = 0,
 			StateBytes = 0,
 			Changed = Observer.New(),
-			Released = false
+			Released = false,
 		}
 
 		local Active: Session<S> = setmetatable(Body :: any, Session) :: any
@@ -257,9 +258,7 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 		local Why = Fault.Named(Err)
 		if Why == BEHIND then
 			self.Released = true
-			warn(
-				`Ledger: '{self.Key}' now needs a newer build than this server has, so this session is closed and its {#self.Pending} unsaved op(s) are not written. the player has to rejoin`
-			)
+			warn(`Ledger: '{self.Key}' now needs a newer build than this server has, so this session is closed and its {#self.Pending} unsaved op(s) are not written. the player has to rejoin`)
 			return false, Why
 		end
 
@@ -325,5 +324,5 @@ table.freeze(Session)
 
 return table.freeze({
 	Load = Load,
-	MAX_PENDING = MAX_PENDING
+	MAX_PENDING = MAX_PENDING,
 })

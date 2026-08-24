@@ -20,7 +20,7 @@ export type Report = {
 	Seed: number,
 	First: string,
 	Second: string,
-	Says: string?
+	Says: string?,
 }
 
 local function Digest(Out: any): string
@@ -33,7 +33,7 @@ local function Digest(Out: any): string
 		`threw={#Out.Threw}`,
 		`broken={#Out.Broken}`,
 		`checked={Out.Books.Checked}`,
-		`outside={#Out.Books.Broken}`
+		`outside={#Out.Books.Broken}`,
 	}
 
 	for _, Bucket in Catalogue.Buckets() do
@@ -79,12 +79,12 @@ local function Check(Seed: number, Options: any?): Report
 		Seed = Seed,
 		First = First,
 		Second = Second,
-		Says = `seed {Seed} did not replay: {Apart(First, Second)}`
+		Says = `seed {Seed} did not replay: {Apart(First, Second)}`,
 	}
 end
 
 return table.freeze({
 	Check = Check,
 	Digest = Digest,
-	Apart = Apart
+	Apart = Apart,
 })

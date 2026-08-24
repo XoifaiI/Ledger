@@ -32,7 +32,7 @@ local Cases = Suite.File("Queues")
 type Bench = {
 	Order: { string },
 	Overlaps: number,
-	Live: number
+	Live: number,
 }
 
 local function Until(Done: () -> boolean)
@@ -104,11 +104,14 @@ Cases.Case("a fast path task that throws does not wedge the queue", function(T: 
 	end)
 	task.wait(QUICK / 2)
 	task.spawn(function()
-		Behind = select(2, pcall(function(): string
-			return Queue:SubmitAsync(function(): string
-				return "B"
+		Behind = select(
+			2,
+			pcall(function(): string
+				return Queue:SubmitAsync(function(): string
+					return "B"
+				end)
 			end)
-		end))
+		)
 	end)
 	Until(function(): boolean
 		return Raised ~= nil and Behind ~= nil
@@ -137,11 +140,14 @@ Cases.Case("a queued task that throws does not stop the ones behind it", functio
 		end)
 	end)
 	task.spawn(function()
-		Behind = select(2, pcall(function(): string
-			return Queue:SubmitAsync(function(): string
-				return "C"
+		Behind = select(
+			2,
+			pcall(function(): string
+				return Queue:SubmitAsync(function(): string
+					return "C"
+				end)
 			end)
-		end))
+		)
 	end)
 	Until(function(): boolean
 		return Raised ~= nil and Behind ~= nil

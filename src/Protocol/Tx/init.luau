@@ -3,9 +3,9 @@
 
 --[=[
 	Tx: The transaction protocol under one name.
-	
+
 	A caller above this tier does not have to know which half of the protocol owns what.
-	
+
 	Return type: A table with Drive, Settle, Reap, ShutdownHomes, LEG_TIMEOUT, TIMEOUT, MAX_LEGS and REAP_HORIZON.
 	Example usage:
 		local Tx = require("../Protocol/Tx")
@@ -31,5 +31,5 @@ return table.freeze({
 	LEG_TIMEOUT = Drive.LEG_TIMEOUT,
 	TIMEOUT = Drive.TIMEOUT,
 	MAX_LEGS = Drive.MAX_LEGS,
-	REAP_HORIZON = Reap.REAP_HORIZON
+	REAP_HORIZON = Reap.REAP_HORIZON,
 })

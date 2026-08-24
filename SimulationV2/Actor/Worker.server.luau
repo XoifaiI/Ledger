@@ -73,7 +73,7 @@ Actor:BindToMessageParallel("Sweep", function(From: number, To: number, Misdirec
 		Crashes = Crashes,
 		Threw = Threw,
 		Broken = Broken,
-		Reached = Reached
+		Reached = Reached,
 	})
 end)
 

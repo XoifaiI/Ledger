@@ -3,11 +3,11 @@
 
 --[=[
 	Names: Writes down the name that an op ran under.
-	
+
 	The same name cannot then run two times. This sits outside each other layer, because it must see
 	the state after the game reducer has had it.
 	This is not a plain layer. It refuses an op before the reducer runs, and its message names the op.
-	
+
 	Return type: A table with Wrap and StampOf.
 	Example usage:
 		local Names = require("./Names")
@@ -57,9 +57,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 			return Marked :: any
 		end
 
-		local Touched = Data._Received ~= nil
-			and Plain._Received ~= Data._Received
-			and not IsStorable.Reserved(Op.Kind)
+		local Touched = Data._Received ~= nil and Plain._Received ~= Data._Received and not IsStorable.Reserved(Op.Kind)
 		if not Touched then
 			return Next
 		end
@@ -78,5 +76,5 @@ end
 
 return table.freeze({
 	Wrap = Wrap,
-	StampOf = StampOf
+	StampOf = StampOf,
 })

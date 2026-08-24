@@ -33,29 +33,21 @@ local Waits: (Seconds: number) -> () = Sleep
 
 local function Vet(Reads: () -> number)
 	local Ok, Value = pcall(Reads)
-	assert(
-		Ok and type(Value) == "number" and Value == Value and Value ~= math.huge and Value ~= -math.huge,
-		"the clock given to Ledger.UseClock has to give back a number of seconds"
-	)
+	assert(Ok and type(Value) == "number" and Value == Value and Value ~= math.huge and Value ~= -math.huge, "the clock given to Ledger.UseClock has to give back a number of seconds")
 
 	local Held = Real()
 	if math.abs(Value - Held) <= CENTURY then
 		return
 	end
 
-	warn(
-		`Ledger: the clock you gave reads {Value} and the real one reads {Held}. Ledger counts in seconds since 1970, so give it seconds`
-	)
+	warn(`Ledger: the clock you gave reads {Value} and the real one reads {Held}. Ledger counts in seconds since 1970, so give it seconds`)
 end
 
 local function Set(Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?)
 	if Reads ~= nil then
 		Vet(Reads)
 	end
-	assert(
-		Sleeps == nil or type(Sleeps) == "function",
-		"the wait given to Ledger.UseClock has to be a function that takes a number of seconds"
-	)
+	assert(Sleeps == nil or type(Sleeps) == "function", "the wait given to Ledger.UseClock has to be a function that takes a number of seconds")
 	Source = Reads or Real
 	Waits = Sleeps or Sleep
 end
@@ -71,5 +63,5 @@ end
 return table.freeze({
 	Set = Set,
 	Now = Now,
-	Wait = Wait
+	Wait = Wait,
 })

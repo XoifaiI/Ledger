@@ -50,5 +50,5 @@ return table.freeze({
 	Mark = Mark,
 	Ident = Ident,
 	Shape = Shape,
-	Stamp = Stamp
+	Stamp = Stamp,
 })

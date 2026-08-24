@@ -3,7 +3,7 @@
 
 --[=[
 	Ops: The writes that a game asks for by name.
-	
+
 	Each one checks its arguments, builds one op, and gives that op to Written.
 	The ones that touch two keys are the exceptions.
 	Grant writes the receiver first and clears the hold second. That is the order that a transfer
@@ -16,7 +16,7 @@
 	A leg that names another store must carry the class that Ledger.New gives a store.
 	Grant turns away a booking that has run past its hold. Recovery takes those units back a margin
 	later, so the two cannot both act on one booking.
-	
+
 	Return type: A table with Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, Bump, Total and Tx.
 	Example usage:
 		local Ops = require("./Ops")
@@ -132,10 +132,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 	assert(type(Extra) == "table", "Reserve takes an options table after the Id when you pass one")
 
 	local Hold = Extra.Hold
-	assert(
-		Hold == nil or (type(Hold) == "number" and Hold > 0 and Hold < math.huge),
-		`Reserve Hold must be a positive number of seconds when given, got {tostring(Hold)}`
-	)
+	assert(Hold == nil or (type(Hold) == "number" and Hold > 0 and Hold < math.huge), `Reserve Hold must be a positive number of seconds when given, got {tostring(Hold)}`)
 
 	local To: string? = nil
 	if Extra.To ~= nil then
@@ -212,23 +209,19 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any 
 
 	local Ruling = Booking.Granted(self:Fold(Landed), Rid, Print)
 	if Ruling == Entries.OTHER then
-		error(Fault.New(
-			SPENT,
-			`'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`
-		))
+		error(
+			Fault.New(
+				SPENT,
+				`'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`
+			)
+		)
 	end
 	if Ruling ~= Entries.SAME then
-		error(Fault.New(
-			HELD,
-			`'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`
-		))
+		error(Fault.New(HELD, `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`))
 	end
 
 	local Cleared = Records:Append(Key, { Booking.Sent(Rid) })
-	Fault.Holds(
-		not Stamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`),
-		`booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`
-	)
+	Fault.Holds(not Stamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`), `booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`)
 
 	self:Went(Key)
 	self:Went(To)
@@ -246,10 +239,7 @@ function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Rea
 				return false
 			end
 			if Booking.Late(Held, Clock.Now()) then
-				error(Fault.New(
-					SPENT,
-					`booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`
-				))
+				error(Fault.New(SPENT, `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`))
 			end
 			assert(type(Held.To) == "string", `booking '{Rid}' was not reserved with a To, so there is nowhere to hand it to`)
 			return self:Handed(Resolved, Rid, Held)
@@ -262,7 +252,7 @@ function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Rea
 	end)
 end
 
-local function TallyName(self: Store, Name: any, Field: any, What: string): string
+function Store.TallyName(self: Store, Name: any, Field: any, What: string): string
 	self:Live(What)
 	assert(self.Keys == "String", `{What} is for string keyed stores, '{self.Options.Name}' uses player keys`)
 	assert(
@@ -274,7 +264,7 @@ local function TallyName(self: Store, Name: any, Field: any, What: string): stri
 end
 
 function Store.Bump(self: Store, Name: string, Field: string, Amount: number): Future<boolean, Reason?>
-	TallyName(self, Name, Field, "Bump")
+	self:TallyName(Name, Field, "Bump")
 	assert(
 		type(Amount) == "number" and Amount > 0 and Amount < math.huge,
 		`Bump needs a positive finite Amount. a tally is spread over keys that cannot see each other, so nothing can be taken back out of one`
@@ -289,7 +279,7 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 end
 
 function Store.Total(self: Store, Name: string, Field: string): Future<number?, Reason?>
-	TallyName(self, Name, Field, "Total")
+	self:TallyName(Name, Field, "Total")
 
 	local Base = (self.Initial :: any)[Field] or 0
 
@@ -313,10 +303,7 @@ local function LegStore(Coordinator: Store, Index: number, Leg: TxLeg): Store
 		return Coordinator
 	end
 
-	assert(
-		getmetatable(Leg.Store :: any) == Store,
-		`Tx leg {Index} names a Store that was not built by Ledger.New`
-	)
+	assert(getmetatable(Leg.Store :: any) == Store, `Tx leg {Index} names a Store that was not built by Ledger.New`)
 	return Leg.Store :: any
 end
 
@@ -332,10 +319,7 @@ local function MapLeg(Coordinator: Store, Index: number, Leg: TxLeg, Touched: { 
 	assert(type(Leg) == "table", `Tx leg {Index} is not a table`)
 	assert(type(Leg.Kind) == "string" and #Leg.Kind > 0, `Tx leg {Index} needs a non-empty string Kind`)
 	assert(Leg.Fields == nil or type(Leg.Fields) == "table", `Tx leg {Index} Fields must be a table when given`)
-	assert(
-		Leg.Fields == nil or (Leg.Fields :: any).Once == nil,
-		`Tx leg {Index} carries Once, but the transaction Id already makes every leg land at most once. drop it`
-	)
+	assert(Leg.Fields == nil or (Leg.Fields :: any).Once == nil, `Tx leg {Index} carries Once, but the transaction Id already makes every leg land at most once. drop it`)
 
 	local Target = LegStore(Coordinator, Index, Leg)
 	local Raw = if Target.Keys == "Player" then Leg.UserId else Leg.Key
@@ -352,7 +336,7 @@ local function MapLeg(Coordinator: Store, Index: number, Leg: TxLeg, Touched: { 
 		Fields = Leg.Fields,
 		Log = Target:Records(),
 		Shape = Target:Format(),
-		TxStore = Target.TxWrapper
+		TxStore = Target.TxWrapper,
 	}, { Store = Target, Key = Resolved }
 end
 

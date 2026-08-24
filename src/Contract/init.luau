@@ -3,10 +3,10 @@
 
 --[=[
 	Contract: The shared words of Ledger, under one name.
-	
+
 	Use this when a module needs more than one part. A module that needs one part requires that one file.
 	The list of requires then tells you what the module depends on.
-	
+
 	Return type: A table with Fault and Reasons.
 	Example usage:
 		local Contract = require("../Contract")
@@ -38,5 +38,5 @@ export type Config<D> = Public.Config<D>
 
 return table.freeze({
 	Fault = Fault,
-	Reasons = Reasons
+	Reasons = Reasons,
 })

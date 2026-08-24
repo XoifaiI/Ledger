@@ -3,7 +3,7 @@
 
 --[=[
 	Transfer: Moves a balance across two keys in three legs.
-	
+
 	The legs are reserve, deliver and settle. Each leg is atomic on its own key, and the transfer id
 	makes each leg apply one time.
 	The order matters. The money is delivered first, and the hold on the sender clears second.
@@ -14,7 +14,7 @@
 	alone, so nothing pays it in while recovery gives it back.
 	Post proves the hold cleared by reading the applied name back out of the state. An op sits in the
 	log whether or not the reducer took it, so the log alone proves nothing.
-	
+
 	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms, Older and LandedOn.
 	Example usage:
 		local Transfer = require("./Transfer")
@@ -43,10 +43,7 @@ type Format = LogTypes.Shape<any>
 
 export type Hold = { To: number | string, Amount: number, At: number }
 
-export type Reserved =
-	{ read Outcome: "Finished" }
-	| { read Outcome: "Escrowed", read Tid: string, read Hold: Hold }
-	| { read Outcome: "Stopped", read Why: Reason }
+export type Reserved = { read Outcome: "Finished" } | { read Outcome: "Escrowed", read Tid: string, read Hold: Hold } | { read Outcome: "Stopped", read Why: Reason }
 
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
@@ -61,14 +58,7 @@ local function Older(To: number | string, Amount: number): string
 	return Fingerprint.Of(Fingerprint.Canon({ To = tostring(To), Amount = Amount }))
 end
 
-local function LandedOn(
-	Format: Format,
-	Record: Record,
-	Tid: string,
-	Print: string?,
-	Before: string?,
-	From: (number | string)?
-): Entries.Recalled
+local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, Before: string?, From: (number | string)?): Entries.Recalled
 	local Held, Meant, Sender = Stamp.Written(Record, `{Escrow.DELIVER_ID}:{Tid}`)
 	if Held and Print ~= nil and Sender ~= nil and From ~= nil and tostring(Sender) ~= tostring(From) then
 		return Entries.OTHER
@@ -90,15 +80,7 @@ local function LandedOn(
 	return Recalled
 end
 
-local function Delivered(
-	Records: Log,
-	Format: Format,
-	To: number | string,
-	Tid: string,
-	Print: string?,
-	Before: string?,
-	From: (number | string)?
-): Entries.Recalled
+local function Delivered(Records: Log, Format: Format, To: number | string, Tid: string, Print: string?, Before: string?, From: (number | string)?): Entries.Recalled
 	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print, Before, From)
 end
 
@@ -117,9 +99,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 			return { Outcome = "Finished" }
 		end
 		if Already == Entries.OTHER then
-			warn(
-				`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`
-			)
+			warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
 			return { Outcome = "Stopped", Why = SPENT }
 		end
 	end
@@ -157,9 +137,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		Spend = Entries.Recall((State :: any)._Received, Entries.SENT, Tid, Before)
 	end
 	if Spend == Entries.OTHER then
-		warn(
-			`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`
-		)
+		warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
 		return { Outcome = "Stopped", Why = SPENT }
 	end
 	if Spend == Entries.SAME or Stamp.Carries(Record, `{Escrow.SETTLE_ID}:{Tid}`) then
@@ -248,9 +226,7 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 		return true, nil, nil
 	end
 
-	warn(
-		`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`
-	)
+	warn(`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`)
 	return false, Fault.Named(Why), true
 end
 
@@ -262,5 +238,5 @@ return table.freeze({
 	Drive = Drive,
 	Terms = Terms,
 	Older = Older,
-	LandedOn = LandedOn
+	LandedOn = LandedOn,
 })

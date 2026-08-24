@@ -3,11 +3,11 @@
 
 --[=[
 	Types: The declarations of the fake datastore.
-	
+
 	These are private to this folder. This file holds declarations, and never logic.
 	A service hands out stores, and each store spends from its service. Both shapes are therefore
 	named here, and not in either of those files.
-	
+
 	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, Store and Service.
 	Example usage:
 		local Types = require("./Types")
@@ -17,7 +17,7 @@
 export type Options = {
 	Players: number?,
 	CCU: number?,
-	Throttled: boolean?
+	Throttled: boolean?,
 }
 
 export type KeyInfo = {
@@ -25,42 +25,44 @@ export type KeyInfo = {
 	read CreatedTime: number,
 	read UpdatedTime: number,
 	read GetUserIds: (self: KeyInfo) -> { number },
-	read GetMetadata: (self: KeyInfo) -> { [string]: any }
+	read GetMetadata: (self: KeyInfo) -> { [string]: any },
 }
 
 export type Entry = {
 	Text: string?,
 	Written: number,
 	Deleted: boolean,
-	Label: string
+	Label: string,
 }
 
 export type Slot = {
 	Live: string?,
-	Entries: { Entry }
+	Entries: { Entry },
 }
 
 export type Transform = (Current: any, Info: KeyInfo?) -> ...any
 
 export type Allowance = {
 	read Base: number,
-	read PerPlayer: number
+	read PerPlayer: number,
 }
 
 export type Budget = {
 	read Server: Allowance,
-	read Experience: Allowance
+	read Experience: Allowance,
 }
 
 export type Lane = {
 	read Id: string,
-	read Cap: number
+	read Cap: number,
 }
 
 export type PagesImpl = {
 	__index: PagesImpl,
+	New: (Rows: { any }, PageSize: number?, Fallback: number, Field: string?, Spend: (() -> ())?) -> Pages,
+	Edge: (self: Pages) -> (),
 	GetCurrentPage: (self: Pages) -> { any },
-	AdvanceToNextPageAsync: (self: Pages) -> ()
+	AdvanceToNextPageAsync: (self: Pages) -> (),
 }
 
 export type Pages = setmetatable<{
@@ -70,25 +72,24 @@ export type Pages = setmetatable<{
 	Field: string?,
 	Spend: (() -> ())?,
 	Cursor: string,
-	IsFinished: boolean
+	IsFinished: boolean,
 }, PagesImpl>
 
 export type StoreImpl = {
 	__index: StoreImpl,
+	New: (Name: string, Scope: string, Service: Service) -> Store,
+	Reach: (self: Store, Kind: Enum.DataStoreRequestType) -> (),
+	Held: (self: Store, Key: string) -> Slot,
+	Commit: (self: Store, Key: string, Text: string?, Deleted: boolean) -> Entry,
+	Current: (self: Store, Key: string) -> (any, KeyInfo?),
+	Put: (self: Store, Key: string, Value: any) -> Entry,
 	GetAsync: (self: Store, Key: string) -> (any, KeyInfo?),
 	UpdateAsync: (self: Store, Key: string, Transform: Transform) -> (any, KeyInfo?),
 	SetAsync: (self: Store, Key: string, Value: any) -> string,
 	RemoveAsync: (self: Store, Key: string) -> (any, KeyInfo?),
 	GetVersionAsync: (self: Store, Key: string, Version: string) -> (any, KeyInfo?),
-	ListVersionsAsync: (
-		self: Store,
-		Key: string,
-		Direction: Enum.SortDirection?,
-		MinDate: number?,
-		MaxDate: number?,
-		PageSize: number?
-	) -> Pages,
-	ListKeysAsync: (self: Store, Prefix: string?, PageSize: number?, Cursor: string?, ExcludeDeleted: boolean?) -> Pages
+	ListVersionsAsync: (self: Store, Key: string, Direction: Enum.SortDirection?, MinDate: number?, MaxDate: number?, PageSize: number?) -> Pages,
+	ListKeysAsync: (self: Store, Prefix: string?, PageSize: number?, Cursor: string?, ExcludeDeleted: boolean?) -> Pages,
 }
 
 export type Store = setmetatable<{
@@ -96,16 +97,23 @@ export type Store = setmetatable<{
 	Scope: string,
 	Service: Service,
 	Slots: { [string]: Slot },
-	Ticket: number
+	Ticket: number,
 }, StoreImpl>
 
 export type ServiceImpl = {
 	__index: ServiceImpl,
+	New: (Options: Options?) -> Service,
+	ServerCap: (self: Service, Kind: Enum.DataStoreRequestType) -> number,
+	LanesFor: (self: Service, Kind: Enum.DataStoreRequestType) -> { Lane },
+	Refill: (self: Service, Id: string, Cap: number) -> number,
+	Ready: (self: Service, Lanes: { Lane }, Cost: number) -> boolean,
+	Take: (self: Service, Lanes: { Lane }, Cost: number) -> (),
+	Await: (self: Service, Lanes: { Lane }, Cost: number) -> (),
 	GetDataStore: (self: Service, Name: string, Scope: string?) -> Store,
 	GetRequestBudgetForRequestType: (self: Service, Kind: Enum.DataStoreRequestType) -> number,
 	Spend: (self: Service, Kind: Enum.DataStoreRequestType) -> (),
 	Carry: (self: Service, Way: string, Store: string, Key: string, Bytes: number) -> (),
-	Clear: (self: Service) -> ()
+	Clear: (self: Service) -> (),
 }
 
 export type Service = setmetatable<{
@@ -115,7 +123,7 @@ export type Service = setmetatable<{
 	Queued: number,
 	Players: number,
 	CCU: number,
-	Throttled: boolean
+	Throttled: boolean,
 }, ServiceImpl>
 
 return table.freeze({})

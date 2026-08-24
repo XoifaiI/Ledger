@@ -33,17 +33,21 @@ type Fixture = Suite.Fixture
 local Cases = Suite.File("Transactions")
 
 local function Swap(Shop: Fixture, A: string, B: string, Price: number, Id: string): (boolean, any)
-	return Shop.Store:Tx(Id, {
-		{ Key = A, Kind = "Delta", Fields = { Gold = Price, Drop = "Sword" } },
-		{ Key = B, Kind = "Delta", Fields = { Gold = -Price, Gain = "Sword" } }
-	}):Wait()
+	return Shop.Store
+		:Tx(Id, {
+			{ Key = A, Kind = "Delta", Fields = { Gold = Price, Drop = "Sword" } },
+			{ Key = B, Kind = "Delta", Fields = { Gold = -Price, Gain = "Sword" } },
+		})
+		:Wait()
 end
 
 local function Cross(Shop: Fixture, Vault: Fixture, A: string, B: string, Amount: number, Id: string): (boolean, any)
-	return Shop.Store:Tx(Id, {
-		{ Key = A, Kind = "Delta", Fields = { Gold = -Amount } },
-		{ Key = B, Kind = "Vault", Fields = { Coins = Amount }, Store = Vault.Store }
-	}):Wait()
+	return Shop.Store
+		:Tx(Id, {
+			{ Key = A, Kind = "Delta", Fields = { Gold = -Amount } },
+			{ Key = B, Kind = "Vault", Fields = { Coins = Amount }, Store = Vault.Store },
+		})
+		:Wait()
 end
 
 local function Wares(Shop: Fixture, Key: string, Gold: number, Sword: boolean)
@@ -68,7 +72,7 @@ local function Craft(Bank: Fixture, Key: string, Status: string, MarkerGen: stri
 		Gen = MarkerGen,
 		At = Born,
 		Adopted = {},
-		Keys = `{Bank.Data}\0{Key}`
+		Keys = `{Bank.Data}\0{Key}`,
 	})
 	Bank:Park(Key, {
 		Id = `tx:{Txid}:1`,
@@ -76,7 +80,7 @@ local function Craft(Bank: Fixture, Key: string, Status: string, MarkerGen: stri
 		Amount = 25,
 		Tx = Txid,
 		TxGen = LegGen,
-		TxAt = At
+		TxAt = At,
 	})
 	return Txid
 end
@@ -121,10 +125,12 @@ Cases.Case("a lost decision leaves prepared legs alone", function(T: Case)
 	Bank:Fault(Fault.Updates():OnKey("lostB"))
 	Bank:MarkerFault(Fault.Updates():After(1))
 
-	local Ok, Why = Bank.Store:Tx("lost1", {
-		{ Key = "lostA", Kind = "Give", Fields = { Amount = -50 } },
-		{ Key = "lostB", Kind = "Give", Fields = { Amount = 50 } }
-	}):Wait()
+	local Ok, Why = Bank.Store
+		:Tx("lost1", {
+			{ Key = "lostA", Kind = "Give", Fields = { Amount = -50 } },
+			{ Key = "lostB", Kind = "Give", Fields = { Amount = 50 } },
+		})
+		:Wait()
 
 	Bank:Healed()
 
@@ -204,22 +210,28 @@ Cases.Case("a done transaction is not called busy", function(T: Case)
 	Bank.Store:Edit("doneB", "Fund", { Amount = 100 }):Wait()
 	Bank.Store:Edit("doneC", "Fund", { Amount = 100 }):Wait()
 
-	local First = Bank.Store:Tx("done1", {
-		{ Key = "doneA", Kind = "Give", Fields = { Amount = -40 } },
-		{ Key = "doneB", Kind = "Give", Fields = { Amount = 40 } }
-	}):Wait()
+	local First = Bank.Store
+		:Tx("done1", {
+			{ Key = "doneA", Kind = "Give", Fields = { Amount = -40 } },
+			{ Key = "doneB", Kind = "Give", Fields = { Amount = 40 } },
+		})
+		:Wait()
 
 	Other:MarkerFault(Fault.Updates():After(1))
-	Other.Store:Tx("stuck1", {
-		{ Key = "doneA", Kind = "Give", Fields = { Amount = -1 } },
-		{ Key = "doneC", Kind = "Give", Fields = { Amount = 1 } }
-	}):Wait()
+	Other.Store
+		:Tx("stuck1", {
+			{ Key = "doneA", Kind = "Give", Fields = { Amount = -1 } },
+			{ Key = "doneC", Kind = "Give", Fields = { Amount = 1 } },
+		})
+		:Wait()
 	Other:Healed()
 
-	local Ok, Why = Bank.Store:Tx("done1", {
-		{ Key = "doneA", Kind = "Give", Fields = { Amount = -40 } },
-		{ Key = "doneB", Kind = "Give", Fields = { Amount = 40 } }
-	}):Wait()
+	local Ok, Why = Bank.Store
+		:Tx("done1", {
+			{ Key = "doneA", Kind = "Give", Fields = { Amount = -40 } },
+			{ Key = "doneB", Kind = "Give", Fields = { Amount = 40 } },
+		})
+		:Wait()
 
 	T:Is("the first attempt", First, true)
 	T:Is("a leg of another transaction is parked on the shared key", Bank:Pending("doneA"), true)
@@ -236,16 +248,20 @@ Cases.Case("a renamed amount never half applies", function(T: Case)
 	Bank.Store:Edit("termsB", "Fund", { Amount = 100 }):Wait()
 
 	Bank:MarkerFault(Fault.Updates():After(1))
-	Bank.Store:Tx("terms1", {
-		{ Key = "termsA", Kind = "Give", Fields = { Amount = -43 } },
-		{ Key = "termsB", Kind = "Give", Fields = { Amount = 43 } }
-	}):Wait()
+	Bank.Store
+		:Tx("terms1", {
+			{ Key = "termsA", Kind = "Give", Fields = { Amount = -43 } },
+			{ Key = "termsB", Kind = "Give", Fields = { Amount = 43 } },
+		})
+		:Wait()
 	Bank:Healed()
 
-	local Ok, Why = Bank.Store:Tx("terms1", {
-		{ Key = "termsA", Kind = "Give", Fields = { Amount = -23 } },
-		{ Key = "termsB", Kind = "Give", Fields = { Amount = 23 } }
-	}):Wait()
+	local Ok, Why = Bank.Store
+		:Tx("terms1", {
+			{ Key = "termsA", Kind = "Give", Fields = { Amount = -23 } },
+			{ Key = "termsB", Kind = "Give", Fields = { Amount = 23 } },
+		})
+		:Wait()
 
 	T:Advance(Tx.TIMEOUT + 1)
 	Bank.Store:Resettle("termsA"):Wait()
@@ -268,7 +284,7 @@ Cases.Case("markers behind a wall of unreapable ones are still reaped", function
 			Total = 2,
 			Gen = "one",
 			At = Born,
-			Adopted = {}
+			Adopted = {},
 		})
 	end
 	for Index = 1, 30 do
@@ -277,7 +293,7 @@ Cases.Case("markers behind a wall of unreapable ones are still reaped", function
 			Total = 0,
 			Gen = "one",
 			At = Born,
-			Adopted = {}
+			Adopted = {},
 		})
 	end
 
@@ -295,10 +311,12 @@ Cases.Case("a coordinator that dies between its legs is healed by the retry", fu
 	Bank:Seed("healB", { Gold = 100 })
 
 	Bank:Fault(Fault.Updates():After(3))
-	Bank.Store:Tx("heal1", {
-		{ Key = "healA", Kind = "Give", Fields = { Amount = -10 } },
-		{ Key = "healB", Kind = "Give", Fields = { Amount = 10 } }
-	}):Wait()
+	Bank.Store
+		:Tx("heal1", {
+			{ Key = "healA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "healB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait()
 	Bank:Healed()
 
 	local Stranded = Bank:Pending("healB")
@@ -306,10 +324,12 @@ Cases.Case("a coordinator that dies between its legs is healed by the retry", fu
 	T:Advance(Tx.REAP_HORIZON + 1)
 	local Reaped = Bank.Store:ReapMarkers()
 
-	local Ok = (Bank.Store:Tx("heal1", {
-		{ Key = "healA", Kind = "Give", Fields = { Amount = -10 } },
-		{ Key = "healB", Kind = "Give", Fields = { Amount = 10 } }
-	}):Wait())
+	local Ok = (Bank.Store
+		:Tx("heal1", {
+			{ Key = "healA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "healB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait())
 
 	T:Is("a leg is left parked by the crash", Stranded, true)
 	T:Is("the marker is not reaped while its own leg is parked", Reaped, 0)
@@ -325,22 +345,28 @@ Cases.Case("a name reused once its marker is gone is still spent", function(T: C
 	Bank.Store:Edit("goneA", "Fund", { Amount = 100 }):Wait()
 	Bank.Store:Edit("goneB", "Fund", { Amount = 100 }):Wait()
 
-	local First = (Bank.Store:Tx("gone1", {
-		{ Key = "goneA", Kind = "Give", Fields = { Amount = -10 } },
-		{ Key = "goneB", Kind = "Give", Fields = { Amount = 10 } }
-	}):Wait())
+	local First = (Bank.Store
+		:Tx("gone1", {
+			{ Key = "goneA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "goneB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait())
 
 	local Marker = Bank:Mark("gone1")
 
-	local Ok, Why = Bank.Store:Tx("gone1", {
-		{ Key = "goneA", Kind = "Give", Fields = { Amount = -50 } },
-		{ Key = "goneB", Kind = "Give", Fields = { Amount = 50 } }
-	}):Wait()
+	local Ok, Why = Bank.Store
+		:Tx("gone1", {
+			{ Key = "goneA", Kind = "Give", Fields = { Amount = -50 } },
+			{ Key = "goneB", Kind = "Give", Fields = { Amount = 50 } },
+		})
+		:Wait()
 
-	local Honest = (Bank.Store:Tx("gone1", {
-		{ Key = "goneA", Kind = "Give", Fields = { Amount = -10 } },
-		{ Key = "goneB", Kind = "Give", Fields = { Amount = 10 } }
-	}):Wait())
+	local Honest = (Bank.Store
+		:Tx("gone1", {
+			{ Key = "goneA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "goneB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait())
 
 	T:Is("the first transaction", First, true)
 	T:Is("the marker every leg already adopted", type(Marker) == "table", false)
@@ -358,23 +384,29 @@ Cases.Case("a name reused once its leg is compacted is still spent", function(T:
 	Bank.Store:Edit("packA", "Fund", { Amount = 100 }):Wait()
 	Bank.Store:Edit("packB", "Fund", { Amount = 100 }):Wait()
 
-	Bank.Store:Tx("pack1", {
-		{ Key = "packA", Kind = "Give", Fields = { Amount = -10 } },
-		{ Key = "packB", Kind = "Give", Fields = { Amount = 10 } }
-	}):Wait()
+	Bank.Store
+		:Tx("pack1", {
+			{ Key = "packA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "packB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait()
 
 	Bank:Log():Compact("packA", Bank:Format())
 	Bank:Log():Compact("packB", Bank:Format())
 
-	local Ok, Why = Bank.Store:Tx("pack1", {
-		{ Key = "packA", Kind = "Give", Fields = { Amount = -50 } },
-		{ Key = "packB", Kind = "Give", Fields = { Amount = 50 } }
-	}):Wait()
+	local Ok, Why = Bank.Store
+		:Tx("pack1", {
+			{ Key = "packA", Kind = "Give", Fields = { Amount = -50 } },
+			{ Key = "packB", Kind = "Give", Fields = { Amount = 50 } },
+		})
+		:Wait()
 
-	local Honest = (Bank.Store:Tx("pack1", {
-		{ Key = "packA", Kind = "Give", Fields = { Amount = -10 } },
-		{ Key = "packB", Kind = "Give", Fields = { Amount = 10 } }
-	}):Wait())
+	local Honest = (Bank.Store
+		:Tx("pack1", {
+			{ Key = "packA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "packB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait())
 
 	T:Is("the same name for a different amount", Ok, false)
 	T:Is("the reason", Why, "Spent")
@@ -976,10 +1008,12 @@ Cases.Case("a committer whose marker was aborted pulls its legs back", function(
 		end)
 	end))
 
-	local Ok, Why = Bank.Store:Tx("race1", {
-		{ Key = "raceA", Kind = "Give", Fields = { Amount = -25 } },
-		{ Key = "raceB", Kind = "Give", Fields = { Amount = 25 } }
-	}):Wait()
+	local Ok, Why = Bank.Store
+		:Tx("race1", {
+			{ Key = "raceA", Kind = "Give", Fields = { Amount = -25 } },
+			{ Key = "raceB", Kind = "Give", Fields = { Amount = 25 } },
+		})
+		:Wait()
 
 	Bank:Healed()
 	Bank.Store:Resettle("raceA"):Wait()
@@ -1020,7 +1054,7 @@ Cases.Case("a leg prepared again after an abort is still rolled back", function(
 		Gold = 25,
 		Drop = "Sword",
 		Tx = Txid,
-		TxHome = Shop.Marked
+		TxHome = Shop.Marked,
 	}
 	local Verdict = Shop:Log():Prepare("againA", Again, Shop:Format())
 	Shop.Store:Resettle("againA"):Wait()
@@ -1038,17 +1072,21 @@ Cases.Case("a three legged transaction moves all or nothing", function(T: Case)
 	First:Seed("triB", { Coins = 0 })
 	Second:Seed("triC", { Coins = 0 })
 
-	local Committed = Shop.Store:Tx("tri1", {
-		{ Key = "triA", Kind = "Delta", Fields = { Gold = -30 } },
-		{ Key = "triB", Kind = "Vault", Fields = { Coins = 20 }, Store = First.Store },
-		{ Key = "triC", Kind = "Vault", Fields = { Coins = 10 }, Store = Second.Store }
-	}):Wait()
+	local Committed = Shop.Store
+		:Tx("tri1", {
+			{ Key = "triA", Kind = "Delta", Fields = { Gold = -30 } },
+			{ Key = "triB", Kind = "Vault", Fields = { Coins = 20 }, Store = First.Store },
+			{ Key = "triC", Kind = "Vault", Fields = { Coins = 10 }, Store = Second.Store },
+		})
+		:Wait()
 
-	local Aborted, Why = Shop.Store:Tx("tri2", {
-		{ Key = "triA", Kind = "Delta", Fields = { Gold = -10 } },
-		{ Key = "triB", Kind = "Vault", Fields = { Coins = 5 }, Store = First.Store },
-		{ Key = "triC", Kind = "Vault", Fields = { Coins = -100 }, Store = Second.Store }
-	}):Wait()
+	local Aborted, Why = Shop.Store
+		:Tx("tri2", {
+			{ Key = "triA", Kind = "Delta", Fields = { Gold = -10 } },
+			{ Key = "triB", Kind = "Vault", Fields = { Coins = 5 }, Store = First.Store },
+			{ Key = "triC", Kind = "Vault", Fields = { Coins = -100 }, Store = Second.Store },
+		})
+		:Wait()
 
 	T:Is("a three legged transaction every store can honour", Committed, true)
 	T:Is("a three legged transaction the last store refuses", Aborted, false)
@@ -1148,7 +1186,7 @@ Cases.Case("a leg reads the stored record and not what a session is holding", fu
 
 	local Legs = {
 		{ Key = "held", Kind = "Give", Fields = { Amount = -100 } },
-		{ Key = "other", Kind = "Fund", Fields = { Amount = 100 } }
+		{ Key = "other", Kind = "Fund", Fields = { Amount = 100 } },
 	}
 	local Early, EarlyWhy = Bank.Store:Tx("unflushed", Legs):Wait()
 
@@ -1176,10 +1214,12 @@ Cases.Case("a session sees a committed leg once it flushes and not before", func
 		Heard += 1
 	end)
 
-	local Sent = Bank.Store:Tx("paid", {
-		{ Key = "held", Kind = "Fund", Fields = { Amount = 25 } },
-		{ Key = "other", Kind = "Give", Fields = { Amount = -25 } }
-	}):Wait()
+	local Sent = Bank.Store
+		:Tx("paid", {
+			{ Key = "held", Kind = "Fund", Fields = { Amount = 25 } },
+			{ Key = "other", Kind = "Give", Fields = { Amount = -25 } },
+		})
+		:Wait()
 
 	T:Is("the transaction", Sent, true)
 	T:Is("gold the record carries straight after", Bank:Amount("held"), 25)
@@ -1199,10 +1239,12 @@ Cases.Case("a transaction that leaves a leg parked follows that key", function(T
 
 	Bank:Fault(Fault.Updates():OnKey("b"))
 	Bank:MarkerFault(Fault.Updates():After(1))
-	local Sent, Why = Bank.Store:Tx("stranded", {
-		{ Key = "a", Kind = "Give", Fields = { Amount = -50 } },
-		{ Key = "b", Kind = "Give", Fields = { Amount = 50 } }
-	}):Wait()
+	local Sent, Why = Bank.Store
+		:Tx("stranded", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -50 } },
+			{ Key = "b", Kind = "Give", Fields = { Amount = 50 } },
+		})
+		:Wait()
 	Bank:Healed()
 
 	T:Is("the transaction", Sent, false)
@@ -1226,10 +1268,12 @@ Cases.Case("a transaction that committed but could not resolve a leg follows tha
 
 	Bank:NoRetries()
 	Bank:Fault(Fault.Updates():OnKey("l"):After(1))
-	local Sent = Bank.Store:Tx("halfdone", {
-		{ Key = "k", Kind = "Give", Fields = { Amount = -50 } },
-		{ Key = "l", Kind = "Fund", Fields = { Amount = 50 } }
-	}):Wait()
+	local Sent = Bank.Store
+		:Tx("halfdone", {
+			{ Key = "k", Kind = "Give", Fields = { Amount = -50 } },
+			{ Key = "l", Kind = "Fund", Fields = { Amount = 50 } },
+		})
+		:Wait()
 	Bank:Healed()
 
 	T:Is("the transaction", Sent, true)
@@ -1248,18 +1292,22 @@ Cases.Case("a transaction that parked nothing follows no keys", function(T: Case
 	Bank:Seed("i", { Gold = 500, Touches = 0 })
 	Bank:Seed("j", { Gold = 0, Touches = 0 })
 
-	local Committed = Bank.Store:Tx("fine", {
-		{ Key = "i", Kind = "Give", Fields = { Amount = -50 } },
-		{ Key = "j", Kind = "Fund", Fields = { Amount = 50 } }
-	}):Wait()
+	local Committed = Bank.Store
+		:Tx("fine", {
+			{ Key = "i", Kind = "Give", Fields = { Amount = -50 } },
+			{ Key = "j", Kind = "Fund", Fields = { Amount = 50 } },
+		})
+		:Wait()
 
 	T:Is("a transaction that committed cleanly", Committed, true)
 	T:Is("keys it left the sweep following", Registry.Sweep.Count, 0)
 
-	local Refused, Why = Bank.Store:Tx("rolled", {
-		{ Key = "i", Kind = "Give", Fields = { Amount = -50 } },
-		{ Key = "j", Kind = "Give", Fields = { Amount = -100000 } }
-	}):Wait()
+	local Refused, Why = Bank.Store
+		:Tx("rolled", {
+			{ Key = "i", Kind = "Give", Fields = { Amount = -50 } },
+			{ Key = "j", Kind = "Give", Fields = { Amount = -100000 } },
+		})
+		:Wait()
 
 	T:Is("a transaction rolled back after its first leg prepared", Refused, false)
 	T:Is("the reason", Why, "Refused")
@@ -1365,10 +1413,12 @@ Cases.Case("a marker naming a delimiter key is still reaped", function(T: Case)
 	Bank:Seed(B, { Gold = 100 })
 
 	Bank:MarkerFault(Fault.Removes())
-	local Ok = Bank.Store:Tx("delim1", {
-		{ Key = A, Kind = "Give", Fields = { Amount = -25 } },
-		{ Key = B, Kind = "Give", Fields = { Amount = 25 } }
-	}):Wait()
+	local Ok = Bank.Store
+		:Tx("delim1", {
+			{ Key = A, Kind = "Give", Fields = { Amount = -25 } },
+			{ Key = B, Kind = "Give", Fields = { Amount = 25 } },
+		})
+		:Wait()
 	Bank:Healed()
 
 	local Left = Bank:Mark("delim1")
@@ -1393,7 +1443,7 @@ Cases.Case("a marker with unprefixed keys is still reaped", function(T: Case)
 		Gen = "one",
 		At = T:Now(),
 		Adopted = {},
-		Keys = `{Bank.Data}\0unprefixed`
+		Keys = `{Bank.Data}\0unprefixed`,
 	})
 
 	T:Advance(Tx.REAP_HORIZON + 1)
@@ -1431,10 +1481,12 @@ Cases.Case("a key held by another coordinator is busy", function(T: Case)
 	Shop:Marker("held1", { Status = "Pending", Total = 2, Adopted = {} })
 	Shop:Park("coordA", { Id = "tx:held1:1", Kind = "Delta", Gold = 5, Tx = "held1" })
 
-	local Ok, Why = Vault.Store:Tx("coord1", {
-		{ Key = "coordB", Kind = "Vault", Fields = { Coins = -10 } },
-		{ Key = "coordA", Kind = "Delta", Fields = { Gold = 10 }, Store = Shop.Store }
-	}):Wait()
+	local Ok, Why = Vault.Store
+		:Tx("coord1", {
+			{ Key = "coordB", Kind = "Vault", Fields = { Coins = -10 } },
+			{ Key = "coordA", Kind = "Delta", Fields = { Gold = 10 }, Store = Shop.Store },
+		})
+		:Wait()
 	local Stuck = Shop:Pending("coordA")
 
 	T:Advance(Tx.TIMEOUT + 1)
@@ -1454,17 +1506,19 @@ Cases.Case("a marker naming a store this server never built is still reaped", fu
 	Wares(Shop, "farA", 100, false)
 	Vault:Seed("farB", { Coins = 0 })
 
-	local Ok = Shop.Store:Tx("far1", {
-		{ Key = "farA", Kind = "Delta", Fields = { Gold = -25 } },
-		{ Key = "farB", Kind = "Vault", Fields = { Coins = 25 }, Store = Vault.Store }
-	}):Wait()
+	local Ok = Shop.Store
+		:Tx("far1", {
+			{ Key = "farA", Kind = "Delta", Fields = { Gold = -25 } },
+			{ Key = "farB", Kind = "Vault", Fields = { Coins = 25 }, Store = Vault.Store },
+		})
+		:Wait()
 
 	Shop:Marker("farstale", {
 		Status = "Committed",
 		Total = 2,
 		Gen = "farg",
 		At = T:Now(),
-		Keys = Mark.Pack({ Mark.Of(Shop.Data, "farA"), Mark.Of(Vault.Data, "farB") })
+		Keys = Mark.Pack({ Mark.Of(Shop.Data, "farA"), Mark.Of(Vault.Data, "farB") }),
 	})
 	T:Advance(Tx.REAP_HORIZON + 60)
 

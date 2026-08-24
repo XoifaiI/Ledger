@@ -23,28 +23,30 @@ export type Facts = {
 	Shutting: boolean,
 	Aged: boolean,
 	Fat: boolean,
-	Junk: boolean
+	Junk: boolean,
 }
 
 export type Broken = {
 	read Named: string,
 	read Why: string,
 	read Allowed: { string },
-	read Says: string
+	read Says: string,
 }
 
 type AuditorImpl = {
 	__index: AuditorImpl,
 
+	New: () -> Auditor,
+
 	Permit: (self: Auditor, Named: string, Facts: Facts) -> { [string]: boolean },
 	Observe: (self: Auditor, Named: string, Facts: Facts, Ok: boolean, Why: string?) -> Broken?,
-	Report: (self: Auditor) -> string
+	Report: (self: Auditor) -> string,
 }
 
 export type Auditor = setmetatable<{
 	Seen: number,
 	Checked: number,
-	Broken: { Broken }
+	Broken: { Broken },
 }, AuditorImpl>
 
 local OK = "Ok"
@@ -55,7 +57,7 @@ local SESSIONS: { [string]: boolean } = {
 	CommitOp = true,
 	Flush = true,
 	SessionCompact = true,
-	SessionRelease = true
+	SessionRelease = true,
 }
 
 local NEEDS: { [string]: (Facts: Facts, Named: string) -> boolean } = {
@@ -79,7 +81,7 @@ local NEEDS: { [string]: (Facts: Facts, Named: string) -> boolean } = {
 	end,
 	Invalid = function(Facts: Facts, _: string): boolean
 		return Facts.Junk
-	end
+	end,
 }
 
 local SAYS: { [string]: string } = {
@@ -89,13 +91,13 @@ local SAYS: { [string]: string } = {
 	Busy = "only one worker was on this store, so nothing else could have parked a leg",
 	Full = "nothing on this store was anywhere near the byte caps",
 	Backlog = "nothing on this store was anywhere near the byte caps",
-	Invalid = "this op carried nothing a datastore cannot hold"
+	Invalid = "this op carried nothing a datastore cannot hold",
 }
 
 local Auditor = {} :: AuditorImpl
 Auditor.__index = Auditor
 
-local function New(): Auditor
+function Auditor.New(): Auditor
 	return setmetatable({ Seen = 0, Checked = 0, Broken = {} }, Auditor) :: any
 end
 
@@ -141,7 +143,7 @@ function Auditor.Observe(self: Auditor, Named: string, Facts: Facts, Ok: boolean
 		Named = Named,
 		Why = Answer,
 		Allowed = Listed,
-		Says = SAYS[Answer] or "the catalogue does not list that as something this call can answer"
+		Says = SAYS[Answer] or "the catalogue does not list that as something this call can answer",
 	}
 	table.insert(self.Broken, Held)
 	return Held
@@ -154,6 +156,6 @@ end
 table.freeze(Auditor)
 
 return table.freeze({
-	New = New,
-	NEEDS = NEEDS
+	New = Auditor.New,
+	NEEDS = NEEDS,
 })

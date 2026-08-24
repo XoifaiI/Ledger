@@ -3,11 +3,11 @@
 
 --[=[
 	Stamp: The transaction stamp on an op, and what a record says about it.
-	
+
 	Each fold skips an op that has a stamp. These questions therefore tell you whether a key waits
 	for something.
 	Carries looks in Ops and in Seen, because a compaction moves an id from one to the other.
-	
+
 	Return type: A table with Unstamped, Landed, HasPending, NotPending, PendingTx, Holds, Carries and Written.
 	Example usage:
 		local Stamp = require("./Stamp")
@@ -95,5 +95,5 @@ return table.freeze({
 	PendingTx = PendingTx,
 	Holds = Holds,
 	Carries = Carries,
-	Written = Written
+	Written = Written,
 })

@@ -3,14 +3,14 @@
 
 --[=[
 	Compact: Folds the ops on a key into a new snapshot.
-	
+
 	A large profile costs a lot to write again, so it waits until the log is a share of it.
 	A small profile is cheap, so it folds on a count.
 	Only the ops at the front that this build can apply are absorbed. The first op that this build
 	cannot apply stops the walk, and each op after it stays for a build that can apply it.
 	An op that the reducer refuses is held back and not dropped, even when this build knows its kind.
 	A later build may read it another way, and to absorb it would answer for that build.
-	
+
 	Return type: A table with Packed, Worthwhile, Oversized, Overgrown, Bulk, Hint and SEEN_LIMIT.
 	Example usage:
 		local Compact = require("./Compact")
@@ -138,7 +138,9 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 
 	local Storable, Where = IsStorable.Structure(Snapshot)
 	if not Storable then
-		warn(`Ledger: key '{Key}' cannot be compacted, your reducer built state a datastore cannot hold, {Where}. the log is left alone rather than lose that field. no gaps in arrays, no mixing array and string keys, no nan`)
+		warn(
+			`Ledger: key '{Key}' cannot be compacted, your reducer built state a datastore cannot hold, {Where}. the log is left alone rather than lose that field. no gaps in arrays, no mixing array and string keys, no nan`
+		)
 		return nil
 	end
 
@@ -170,7 +172,7 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 		Seen = Seen,
 		Erased = Record.Erased,
 		Version = if Ahead then Stored else #Steps,
-		Floor = if Ahead then Record.Floor or Stored else Shape.FloorOf(Steps)
+		Floor = if Ahead then Record.Floor or Stored else Shape.FloorOf(Steps),
 	}
 
 	Fault.Holds((Fresh.Version :: number) >= Stored, `compacting '{Key}' moved it to an older version, so an older server could overwrite it`)
@@ -195,5 +197,5 @@ return table.freeze({
 	Overgrown = Overgrown,
 	Bulk = Bulk,
 	Hint = Hint,
-	SEEN_LIMIT = SEEN_LIMIT
+	SEEN_LIMIT = SEEN_LIMIT,
 })

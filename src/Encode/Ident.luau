@@ -3,10 +3,10 @@
 
 --[=[
 	Ident: Makes an op id from this server and a count.
-	
+
 	The half of the id that repeats on each op costs almost nothing after the record is compressed.
 	Restart pins the server name, which a test uses to get the same ids two times.
-	
+
 	Return type: A table with Fresh, Home, Restart and NODE_CHARS.
 	Example usage:
 		local Ident = require("./Ident")
@@ -49,5 +49,5 @@ return table.freeze({
 	Fresh = Fresh,
 	Home = Home,
 	Restart = Restart,
-	NODE_CHARS = NODE_CHARS
+	NODE_CHARS = NODE_CHARS,
 })

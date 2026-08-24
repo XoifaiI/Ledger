@@ -37,7 +37,7 @@ local Cases = Suite.File("Escrow")
 
 local function Deliver(Bank: Fixture, To: string, Tid: string, Amount: number, At: number, Mark: string?)
 	Bank:Append(To, {
-		{ Id = Mark or `del:{Tid}`, Kind = "__TransferDeliver", Tid = Tid, Amount = Amount, At = At } :: any
+		{ Id = Mark or `del:{Tid}`, Kind = "__TransferDeliver", Tid = Tid, Amount = Amount, At = At } :: any,
 	})
 end
 
@@ -99,7 +99,7 @@ Cases.Case("a hold with no timestamp is given back rather than written off", fun
 	local Bank = Funded(T, { stampA = 100, stampB = 0 })
 
 	Bank:Append("stampA", {
-		{ Id = "res:noat", Kind = "__TransferReserve", To = "stampB", Amount = 40, Tid = "noat" } :: any
+		{ Id = "res:noat", Kind = "__TransferReserve", To = "stampB", Amount = 40, Tid = "noat" } :: any,
 	})
 
 	T:Is("the amount set aside before recovery", Bank:Aside("stampA"), 40)
@@ -178,7 +178,7 @@ Cases.Case("the record an append hands back sees the hold", function(T: Case)
 	local Tid = "race1"
 
 	local Handed = Bank:Log():Append("raceA", {
-		{ Id = `res:{Tid}`, Kind = "__TransferReserve", To = "raceB", Amount = 30, Tid = Tid, At = T:Now() } :: any
+		{ Id = `res:{Tid}`, Kind = "__TransferReserve", To = "raceB", Amount = 30, Tid = Tid, At = T:Now() } :: any,
 	})
 	Deliver(Bank, "raceB", Tid, 30, T:Now())
 	Bank:Append("raceA", { { Id = `set:{Tid}`, Kind = "__TransferSettle", Tid = Tid } :: any })
@@ -478,7 +478,7 @@ Cases.Case("a retry after both sides forget moves nothing twice", function(T: Ca
 	local Bank = Funded(T, { bothA = 100, bothB = 0 })
 
 	Bank:Append("bothA", {
-		{ Id = "res:both1", Kind = "__TransferReserve", To = "bothB", Amount = 40, Tid = "both1", At = T:Now() } :: any
+		{ Id = "res:both1", Kind = "__TransferReserve", To = "bothB", Amount = 40, Tid = "both1", At = T:Now() } :: any,
 	})
 	Deliver(Bank, "bothB", "both1", 40, T:Now())
 	Bank:Append("bothA", { { Id = "set:both1", Kind = "__TransferSettle", Tid = "both1" } :: any })
@@ -547,11 +547,7 @@ Cases.Case("a retry honours the receiver already set aside", function(T: Case)
 
 	T:Is("gold to the escrowed receiver", Bank:Amount("whoB"), 40)
 	T:Is("gold to the receiver named on the retry", Bank:Amount("whoC"), 0)
-	T:Is(
-		"money is conserved",
-		Bank:Amount("whoA") + Bank:Amount("whoB") + Bank:Amount("whoC") + Bank:Aside("whoA"),
-		100
-	)
+	T:Is("money is conserved", Bank:Amount("whoA") + Bank:Amount("whoB") + Bank:Amount("whoC") + Bank:Aside("whoA"), 100)
 end)
 
 Cases.Case("a transfer that took the money but could not hand it over is recovered", function(T: Case)
@@ -586,15 +582,15 @@ Cases.Case("recovery says whether it cleared", function(T: Case)
 		To = "sayB",
 		Amount = 5,
 		Tid = "sayok",
-		At = T:Now()
+		At = T:Now(),
 	} :: any })
 	local One = Transfer.Recover(Bank:Log(), Bank:Format(), "sayA", {
-		["sayok"] = { To = "sayB", Amount = 5, At = T:Now() }
+		["sayok"] = { To = "sayB", Amount = 5, At = T:Now() },
 	})
 
 	Bank:Fault(Fault.Updates())
 	local Failed = Transfer.Recover(Bank:Log(), Bank:Format(), "sayA", {
-		["saybad"] = { To = "sayC", Amount = 5, At = T:Now() }
+		["saybad"] = { To = "sayC", Amount = 5, At = T:Now() },
 	})
 	Bank:Healed()
 
@@ -652,7 +648,7 @@ Cases.Case("a replayed reserve does not charge twice", function(T: Case)
 	local Bank = Funded(T, { replayA = 100, replayB = 0 })
 
 	Bank:Append("replayA", {
-		{ Id = "res:replay1", Kind = "__TransferReserve", To = "replayB", Amount = 40, Tid = "replay1", At = T:Now() } :: any
+		{ Id = "res:replay1", Kind = "__TransferReserve", To = "replayB", Amount = 40, Tid = "replay1", At = T:Now() } :: any,
 	})
 
 	T:Is("gold left to the sender after the reserve", Bank:Amount("replayA"), 60)
@@ -693,10 +689,12 @@ Cases.Case("a transfer and a transaction can share a name", function(T: Case)
 	local Bank = Funded(T, { sharedA = 100, sharedB = 0 })
 
 	local Moved, MovedWhy = Bank.Store:Transfer("sharedA", "sharedB", 40, "shared1"):Wait()
-	local Committed, CommittedWhy = Bank.Store:Tx("shared1", {
-		{ Key = "sharedB", Kind = "Fund", Fields = { Amount = 5 } },
-		{ Key = "sharedA", Kind = "Fund", Fields = { Amount = 5 } }
-	}):Wait()
+	local Committed, CommittedWhy = Bank.Store
+		:Tx("shared1", {
+			{ Key = "sharedB", Kind = "Fund", Fields = { Amount = 5 } },
+			{ Key = "sharedA", Kind = "Fund", Fields = { Amount = 5 } },
+		})
+		:Wait()
 
 	local Sb = Bank:State("sharedB")
 
@@ -921,11 +919,7 @@ Cases.Case("a write from another server cannot cancel a tomb", function(T: Case)
 	T:Is("money sent to the erased key", Sent, false)
 	T:Is("the reason it was turned away", Why, "Held")
 	T:Is("nothing landed on the erased key", Bank:Amount("tombdead"), 0)
-	T:Is(
-		"money is conserved",
-		Bank:Amount("tombpayer") + Bank:Aside("tombpayer") + Bank:Amount("tombdead"),
-		100
-	)
+	T:Is("money is conserved", Bank:Amount("tombpayer") + Bank:Aside("tombpayer") + Bank:Amount("tombdead"), 100)
 end)
 
 Cases.Case("compacting an erased key carries its tomb forward", function(T: Case)
@@ -967,12 +961,7 @@ Cases.Case("two senders sharing a transfer name cannot destroy either amount", f
 	pcall(Transfer.Post, Bank:Log(), Bank:Format(), "shareA", "order", "shareC", 100)
 	pcall(Transfer.Post, Bank:Log(), Bank:Format(), "shareB", "order", "shareC", 250)
 
-	local Total = Bank:Amount("shareA")
-		+ Bank:Amount("shareB")
-		+ Bank:Amount("shareC")
-		+ Bank:Aside("shareA")
-		+ Bank:Aside("shareB")
-		+ Bank:Aside("shareC")
+	local Total = Bank:Amount("shareA") + Bank:Amount("shareB") + Bank:Amount("shareC") + Bank:Aside("shareA") + Bank:Aside("shareB") + Bank:Aside("shareC")
 
 	T:Is("money is conserved across both senders", Total, 2000)
 	T:Is("the second sender keeps what the first did not deliver", Bank:Amount("shareB") + Bank:Aside("shareB"), 1000)
@@ -988,12 +977,7 @@ Cases.Case("two senders sharing a transfer name survive the receiver compacting"
 	Bank:Log():Compact("packC", Bank:Format())
 	pcall(Transfer.Post, Bank:Log(), Bank:Format(), "packB", "order", "packC", 250)
 
-	local Total = Bank:Amount("packA")
-		+ Bank:Amount("packB")
-		+ Bank:Amount("packC")
-		+ Bank:Aside("packA")
-		+ Bank:Aside("packB")
-		+ Bank:Aside("packC")
+	local Total = Bank:Amount("packA") + Bank:Amount("packB") + Bank:Amount("packC") + Bank:Aside("packA") + Bank:Aside("packB") + Bank:Aside("packC")
 
 	T:Is("money is conserved through the compaction", Total, 2000)
 	T:Is("the second sender keeps what never arrived", Bank:Amount("packB") + Bank:Aside("packB"), 1000)
@@ -1022,20 +1006,15 @@ Cases.Case("a delivery named before senders counted cannot settle another hold",
 	local Now = T:Now()
 	local Was = Transfer.Older("oldC", 300)
 	Bank:Append("oldC", {
-		{ Id = "del:order", Kind = "__TransferDeliver", From = "oldA", Amount = 300, Tid = "order", At = Now, Print = Was } :: any
+		{ Id = "del:order", Kind = "__TransferDeliver", From = "oldA", Amount = 300, Tid = "order", At = Now, Print = Was } :: any,
 	})
 	Bank:Append("oldA", {
-		{ Id = "set:order", Kind = "__TransferSettle", Tid = "order", At = Now, Print = Was } :: any
+		{ Id = "set:order", Kind = "__TransferSettle", Tid = "order", At = Now, Print = Was } :: any,
 	})
 
 	pcall(Transfer.Post, Bank:Log(), Bank:Format(), "oldB", "order", "oldC", 300)
 
-	local Total = Bank:Amount("oldA")
-		+ Bank:Amount("oldB")
-		+ Bank:Amount("oldC")
-		+ Bank:Aside("oldA")
-		+ Bank:Aside("oldB")
-		+ Bank:Aside("oldC")
+	local Total = Bank:Amount("oldA") + Bank:Amount("oldB") + Bank:Amount("oldC") + Bank:Aside("oldA") + Bank:Aside("oldB") + Bank:Aside("oldC")
 
 	T:Is("money is conserved across the older name", Total, 2000)
 	T:Is("the sender whose money never arrived", Bank:Amount("oldB") + Bank:Aside("oldB"), 1000)
@@ -1048,7 +1027,7 @@ Cases.Case("a sender's own delivery named before senders counted still settles",
 
 	local Was = Transfer.Older("ownC", 300)
 	Bank:Append("ownC", {
-		{ Id = "del:order", Kind = "__TransferDeliver", From = "ownA", Amount = 300, Tid = "order", At = T:Now(), Print = Was } :: any
+		{ Id = "del:order", Kind = "__TransferDeliver", From = "ownA", Amount = 300, Tid = "order", At = T:Now(), Print = Was } :: any,
 	})
 
 	local Sent = pcall(Transfer.Post, Bank:Log(), Bank:Format(), "ownA", "order", "ownC", 300)
@@ -1063,7 +1042,7 @@ Cases.Case("an older compacted delivery still finishes its own sender's retry", 
 
 	local Was = Transfer.Older("ageC", 300)
 	Bank:Append("ageC", {
-		{ Id = "del:order", Kind = "__TransferDeliver", From = "ageA", Amount = 300, Tid = "order", At = T:Now(), Print = Was } :: any
+		{ Id = "del:order", Kind = "__TransferDeliver", From = "ageA", Amount = 300, Tid = "order", At = T:Now(), Print = Was } :: any,
 	})
 	Bank:Log():Compact("ageC", Bank:Format())
 
@@ -1085,12 +1064,7 @@ Cases.Case("recovery cannot settle a hold against a compacted delivery", functio
 	T:Advance(PAST_REDRIVE)
 	Recovery.Transfers(Bank:Log(), Bank:Format(), "packRA", Bank:Stored("packRA")._Held)
 
-	local Total = Bank:Amount("packRA")
-		+ Bank:Amount("packRB")
-		+ Bank:Amount("packRC")
-		+ Bank:Aside("packRA")
-		+ Bank:Aside("packRB")
-		+ Bank:Aside("packRC")
+	local Total = Bank:Amount("packRA") + Bank:Amount("packRB") + Bank:Amount("packRC") + Bank:Aside("packRA") + Bank:Aside("packRB") + Bank:Aside("packRC")
 
 	T:Is("money is conserved through the compaction", Total, 2000)
 	T:Is("the sender whose money never arrived keeps it", Bank:Amount("packRA") + Bank:Aside("packRA"), 1000)
@@ -1106,12 +1080,7 @@ Cases.Case("recovery cannot settle a hold against another sender's delivery", fu
 	T:Advance(PAST_REDRIVE)
 	Recovery.Transfers(Bank:Log(), Bank:Format(), "raceA", Bank:Stored("raceA")._Held)
 
-	local Total = Bank:Amount("raceA")
-		+ Bank:Amount("raceB")
-		+ Bank:Amount("raceC")
-		+ Bank:Aside("raceA")
-		+ Bank:Aside("raceB")
-		+ Bank:Aside("raceC")
+	local Total = Bank:Amount("raceA") + Bank:Amount("raceB") + Bank:Amount("raceC") + Bank:Aside("raceA") + Bank:Aside("raceB") + Bank:Aside("raceC")
 
 	T:Is("money is conserved once recovery has run", Total, 2000)
 	T:Is("the sender whose money never arrived gets it back", Bank:Amount("raceA") + Bank:Aside("raceA"), 1000)

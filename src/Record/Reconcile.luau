@@ -3,9 +3,9 @@
 
 --[=[
 	Reconcile: Adds each default key that the stored data does not have.
-	
+
 	A stored value always wins. A player who comes back therefore keeps what they had.
-	
+
 	Return type: A function that gives back the stored table.
 	Example usage:
 		local Reconcile = require("./Reconcile")

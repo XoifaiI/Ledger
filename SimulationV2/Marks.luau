@@ -21,7 +21,7 @@ export type Marks = typeof(setmetatable(
 	{} :: {
 		Counts: { [string]: number },
 		Order: { string },
-		Unknown: number
+		Unknown: number,
 	},
 	Marks
 ))
@@ -116,10 +116,10 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "WriteUnsure", Says = "though it might still have gone through" },
 	{ Name = "ClockUnits", Says = "the clock you gave reads" },
 
-	{ Name = "CouldNot", Says = "could not " }
+	{ Name = "CouldNot", Says = "could not " },
 }
 
-local function New(): Marks
+function Marks.New(): Marks
 	local Counts: { [string]: number } = {}
 	local Order: { string } = {}
 	for _, Held in FRAGMENTS do
@@ -180,6 +180,6 @@ end
 table.freeze(Marks)
 
 return table.freeze({
-	New = New,
-	FRAGMENTS = FRAGMENTS
+	New = Marks.New,
+	FRAGMENTS = FRAGMENTS,
 })

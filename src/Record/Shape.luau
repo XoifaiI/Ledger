@@ -3,12 +3,12 @@
 
 --[=[
 	Shape: Turns a stored record into the state that a game reads.
-	
+
 	The migrations run first. The defaults are put in second. The ops fold on top of the snapshot last.
 	Certain tells you whether a parked transaction can still change the answer.
 	Detached copies the snapshot, so a reducer that writes to what it gets cannot reach the
 	stored record.
-	
+
 	Return type: A table with New, FloorOf, Migrate and Detached.
 	Example usage:
 		local Shape = require("./Shape")
@@ -61,7 +61,7 @@ local function Detached(Record: Record): Record
 		Ops = Record.Ops,
 		Seen = Record.Seen,
 		Version = Record.Version,
-		Floor = Record.Floor
+		Floor = Record.Floor,
 	}
 end
 
@@ -85,7 +85,8 @@ end
 
 local Shape = {} :: Types.ShapeImpl<any>
 Shape.__index = Shape
-local function NewShape<S>(Reducer: Contract.Reducer<S>, Initial: S, Migrations: { Migration }?, Handles: { [string]: boolean }?): Shape<S>
+
+function Shape.New<S>(Reducer: Contract.Reducer<S>, Initial: S, Migrations: { Migration }?, Handles: { [string]: boolean }?): Shape<S>
 	local Blobs = Blobbed[Initial :: any]
 	if Blobs == nil then
 		Blobs = AnyBuffer(Initial)
@@ -97,7 +98,7 @@ local function NewShape<S>(Reducer: Contract.Reducer<S>, Initial: S, Migrations:
 		Initial = Initial,
 		Migrations = Migrations or {},
 		Handles = Handles,
-		Blobbed = Blobs
+		Blobbed = Blobs,
 	}, Shape) :: any
 end
 
@@ -114,10 +115,7 @@ function Shape.Rehydrate(self: Shape<any>, Record: Record): any
 	local Version = Record.Version or 0
 
 	local Held = Record.Floor
-	local Needs = if type(Held) == "number"
-		then Held
-		elseif Version > #Steps then Version
-		else 0
+	local Needs = if type(Held) == "number" then Held elseif Version > #Steps then Version else 0
 	if Needs > #Steps then
 		error(Fault.New(Reasons.Behind, `the record needs format version {Needs} but this server only knows {#Steps} migrations, a newer server wrote it`))
 	end
@@ -165,8 +163,8 @@ end
 table.freeze(Shape)
 
 return table.freeze({
-	New = NewShape,
+	New = Shape.New,
 	FloorOf = FloorOf,
 	Migrate = Migrate,
-	Detached = Detached
+	Detached = Detached,
 })

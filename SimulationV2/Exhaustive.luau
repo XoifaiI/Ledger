@@ -17,32 +17,38 @@ local MAX_DRAWS = 64
 
 type Slot = {
 	Value: number,
-	Bound: number
+	Bound: number,
 }
 
 type WalkImpl = {
 	__index: WalkImpl,
 
+	New: () -> Walk,
+	Draw: (self: Walk, Bound: number) -> number,
 	Done: (self: Walk) -> boolean,
 	Upto: (self: Walk, Bound: number) -> number,
 	Between: (self: Walk, Least: number, Most: number) -> number,
 	Index: (self: Walk, Held: { any }) -> number,
 	Pick: <T>(self: Walk, Held: { T }) -> T,
 	Boolean: (self: Walk) -> boolean,
-	Shuffle: <T>(self: Walk, Held: { T }) -> ()
+	Shuffle: <T>(self: Walk, Held: { T }) -> (),
 }
 
 export type Walk = setmetatable<{
 	Slots: { Slot },
 	At: number,
 	Reach: number,
-	Started: boolean
+	Started: boolean,
 }, WalkImpl>
 
 local Walk = {} :: WalkImpl
 Walk.__index = Walk
 
-local function Draw(self: Walk, Bound: number): number
+function Walk.New(): Walk
+	return setmetatable({ Slots = {}, At = 0, Reach = 0, Started = false }, Walk) :: any
+end
+
+function Walk.Draw(self: Walk, Bound: number): number
 	assert(Bound >= 0, "an exhaustive draw needs a bound of zero or more")
 
 	self.At += 1
@@ -57,10 +63,6 @@ local function Draw(self: Walk, Bound: number): number
 	local Slot = self.Slots[At]
 	Slot.Bound = Bound
 	return Slot.Value
-end
-
-local function New(): Walk
-	return setmetatable({ Slots = {}, At = 0, Reach = 0, Started = false }, Walk) :: any
 end
 
 function Walk.Done(self: Walk): boolean
@@ -84,17 +86,17 @@ function Walk.Done(self: Walk): boolean
 end
 
 function Walk.Upto(self: Walk, Bound: number): number
-	return Draw(self, Bound)
+	return self:Draw(Bound)
 end
 
 function Walk.Between(self: Walk, Least: number, Most: number): number
 	assert(Least <= Most, "an exhaustive range needs its least to be no larger than its most")
-	return Least + Draw(self, Most - Least)
+	return Least + self:Draw(Most - Least)
 end
 
 function Walk.Index(self: Walk, Held: { any }): number
 	assert(#Held > 0, "an exhaustive index needs something to index into")
-	return Draw(self, #Held - 1) + 1
+	return self:Draw(#Held - 1) + 1
 end
 
 function Walk.Pick<T>(self: Walk, Held: { T }): T
@@ -102,12 +104,12 @@ function Walk.Pick<T>(self: Walk, Held: { T }): T
 end
 
 function Walk.Boolean(self: Walk): boolean
-	return Draw(self, 1) == 1
+	return self:Draw(1) == 1
 end
 
 function Walk.Shuffle<T>(self: Walk, Held: { T })
 	for Index = 1, #Held do
-		local Swap = Draw(self, Index - 1) + 1
+		local Swap = self:Draw(Index - 1) + 1
 		Held[Index], Held[Swap] = Held[Swap], Held[Index]
 	end
 end
@@ -115,6 +117,6 @@ end
 table.freeze(Walk)
 
 return table.freeze({
-	New = New,
-	MAX_DRAWS = MAX_DRAWS
+	New = Walk.New,
+	MAX_DRAWS = MAX_DRAWS,
 })

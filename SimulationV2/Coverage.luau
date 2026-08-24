@@ -18,13 +18,15 @@ local Catalogue = require("./Catalogue")
 type CoverImpl = {
 	__index: CoverImpl,
 
+	New: () -> Cover,
+
 	Note: (self: Cover, Named: string, Ok: boolean, Why: string?) -> (),
 	Starved: (self: Cover) -> { string },
 	Threw: (self: Cover, Named: string) -> (),
 	Missed: (self: Cover) -> { string },
 	Silent: (self: Cover) -> { string },
 	Merge: (self: Cover, Other: Cover) -> (),
-	Report: (self: Cover) -> string
+	Report: (self: Cover) -> string,
 }
 
 export type Cover = setmetatable<{
@@ -32,13 +34,13 @@ export type Cover = setmetatable<{
 	Issued: { [string]: number },
 	Idle: { [string]: number },
 	Raised: { [string]: number },
-	Buckets: { string }
+	Buckets: { string },
 }, CoverImpl>
 
 local Cover = {} :: CoverImpl
 Cover.__index = Cover
 
-local function New(): Cover
+function Cover.New(): Cover
 	local Counts: { [string]: number } = {}
 	local Buckets = Catalogue.Buckets()
 	for _, Bucket in Buckets do
@@ -133,5 +135,5 @@ end
 table.freeze(Cover)
 
 return table.freeze({
-	New = New
+	New = Cover.New,
 })

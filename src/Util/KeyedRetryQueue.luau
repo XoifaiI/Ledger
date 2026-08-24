@@ -3,10 +3,10 @@
 
 --[=[
 	KeyedRetryQueue: Keeps the writes to one key in order.
-	
+
 	Each key has its own queue. A retry therefore cannot move in front of a write that came first.
 	The Direct flag sends the call straight through with no queue.
-	
+
 	Return type: A table with Run and SkipAllToLastEnqueued.
 	Example usage:
 		local Queue = require("./KeyedRetryQueue")
@@ -26,7 +26,7 @@ export type State = {
 	Exponent: number?,
 	Jitter: number?,
 	Direct: boolean?,
-	Queues: { [string]: ThreadQueue }
+	Queues: { [string]: ThreadQueue },
 }
 
 local function RunUnqueued(State: State, Operation: () -> ...any, Handler: Handler?): ...any
@@ -63,5 +63,5 @@ end
 
 return table.freeze({
 	Run = Run,
-	SkipAllToLastEnqueued = SkipAllToLastEnqueued
+	SkipAllToLastEnqueued = SkipAllToLastEnqueued,
 })

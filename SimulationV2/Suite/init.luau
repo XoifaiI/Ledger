@@ -9,7 +9,7 @@
 	Every warning Ledger writes is caught for the case that wrote it. A case can then say what Ledger
 	explained, and the run can say that Ledger never accused itself.
 
-	Return type: A table with File, Run, Fault, Reducers, Insides and Entries.
+	Return type: A table with File, Run, Fault, Reducers, Insides, Entries, Reasons and Horizons.
 	Example usage:
 		local Cases = Suite.File("Once")
 		Cases.Case("a replay under the same name changes nothing", function(T) end)
@@ -32,20 +32,20 @@ export type Fixture = Fixture.Fixture
 
 export type Written = {
 	read Name: string,
-	read Body: (Case) -> ()
+	read Body: (Case) -> (),
 }
 
 export type File = {
 	read Name: string,
 	read Tags: { string },
 	read Cases: { Written },
-	read Case: (Name: string, Body: (Case) -> ()) -> ()
+	read Case: (Name: string, Body: (Case) -> ()) -> (),
 }
 
 export type Failure = {
 	read File: string,
 	read Name: string,
-	read Says: string
+	read Says: string,
 }
 
 export type Report = {
@@ -58,13 +58,13 @@ export type Report = {
 	Sheet: Marks.Marks,
 	Warnings: number,
 	Slowest: { { Name: string, Seconds: number } },
-	Seconds: number
+	Seconds: number,
 }
 
 export type Options = {
 	Match: string?,
 	Files: { string }?,
-	Loud: boolean?
+	Loud: boolean?,
 }
 
 local SLOWEST = 8
@@ -91,7 +91,7 @@ local function File(Name: string, Tags: { string }?): File
 		Name = Name,
 		Tags = Tags or {},
 		Cases = Written,
-		Case = Add
+		Case = Add,
 	})
 end
 
@@ -179,7 +179,7 @@ local function Run(Files: { File }, Options: Options?): Report
 		Sheet = Sheet,
 		Warnings = #Lines,
 		Slowest = Slowest,
-		Seconds = os.clock() - Started
+		Seconds = os.clock() - Started,
 	}
 end
 
@@ -192,5 +192,5 @@ return table.freeze({
 	Insides = Insides,
 	Entries = Lib.Entries,
 	Reasons = Lib.Reasons,
-	Horizons = Lib.Horizons
+	Horizons = Lib.Horizons,
 })

@@ -3,10 +3,10 @@
 
 --[=[
 	Registry: The one list of stores that this server built.
-	
+
 	The sweep is built on first use, and not on require. To require Ledger therefore does not start
 	a timer before a store exists.
-	
+
 	Return type: A table with Stores, Claimed, Shutting and Sweep.
 	Example usage:
 		local Registry = require("./Registry")
@@ -39,5 +39,5 @@ return table.freeze({
 	Stores = Stores,
 	Claimed = Claimed,
 	Shutting = Shutting,
-	Sweep = Walker
+	Sweep = Walker,
 })

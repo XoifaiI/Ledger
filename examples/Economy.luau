@@ -17,7 +17,7 @@ local Ledger = require("../src")
 
 export type Profile = {
 	Gold: number,
-	Mail: { string }
+	Mail: { string },
 }
 
 --[[
@@ -66,13 +66,7 @@ end
 
 --[[ tipping, named by whatever the payment is for ]]
 
-local function Tip(
-	Store: Ledger.Store<Profile>,
-	OrderId: string,
-	From: number,
-	To: number,
-	Amount: number
-): (boolean, Ledger.Reason?)
+local function Tip(Store: Ledger.Store<Profile>, OrderId: string, From: number, To: number, Amount: number): (boolean, Ledger.Reason?)
 	return Store:Transfer(From, To, Amount, `tip:{OrderId}`):Wait()
 end
 
@@ -158,5 +152,5 @@ return table.freeze({
 	Tip = Tip,
 	Grant = Grant,
 	GrantMany = GrantMany,
-	Inspect = Inspect
+	Inspect = Inspect,
 })

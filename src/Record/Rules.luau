@@ -3,7 +3,7 @@
 
 --[=[
 	Rules: The rules that an append is built from, in the order that they run.
-	
+
 	Each rule answers one question. What a rule must remember for the test after the write goes in
 	the pass. It does not go in a local outside the transform, because the datastore can run the
 	transform again.
@@ -12,7 +12,7 @@
 	A game's op stops at the log cap. One of Ledger's own may pass it, because a recovery op has to be
 	able to land on a key that is already full, but it stops at a higher ceiling of its own. Without
 	that second ceiling a key whose compaction is blocked grows until the datastore refuses it.
-	
+
 	A write marks the record with the format floor that this build needs. A build that knows less than
 	that floor is then turned away at once, and not only after the next compaction.
 	A sift decides op by op whether the record will take one. An op that it turns away is named in the
@@ -59,11 +59,8 @@ local function Legible(Key: string, Known: number?): Rule
 				return nil
 			end
 
-			error(Fault.New(
-				Reasons.Behind,
-				`'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`
-			))
-		end
+			error(Fault.New(Reasons.Behind, `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`))
+		end,
 	}
 end
 
@@ -75,7 +72,7 @@ local function Allowed(Guard: ((Record) -> boolean)?): Rule
 				Rule.Quiet(Pass)
 			end
 			return nil
-		end
+		end,
 	}
 end
 
@@ -127,7 +124,7 @@ local function Fresh(Ops: { Op }, Sift: Sift?): Rule
 				return "the ops it wrote did not all come back, so the write was only partly stored"
 			end
 			return nil
-		end
+		end,
 	}
 end
 
@@ -140,11 +137,8 @@ local function Capped(Key: string, Owned: boolean): Rule
 				return nil
 			end
 
-			error(Fault.New(
-				Reasons.Full,
-				`'{Key}' is carrying {Ceiling} bytes of ops that have not been compacted away, so this one cannot go on as well`
-			))
-		end
+			error(Fault.New(Reasons.Full, `'{Key}' is carrying {Ceiling} bytes of ops that have not been compacted away, so this one cannot go on as well`))
+		end,
 	}
 end
 
@@ -156,7 +150,7 @@ local function Format(Floor: number?): Rule
 				Record.Floor = Floor
 			end
 			return Record
-		end
+		end,
 	}
 end
 
@@ -177,7 +171,7 @@ local function Tomb(Key: string, Owned: boolean): Rule
 				)
 			end
 			return nil
-		end
+		end,
 	}
 end
 
@@ -191,5 +185,5 @@ return table.freeze({
 	Entombed = Entombed,
 	MAX_LOG_BYTES = MAX_LOG_BYTES,
 	MAX_HELD_BYTES = MAX_HELD_BYTES,
-	TOMB_HORIZON = TOMB_HORIZON
+	TOMB_HORIZON = TOMB_HORIZON,
 })

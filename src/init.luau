@@ -3,12 +3,12 @@
 
 --[=[
 	Ledger: Player data as a ledger, and not as a document.
-	
+
 	The state is a pure fold of an append only log of ops. There are no session locks.
 	This file is the whole surface that a game can reach.
 	CloseAll cuts each queue down to its last write and gives it fewer tries. A shutdown has seconds,
 	and a queue of retries would spend all of them on one key.
-	
+
 	Return type: A table with Reason, New, UseMock, UseReal, UseClock, Sweep and CloseAll.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
@@ -50,7 +50,7 @@ export type Export = {
 	read UseReal: () -> (),
 	read UseClock: (Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?) -> (),
 	read Sweep: () -> (),
-	read CloseAll: () -> ()
+	read CloseAll: () -> (),
 }
 
 local SHUTDOWN_ATTEMPTS = 2
@@ -140,5 +140,5 @@ return table.freeze({
 	UseReal = UseReal,
 	UseClock = UseClock,
 	Sweep = Sweep,
-	CloseAll = CloseAll
+	CloseAll = CloseAll,
 }) :: Export

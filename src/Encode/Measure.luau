@@ -76,31 +76,31 @@ local function StringBytes(Value: string): number
 
 		if bit32.bor(bit32.bor(One, Two), bit32.bor(Three, Four)) ~= 0 then
 			if One ~= 0 then
-				Total += buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 1))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 2))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 3))
+				Total += buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset)) + buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 1)) + buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 2)) + buffer.readu8(
+					EXTRA,
+					buffer.readu8(Bytes, Offset + 3)
+				)
 			end
 
 			if Two ~= 0 then
-				Total += buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 4))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 5))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 6))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 7))
+				Total += buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 4)) + buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 5)) + buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 6)) + buffer.readu8(
+					EXTRA,
+					buffer.readu8(Bytes, Offset + 7)
+				)
 			end
 
 			if Three ~= 0 then
-				Total += buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 8))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 9))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 10))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 11))
+				Total += buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 8)) + buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 9)) + buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 10)) + buffer.readu8(
+					EXTRA,
+					buffer.readu8(Bytes, Offset + 11)
+				)
 			end
 
 			if Four ~= 0 then
-				Total += buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 12))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 13))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 14))
-					+ buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 15))
+				Total += buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 12)) + buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 13)) + buffer.readu8(EXTRA, buffer.readu8(Bytes, Offset + 14)) + buffer.readu8(
+					EXTRA,
+					buffer.readu8(Bytes, Offset + 15)
+				)
 			end
 		end
 

@@ -27,6 +27,8 @@ type Spec = Fault.Spec
 type FixtureImpl = {
 	__index: FixtureImpl,
 
+	New: (Store: any, Plate: Disk.Disk, Data: string, Marked: string, Node: string, Field: string?) -> Fixture,
+
 	Seed: (self: Fixture, Key: string, Snapshot: { [string]: any }) -> (),
 	Write: (self: Fixture, Key: string, Record: { [string]: any }) -> (),
 	Marker: (self: Fixture, Id: string, Fields: { [string]: any }) -> (),
@@ -56,7 +58,7 @@ type FixtureImpl = {
 	Budget: (self: Fixture, Asks: (Kind: Enum.DataStoreRequestType) -> number) -> (),
 	MarkerBudget: (self: Fixture, Asks: (Kind: Enum.DataStoreRequestType) -> number) -> (),
 	NoRetries: (self: Fixture) -> (),
-	Healed: (self: Fixture) -> ()
+	Healed: (self: Fixture) -> (),
 }
 
 export type Fixture = setmetatable<{
@@ -69,7 +71,7 @@ export type Fixture = setmetatable<{
 	Direct: any,
 	DirectMarks: any,
 	Faults: { Spec },
-	MarkerFaults: { Spec }
+	MarkerFaults: { Spec },
 }, FixtureImpl>
 
 local Fixture = {} :: FixtureImpl
@@ -111,7 +113,7 @@ local function Materialised(Raw: any): any
 		Version = if type(Raw.Version) == "number" then Raw.Version else nil,
 		Floor = if type(Raw.Floor) == "number" then Raw.Floor else nil,
 		Erased = if type(Raw.Erased) == "number" then Raw.Erased else nil,
-		Bytes = if type(Raw.Bytes) == "number" then Raw.Bytes else nil
+		Bytes = if type(Raw.Bytes) == "number" then Raw.Bytes else nil,
 	}
 end
 
@@ -143,7 +145,7 @@ local function Bookings(Held: any): number
 	return Count
 end
 
-local function New(Store: any, Plate: Disk.Disk, Data: string, Marked: string, Node: string, Field: string?): Fixture
+function Fixture.New(Store: any, Plate: Disk.Disk, Data: string, Marked: string, Node: string, Field: string?): Fixture
 	return setmetatable({
 		Store = Store,
 		Plate = Plate,
@@ -154,7 +156,7 @@ local function New(Store: any, Plate: Disk.Disk, Data: string, Marked: string, N
 		Direct = Disk.Open(Plate, Data),
 		DirectMarks = Disk.Open(Plate, Marked),
 		Faults = {},
-		MarkerFaults = {}
+		MarkerFaults = {},
 	}, Fixture) :: any
 end
 
@@ -320,5 +322,5 @@ end
 table.freeze(Fixture)
 
 return table.freeze({
-	New = New
+	New = Fixture.New,
 })

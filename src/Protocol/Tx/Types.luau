@@ -3,9 +3,9 @@
 
 --[=[
 	Types: The marker and leg declarations of the transaction protocol.
-	
+
 	These are private to this folder. This file holds declarations, and never logic.
-	
+
 	Return type: An empty table. The types are Status, Opened, Marker, Leg, Pass and Lookup.
 	Example usage:
 		local Types = require("./Types")
@@ -30,7 +30,7 @@ export type Marker = {
 	At: number?,
 	Adopted: { [string]: boolean }?,
 	Keys: string?,
-	Terms: string?
+	Terms: string?,
 }
 
 export type Leg = {
@@ -39,7 +39,7 @@ export type Leg = {
 	Fields: { [any]: any }?,
 	Log: LogTypes.Log,
 	Shape: LogTypes.Shape<any>,
-	TxStore: DataStoreWrapper
+	TxStore: DataStoreWrapper,
 }
 
 export type Pass = {
@@ -47,7 +47,7 @@ export type Pass = {
 	read Why: Reason?,
 	read Again: boolean,
 	read Reached: number,
-	read Parked: boolean
+	read Parked: boolean,
 }
 
 export type Lookup = (Name: string) -> LogTypes.Log?

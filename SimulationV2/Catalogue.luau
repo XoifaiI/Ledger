@@ -15,8 +15,7 @@
 
 local Swarm = require("./Swarm")
 
-export type Reason =
-	"Refused" | "Busy" | "Spent" | "Unresolved" | "Closed" | "Backlog" | "Full" | "Invalid" | "Behind" | "Held"
+export type Reason = "Refused" | "Busy" | "Spent" | "Unresolved" | "Closed" | "Backlog" | "Full" | "Invalid" | "Behind" | "Held"
 
 export type Keys = "Player" | "String"
 
@@ -30,7 +29,7 @@ export type Operation = {
 	read Mutates: boolean,
 	read Reasons: { Reason },
 	read Least: number,
-	read Most: number
+	read Most: number,
 }
 
 local READS: { Reason } = { "Unresolved", "Behind", "Closed" }
@@ -44,7 +43,16 @@ local CATALOGUE: { Operation } = {
 	{ Name = "Read", Family = "Session", Needs = "Player", Balance = false, Mutates = false, Reasons = {}, Least = 1, Most = 10 },
 	{ Name = "Apply", Family = "Session", Needs = nil, Balance = false, Mutates = true, Reasons = { "Refused", "Backlog", "Invalid", "Closed", "Busy", "Unresolved", "Full" }, Least = 1, Most = 100 },
 	{ Name = "Commit", Family = "Session", Needs = nil, Balance = false, Mutates = true, Reasons = { "Refused", "Invalid", "Unresolved", "Closed", "Busy", "Full", "Backlog" }, Least = 1, Most = 40 },
-	{ Name = "CommitOp", Family = "Session", Needs = nil, Balance = false, Mutates = true, Reasons = { "Refused", "Invalid", "Unresolved", "Closed", "Busy", "Full", "Backlog" }, Least = 1, Most = 20 },
+	{
+		Name = "CommitOp",
+		Family = "Session",
+		Needs = nil,
+		Balance = false,
+		Mutates = true,
+		Reasons = { "Refused", "Invalid", "Unresolved", "Closed", "Busy", "Full", "Backlog" },
+		Least = 1,
+		Most = 20,
+	},
 	{ Name = "Flush", Family = "Session", Needs = nil, Balance = false, Mutates = true, Reasons = { "Refused", "Behind", "Unresolved", "Closed", "Full" }, Least = 1, Most = 20 },
 	{ Name = "SessionCompact", Family = "Session", Needs = nil, Balance = false, Mutates = true, Reasons = { "Unresolved", "Behind", "Closed", "Full" }, Least = 1, Most = 10 },
 	{ Name = "SessionRelease", Family = "Session", Needs = nil, Balance = false, Mutates = true, Reasons = { "Refused", "Unresolved", "Closed", "Full" }, Least = 1, Most = 20 },
@@ -78,7 +86,7 @@ local CATALOGUE: { Operation } = {
 
 	{ Name = "Reset", Family = "Removal", Needs = nil, Balance = false, Mutates = true, Reasons = { "Refused", "Behind", "Busy", "Unresolved", "Full", "Closed" }, Least = 1, Most = 6 },
 	{ Name = "Erase", Family = "Removal", Needs = nil, Balance = false, Mutates = true, Reasons = { "Unresolved", "Behind", "Closed", "Busy" }, Least = 1, Most = 6 },
-	{ Name = "Destroy", Family = "Removal", Needs = nil, Balance = false, Mutates = true, Reasons = {}, Least = 1, Most = 3 }
+	{ Name = "Destroy", Family = "Removal", Needs = nil, Balance = false, Mutates = true, Reasons = {}, Least = 1, Most = 3 },
 }
 
 local function Find(Name: string): Operation
@@ -137,5 +145,5 @@ return table.freeze({
 	Find = Find,
 	Applicable = Applicable,
 	Weights = Weights,
-	Buckets = Buckets
+	Buckets = Buckets,
 })

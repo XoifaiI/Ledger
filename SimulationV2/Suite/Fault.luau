@@ -9,7 +9,7 @@
 	A dropped request never arrived. A swallowed one landed and its answer was lost. A stalled one
 	arrives late, so other callers pile up behind it.
 
-	Return type: A table with On, Reads, Updates, Removes, Versions, Lists and Wrap.
+	Return type: A table with On, Reads, Updates, Removes, Versions, Lists and Wrap, and the four effects.
 	Example usage:
 		Store:Fault(Fault.Updates():OnKey("b"):After(1))
 --]=]
@@ -21,12 +21,16 @@ export type Effect = "Drop" | "Swallow" | "Stall" | "Pass"
 type SpecImpl = {
 	__index: SpecImpl,
 
+	On: (Method: string) -> Spec,
+	Matches: (self: Spec, Method: string, Key: string) -> boolean,
+	Due: (self: Spec) -> boolean,
+
 	OnKey: (self: Spec, Key: string) -> Spec,
 	Only: (self: Spec, Nth: number) -> Spec,
 	After: (self: Spec, Count: number) -> Spec,
 	Swallow: (self: Spec) -> Spec,
 	Stall: (self: Spec, Seconds: number) -> Spec,
-	Meddle: (self: Spec, Body: () -> ()) -> Spec
+	Meddle: (self: Spec, Body: () -> ()) -> Spec,
 }
 
 export type Spec = setmetatable<{
@@ -38,7 +42,7 @@ export type Spec = setmetatable<{
 	Seconds: number,
 	Before: (() -> ())?,
 	Count: number,
-	Fired: number
+	Fired: number,
 }, SpecImpl>
 
 local DROP: Effect = "Drop"
@@ -56,39 +60,22 @@ local LISTED = "ListKeysAsync"
 local Spec = {} :: SpecImpl
 Spec.__index = Spec
 
-local function Matches(Spec: Spec, Method: string, Key: string): boolean
-	if Spec.Method ~= Method then
-		return false
-	end
-	return Spec.Key == nil or Spec.Key == Key
-end
-
-local function Due(Spec: Spec): boolean
-	if Spec.Nth ~= nil then
-		return Spec.Count == Spec.Nth
-	end
-	if Spec.Past ~= nil then
-		return Spec.Count > Spec.Past
-	end
-	return true
-end
-
 local function Chosen(Specs: { Spec }, Method: string, Key: string): Spec?
 	local Firing: Spec? = nil
 	for _, Held in Specs do
-		if not Matches(Held, Method, Key) then
+		if not Held:Matches(Method, Key) then
 			continue
 		end
 
 		Held.Count += 1
-		if Firing == nil and Due(Held) then
+		if Firing == nil and Held:Due() then
 			Firing = Held
 		end
 	end
 	return Firing
 end
 
-local function On(Method: string): Spec
+function Spec.On(Method: string): Spec
 	return setmetatable({
 		Method = Method,
 		Key = nil,
@@ -98,28 +85,28 @@ local function On(Method: string): Spec
 		Seconds = 0,
 		Before = nil,
 		Count = 0,
-		Fired = 0
+		Fired = 0,
 	}, Spec) :: any
 end
 
 local function Reads(): Spec
-	return On(READ)
+	return Spec.On(READ)
 end
 
 local function Updates(): Spec
-	return On(UPDATE)
+	return Spec.On(UPDATE)
 end
 
 local function Removes(): Spec
-	return On(REMOVE)
+	return Spec.On(REMOVE)
 end
 
 local function Versions(): Spec
-	return On(VERSION)
+	return Spec.On(VERSION)
 end
 
 local function Lists(): Spec
-	return On(LISTED)
+	return Spec.On(LISTED)
 end
 
 local function Wrap(Inner: any, Specs: { Spec }): any
@@ -192,6 +179,23 @@ local function Wrap(Inner: any, Specs: { Spec }): any
 	return Proxy
 end
 
+function Spec.Matches(self: Spec, Method: string, Key: string): boolean
+	if self.Method ~= Method then
+		return false
+	end
+	return self.Key == nil or self.Key == Key
+end
+
+function Spec.Due(self: Spec): boolean
+	if self.Nth ~= nil then
+		return self.Count == self.Nth
+	end
+	if self.Past ~= nil then
+		return self.Count > self.Past
+	end
+	return true
+end
+
 function Spec.OnKey(self: Spec, Key: string): Spec
 	self.Key = Key
 	return self
@@ -230,7 +234,7 @@ end
 table.freeze(Spec)
 
 return table.freeze({
-	On = On,
+	On = Spec.On,
 	Reads = Reads,
 	Updates = Updates,
 	Removes = Removes,
@@ -241,5 +245,5 @@ return table.freeze({
 	DROP = DROP,
 	SWALLOW = SWALLOW,
 	STALL = STALL,
-	PASS = PASS
+	PASS = PASS,
 })

@@ -3,10 +3,10 @@
 
 --[=[
 	Fingerprint: Makes a short mark of what a name was used for.
-	
+
 	Two servers that build the same request get the same mark, because the text is put in one order first.
 	A name that is used again for different terms therefore reads as different.
-	
+
 	Return type: A table with Canon, Of and BYTES.
 	Example usage:
 		local Fingerprint = require("./Fingerprint")
@@ -53,5 +53,5 @@ end
 return table.freeze({
 	Canon = Canon,
 	Of = Of,
-	BYTES = BYTES
+	BYTES = BYTES,
 })

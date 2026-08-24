@@ -3,7 +3,7 @@
 
 --[=[
 	Drive: Runs one transaction.
-	
+
 	Each leg is parked on its key first. One write to the marker then decides the whole set.
 	Each leg is resolved against that decision last.
 	A coordinator that stops between any two of those steps leaves a marker. Another server can then
@@ -134,9 +134,7 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 		elseif Verdict == "Rejected" then
 			return Prepared, Settled, REFUSED
 		elseif Verdict == "Full" then
-			warn(
-				`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key is carrying more ops than it can hold until it compacts. nothing was applied`
-			)
+			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key is carrying more ops than it can hold until it compacts. nothing was applied`)
 			return Prepared, Settled, FULL
 		else
 			local Unreachable: never = Verdict
@@ -147,23 +145,10 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 	return Prepared, Settled, nil
 end
 
-local function RunOnce(
-	TxStore: DataStoreWrapper,
-	Legs: { Leg },
-	Ops: { Op },
-	Txid: string,
-	Keys: string,
-	Terms: string,
-	Print: string,
-	Floor: number,
-	PerLeg: number?
-): Pass
-
+local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Txid: string, Keys: string, Terms: string, Print: string, Floor: number, PerLeg: number?): Pass
 	local Created, Gen, Born, Minted = Marker.Create(TxStore, Txid, #Legs, Keys, Terms)
 	if Created == Marker.MISMATCH then
-		warn(
-			`Ledger: transaction '{Txid}' was already used for different keys or a different amount, and a name has to mean the same thing every time. nothing was applied, so pick a new name`
-		)
+		warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount, and a name has to mean the same thing every time. nothing was applied, so pick a new name`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Floor, Parked = Floor > 0 }
 	end
 	if Created == Marker.UNWRITTEN then
@@ -286,5 +271,5 @@ return table.freeze({
 	LEG_TIMEOUT = LEG_TIMEOUT,
 	TIMEOUT = TIMEOUT,
 	MAX_LEGS = MAX_LEGS,
-	PASSES = PASSES
+	PASSES = PASSES,
 })

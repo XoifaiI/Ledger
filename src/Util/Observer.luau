@@ -3,12 +3,12 @@
 
 --[=[
 	Observer: Sends each value to each listener.
-	
+
 	A listener runs immediately when you push a value, so a listener must not yield.
 	Map, Filter and Changed each make a new stream from this one.
 	Destroy marks each connection of the stream as gone. To disconnect one after that is therefore
 	nothing, and not a fault.
-	
+
 	Return type: A table with New, which gives you a subject that you can push to.
 	Example usage:
 		local Observer = require("./Observer")
@@ -21,7 +21,7 @@ local NoYield = require("./NoYield")
 
 export type Connection = {
 	Connected: boolean,
-	Disconnect: (self: Connection) -> ()
+	Disconnect: (self: Connection) -> (),
 }
 
 export type Middleware<T, U> = (Value: T, Emit: (U) -> ()) -> ()
@@ -34,11 +34,11 @@ export type Observer<T> = {
 	Filter: (self: Observer<T>, Predicate: (T) -> boolean) -> Observer<T>,
 	Changed: (self: Observer<T>, Equals: ((T, T) -> boolean)?) -> Observer<T>,
 
-	Destroy: (self: Observer<T>) -> ()
+	Destroy: (self: Observer<T>) -> (),
 }
 
 export type Subject<T> = Observer<T> & {
-	Push: (self: Subject<T>, Value: T) -> ()
+	Push: (self: Subject<T>, Value: T) -> (),
 }
 
 type Activate<T> = (Emit: (T) -> ()) -> (() -> ())?
@@ -49,7 +49,7 @@ type Node<T> = {
 	Listener: (T) -> (),
 	Owner: Private<T>,
 	Previous: Node<T>?,
-	Next: Node<T>?
+	Next: Node<T>?,
 }
 
 type Private<T> = {
@@ -58,7 +58,7 @@ type Private<T> = {
 	Activate: Activate<T>?,
 	Teardown: (() -> ())?,
 	Detached: boolean?,
-	Said: number?
+	Said: number?,
 }
 
 local SLOW = 10
@@ -107,9 +107,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 		end
 
 		self.Said = Now
-		warn(
-			`Observer listener has run for {SLOW} seconds without finishing. it holds a thread for as long as it runs, so one that never returns leaks a thread for every value pushed`
-		)
+		warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. it holds a thread for as long as it runs, so one that never returns leaks a thread for every value pushed`)
 	end)
 
 	local Ok, Err = pcall(Listener, Value)
@@ -119,7 +117,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 	end
 
 	if not Ok then
-		warn(`Observer listener errored: {Err}`)
+		warn(`Ledger: Observer listener errored: {Err}`)
 	end
 end
 
@@ -137,7 +135,7 @@ local function Deliver<T>(self: Private<T>, Value: T)
 			else
 				local Ok, Err = NoYield.Try(Node.Listener, Value)
 				if not Ok then
-					warn(`Observer listener errored: {Err}`)
+					warn(`Ledger: Observer listener errored: {Err}`)
 				end
 			end
 		end
@@ -169,7 +167,7 @@ function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connecti
 		Listener = Listener,
 		Owner = Private,
 		Previous = Tail,
-		Next = nil
+		Next = nil,
 	}
 
 	if Tail ~= nil then
@@ -255,6 +253,7 @@ function Observer.Push<T>(self: Subject<T>, Value: T)
 end
 
 table.freeze(Observer)
+
 return table.freeze({
-	New = New
+	New = New,
 })

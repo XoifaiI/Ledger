@@ -28,7 +28,7 @@ export type Report = {
 	Balance: number,
 	Held: number,
 	Booked: number,
-	Keys: number
+	Keys: number,
 }
 
 export type Where = { [string]: string }
@@ -43,7 +43,7 @@ local function Record(Raw: any): any
 		Ops = if type(Raw.Ops) == "table" then Raw.Ops else {},
 		Seen = if type(Raw.Seen) == "table" then Raw.Seen else {},
 		Version = if type(Raw.Version) == "number" then Raw.Version else nil,
-		Floor = if type(Raw.Floor) == "number" then Raw.Floor else nil
+		Floor = if type(Raw.Floor) == "number" then Raw.Floor else nil,
 	}
 end
 
@@ -133,10 +133,7 @@ local function Settled(Board: Disk, Where: Where, Format: any, Field: string, Ex
 	local Held = Safety(Board, Where, Format, Field, Expected)
 
 	if Held.Balance + Held.Held + Held.Booked ~= Expected then
-		table.insert(
-			Held.Broken,
-			`money settled at {Held.Balance + Held.Held + Held.Booked} and should be {Expected}, balance {Held.Balance} plus held {Held.Held} plus booked {Held.Booked}`
-		)
+		table.insert(Held.Broken, `money settled at {Held.Balance + Held.Held + Held.Booked} and should be {Expected}, balance {Held.Balance} plus held {Held.Held} plus booked {Held.Booked}`)
 
 		for Key, Name in Where do
 			local State: any = Format:Fold(Record(Disk.Peek(Board, Name, Key)))
@@ -153,10 +150,7 @@ local function Settled(Board: Disk, Where: Where, Format: any, Field: string, Ex
 				end
 			end
 
-			table.insert(
-				Held.Broken,
-				`  {Key}: balance {Balance}, escrow {Escrow}, booked {Booked}{if #Names > 0 then ` [{table.concat(Names, ", ")}]` else ""}`
-			)
+			table.insert(Held.Broken, `  {Key}: balance {Balance}, escrow {Escrow}, booked {Booked}{if #Names > 0 then ` [{table.concat(Names, ", ")}]` else ""}`)
 		end
 	end
 
@@ -181,10 +175,7 @@ local function Settled(Board: Disk, Where: Where, Format: any, Field: string, Ex
 			if Booking.Granted(Landed, Rid, Booking.Terms(Key, Rid, Entry)) ~= Entries.SAME then
 				continue
 			end
-			table.insert(
-				Held.Broken,
-				`{Key} still holds {tostring(Entry.Amount)} under '{tostring(Rid)}' that {To} already took`
-			)
+			table.insert(Held.Broken, `{Key} still holds {tostring(Entry.Amount)} under '{tostring(Rid)}' that {To} already took`)
 		end
 	end
 
@@ -262,10 +253,7 @@ local function Unfinished(Board: Disk, Where: Where, Marks: { string }, Format: 
 				if type(Entry) ~= "table" or Entry.Handing ~= true then
 					continue
 				end
-				table.insert(
-					Left,
-					`'{Key}' is part way through handing {tostring(Entry.Amount)} under '{tostring(Rid)}' to '{tostring(Entry.To)}'`
-				)
+				table.insert(Left, `'{Key}' is part way through handing {tostring(Entry.Amount)} under '{tostring(Rid)}' to '{tostring(Entry.To)}'`)
 			end
 		end
 	end
@@ -371,10 +359,7 @@ local function Markers(Board: Disk, Marks: { string }, Horizon: number, Now: num
 			local Written = Disk.Stamp(Board, Table, Txid)
 			local Age = if Written ~= nil then `{Now - Written}s old and the reaper wants {Horizon}s` else "never written"
 
-			table.insert(
-				Said,
-				`'{Txid}' in {Table} is {tostring(Held.Status)}, {Adopted} of {tostring(Held.Total)} leg(s) adopted, {Age}, keys [{table.concat(Named, ", ")}]`
-			)
+			table.insert(Said, `'{Txid}' in {Table} is {tostring(Held.Status)}, {Adopted} of {tostring(Held.Total)} leg(s) adopted, {Age}, keys [{table.concat(Named, ", ")}]`)
 		end
 	end
 
@@ -394,5 +379,5 @@ return table.freeze({
 	Transactions = Transactions,
 	Markers = Markers,
 	Unsettled = Unsettled,
-	Unfinished = Unfinished
+	Unfinished = Unfinished,
 })

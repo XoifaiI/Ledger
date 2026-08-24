@@ -3,14 +3,14 @@
 
 --[=[
 	Store: One fake datastore.
-	
+
 	It holds its keys, and the versions that it keeps of each key.
 	A transform can hit a conflict when two writes land on one key. The version mark is read before
 	and after the transform, and a change means that another write came in between. The transform
 	then runs again against what that write left, which is what a real UpdateAsync does.
 	A transform that yields raises. A transform that throws for any other reason cancels the write
 	and tells the caller nothing, which is what a real one does, measured on a live datastore.
-	
+
 	Return type: A table with New, MAX_KEY and KEEP_VERSIONS.
 	Example usage:
 		local Store = require("./Store")
@@ -48,7 +48,7 @@ local function MakeInfo(Label: string, Written: number): KeyInfo
 		CreatedTime = Written * 1000,
 		UpdatedTime = Written * 1000,
 		GetUserIds = NoIds,
-		GetMetadata = NoMeta
+		GetMetadata = NoMeta,
 	})
 end
 
@@ -61,14 +61,29 @@ local function CheckKey(Key: string)
 	end
 end
 
+local function Newest(Slot: Slot): Entry?
+	return Slot.Entries[#Slot.Entries]
+end
+
 local Store = {} :: Types.StoreImpl
 Store.__index = Store
-local function Reach(self: Store, Kind: Enum.DataStoreRequestType)
+
+function Store.New(Name: string, Scope: string, Service: Types.Service): Store
+	return setmetatable({
+		Name = Name,
+		Scope = Scope,
+		Service = Service,
+		Slots = {},
+		Ticket = 0,
+	}, Store)
+end
+
+function Store.Reach(self: Store, Kind: Enum.DataStoreRequestType)
 	self.Service:Spend(Kind)
 	task.wait()
 end
 
-local function Held(self: Store, Key: string): Slot
+function Store.Held(self: Store, Key: string): Slot
 	local Found = self.Slots[Key]
 	if Found ~= nil then
 		return Found
@@ -79,19 +94,15 @@ local function Held(self: Store, Key: string): Slot
 	return Fresh
 end
 
-local function Newest(Slot: Slot): Entry?
-	return Slot.Entries[#Slot.Entries]
-end
-
-local function Commit(self: Store, Key: string, Text: string?, Deleted: boolean): Entry
-	local Slot = Held(self, Key)
+function Store.Commit(self: Store, Key: string, Text: string?, Deleted: boolean): Entry
+	local Slot = self:Held(Key)
 	self.Ticket += 1
 
 	local Fresh: Entry = {
 		Text = Text,
 		Written = Clock.Now(),
 		Deleted = Deleted,
-		Label = `{self.Ticket}`
+		Label = `{self.Ticket}`,
 	}
 	Slot.Live = Text
 	table.insert(Slot.Entries, Fresh)
@@ -106,8 +117,8 @@ local function Commit(self: Store, Key: string, Text: string?, Deleted: boolean)
 	return Fresh
 end
 
-local function Current(self: Store, Key: string): (any, KeyInfo?)
-	local Slot = Held(self, Key)
+function Store.Current(self: Store, Key: string): (any, KeyInfo?)
+	local Slot = self:Held(Key)
 	local Mark = Newest(Slot)
 	local Text = Slot.Live
 	if Text == nil or Mark == nil then
@@ -118,37 +129,27 @@ local function Current(self: Store, Key: string): (any, KeyInfo?)
 	return Codec.Decode(Text), MakeInfo(Mark.Label, Mark.Written)
 end
 
-local function Put(self: Store, Key: string, Value: any): Entry
+function Store.Put(self: Store, Key: string, Value: any): Entry
 	local Text = Codec.Encode(Value)
 	self.Service:Carry("w", self.Name, Key, #Text)
-	return Commit(self, Key, Text, false)
-end
-
-local function New(Name: string, Scope: string, Service: Types.Service): Store
-	return setmetatable({
-		Name = Name,
-		Scope = Scope,
-		Service = Service,
-		Slots = {},
-		Ticket = 0
-	}, Store)
+	return self:Commit(Key, Text, false)
 end
 
 function Store.GetAsync(self: Store, Key: string): (any, KeyInfo?)
 	CheckKey(Key)
-	Reach(self, Enum.DataStoreRequestType.GetAsync)
-	return Current(self, Key)
+	self:Reach(Enum.DataStoreRequestType.GetAsync)
+	return self:Current(Key)
 end
 
 function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any, KeyInfo?)
 	CheckKey(Key)
-	Reach(self, Enum.DataStoreRequestType.UpdateAsync)
+	self:Reach(Enum.DataStoreRequestType.UpdateAsync)
 
 	for _ = 1, CONFLICT_LIMIT do
-		local Latest = Newest(Held(self, Key))
+		local Latest = Newest(self:Held(Key))
 		local Before = if Latest then Latest.Label else nil
 
-		local Was, Info = Current(self, Key)
+		local Was, Info = self:Current(Key)
 		local Ran, Next = NoYield.Try(Transform, Was, Info)
 		if not Ran then
 			if type(Next) == "string" and string.find(Next, YIELDED, 1, true) ~= nil then
@@ -160,12 +161,12 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 			return nil, nil
 		end
 
-		local Moved = Newest(Held(self, Key))
+		local Moved = Newest(self:Held(Key))
 		if (if Moved then Moved.Label else nil) ~= Before then
 			continue
 		end
 
-		local Fresh = Put(self, Key, Next)
+		local Fresh = self:Put(Key, Next)
 		local Read = Codec.Decode(Fresh.Text)
 		assert(Read ~= nil, "the mock stored a transform result it cannot read back, so a round trip loses data")
 		return Read, MakeInfo(Fresh.Label, Fresh.Written)
@@ -176,28 +177,28 @@ end
 
 function Store.SetAsync(self: Store, Key: string, Value: any): string
 	CheckKey(Key)
-	Reach(self, Enum.DataStoreRequestType.SetIncrementAsync)
-	return Put(self, Key, Value).Label
+	self:Reach(Enum.DataStoreRequestType.SetIncrementAsync)
+	return self:Put(Key, Value).Label
 end
 
 function Store.RemoveAsync(self: Store, Key: string): (any, KeyInfo?)
 	CheckKey(Key)
-	Reach(self, Enum.DataStoreRequestType.SetIncrementAsync)
+	self:Reach(Enum.DataStoreRequestType.SetIncrementAsync)
 
-	local Was, Info = Current(self, Key)
+	local Was, Info = self:Current(Key)
 	if Info == nil then
 		return nil, nil
 	end
 
-	Commit(self, Key, nil, true)
+	self:Commit(Key, nil, true)
 	return Was, Info
 end
 
 function Store.GetVersionAsync(self: Store, Key: string, Version: string): (any, KeyInfo?)
 	CheckKey(Key)
-	Reach(self, Enum.DataStoreRequestType.GetVersionAsync)
+	self:Reach(Enum.DataStoreRequestType.GetVersionAsync)
 
-	for _, Mark in Held(self, Key).Entries do
+	for _, Mark in self:Held(Key).Entries do
 		if Mark.Label == Version then
 			return Codec.Decode(Mark.Text), MakeInfo(Mark.Label, Mark.Written)
 		end
@@ -206,19 +207,12 @@ function Store.GetVersionAsync(self: Store, Key: string, Version: string): (any,
 	error(`Ledger mock: no version '{Version}' for key '{Key}'`, 0)
 end
 
-function Store.ListVersionsAsync(
-	self: Store,
-	Key: string,
-	Direction: Enum.SortDirection?,
-	MinDate: number?,
-	MaxDate: number?,
-	PageSize: number?
-): Types.Pages
+function Store.ListVersionsAsync(self: Store, Key: string, Direction: Enum.SortDirection?, MinDate: number?, MaxDate: number?, PageSize: number?): Types.Pages
 	CheckKey(Key)
-	Reach(self, Enum.DataStoreRequestType.ListAsync)
+	self:Reach(Enum.DataStoreRequestType.ListAsync)
 
 	local Rows: { any } = {}
-	for _, Mark in Held(self, Key).Entries do
+	for _, Mark in self:Held(Key).Entries do
 		local Stamp = Mark.Written * 1000
 		if MinDate ~= nil and Stamp < MinDate then
 			continue
@@ -229,7 +223,7 @@ function Store.ListVersionsAsync(
 		table.insert(Rows, {
 			Version = Mark.Label,
 			CreatedTime = Stamp,
-			IsDeleted = Mark.Deleted
+			IsDeleted = Mark.Deleted,
 		})
 	end
 
@@ -244,14 +238,8 @@ function Store.ListVersionsAsync(
 	return Pages.New(Rows, PageSize, 25)
 end
 
-function Store.ListKeysAsync(
-	self: Store,
-	Prefix: string?,
-	PageSize: number?,
-	Cursor: string?,
-	ExcludeDeleted: boolean?
-): Types.Pages
-	Reach(self, Enum.DataStoreRequestType.ListAsync)
+function Store.ListKeysAsync(self: Store, Prefix: string?, PageSize: number?, Cursor: string?, ExcludeDeleted: boolean?): Types.Pages
+	self:Reach(Enum.DataStoreRequestType.ListAsync)
 
 	local Wanted = Prefix or ""
 	local Hiding = ExcludeDeleted == true
@@ -277,14 +265,14 @@ function Store.ListKeysAsync(
 	end
 
 	return Pages.New(Rows, PageSize, 50, "KeyName", function()
-		Reach(self, Enum.DataStoreRequestType.ListAsync)
+		self:Reach(Enum.DataStoreRequestType.ListAsync)
 	end)
 end
 
 table.freeze(Store)
 
 return table.freeze({
-	New = New,
+	New = Store.New,
 	MAX_KEY = MAX_KEY,
-	KEEP_VERSIONS = KEEP_VERSIONS
+	KEEP_VERSIONS = KEEP_VERSIONS,
 })

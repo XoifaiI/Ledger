@@ -3,11 +3,11 @@
 
 --[=[
 	Tally: A total that is spread over a fixed set of keys.
-	
+
 	Each server writes its own key, and does not wait behind the others.
 	A tally can only go up. No key can see the others, so no key knows the total,
 	and a limit cannot hold across them.
-	
+
 	Return type: A table with Layered, Bump, Mine, Shard, Shards, SHARDS and PART.
 	Example usage:
 		local Tally = require("./Tally")
@@ -72,8 +72,8 @@ end
 
 local Held: Layer.Layer = {
 	Kinds = {
-		[BUMP] = Bumping
-	}
+		[BUMP] = Bumping,
+	},
 }
 
 local function Layered(_Balance: string?): Layer.Layer?
@@ -88,5 +88,5 @@ return table.freeze({
 	Shard = Shard,
 	Shards = Shards,
 	SHARDS = SHARDS,
-	PART = PART
+	PART = PART,
 })

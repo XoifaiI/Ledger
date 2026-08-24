@@ -3,7 +3,7 @@
 
 --[=[
 	Rebuild: Pushes the queued ops to the log, and builds the state again.
-	
+
 	Push reads back which ops landed, and does not trust the call that returned. Another server can
 	write some of them first, and the guard can refuse the write.
 	The fence is the erase mark that the key had when this session loaded. A write lands only while
@@ -127,9 +127,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= Fence then
 		self.Released = true
-		warn(
-			`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`
-		)
+		warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
 	end
 
 	self.LogSize = #Stored.Ops
@@ -141,9 +139,7 @@ local function Diverged(Live: any, Folded: any, Path: string): string?
 		return nil
 	end
 	if type(Live) == "buffer" and type(Folded) == "buffer" then
-		return if buffer.tostring(Live) == buffer.tostring(Folded)
-			then nil
-			else `{Path} holds different bytes live and refolded`
+		return if buffer.tostring(Live) == buffer.tostring(Folded) then nil else `{Path} holds different bytes live and refolded`
 	end
 	if type(Live) ~= "table" or type(Folded) ~= "table" then
 		return `{Path} is {tostring(Live)} live and {tostring(Folded)} refolded`
@@ -200,9 +196,7 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 
 	self.State = TableUtil.FreezeDelta(State)
 	self.Parked = Parked
-	self.Landed = if Parked == 1
-		then TableUtil.FreezeDelta(ApplyPending(self, Fold(Base, Stamp.Landed(Stored.Ops, next(Waiting) :: string), self.Shape.Reducer), {}))
-		else nil
+	self.Landed = if Parked == 1 then TableUtil.FreezeDelta(ApplyPending(self, Fold(Base, Stamp.Landed(Stored.Ops, next(Waiting) :: string), self.Shape.Reducer), {})) else nil
 	self.Applied = Applied
 	self.LogSize = #Stored.Ops
 	self.LogBytes = SumBytes(Stored.Ops) + SumBytes(self.Pending)
@@ -226,5 +220,5 @@ return table.freeze({
 	Sifted = Sifted,
 	Rebuild = Rebuild,
 	ApplyPending = ApplyPending,
-	SumBytes = SumBytes
+	SumBytes = SumBytes,
 })

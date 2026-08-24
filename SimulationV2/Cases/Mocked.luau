@@ -94,7 +94,7 @@ Cases.Case("swapping the mock under a live store warns", function(T: Case)
 		Name = "CaseSwap",
 		Keys = "Player",
 		Default = { Gold = 0, Touches = 0 },
-		Reducer = Suite.Reducers.Banker
+		Reducer = Suite.Reducers.Banker,
 	})
 
 	local Fine, Raised = pcall(function()

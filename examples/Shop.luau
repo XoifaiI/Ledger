@@ -15,12 +15,12 @@ local Ledger = require("../src")
 
 export type Profile = {
 	Gold: number,
-	Items: { [string]: boolean }
+	Items: { [string]: boolean },
 }
 
 local Prices = {
 	Sword = 100,
-	Shield = 250
+	Shield = 250,
 }
 
 --[[
@@ -88,5 +88,5 @@ end
 return table.freeze({
 	Reducer = Reducer,
 	Buy = Buy,
-	Sell = Sell
+	Sell = Sell,
 })

@@ -27,7 +27,7 @@ export type Report = {
 	Ok: boolean,
 	Walked: number,
 	Broken: { string },
-	Seconds: number
+	Seconds: number,
 }
 
 local DEPTH = 4
@@ -107,7 +107,7 @@ local function Run(): Report
 		Keys = "String",
 		Default = DEFAULT,
 		Balance = "Gold",
-		Reducer = Banker
+		Reducer = Banker,
 	})
 	Store.Wrapper = Lib.Wrapper.New(DATA)
 	Store.TxWrapper = Lib.Wrapper.New(`{DATA}Tx`)
@@ -179,5 +179,5 @@ return table.freeze({
 	DEPTH = DEPTH,
 	KEYS = KEYS,
 	KINDS = KINDS,
-	WALK_LIMIT = WALK_LIMIT
+	WALK_LIMIT = WALK_LIMIT,
 })

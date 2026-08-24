@@ -88,7 +88,7 @@ local Log = table.freeze({
 	Worthwhile = Compact.Worthwhile,
 	Packed = Compact.Packed,
 	Bulk = Compact.Bulk,
-	SEEN_LIMIT = Compact.SEEN_LIMIT
+	SEEN_LIMIT = Compact.SEEN_LIMIT,
 })
 
 local function WrapEscrow(Inner: any, Balance: string?): any
@@ -115,7 +115,7 @@ local Transfer = table.freeze({
 	Prune = Moves.Prune,
 
 	Recover = Recovery.Transfers,
-	Wrap = WrapEscrow
+	Wrap = WrapEscrow,
 })
 
 local Tx = table.freeze({
@@ -128,7 +128,7 @@ local Tx = table.freeze({
 	MAX_LEGS = Deals.MAX_LEGS,
 	REAP_HORIZON = Deals.REAP_HORIZON,
 
-	Wrap = Names.Wrap
+	Wrap = Names.Wrap,
 })
 
 local function Counted(Booked: any): number
@@ -165,14 +165,14 @@ local Held = table.freeze({
 	BOOK_MARGIN = Booking.BOOK_MARGIN,
 
 	Counted = Counted,
-	Wrap = WrapBooking
+	Wrap = WrapBooking,
 })
 
 local Store = table.freeze({
 	Stores = Registry.Stores,
 	Claimed = Registry.Claimed,
 	Shutting = Registry.Shutting,
-	Sweep = Registry.Sweep()
+	Sweep = Registry.Sweep(),
 })
 
 return table.freeze({
@@ -224,5 +224,5 @@ return table.freeze({
 
 	WrapEscrow = WrapEscrow,
 	WrapBooking = WrapBooking,
-	WrapTally = WrapTally
+	WrapTally = WrapTally,
 })

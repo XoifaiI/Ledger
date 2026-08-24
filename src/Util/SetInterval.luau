@@ -26,7 +26,7 @@ local function SetInterval(Seconds: number, Callback: (Count: number) -> (), Off
 			Count += 1
 			local Ok, Err = pcall(Callback, Count)
 			if not Ok then
-				warn(`SetInterval callback errored: {Err}`)
+				warn(`Ledger: SetInterval callback errored: {Err}`)
 			end
 		end
 	end)

@@ -51,5 +51,5 @@ return table.freeze({
 	Sleep = Sleep,
 	Bind = Bind,
 	Advance = Advance,
-	Restart = Restart
+	Restart = Restart,
 })

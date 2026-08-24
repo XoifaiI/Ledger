@@ -3,9 +3,9 @@
 
 --[=[
 	Types: The log and shape declarations.
-	
+
 	These are private to this folder. This file holds declarations, and never logic.
-	
+
 	Return type: An empty table. The types are Outcome, Resolution, Verdict, Prepared, Fated, Shape and Log.
 	Example usage:
 		local Types = require("./Types")
@@ -34,10 +34,11 @@ export type Fated = "Owned" | "Dead"
 export type ShapeImpl<S> = {
 	__index: ShapeImpl<S>,
 
+	New: (Reducer: Reducer<S>, Initial: S, Migrations: { Migration }?, Handles: { [string]: boolean }?) -> Shape<S>,
 	Floor: (self: Shape<S>) -> number,
 	Rehydrate: (self: Shape<S>, Record: Record<any>) -> S,
 	Fold: (self: Shape<S>, Record: Record<any>) -> S,
-	Certain: (self: Shape<S>, Record: Record<any>, Id: string) -> (boolean, boolean)
+	Certain: (self: Shape<S>, Record: Record<any>, Id: string) -> (boolean, boolean),
 }
 
 export type Shape<S> = setmetatable<{
@@ -45,12 +46,14 @@ export type Shape<S> = setmetatable<{
 	read Initial: S,
 	read Migrations: { Migration },
 	read Handles: { [string]: boolean }?,
-	read Blobbed: boolean
+	read Blobbed: boolean,
 }, ShapeImpl<S>>
 
 export type LogImpl = {
 	__index: LogImpl,
 
+	New: (Wrapper: DataStoreWrapper, Known: number?, Floor: number?) -> Log,
+	Legible: (self: Log, Key: string, Record: Record<any>) -> (),
 	Update: (self: Log, Key: string, Apply: (Record<any>) -> Record<any>?) -> Outcome,
 	Read: (self: Log, Key: string) -> Record<any>,
 	ReadVersion: (self: Log, Key: string, Version: string) -> Record<any>,
@@ -60,13 +63,13 @@ export type LogImpl = {
 	Prepare: (self: Log, Key: string, Op: Op, Format: Shape<any>) -> Prepared,
 	Resolve: (self: Log, Key: string, Verdicts: { [string]: Verdict }) -> Resolution,
 	Compact: (self: Log, Key: string, Format: Shape<any>) -> Record<any>,
-	Trim: (self: Log, Key: string, Format: Shape<any>, Record: Record<any>) -> Record<any>
+	Trim: (self: Log, Key: string, Format: Shape<any>, Record: Record<any>) -> Record<any>,
 }
 
 export type Log = setmetatable<{
 	read Wrapper: DataStoreWrapper,
 	read Known: number?,
-	read Floor: number?
+	read Floor: number?,
 }, LogImpl>
 
 return table.freeze({})

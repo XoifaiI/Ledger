@@ -84,7 +84,7 @@ Cases.Case("a reducer cannot write into the snapshot a fold starts from", functi
 				return Next
 			end
 			return nil
-		end
+		end,
 	})
 
 	Store.Store:Edit("k", "Add"):Wait()
@@ -210,7 +210,7 @@ Cases.Case("compaction racing appends loses nothing", function(T: Case)
 				pcall(function()
 					Store:Log():Compact("compactrace", Store:Format())
 				end)
-			end
+			end,
 		}
 		for _ = 1, 3 do
 			table.insert(Thunks, function()
@@ -317,9 +317,9 @@ Cases.Case("ops the datastore cannot describe are dropped", function(T: Case)
 			{ Id = "good", Kind = "Add", Amount = 5 },
 			{ Id = "nokind", Amount = 9 },
 			{ Id = "numtx", Kind = "Add", Amount = 9, Tx = 7 },
-			{ Kind = "Add", Amount = 9 }
+			{ Kind = "Add", Amount = 9 },
 		},
-		Seen = {}
+		Seen = {},
 	})
 
 	local Record = Store:Record("poison")
@@ -572,7 +572,7 @@ Cases.Case("an op that holds no way is not written while a leg is parked", funct
 		TxGen = "barriergen",
 		TxAt = T:Now(),
 		TxTerms = "barrierterms",
-		TxSticky = "barrier"
+		TxSticky = "barrier",
 	})
 
 	local Wrote = Bank.Store:Edit("a", "Give", { Amount = -999 }):Wait()
@@ -601,7 +601,7 @@ Cases.Case("an op that holds once the leg commits is still written", function(T:
 		TxGen = "gategen",
 		TxAt = T:Now(),
 		TxTerms = "gateterms",
-		TxSticky = "gate"
+		TxSticky = "gate",
 	})
 
 	Bank.Store:Edit("a", "Give", { Amount = -50 }):Wait()

@@ -3,11 +3,11 @@
 
 --[=[
 	MakeOp: Builds an op that has a new unique id.
-	
+
 	The id is what makes an append that runs two times apply one time.
 	A caller can put its own OnceAt on an op, but only in the past. A time in the future would hold
 	the name past its own horizon.
-	
+
 	Return type: A table with New and Stamp.
 	Example usage:
 		local MakeOp = require("./MakeOp")
@@ -56,5 +56,5 @@ end
 
 return table.freeze({
 	New = MakeOp,
-	Stamp = Stamp
+	Stamp = Stamp,
 })

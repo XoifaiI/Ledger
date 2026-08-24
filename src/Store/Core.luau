@@ -3,13 +3,13 @@
 
 --[=[
 	Core: What each other half of the store needs first.
-	
+
 	It resolves a key, and it gets the log and the shape that this store folds with.
 	The log handle is kept against the wrapper that built it. To swap the backend under a store
 	therefore gives back a new handle, and not one that still points at the old datastore.
 	A tally puts its shard number after a mark in the key. A key of a game may not hold that mark, or
 	the two would write one record.
-	
+
 	Return type: A table with Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Records, Format, Fold, ReadRecord, ValidId and MAX_KEY.
 	Example usage:
 		local Core = require("./Core")
@@ -43,19 +43,11 @@ function Store.KeyFor(self: Store, Value: any): string?
 	if self.Keys == "Player" then
 		return if ValidId(Value) then tostring(Value) else nil
 	end
-	return if type(Value) == "string"
-			and #Value > 0
-			and #Value <= MAX_KEY
-			and utf8.len(Value) ~= nil
-			and string.find(Value, Tally.PART, 1, true) == nil
-		then Value
-		else nil
+	return if type(Value) == "string" and #Value > 0 and #Value <= MAX_KEY and utf8.len(Value) ~= nil and string.find(Value, Tally.PART, 1, true) == nil then Value else nil
 end
 
 function Store.KeyIssue(self: Store): string
-	return if self.Keys == "Player"
-		then "a positive integer UserId"
-		else `a key string of 1 to {MAX_KEY} characters, without '{Tally.PART}' in it`
+	return if self.Keys == "Player" then "a positive integer UserId" else `a key string of 1 to {MAX_KEY} characters, without '{Tally.PART}' in it`
 end
 
 function Store.Live(self: Store, What: string)
@@ -110,5 +102,5 @@ end
 
 return table.freeze({
 	ValidId = ValidId,
-	MAX_KEY = MAX_KEY
+	MAX_KEY = MAX_KEY,
 })

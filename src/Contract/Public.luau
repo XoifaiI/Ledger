@@ -3,10 +3,10 @@
 
 --[=[
 	Public: The only types that a game can name.
-	
+
 	A leg names a store, and a store takes legs. Both shapes are therefore in one file.
 	Two files would have to require each other.
-	
+
 	Return type: An empty table. The types are Store, Live, Config, TxLeg and HoldOptions.
 	Example usage:
 		local Public = require("./Public")
@@ -34,12 +34,12 @@ export type TxLeg = {
 	UserId: number?,
 	Key: string?,
 	Kind: string,
-	Fields: { [any]: any }?
+	Fields: { [any]: any }?,
 }
 
 export type HoldOptions = {
 	Hold: number?,
-	To: KeyLike?
+	To: KeyLike?,
 }
 
 export type Live<S> = {
@@ -54,7 +54,7 @@ export type Live<S> = {
 	Compact: (self: Live<S>) -> Future<boolean, Reason?>,
 	Release: (self: Live<S>) -> Future<boolean, Reason?>,
 	Observe: (self: Live<S>) -> Observer<S>,
-	DidApply: (self: Live<S>, Id: string) -> boolean
+	DidApply: (self: Live<S>, Id: string) -> boolean,
 }
 
 export type Store<D> = {
@@ -85,7 +85,7 @@ export type Store<D> = {
 	Reset: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	Erase: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	Stale: (self: Store<D>) -> Observer<string>,
-	Destroy: (self: Store<D>) -> ()
+	Destroy: (self: Store<D>) -> (),
 }
 
 export type Config<D> = {
@@ -95,7 +95,7 @@ export type Config<D> = {
 	read Balance: string?,
 	read Migrations: { Migration }?,
 	read Keys: KeysMode?,
-	read OnLoadFailed: ((Player: Player, Why: Reason) -> boolean)?
+	read OnLoadFailed: ((Player: Player, Why: Reason) -> boolean)?,
 }
 
 return table.freeze({})

@@ -9,7 +9,7 @@
 	driver that hands it straight back. Race and Slow are how a case asks for real turns instead.
 	Every check reads its own label, so a failure names the thing that was wrong.
 
-	Return type: A table with Open, Close and Judge. The types are Case and Spec.
+	Return type: A table with Open, Close and Judge, and the names a bench builds under. The types are Case and Spec.
 	Example usage:
 		local Bank = T:Bank()
 		T:Is("gold after the transfer", Bank:Amount("a"), 50)
@@ -37,11 +37,15 @@ export type Spec = {
 	Migrations: { any }?,
 	OnLoadFailed: any?,
 	Data: string?,
-	Node: string?
+	Node: string?,
 }
 
 type CaseImpl = {
 	__index: CaseImpl,
+
+	Open: (Name: string, Seed: number, Sheet: { string }) -> Case,
+	Close: (self: Case) -> (),
+	Judge: (self: Case) -> { string },
 
 	Store: (self: Case, Held: Spec) -> Fixture.Fixture,
 	Bank: (self: Case, Node: string?) -> Fixture.Fixture,
@@ -70,14 +74,14 @@ type CaseImpl = {
 	Advance: (self: Case, Seconds: number) -> (),
 	Now: (self: Case) -> number,
 	Sweep: (self: Case) -> (),
-	Conflicts: (self: Case) -> number
+	Conflicts: (self: Case) -> number,
 }
 
 export type Wanted = {
 	Kind: string,
 	Label: string,
 	Fragment: string,
-	Count: number?
+	Count: number?,
 }
 
 export type Case = setmetatable<{
@@ -91,7 +95,7 @@ export type Case = setmetatable<{
 	Sheet: { string },
 	From: number,
 	Expect: { Wanted },
-	Free: any
+	Free: any,
 }, CaseImpl>
 
 local DATA = "Case"
@@ -105,7 +109,7 @@ local Case = {} :: CaseImpl
 Case.__index = Case
 
 local Free: any = table.freeze({
-	Wait = function() end
+	Wait = function() end,
 })
 
 local Walker = Lib.Sweep()
@@ -130,7 +134,7 @@ local function Counted(Lines: { string }, From: number, Fragment: string): numbe
 	return Count
 end
 
-local function Open(Name: string, Seed: number, Sheet: { string }): Case
+function Case.Open(Name: string, Seed: number, Sheet: { string }): Case
 	Time.Restart()
 	Ledger.UseClock(Time.Read, Time.Sleep)
 	Lib.Ident.Restart(SIM_NODE)
@@ -159,12 +163,11 @@ local function Open(Name: string, Seed: number, Sheet: { string }): Case
 		Sheet = Sheet,
 		From = #Sheet + 1,
 		Expect = {},
-		Free = Free
+		Free = Free,
 	}, Case) :: any
 end
 
-
-local function Close(self: Case)
+function Case.Close(self: Case)
 	for _, Held in self.Built do
 		Held:Healed()
 	end
@@ -196,7 +199,7 @@ function Case.Store(self: Case, Held: Spec): Fixture.Fixture
 		Balance = Held.Balance,
 		Reducer = Held.Reducer or Reducers.Banker,
 		Migrations = Held.Migrations,
-		OnLoadFailed = Held.OnLoadFailed
+		OnLoadFailed = Held.OnLoadFailed,
 	})
 
 	Built.Wrapper = Lib.Wrapper.New(Data)
@@ -296,7 +299,7 @@ function Case.Accuses(self: Case, Label: string, Fragment: string)
 	table.insert(self.Expect, { Kind = "Accuses", Label = Label, Fragment = Fragment })
 end
 
-local function Judge(self: Case): { string }
+function Case.Judge(self: Case): { string }
 	local Wanted: { string } = {}
 	for _, Held in self.Expect do
 		local Seen = Counted(self.Sheet, self.From, Held.Fragment)
@@ -406,11 +409,11 @@ end
 table.freeze(Case)
 
 return table.freeze({
-	Open = Open,
-	Close = Close,
-	Judge = Judge,
+	Open = Case.Open,
+	Close = Case.Close,
+	Judge = Case.Judge,
 
 	DATA = DATA,
 	VAULT = VAULT,
-	ACCUSED = ACCUSED
+	ACCUSED = ACCUSED,
 })

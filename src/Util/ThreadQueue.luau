@@ -3,12 +3,12 @@
 
 --[=[
 	ThreadQueue: Runs tasks one after the other.
-	
+
 	SubmitAsync waits until your task runs, then gives you what the task returned.
 	SkipToLastEnqueued removes all tasks but the last one. Each removed caller gets an error.
 	The queue records the thread that runs a task. If that thread dies before the task ends, the next
 	caller takes the queue. Without this a cancelled thread stops the queue for the life of the server.
-	
+
 	Return type: A table with New and the SKIPPED message.
 	Example usage:
 		local ThreadQueue = require("./ThreadQueue")
@@ -18,36 +18,48 @@
 
 type Entry = {
 	Callback: () -> ...any,
-	Caller: thread
+	Caller: thread,
 }
 
 type ThreadQueueImpl = {
 	__index: ThreadQueueImpl,
+	New: () -> ThreadQueue,
+	Abandoned: (self: ThreadQueue) -> boolean,
+	Drain: (self: ThreadQueue) -> (),
 	SubmitAsync: (self: ThreadQueue, Callback: () -> ...any) -> ...any,
 	GetLength: (self: ThreadQueue) -> number,
-	SkipToLastEnqueued: (self: ThreadQueue) -> ()
+	SkipToLastEnqueued: (self: ThreadQueue) -> (),
 }
 
 export type ThreadQueue = setmetatable<{
 	Tasks: { Entry },
 	Busy: boolean,
-	Holder: thread?
+	Holder: thread?,
 }, ThreadQueueImpl>
 
 local SKIPPED = "ThreadQueue task skipped"
 
-local ThreadQueue = {} :: ThreadQueueImpl
-ThreadQueue.__index = ThreadQueue
 local function TraceHandler(Err: any): string
 	return debug.traceback(tostring(Err), 1)
 end
 
-local function Abandoned(self: ThreadQueue): boolean
+local ThreadQueue = {} :: ThreadQueueImpl
+ThreadQueue.__index = ThreadQueue
+
+function ThreadQueue.New(): ThreadQueue
+	return setmetatable({
+		Tasks = {},
+		Busy = false,
+		Holder = nil,
+	}, ThreadQueue) :: ThreadQueue
+end
+
+function ThreadQueue.Abandoned(self: ThreadQueue): boolean
 	local Holder = self.Holder
 	return Holder ~= nil and coroutine.status(Holder) == "dead"
 end
 
-local function Drain(self: ThreadQueue)
+function ThreadQueue.Drain(self: ThreadQueue)
 	assert(self.Busy, "the queue is draining without being marked busy, so a second drain could run beside it")
 	self.Holder = coroutine.running()
 	while self.Tasks[1] do
@@ -61,18 +73,10 @@ local function Drain(self: ThreadQueue)
 	self.Busy = false
 end
 
-local function New(): ThreadQueue
-	return setmetatable({
-		Tasks = {},
-		Busy = false,
-		Holder = nil
-	}, ThreadQueue) :: ThreadQueue
-end
-
 function ThreadQueue.SubmitAsync(self: ThreadQueue, Callback: () -> ...any): ...any
-	if not self.Busy or Abandoned(self) then
+	if not self.Busy or self:Abandoned() then
 		if self.Busy then
-			warn(`ThreadQueue took over a queue whose thread was cancelled, {#self.Tasks} task(s) were waiting on it`)
+			warn(`Ledger: ThreadQueue took over a queue whose thread was cancelled, {#self.Tasks} task(s) were waiting on it`)
 		end
 
 		self.Busy = true
@@ -81,7 +85,7 @@ function ThreadQueue.SubmitAsync(self: ThreadQueue, Callback: () -> ...any): ...
 
 		self.Holder = nil
 		if self.Tasks[1] then
-			task.defer(Drain, self)
+			task.defer(self.Drain, self)
 		else
 			self.Busy = false
 		end
@@ -127,6 +131,6 @@ end
 table.freeze(ThreadQueue)
 
 return table.freeze({
-	New = New,
-	SKIPPED = SKIPPED
+	New = ThreadQueue.New,
+	SKIPPED = SKIPPED,
 })

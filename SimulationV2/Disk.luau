@@ -27,12 +27,12 @@ export type Version = {
 	Text: string?,
 	Written: number,
 	Deleted: boolean,
-	Label: string
+	Label: string,
 }
 
 export type Slot = {
 	Live: string?,
-	Versions: { Version }
+	Versions: { Version },
 }
 
 export type Info = {
@@ -40,7 +40,7 @@ export type Info = {
 	read CreatedTime: number,
 	read UpdatedTime: number,
 	read GetUserIds: (self: Info) -> { number },
-	read GetMetadata: (self: Info) -> { [string]: any }
+	read GetMetadata: (self: Info) -> { [string]: any },
 }
 
 export type Disk = {
@@ -54,7 +54,7 @@ export type Disk = {
 	Filled: number,
 	Players: number,
 	Throttled: boolean,
-	Blobbed: boolean
+	Blobbed: boolean,
 }
 
 local MAX_KEY = 50
@@ -80,7 +80,7 @@ local function Stamped(Label: string, Written: number): Info
 		CreatedTime = Written * 1000,
 		UpdatedTime = Written * 1000,
 		GetUserIds = NoIds,
-		GetMetadata = NoMeta
+		GetMetadata = NoMeta,
 	})
 end
 
@@ -96,7 +96,7 @@ local function New(): Disk
 		Filled = Time.Read(),
 		Players = 0,
 		Throttled = false,
-		Blobbed = false
+		Blobbed = false,
 	}
 end
 
@@ -244,7 +244,7 @@ local function Commit(self: Disk, Key: string, Text: string?, Deleted: boolean):
 		Text = Text,
 		Written = Time.Read(),
 		Deleted = Deleted,
-		Label = tostring(self.Ticket)
+		Label = tostring(self.Ticket),
 	}
 	Held.Live = Text
 	table.insert(Held.Versions, Fresh)
@@ -462,5 +462,5 @@ return table.freeze({
 	Pause = Pause,
 	MAX_KEY = MAX_KEY,
 	MAX_VALUE = MAX_VALUE,
-	KEEP_VERSIONS = KEEP_VERSIONS
+	KEEP_VERSIONS = KEEP_VERSIONS,
 })

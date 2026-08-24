@@ -28,17 +28,19 @@ type Asked = {
 	Id: string,
 	From: string,
 	To: string,
-	Amount: number
+	Amount: number,
 }
 
 type ModelImpl = {
 	__index: ModelImpl,
 
+	New: (Keys: { any }, Start: Bounds) -> Model,
+
 	Note: (self: Model, Tag: string, Id: string, From: any, To: any, Amount: number) -> (),
 	Booked: (self: Model, Rid: string, From: any, To: any, Amount: number) -> (),
 	Blur: (self: Model, Key: any) -> (),
 	Spend: (self: Model, Key: any, Field: string, Amount: number) -> (),
-	Check: (self: Model, Board: Disk, Where: { [string]: string }, Format: any) -> { string }
+	Check: (self: Model, Board: Disk, Where: { [string]: string }, Format: any) -> { string },
 }
 
 export type Model = setmetatable<{
@@ -49,7 +51,7 @@ export type Model = setmetatable<{
 	Books: { [string]: { Asked } },
 	Blurred: { [string]: boolean },
 	Spent: { [string]: number },
-	Field: string
+	Field: string,
 }, ModelImpl>
 
 local TRANSFER = Entries.TRANSFER
@@ -69,7 +71,7 @@ local function Record(Raw: any): any
 		Ops = if type(Raw.Ops) == "table" then Raw.Ops else {},
 		Seen = if type(Raw.Seen) == "table" then Raw.Seen else {},
 		Version = if type(Raw.Version) == "number" then Raw.Version else nil,
-		Floor = if type(Raw.Floor) == "number" then Raw.Floor else nil
+		Floor = if type(Raw.Floor) == "number" then Raw.Floor else nil,
 	}
 end
 
@@ -88,7 +90,7 @@ local function Money(State: any, Field: string): number
 	return Total
 end
 
-local function New(Keys: { any }, Start: Bounds): Model
+function Model.New(Keys: { any }, Start: Bounds): Model
 	local Named: { [string]: boolean } = {}
 	local Field = next(Start) :: string
 
@@ -104,7 +106,7 @@ local function New(Keys: { any }, Start: Bounds): Model
 		Books = {},
 		Blurred = {},
 		Spent = {},
-		Field = Field
+		Field = Field,
 	}, Model) :: any
 end
 
@@ -193,10 +195,7 @@ function Model.Check(self: Model, Board: Disk, Where: { [string]: string }, Form
 
 		local Has = Money(Live[Key], Field)
 		if Has ~= Should then
-			table.insert(
-				Broken,
-				`{Key}.{Field} holds {Has} and the {#self.Asked} move(s) that ran make it {Should}, off by {Has - Should}`
-			)
+			table.insert(Broken, `{Key}.{Field} holds {Has} and the {#self.Asked} move(s) that ran make it {Should}, off by {Has - Should}`)
 		end
 	end
 	return Broken
@@ -205,9 +204,9 @@ end
 table.freeze(Model)
 
 return table.freeze({
-	New = New,
+	New = Model.New,
 
 	TRANSFER = TRANSFER,
 	TX = TX,
-	GRANT = GRANT
+	GRANT = GRANT,
 })

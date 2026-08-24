@@ -3,11 +3,11 @@
 
 --[=[
 	Types: The store declarations.
-	
+
 	These are private to this folder. This file holds declarations, and never logic.
 	The impl type is the whole surface that the halves of the store call each other through.
 	A game cannot name any of it.
-	
+
 	Return type: An empty table. The types are Allow, LoadedEntry, LoadPhase, Meter, Fields, StoreImpl and Store.
 	Example usage:
 		local Types = require("./Types")
@@ -43,7 +43,7 @@ export type Allow = (Record) -> boolean
 export type LoadedEntry = {
 	Active: Session<any>,
 	Ticks: number,
-	Ticker: thread
+	Ticker: thread,
 }
 
 export type LoadPhase = "Loading" | "Leaving"
@@ -54,7 +54,7 @@ export type Meter = {
 	Records: number,
 	Markers: number,
 	Swollen: number,
-	Said: number
+	Said: number,
 }
 
 export type Fields = {
@@ -75,7 +75,7 @@ export type Fields = {
 	Staleness: Observer.Subject<string>,
 	Meter: Meter,
 	ReapAt: string,
-	Closed: boolean
+	Closed: boolean,
 }
 
 export type StoreImpl = {
@@ -106,6 +106,9 @@ export type StoreImpl = {
 	Starved: (self: Store, Pool: Enum.DataStoreRequestType) -> (),
 
 	Freed: (self: Store, Key: string, State: any) -> boolean,
+	HeldOn: (self: Store, Key: string) -> (boolean, any),
+	HandOver: (self: Store, Key: string) -> (number, number),
+	TallyName: (self: Store, Name: any, Field: any, What: string) -> string,
 	Repair: (self: Store, Key: string) -> (boolean, boolean),
 	ReapMarkers: (self: Store) -> number,
 	Buried: (self: Store, Key: string, Replaced: Record) -> (),
@@ -143,7 +146,7 @@ export type StoreImpl = {
 	ClearDelivered: (self: Store, Key: KeyLike) -> Future<boolean, Reason?>,
 	Reset: (self: Store, Key: KeyLike) -> Future<boolean, Reason?>,
 	Erase: (self: Store, Key: KeyLike) -> Future<boolean, Reason?>,
-	Destroy: (self: Store) -> ()
+	Destroy: (self: Store) -> (),
 }
 
 export type Store = setmetatable<Fields, StoreImpl>

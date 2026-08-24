@@ -3,9 +3,9 @@
 
 --[=[
 	Service: The service half of the fake datastore.
-	
+
 	It hands out stores, and it holds the request budget of this server.
-	
+
 	Return type: A table with New and MAX_NAME.
 	Example usage:
 		local Service = require("./Service")
@@ -18,6 +18,7 @@ local Types = require("./Types")
 
 type Service = Types.Service
 type Options = Types.Options
+type Lane = Types.Lane
 
 local MAX_NAME = 50
 local MAX_SCOPE = 50
@@ -33,7 +34,8 @@ end
 
 local Service = {} :: Types.ServiceImpl
 Service.__index = Service
-local function New(Options: Options?): Service
+
+function Service.New(Options: Options?): Service
 	local Config: Options = Options or {}
 	local Players = Config.Players or 0
 	return setmetatable({
@@ -43,19 +45,77 @@ local function New(Options: Options?): Service
 		Queued = 0,
 		Players = Players,
 		CCU = Config.CCU or Players,
-		Throttled = Config.Throttled ~= false
+		Throttled = Config.Throttled ~= false,
 	}, Service)
 end
 
+function Service.ServerCap(self: Service, Kind: Enum.DataStoreRequestType): number
+	return Budget.Ceiling(Budget.Allowance(Kind).Server, self.Players)
+end
+
+function Service.LanesFor(self: Service, Kind: Enum.DataStoreRequestType): { Lane }
+	local Allowance = Budget.Allowance(Kind)
+	return {
+		{ Id = `s\0{Kind.Name}`, Cap = Budget.Ceiling(Allowance.Server, self.Players) },
+		{ Id = `x\0{Kind.Name}`, Cap = Budget.Ceiling(Allowance.Experience, self.CCU) },
+	}
+end
+
+function Service.Refill(self: Service, Id: string, Cap: number): number
+	local Now = os.clock()
+	local Held = math.min(Cap, self.Tokens[Id] or Cap)
+	local Since = Now - (self.Filled[Id] or Now)
+
+	Held = math.min(Cap, Held + Since * (Cap / Budget.REFILL_WINDOW))
+	self.Tokens[Id] = Held
+	self.Filled[Id] = Now
+	return Held
+end
+
+function Service.Ready(self: Service, Lanes: { Lane }, Cost: number): boolean
+	for _, Lane in Lanes do
+		if self:Refill(Lane.Id, Lane.Cap) < Cost then
+			return false
+		end
+	end
+	return true
+end
+
+function Service.Take(self: Service, Lanes: { Lane }, Cost: number)
+	for _, Lane in Lanes do
+		self.Tokens[Lane.Id] -= Cost
+		assert(self.Tokens[Lane.Id] >= 0, "the mock spent request budget it did not have, so it is more generous than a real server")
+	end
+end
+
+function Service.Await(self: Service, Lanes: { Lane }, Cost: number)
+	if self:Ready(Lanes, Cost) then
+		self:Take(Lanes, Cost)
+		return
+	end
+
+	if self.Queued >= Budget.QUEUE_LIMIT then
+		error(`Ledger mock: {Budget.THROTTLED}`, 0)
+	end
+
+	self.Queued += 1
+	while not self:Ready(Lanes, Cost) do
+		task.wait(Budget.QUEUE_STEP)
+	end
+	self.Queued -= 1
+	assert(self.Queued >= 0, "the mock let more requests off its queue than it ever put on")
+	self:Take(Lanes, Cost)
+end
+
 function Service.GetRequestBudgetForRequestType(self: Service, Kind: Enum.DataStoreRequestType): number
-	return math.floor(Budget.Refill(self, `s\0{Kind.Name}`, Budget.ServerCap(self, Kind)))
+	return math.floor(self:Refill(`s\0{Kind.Name}`, self:ServerCap(Kind)))
 end
 
 function Service.Spend(self: Service, Kind: Enum.DataStoreRequestType)
 	if not self.Throttled then
 		return
 	end
-	Budget.Await(self, Budget.LanesFor(self, Kind), 1)
+	self:Await(self:LanesFor(Kind), 1)
 end
 
 function Service.Carry(self: Service, Way: string, Store: string, Key: string, Bytes: number)
@@ -64,7 +124,7 @@ function Service.Carry(self: Service, Way: string, Store: string, Key: string, B
 	end
 
 	local Cap = if Way == Budget.WRITING then Budget.WRITE_BYTES else Budget.READ_BYTES
-	Budget.Await(self, { { Id = `{Way}\0{Store}\0{Key}`, Cap = Cap } }, math.min(Bytes, Cap))
+	self:Await({ { Id = `{Way}\0{Store}\0{Key}`, Cap = Cap } }, math.min(Bytes, Cap))
 end
 
 function Service.Clear(self: Service)
@@ -96,6 +156,6 @@ end
 table.freeze(Service)
 
 return table.freeze({
-	New = New,
-	MAX_NAME = MAX_NAME
+	New = Service.New,
+	MAX_NAME = MAX_NAME,
 })

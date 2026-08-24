@@ -213,7 +213,7 @@ Cases.Case("a reducer cannot write its own bookings", function(T: Case)
 			local Next = table.clone(State)
 			Next._Booked = { forged = { Field = "Stock", Amount = 99, At = 0 } }
 			return Next
-		end
+		end,
 	})
 
 	Shelf.Store:Reserve("shelf", "Stock", 2, "cart1"):Wait()
@@ -326,7 +326,7 @@ Cases.Case("a grant racing a confirm leaves the units in exactly one place", fun
 		end,
 		function()
 			Took = (Shelf.Store:Confirm("shelf", "move1"):Wait())
-		end
+		end,
 	})
 
 	local Delivered = Booking.Delivered(Shelf:Stored("cart"), "move1")

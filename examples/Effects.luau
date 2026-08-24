@@ -19,7 +19,7 @@ export type Profile = {
 	Gold: number,
 	LastClaim: number,
 	BoostUntil: number,
-	Streak: number
+	Streak: number,
 }
 
 local DAY = 86400
@@ -130,5 +130,5 @@ return table.freeze({
 	BuyBoost = BuyBoost,
 	Render = Render,
 	ShowGold = ShowGold,
-	Watch = Watch
+	Watch = Watch,
 })

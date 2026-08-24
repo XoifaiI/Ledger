@@ -3,11 +3,11 @@
 
 --[=[
 	Transform: Runs a list of rules against one key.
-	
+
 	A datastore can run one transform more than one time when two writes arrive together.
 	The runner therefore builds the state of a pass inside the transform, and clears it at the start
 	of each run. Nothing that a rule writes can then survive into the next run.
-	
+
 	Return type: A table with Run, which gives back the record before, the record after, and the reason.
 	Example usage:
 		local Transform = require("./Transform")
@@ -29,13 +29,13 @@ export type Outcome = {
 	After: Record,
 	Changed: boolean,
 	Refused: Reason?,
-	Notes: { [string]: any }
+	Notes: { [string]: any },
 }
 
 export type Update = (Key: string, Apply: (Record) -> Record?) -> { Before: Record, After: Record, Changed: boolean }
 
 local function Run(Update: Update, Key: string, Rules: { Rule }): Outcome
-	local Pass: Pass = Rule.New(Key)
+	local Pass: Pass = Rule.New()
 
 	local Result = Update(Key, function(Record: Record): Record?
 		Pass.Refused = nil
@@ -85,10 +85,10 @@ local function Run(Update: Update, Key: string, Rules: { Rule }): Outcome
 		After = Result.After,
 		Changed = Result.Changed,
 		Refused = Pass.Refused,
-		Notes = Pass.Notes
+		Notes = Pass.Notes,
 	}
 end
 
 return table.freeze({
-	Run = Run
+	Run = Run,
 })

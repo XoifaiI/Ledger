@@ -3,10 +3,10 @@
 
 --[=[
 	Storable: Refuses each value that a datastore cannot hold.
-	
+
 	A value must survive one trip to the datastore and back.
 	No gaps in an array, no mix of array keys and string keys, no nan, no loop and no metatable.
-	
+
 	Return type: A table with Op, Value, Structure, Reserved and MAX_BYTES.
 	Example usage:
 		local IsStorable = require("./Storable")
@@ -152,5 +152,5 @@ return table.freeze({
 	Value = IsValueStorable,
 	Structure = IsStructureStorable,
 	Reserved = IsReservedKind,
-	MAX_BYTES = MAX_BYTES
+	MAX_BYTES = MAX_BYTES,
 })

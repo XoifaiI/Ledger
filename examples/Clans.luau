@@ -18,12 +18,12 @@ local Ledger = require("../src")
 export type Clan = {
 	Gold: number,
 	Motd: string,
-	Members: { [string]: boolean }
+	Members: { [string]: boolean },
 }
 
 export type Profile = {
 	Gold: number,
-	Clan: string?
+	Clan: string?,
 }
 
 --[[ the clan store's reducer ]]
@@ -124,17 +124,10 @@ end
     instead of UserId to match that store's key mode.
 --]]
 
-local function Deposit(
-	Players: Ledger.Store<Profile>,
-	Clans: Ledger.Store<Clan>,
-	DepositId: string,
-	UserId: number,
-	Tag: string,
-	Amount: number
-): (boolean, Ledger.Reason?)
+local function Deposit(Players: Ledger.Store<Profile>, Clans: Ledger.Store<Clan>, DepositId: string, UserId: number, Tag: string, Amount: number): (boolean, Ledger.Reason?)
 	return Players:Tx(`deposit:{DepositId}`, {
 		{ UserId = UserId, Kind = "SpendGold", Fields = { Amount = Amount } },
-		{ Store = Clans, Key = Tag, Kind = "Deposit", Fields = { Amount = Amount } }
+		{ Store = Clans, Key = Tag, Kind = "Deposit", Fields = { Amount = Amount } },
 	}):Wait()
 end
 
@@ -162,5 +155,5 @@ return table.freeze({
 	Join = Join,
 	SetMotd = SetMotd,
 	Read = Read,
-	Deposit = Deposit
+	Deposit = Deposit,
 })

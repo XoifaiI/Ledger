@@ -48,7 +48,7 @@ export type Report = {
 	Journal: { string },
 	Crashes: number,
 	Steps: number,
-	Seconds: number
+	Seconds: number,
 }
 
 local ROUNDS_LEAST = 120
@@ -68,7 +68,7 @@ local APART: { [string]: boolean } = {
 	CloseAll = true,
 	Erase = true,
 	Reset = true,
-	Confirm = true
+	Confirm = true,
 }
 
 local DEFAULT: any = { Gold = 0, Touches = 0, Blobs = {} }
@@ -115,7 +115,7 @@ local function Build(Keys: string, Data: string, Marked: string, Steps: { any }?
 		Default = DEFAULT,
 		Balance = "Gold",
 		Reducer = Banker,
-		Migrations = Steps
+		Migrations = Steps,
 	})
 
 	Built.Wrapper = Lib.Wrapper.New(Data)
@@ -216,9 +216,11 @@ local function Fatten(Open: (Key: any) -> any?, Key: any, Cover: Coverage.Cover)
 end
 
 local function Aged(Older: any, Keys: string, Data: string, Marked: string, Key: any, Rng: Random, Cover: Coverage.Cover, Threw: { string })
-	local Newer = Build(Keys, Data, Marked, { function(State: any): any
-		return State
-	end })
+	local Newer = Build(Keys, Data, Marked, {
+		function(State: any): any
+			return State
+		end,
+	})
 
 	local Stamped = pcall(function()
 		Newer:Edit(Key, "Touch", {}):Wait()
@@ -308,7 +310,7 @@ local function Rebuilt(Raw: any): any
 		Ops = if type(Raw.Ops) == "table" then Raw.Ops else {},
 		Seen = if type(Raw.Seen) == "table" then Raw.Seen else {},
 		Version = if type(Raw.Version) == "number" then Raw.Version else nil,
-		Floor = if type(Raw.Floor) == "number" then Raw.Floor else nil
+		Floor = if type(Raw.Floor) == "number" then Raw.Floor else nil,
 	}
 end
 
@@ -350,10 +352,7 @@ local function Judge(Books: Auditor.Auditor, Broken: { string }, Named: string, 
 	if Verdict == nil then
 		return
 	end
-	table.insert(
-		Broken,
-		`{Verdict.Named} answered '{Verdict.Why}' and only [{table.concat(Verdict.Allowed, ", ")}] were allowed: {Verdict.Says}`
-	)
+	table.insert(Broken, `{Verdict.Named} answered '{Verdict.Why}' and only [{table.concat(Verdict.Allowed, ", ")}] were allowed: {Verdict.Says}`)
 end
 
 export type Options = {
@@ -363,7 +362,7 @@ export type Options = {
 	Misdirect: boolean?,
 	Throttled: boolean?,
 	Players: number?,
-	Trace: boolean?
+	Trace: boolean?,
 }
 
 local function Run(Seed: number, Options: Options?): Report
@@ -464,8 +463,9 @@ local function Run(Seed: number, Options: Options?): Report
 				Fat: { Now: boolean },
 				Model: Model.Model,
 				Lied: { string },
-				Bookings: { any }
-			} = { Routes = {}, Legs = {}, Grants = {}, Pairs = {}, Fat = { Now = false }, Model = Range, Lied = {}, Bookings = {} }
+				Bookings: { any },
+			} =
+				{ Routes = {}, Legs = {}, Grants = {}, Pairs = {}, Fat = { Now = false }, Model = Range, Lied = {}, Bookings = {} }
 
 			local Turn = Scheduler.New(Sub())
 			Plate.Turn = Turn
@@ -511,7 +511,7 @@ local function Run(Seed: number, Options: Options?): Report
 							Shutting = false,
 							Aged = false,
 							Fat = Shared.Fat.Now,
-							Junk = Outcome.Junk == true
+							Junk = Outcome.Junk == true,
 						})
 
 						if Held.Trace == true then
@@ -669,12 +669,12 @@ local function Run(Seed: number, Options: Options?): Report
 		Journal = Faulty.Journal,
 		Crashes = Crashes,
 		Steps = Steps,
-		Seconds = os.clock() - Started
+		Seconds = os.clock() - Started,
 	}
 end
 
 return table.freeze({
 	Run = Run,
 	Banker = Banker,
-	DEFAULT = DEFAULT
+	DEFAULT = DEFAULT,
 })

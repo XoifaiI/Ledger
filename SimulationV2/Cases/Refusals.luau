@@ -45,7 +45,7 @@ local function Plain(T: Case, Keys: string?, Reducer: any?, Data: string?): Fixt
 		Keys = Keys or "Player",
 		Default = Reducers.PLAIN,
 		Reducer = Reducer or Keep,
-		Data = Data
+		Data = Data,
 	})
 end
 
@@ -54,7 +54,7 @@ local function Purse(T: Case, Data: string?): Fixture
 		Default = Reducers.PLAIN,
 		Balance = "Gold",
 		Reducer = Adder,
-		Data = Data
+		Data = Data,
 	})
 end
 
@@ -216,31 +216,37 @@ Cases.Case("Tx refuses a leg it cannot trust", function(T: Case)
 		Store.Store:Tx("badfields", { { UserId = 1, Kind = "K", Fields = "nope" :: any }, { UserId = 2, Kind = "K" } })
 	end)
 
-	local Held, Why = Store.Store:Tx("unstorable", {
-		{ UserId = 1, Kind = "K", Fields = { Thing = workspace } },
-		{ UserId = 2, Kind = "K" }
-	}):Wait()
+	local Held, Why = Store.Store
+		:Tx("unstorable", {
+			{ UserId = 1, Kind = "K", Fields = { Thing = workspace } },
+			{ UserId = 2, Kind = "K" },
+		})
+		:Wait()
 	T:Is("fields a datastore cannot hold", Held, false)
 	T:Is("the reason for fields it cannot hold", Why, "Invalid")
 
-	local Named, NamedWhy = Store.Store:Tx("reserved", {
-		{ UserId = 1, Kind = "K", Fields = { Tx = "hax" } },
-		{ UserId = 2, Kind = "K" }
-	}):Wait()
+	local Named, NamedWhy = Store.Store
+		:Tx("reserved", {
+			{ UserId = 1, Kind = "K", Fields = { Tx = "hax" } },
+			{ UserId = 2, Kind = "K" },
+		})
+		:Wait()
 	T:Is("fields using a reserved name", Named, false)
 	T:Is("the reason for a reserved name", NamedWhy, "Invalid")
 
-	local Owned, OwnedWhy = Store.Store:Tx("ownedkind", {
-		{ UserId = 1, Kind = "__TransferDeliver" },
-		{ UserId = 2, Kind = "K" }
-	}):Wait()
+	local Owned, OwnedWhy = Store.Store
+		:Tx("ownedkind", {
+			{ UserId = 1, Kind = "__TransferDeliver" },
+			{ UserId = 2, Kind = "K" },
+		})
+		:Wait()
 	T:Is("a kind Ledger owns", Owned, false)
 	T:Is("the reason for a kind Ledger owns", OwnedWhy, "Invalid")
 
 	T:Throws("a store that Ledger did not build", function()
 		Store.Store:Tx("junkstore", {
 			{ UserId = 1, Kind = "K" },
-			{ Store = {} :: any, Key = "clan x", Kind = "K" }
+			{ Store = {} :: any, Key = "clan x", Kind = "K" },
 		})
 	end)
 end)
@@ -260,16 +266,20 @@ Cases.Case("a cross store Tx refuses when the far store cannot afford", function
 	local Players = T:Store({ Keys = "Player", Default = Reducers.PLAIN, Reducer = Move })
 	local Clans = T:Store({ Keys = "String", Default = Reducers.PLAIN, Reducer = Move, Data = "CaseClan" })
 
-	local Broke, Why = Players.Store:Tx("xbroke", {
-		{ UserId = 71, Kind = "Move", Fields = { Amount = 25 } },
-		{ Store = Clans.Store, Key = "clan x", Kind = "Move", Fields = { Amount = -25 } }
-	}):Wait()
+	local Broke, Why = Players.Store
+		:Tx("xbroke", {
+			{ UserId = 71, Kind = "Move", Fields = { Amount = 25 } },
+			{ Store = Clans.Store, Key = "clan x", Kind = "Move", Fields = { Amount = -25 } },
+		})
+		:Wait()
 
 	Clans.Store:Edit("clan x", "Move", { Amount = 40 }):Wait()
-	local Funded = Players.Store:Tx("xfunded", {
-		{ UserId = 71, Kind = "Move", Fields = { Amount = 25 } },
-		{ Store = Clans.Store, Key = "clan x", Kind = "Move", Fields = { Amount = -25 } }
-	}):Wait()
+	local Funded = Players.Store
+		:Tx("xfunded", {
+			{ UserId = 71, Kind = "Move", Fields = { Amount = 25 } },
+			{ Store = Clans.Store, Key = "clan x", Kind = "Move", Fields = { Amount = -25 } },
+		})
+		:Wait()
 
 	T:Is("a transaction the clan cannot afford", Broke, false)
 	T:Is("the reason", Why, "Refused")
@@ -282,11 +292,21 @@ Cases.Case("the entity api refuses a nil player", function(T: Case)
 	local Store = Plain(T, "String")
 	local Nobody: any = nil
 
-	T:Throws("Get", function() Store.Store:Get(Nobody) end)
-	T:Throws("Expect", function() Store.Store:Expect(Nobody) end)
-	T:Throws("IsLoaded", function() Store.Store:IsLoaded(Nobody) end)
-	T:Throws("Read", function() Store.Store:Read(Nobody) end)
-	T:Throws("WaitForLoaded", function() Store.Store:WaitForLoaded(Nobody) end)
+	T:Throws("Get", function()
+		Store.Store:Get(Nobody)
+	end)
+	T:Throws("Expect", function()
+		Store.Store:Expect(Nobody)
+	end)
+	T:Throws("IsLoaded", function()
+		Store.Store:IsLoaded(Nobody)
+	end)
+	T:Throws("Read", function()
+		Store.Store:Read(Nobody)
+	end)
+	T:Throws("WaitForLoaded", function()
+		Store.Store:WaitForLoaded(Nobody)
+	end)
 end)
 
 Cases.Case("Edit refuses an unstorable op and an unknown kind", function(T: Case)
@@ -376,8 +396,7 @@ Cases.Case("a yielding callback is stopped not just reported", function(T: Case)
 end)
 
 Cases.Case("the retry cap can be lowered while it is retrying", function(T: Case)
-	local Limits: { Attempts: number?, Constant: number?, Exponent: number?, Jitter: number? } =
-		{ Attempts = 30, Constant = 0.02, Exponent = 1.05 }
+	local Limits: { Attempts: number?, Constant: number?, Exponent: number?, Jitter: number? } = { Attempts = 30, Constant = 0.02, Exponent = 1.05 }
 	local Tries = 0
 
 	task.delay(0.1, function()
@@ -405,7 +424,7 @@ Cases.Case("recovery leaves the overflow for the next pass", function(T: Case)
 				Appends += 1
 				return { Ops = Ops or {}, Seen = {} }
 			end
-		end
+		end,
 	})
 
 	local Holds: { [string]: any } = {}
@@ -436,8 +455,8 @@ Cases.Case("a migration that drops a default key is not called out", function(T:
 		Migrations = {
 			function(State: any): any
 				return { Gold = State.Legacy.Nested }
-			end
-		}
+			end,
+		},
 	})
 	T:Store({
 		Default = { Gold = 0, Coins = 0 },
@@ -448,8 +467,8 @@ Cases.Case("a migration that drops a default key is not called out", function(T:
 				local Next = table.clone(State)
 				Next.Coins = 100
 				return Next
-			end
-		}
+			end,
+		},
 	})
 	T:Store({
 		Default = { Gold = 0 },
@@ -460,8 +479,8 @@ Cases.Case("a migration that drops a default key is not called out", function(T:
 				Next.Gold = State.Coins
 				Next.Coins = nil
 				return Next
-			end
-		}
+			end,
+		},
 	})
 
 	T:Silent("nothing complains that the Default still declares a dropped key", "Default still declares")
@@ -473,8 +492,8 @@ Cases.Case("a migration that drops a default key is not called out", function(T:
 				function(State: any): any
 					task.wait(0.2)
 					return State
-				end
-			}
+				end,
+			},
 		})
 	end)
 end)
@@ -524,7 +543,7 @@ Cases.Case("erasing a key hands over its holds first", function(T: Case)
 
 	Store:Append("eraseA", { MakeOp.New("Add", { Amount = 100 }) })
 	Store:Append("eraseA", {
-		{ Id = "res:fresh", Kind = "__TransferReserve", To = "eraseB", Amount = 40, Tid = "fresh", At = T:Now() } :: any
+		{ Id = "res:fresh", Kind = "__TransferReserve", To = "eraseB", Amount = 40, Tid = "fresh", At = T:Now() } :: any,
 	})
 
 	Store.Store:Erase("eraseA"):Wait()
@@ -538,7 +557,7 @@ Cases.Case("erasing a key with an undeliverable hold says so", function(T: Case)
 
 	Store:Append("marginA", { MakeOp.New("Add", { Amount = 100 }) })
 	Store:Append("marginA", {
-		{ Id = "res:margin", Kind = "__TransferReserve", To = "marginB", Amount = 40, Tid = "margin", At = T:Now() } :: any
+		{ Id = "res:margin", Kind = "__TransferReserve", To = "marginB", Amount = 40, Tid = "margin", At = T:Now() } :: any,
 	})
 	T:Advance(7 * 86400 + 43200)
 
@@ -655,7 +674,7 @@ Cases.Case("reading a key schedules its stranded escrow", function(T: Case)
 
 	Store:Append("peekA", { MakeOp.New("Add", { Amount = 100 }) })
 	Store:Append("peekA", {
-		{ Id = "res:stranded", Kind = "__TransferReserve", To = "peekB", Amount = 40, Tid = "stranded", At = T:Now() } :: any
+		{ Id = "res:stranded", Kind = "__TransferReserve", To = "peekB", Amount = 40, Tid = "stranded", At = T:Now() } :: any,
 	})
 
 	T:Sweep()
@@ -673,7 +692,7 @@ Cases.Case("asking what a key has applied schedules its stranded escrow too", fu
 
 	Store:Append("askA", { MakeOp.New("Add", { Amount = 100 }) })
 	Store:Append("askA", {
-		{ Id = "res:stranded", Kind = "__TransferReserve", To = "askB", Amount = 40, Tid = "stranded", At = T:Now() } :: any
+		{ Id = "res:stranded", Kind = "__TransferReserve", To = "askB", Amount = 40, Tid = "stranded", At = T:Now() } :: any,
 	})
 
 	T:Sweep()
@@ -700,7 +719,7 @@ Cases.Case("the sweep keeps going while it is still clearing holds", function(T:
 			To = "bulkB",
 			Amount = 1,
 			Tid = `bulk{Index}`,
-			At = T:Now()
+			At = T:Now(),
 		})
 	end
 	Store:Append("bulkA", Batch)
@@ -729,7 +748,7 @@ Cases.Case("a reducer that writes into the state it was given is refused on ever
 				return Next
 			end
 			return nil
-		end
+		end,
 	})
 
 	Store.Store:Edit("k", "Add"):Wait()
@@ -756,7 +775,7 @@ Cases.Case("a reducer cannot clear the applied names on a store with no balance"
 				return Next
 			end
 			return nil
-		end
+		end,
 	})
 
 	Store.Store:Edit("k", "Add", { Once = "keepme" }):Wait()
@@ -808,7 +827,7 @@ Cases.Case("RecoverTransfers says so when it ran out of room", function(T: Case)
 			To = "partB",
 			Amount = 1,
 			Tid = `part{Index}`,
-			At = T:Now()
+			At = T:Now(),
 		})
 	end
 	Store:Append("partA", Batch)
@@ -830,8 +849,8 @@ Cases.Case("a reset is refused against a record from a newer format", function(T
 		Migrations = {
 			function(State: any): any
 				return State
-			end
-		}
+			end,
+		},
 	})
 
 	Store:Write("ahead", { Snapshot = { Gold = 500 }, Ops = {}, Seen = {}, Version = 4, Floor = 4, Envelope = 1 })
@@ -1051,9 +1070,13 @@ Cases.Case("a guarded callback can guard another one inside itself", function(T:
 
 	T:Is("a guarded call inside a guarded call", Inner, "inner")
 	T:Is("one that yields two deep", Ran, false)
-	T:Is("a plain call once the nested one was stopped", NoYield.Run(function(): number
-		return 7
-	end), 7)
+	T:Is(
+		"a plain call once the nested one was stopped",
+		NoYield.Run(function(): number
+			return 7
+		end),
+		7
+	)
 end)
 
 Cases.Case("a thread that threw is not handed out again", function(T: Case)

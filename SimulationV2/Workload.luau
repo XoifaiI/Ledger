@@ -24,7 +24,7 @@ type Reason = Catalogue.Reason
 export type Outcome = {
 	read Ok: boolean,
 	read Why: Reason?,
-	read Junk: boolean?
+	read Junk: boolean?,
 }
 
 export type World = {
@@ -51,7 +51,7 @@ export type World = {
 	Txids: { string },
 	Versions: { { Key: any, Version: string } },
 	Tallies: { string },
-	Round: number
+	Round: number,
 }
 
 local SPLIT = " on key "
@@ -125,7 +125,7 @@ local function Player(Named: any, Gone: boolean?): any
 		UserId = tonumber(Named) or 1,
 		Name = `player{Named}`,
 		Parent = if Gone then nil else game,
-		Kick = function() end
+		Kick = function() end,
 	}
 end
 
@@ -499,10 +499,12 @@ function Handlers.Tx(self: World): Outcome
 	local Player = self.Mode == "Player"
 	self.Legs[Id] = 2
 	Asked(self, Model.TX, Id, From, To, Sent)
-	local Ok, Why = self.Store:Tx(Id, {
-		{ UserId = if Player then From else nil, Key = if Player then nil else From, Kind = "Give", Fields = { Amount = -Sent } },
-		{ UserId = if Player then To else nil, Key = if Player then nil else To, Kind = "Give", Fields = { Amount = Sent } }
-	}):Wait()
+	local Ok, Why = self.Store
+		:Tx(Id, {
+			{ UserId = if Player then From else nil, Key = if Player then nil else From, Kind = "Give", Fields = { Amount = -Sent } },
+			{ UserId = if Player then To else nil, Key = if Player then nil else To, Kind = "Give", Fields = { Amount = Sent } },
+		})
+		:Wait()
 	Keep(self.Txids, Id)
 	return Answered(Ok, Why)
 end
@@ -551,7 +553,16 @@ for Named in Handlers do
 	assert(Known, `the workload handles '{Named}' and the catalogue does not name it`)
 end
 
-local function New(Store: any, Keys: { any }, Rng: Random, Mode: string, Open: (Key: any) -> any?, Sweep: () -> (), CloseAll: () -> (), Shared: { Routes: any, Legs: any, Grants: any, Pairs: any, Fat: any, Model: any, Lied: any, Bookings: any }?): World
+local function New(
+	Store: any,
+	Keys: { any },
+	Rng: Random,
+	Mode: string,
+	Open: (Key: any) -> any?,
+	Sweep: () -> (),
+	CloseAll: () -> (),
+	Shared: { Routes: any, Legs: any, Grants: any, Pairs: any, Fat: any, Model: any, Lied: any, Bookings: any }?
+): World
 	assert(#Keys > 0, "a workload needs at least one key to work on")
 	return {
 		Store = Store,
@@ -577,7 +588,7 @@ local function New(Store: any, Keys: { any }, Rng: Random, Mode: string, Open: (
 		Txids = {},
 		Versions = {},
 		Tallies = { "tally1", "tally2" },
-		Round = 0
+		Round = 0,
 	}
 end
 
@@ -599,5 +610,5 @@ return table.freeze({
 	Player = Player,
 	Handlers = Handlers,
 	MAX_POOL = MAX_POOL,
-	NAMES_IN_PLAY = NAMES_IN_PLAY
+	NAMES_IN_PLAY = NAMES_IN_PLAY,
 })

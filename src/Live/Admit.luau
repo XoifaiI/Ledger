@@ -3,7 +3,7 @@
 
 --[=[
 	Admit: Rules on one op against the live state.
-	
+
 	This is the only place that decides whether an op may join the session, and it answers with a
 	reason and not a boolean.
 
@@ -13,7 +13,7 @@
 	is already past the cap.
 	With two or more transactions parked, there are too many ways for them to settle to prove that
 	an op holds for all of them. The op is turned away, and not guessed at.
-	
+
 	Return type: A table with Admit and MAX_STATE_BYTES.
 	Example usage:
 		local Admit = require("./Admit")
@@ -54,9 +54,7 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 
 	if self.LogBytes + OpBytes > MAX_LOG_BYTES then
 		if self.Parked > 0 then
-			warn(
-				`Ledger: rejected op '{Op.Kind}', '{self.Key}' has hit the {MAX_LOG_BYTES} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`
-			)
+			warn(`Ledger: rejected op '{Op.Kind}', '{self.Key}' has hit the {MAX_LOG_BYTES} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
 			return { Outcome = "Refused", Why = BUSY }
 		end
 		warn(`Ledger: rejected op '{Op.Kind}', unsaved ops have hit the {MAX_LOG_BYTES} byte cap. saves are not going through, check the datastore`)
@@ -78,18 +76,14 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	if Next == nil then
 		local Waiting = self.Landed
 		if Waiting ~= nil and not Durable and Step(self.Shape.Reducer, Waiting, Op) ~= nil then
-			warn(
-				`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction goes through. ask again once it settles`
-			)
+			warn(`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction goes through. ask again once it settles`)
 			return { Outcome = "Refused", Why = UNRESOLVED }
 		end
 		return { Outcome = "Rejected" }
 	end
 
 	if self.Parked > 1 and not Durable then
-		warn(
-			`Ledger: rejected op '{Op.Kind}', more than one transaction is parked on '{self.Key}' and this op only holds for some of the ways they can settle. ask again once they clear`
-		)
+		warn(`Ledger: rejected op '{Op.Kind}', more than one transaction is parked on '{self.Key}' and this op only holds for some of the ways they can settle. ask again once they clear`)
 		return { Outcome = "Refused", Why = UNRESOLVED }
 	end
 
@@ -98,9 +92,7 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	if Parked ~= nil and not Durable then
 		Also = Step(self.Shape.Reducer, Parked, Op)
 		if Also == nil then
-			warn(
-				`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction does not go through. ask again once it settles`
-			)
+			warn(`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction does not go through. ask again once it settles`)
 			return { Outcome = "Refused", Why = UNRESOLVED }
 		end
 	end
@@ -123,5 +115,5 @@ end
 
 return table.freeze({
 	Admit = Admit,
-	MAX_STATE_BYTES = MAX_STATE_BYTES
+	MAX_STATE_BYTES = MAX_STATE_BYTES,
 })

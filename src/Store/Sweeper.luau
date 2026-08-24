@@ -3,7 +3,7 @@
 
 --[=[
 	Sweeper: Retries each key that a failed write left unfinished.
-	
+
 	It also removes transaction markers on each tenth pass.
 	It stops following a key after a few tries. A key that it cannot repair is a key that something
 	else has to hear about.
@@ -27,31 +27,16 @@ local Types = require("./Types")
 type Store = Types.Store
 type Stranded = { Store: Store, Key: string, Tries: number }
 
-local SWEEP_INTERVAL = 60
-local SWEEP_LIMIT = 256
-local SWEEP_TRIES = 5
-local MIN_SWEEP_BUDGET = 8
-local MIN_LIST_BUDGET = 2
-local REAP_EVERY = 10
-
-local function Affordable(Store: Store): boolean
-	return Store.Wrapper:Budget(Enum.DataStoreRequestType.GetAsync) >= MIN_SWEEP_BUDGET
-		and Store.Wrapper:Budget(Enum.DataStoreRequestType.UpdateAsync) >= MIN_SWEEP_BUDGET
-end
-
-local function Listable(Store: Store): boolean
-	return Store.TxWrapper:Budget(Enum.DataStoreRequestType.ListAsync) >= MIN_LIST_BUDGET
-end
-
 type SweeperImpl = {
 	__index: SweeperImpl,
 
+	New: (Stores: { Store }) -> Sweeper,
 	Add: (self: Sweeper, Store: Store, Key: string) -> (),
 	Drop: (self: Sweeper, Mark: string) -> (),
 	Forget: (self: Sweeper, Store: Store) -> (),
 	Reap: (self: Sweeper, Mine: number?) -> (),
 	Pass: (self: Sweeper) -> (),
-	Stop: (self: Sweeper) -> ()
+	Stop: (self: Sweeper) -> (),
 }
 
 export type Sweeper = setmetatable<{
@@ -61,18 +46,33 @@ export type Sweeper = setmetatable<{
 	Passes: number,
 	Resume: number,
 	Epoch: number,
-	Ticker: thread
+	Ticker: thread,
 }, SweeperImpl>
+
+local SWEEP_INTERVAL = 60
+local SWEEP_LIMIT = 256
+local SWEEP_TRIES = 5
+local MIN_SWEEP_BUDGET = 8
+local MIN_LIST_BUDGET = 2
+local REAP_EVERY = 10
+
+local function Affordable(Store: Store): boolean
+	return Store.Wrapper:Budget(Enum.DataStoreRequestType.GetAsync) >= MIN_SWEEP_BUDGET and Store.Wrapper:Budget(Enum.DataStoreRequestType.UpdateAsync) >= MIN_SWEEP_BUDGET
+end
+
+local function Listable(Store: Store): boolean
+	return Store.TxWrapper:Budget(Enum.DataStoreRequestType.ListAsync) >= MIN_LIST_BUDGET
+end
 
 local Sweeper = {} :: SweeperImpl
 Sweeper.__index = Sweeper
 
-local function New(Stores: { Store }): Sweeper
-	local self: Sweeper = setmetatable({ Entries = {}, Stores = Stores, Count = 0, Passes = 0, Resume = 1, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
-	self.Ticker = SetInterval(SWEEP_INTERVAL, function()
-		self:Pass()
+function Sweeper.New(Stores: { Store }): Sweeper
+	local Built: Sweeper = setmetatable({ Entries = {}, Stores = Stores, Count = 0, Passes = 0, Resume = 1, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
+	Built.Ticker = SetInterval(SWEEP_INTERVAL, function()
+		Built:Pass()
 	end)
-	return self
+	return Built
 end
 
 function Sweeper.Add(self: Sweeper, Store: Store, Key: string)
@@ -171,7 +171,9 @@ function Sweeper.Pass(self: Sweeper)
 		end
 
 		warn(
-			`Ledger: gave up retrying '{Entry.Key}' after {SWEEP_TRIES} goes, so whatever is unfinished on it waits for the next write. call Resettle on it yourself: {if Ok then "it still had something pending" else tostring(Clean)}`
+			`Ledger: gave up retrying '{Entry.Key}' after {SWEEP_TRIES} goes, so whatever is unfinished on it waits for the next write. call Resettle on it yourself: {if Ok
+				then "it still had something pending"
+				else tostring(Clean)}`
 		)
 		self:Drop(Mark)
 	end
@@ -187,5 +189,5 @@ end
 table.freeze(Sweeper)
 
 return table.freeze({
-	New = New
+	New = Sweeper.New,
 })

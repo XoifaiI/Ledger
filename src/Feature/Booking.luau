@@ -3,7 +3,7 @@
 
 --[=[
 	Booking: Holds units of a number field under a name.
-	
+
 	The units stay set aside until something takes them or gives them back. Limited stock can
 	therefore sit on one key, and does not need a transaction across two keys.
 	The next booking on that key gives back each booking that is older than its hold.
@@ -63,9 +63,7 @@ local function Entry(Booked: any, Rid: any): Data?
 	end
 
 	local Found = Booked[Rid]
-	return if type(Found) == "table" and type(Found.Amount) == "number" and type(Found.Field) == "string"
-		then Found
-		else nil
+	return if type(Found) == "table" and type(Found.Amount) == "number" and type(Found.Field) == "string" then Found else nil
 end
 
 local function Ends(Held: Data): number?
@@ -254,7 +252,7 @@ local function Book(Rid: string, Field: string, Amount: number, Hold: number?, T
 		Amount = Amount,
 		At = Clock.Now(),
 		Hold = Hold,
-		To = To
+		To = To,
 	} :: any
 end
 
@@ -288,7 +286,7 @@ local function Terms(From: string, Rid: string, Held: Data): string
 		Rid = Rid,
 		Field = tostring(Held.Field),
 		Amount = Held.Amount,
-		At = Held.At
+		At = Held.At,
 	}))
 end
 
@@ -337,11 +335,11 @@ local Held: Layer.Layer = {
 		[FREE] = Freeing,
 		[GIVEN] = Giving,
 		[HAND] = Handing,
-		[UNHAND] = Unhanding
+		[UNHAND] = Unhanding,
 	},
 	Owns = {
-		{ Field = "_Booked", Says = "the units set aside" }
-	}
+		{ Field = "_Booked", Says = "the units set aside" },
+	},
 }
 
 local function Layered(_Balance: string?): Layer.Layer?
@@ -370,5 +368,5 @@ return table.freeze({
 	HAND_ID = HAND_ID,
 	UNHAND_ID = UNHAND_ID,
 	BOOK_HORIZON = BOOK_HORIZON,
-	BOOK_MARGIN = BOOK_MARGIN
+	BOOK_MARGIN = BOOK_MARGIN,
 })

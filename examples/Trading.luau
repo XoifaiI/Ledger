@@ -17,7 +17,7 @@ local Ledger = require("../src")
 
 export type Profile = {
 	Gold: number,
-	Items: { [string]: boolean }
+	Items: { [string]: boolean },
 }
 
 --[[ the reducer branch, written so one kind serves both sides of a trade ]]
@@ -57,31 +57,17 @@ end
 
 --[[ the call site ]]
 
-local function Swap(
-	Store: Ledger.Store<Profile>,
-	TradeId: string,
-	Left: number,
-	LeftItem: string,
-	Right: number,
-	RightItem: string
-): (boolean, Ledger.Reason?)
+local function Swap(Store: Ledger.Store<Profile>, TradeId: string, Left: number, LeftItem: string, Right: number, RightItem: string): (boolean, Ledger.Reason?)
 	return Store:Tx(`trade:{TradeId}`, {
 		{ UserId = Left, Kind = "Trade", Fields = { Give = LeftItem, Take = RightItem } },
-		{ UserId = Right, Kind = "Trade", Fields = { Give = RightItem, Take = LeftItem } }
+		{ UserId = Right, Kind = "Trade", Fields = { Give = RightItem, Take = LeftItem } },
 	}):Wait()
 end
 
-local function BuyFrom(
-	Store: Ledger.Store<Profile>,
-	TradeId: string,
-	Buyer: number,
-	Seller: number,
-	Item: string,
-	Price: number
-): (boolean, Ledger.Reason?)
+local function BuyFrom(Store: Ledger.Store<Profile>, TradeId: string, Buyer: number, Seller: number, Item: string, Price: number): (boolean, Ledger.Reason?)
 	return Store:Tx(`trade:{TradeId}`, {
 		{ UserId = Buyer, Kind = "Trade", Fields = { Gold = -Price, Take = Item } },
-		{ UserId = Seller, Kind = "Trade", Fields = { Gold = Price, Give = Item } }
+		{ UserId = Seller, Kind = "Trade", Fields = { Gold = Price, Give = Item } },
 	}):Wait()
 end
 
@@ -117,5 +103,5 @@ end
 return table.freeze({
 	Reducer = Reducer,
 	Swap = Swap,
-	BuyFrom = BuyFrom
+	BuyFrom = BuyFrom,
 })

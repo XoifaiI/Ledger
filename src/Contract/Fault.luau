@@ -21,13 +21,13 @@ local Reasons = require("./Reason")
 type Reason = Reasons.Reason
 
 type FaultImpl = {
-	__tostring: (self: Fault) -> string
+	__tostring: (self: Fault) -> string,
 }
 
 export type Fault = setmetatable<{
 	read Ledger: true,
 	read Why: Reason,
-	read Message: string
+	read Message: string,
 }, FaultImpl>
 
 local CLOSED = Reasons.Closed
@@ -86,5 +86,5 @@ return table.freeze({
 	Of = Of,
 	Named = Named,
 	Broke = Broke,
-	Holds = Holds
+	Holds = Holds,
 })

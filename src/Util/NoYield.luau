@@ -101,5 +101,5 @@ end
 return table.freeze({
 	Run = Run,
 	Try = Try,
-	YIELDED = YIELDED
+	YIELDED = YIELDED,
 })

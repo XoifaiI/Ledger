@@ -3,7 +3,7 @@
 
 --[=[
 	Marker: The one key that decides a transaction.
-	
+
 	No marker means aborted. A server that never wrote one therefore leaves nothing behind.
 	A marker is taken away only after each leg has reported.
 	A marker that nothing has touched for longer than the whole transaction may take is dead,
@@ -12,8 +12,8 @@
 
 	Ledger keeps a handle to each other store that holds a marker. A game chooses how many of those
 	stores there are, so the set is small.
-	
-	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
+
+	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes, the four openings, the three statuses, and the caps.
 	Example usage:
 		local Marker = require("./Marker")
 		local Status = Marker.StatusOf(TxStore, "order1", 30)
@@ -102,13 +102,7 @@ local function HomeOf(TxStore: DataStoreWrapper, Home: string | true): DataStore
 	return Elsewhere(Home)
 end
 
-local function Create(
-	TxStore: DataStoreWrapper,
-	Txid: string,
-	Total: number,
-	Keys: string,
-	Terms: string
-): (Opened, string?, number, boolean)
+local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Keys: string, Terms: string): (Opened, string?, number, boolean)
 	Fault.Holds(Total > 0, "a transaction marker is being opened for no legs at all")
 
 	local Clash = false
@@ -126,7 +120,7 @@ local function Create(
 				At = Born,
 				Adopted = {},
 				Keys = Keys,
-				Terms = Terms
+				Terms = Terms,
 			}
 		end
 		if type(Current.Keys) == "string" and Current.Keys ~= Keys then
@@ -173,10 +167,7 @@ local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrin
 		return nil
 	end
 	local Decided = Value :: Marker
-	Fault.Holds(
-		Decided.Status ~= PENDING,
-		`transaction '{Txid}' was decided but its marker is still pending, so another server could decide it the other way`
-	)
+	Fault.Holds(Decided.Status ~= PENDING, `transaction '{Txid}' was decided but its marker is still pending, so another server could decide it the other way`)
 
 	if Shrink ~= nil and Decided.Status == ABORTED and (Decided.Total <= 0 or TableUtil.Count(Decided.Adopted) >= Decided.Total) then
 		TxStore:RemoveAsync(Txid)
@@ -218,9 +209,7 @@ local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string },
 			return nil
 		end
 
-		local Adopted: { [string]: boolean } = if type(Current.Adopted) == "table"
-			then Current.Adopted :: { [string]: boolean }
-			else {}
+		local Adopted: { [string]: boolean } = if type(Current.Adopted) == "table" then Current.Adopted :: { [string]: boolean } else {}
 		for _, Mark in Marks do
 			Adopted[Mark] = true
 		end
@@ -235,10 +224,7 @@ local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string },
 	local Marker = Value :: Marker
 	local Done = if Marker.Total > 0 then TableUtil.Count(Marker.Adopted) >= Marker.Total else Marker.Status == ABORTED
 	if Done then
-		Fault.Holds(
-			Marker.Status ~= PENDING,
-			`transaction '{Txid}' is having its marker taken away while it is still undecided, so a retry would run it again`
-		)
+		Fault.Holds(Marker.Status ~= PENDING, `transaction '{Txid}' is having its marker taken away while it is still undecided, so a retry would run it again`)
 		TxStore:RemoveAsync(Txid)
 	end
 end
@@ -273,5 +259,5 @@ return table.freeze({
 
 	LEG_TIMEOUT = LEG_TIMEOUT,
 	MAX_LEGS = MAX_LEGS,
-	MAX_HOMES = MAX_HOMES
+	MAX_HOMES = MAX_HOMES,
 })
