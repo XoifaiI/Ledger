@@ -21,6 +21,7 @@
 		local Ok, Why = Transfer.Drive(Books, Format, "a", "b", 30, "tip1")
 --]=]
 
+local Say = require("../Util/Say")
 local Clock = require("../Util/Clock")
 local Fault = require("../Contract/Fault")
 local Reasons = require("../Contract/Reason")
@@ -99,7 +100,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 			return { Outcome = "Finished" }
 		end
 		if Already == Entries.OTHER then
-			warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
+			Say.Warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
 			return { Outcome = "Stopped", Why = SPENT }
 		end
 	end
@@ -118,12 +119,12 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	local Escrowed: Hold? = if type(Holds) == "table" then Holds[Tid] else nil
 	if Escrowed ~= nil then
 		if Escrowed.To ~= To or Escrowed.Amount ~= Amount then
-			warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}, so that is what it pays out, not the {Amount} to {To} you just asked for`)
+			Say.Warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}, so that is what it pays out, not the {Amount} to {To} you just asked for`)
 		end
 
 		local At = Escrowed.At
 		if type(At) == "number" and Clock.Now() - At > Escrow.REDRIVE_HORIZON then
-			warn(
+			Say.Warn(
 				`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again, so recovery owns it now and this call left it alone. it is finished or given back on its own`
 			)
 			return { Outcome = "Stopped", Why = HELD }
@@ -137,7 +138,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		Spend = Entries.Recall((State :: any)._Received, Entries.SENT, Tid, Before)
 	end
 	if Spend == Entries.OTHER then
-		warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
+		Say.Warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
 		return { Outcome = "Stopped", Why = SPENT }
 	end
 	if Spend == Entries.SAME or Stamp.Carries(Record, `{Escrow.SETTLE_ID}:{Tid}`) then
@@ -226,7 +227,7 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 		return true, nil, nil
 	end
 
-	warn(`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`)
+	Say.Warn(`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`)
 	return false, Fault.Named(Why), true
 end
 

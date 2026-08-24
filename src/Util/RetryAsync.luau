@@ -13,6 +13,8 @@
 		local Ok, Value = RetryAsync(Call, { Attempts = 3 })
 --]=]
 
+local Say = require("./Say")
+
 type Handler = (() -> ...any) -> (boolean, ...any)
 
 export type Limits = {
@@ -51,7 +53,7 @@ local function RetryAsync(Callback: () -> ...any, Limits: Limits?, Handler: Hand
 
 		local Allowed = Bounds.Attempts or DEFAULT_ATTEMPTS
 		if not Result[1] then
-			warn(`Ledger: RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
+			Say.Warn(`Ledger: RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
 		end
 
 		if Result[1] or Attempt >= Allowed or Settled(Result[2]) then

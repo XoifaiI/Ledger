@@ -22,6 +22,7 @@
 		local Clean, Moved = Recovery.Transfers(Books, Format, "a", Held)
 --]=]
 
+local Say = require("../Util/Say")
 local Clock = require("../Util/Clock")
 local Fault = require("../Contract/Fault")
 local Horizons = require("../Contract/Horizons")
@@ -58,7 +59,7 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 
 	Fault.Holds(Age > PRUNE_HORIZON, "a transfer is being written off before it is old enough, so money would be destroyed early")
 
-	warn(
+	Say.Warn(
 		`Ledger: transfer {Tid} from {From} has been stuck over {PRUNE_HORIZON // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
 	)
 	Transfer.Settle(Records, From, Tid, Transfer.Terms(From, Entry.To, Entry.Amount))
@@ -69,7 +70,7 @@ local function Redeliver(Records: Log, Format: Format, From: number | string, Ti
 		Transfer.Post(Records, Format, From, Tid, Entry.To, Entry.Amount)
 	end)
 	if not Ok then
-		warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
+		Say.Warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
 	end
 	return Ok
 end
@@ -79,7 +80,7 @@ local function GiveBack(Records: Log, Format: Format, From: number | string, Tid
 		Expire(Records, Format, From, Tid, Entry, Age)
 	end)
 	if not Ok then
-		warn(`Ledger: could not give back transfer {Tid} from {From}. the money stays set aside and the next recovery has another go: {Reason}`)
+		Say.Warn(`Ledger: could not give back transfer {Tid} from {From}. the money stays set aside and the next recovery has another go: {Reason}`)
 	end
 	return Ok
 end
@@ -122,7 +123,7 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 	end
 
 	if Waiting > 0 then
-		warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
+		Say.Warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
 	end
 
 	Fault.Holds(Handled <= PASS_LIMIT, "one recovery pass took on more holds than its own limit allows")
@@ -141,7 +142,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 	local Ops: { Op } = {}
 	for _, Rid in Late do
 		if #Ops >= PASS_LIMIT then
-			warn(`Ledger: '{Key}' has more than {PASS_LIMIT} overdue reservations, so the rest wait for the next pass`)
+			Say.Warn(`Ledger: '{Key}' has more than {PASS_LIMIT} overdue reservations, so the rest wait for the next pass`)
 			break
 		end
 
@@ -157,7 +158,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 			return Booking.Granted(Read(To :: string), Rid, Booking.Terms(Key, Rid, Held :: any))
 		end)
 		if not Fine then
-			warn(`Ledger: could not check '{To}' before giving back booking {Rid}, so it waits for the next pass`)
+			Say.Warn(`Ledger: could not check '{To}' before giving back booking {Rid}, so it waits for the next pass`)
 			continue
 		end
 		if Ruling == Entries.SAME then
@@ -165,14 +166,14 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 			continue
 		end
 		if Ruling == Entries.OTHER then
-			warn(`Ledger: '{To}' holds a booking named {Rid} that came from somewhere else, so this one never arrived. its units go back to '{Key}'`)
+			Say.Warn(`Ledger: '{To}' holds a booking named {Rid} that came from somewhere else, so this one never arrived. its units go back to '{Key}'`)
 			table.insert(Ops, Booking.Undo(Rid))
 			continue
 		end
 
 		local At = if Held ~= nil then Held.At else nil
 		if Held ~= nil and type(At) == "number" and Now - At > PRUNE_HORIZON then
-			warn(
+			Say.Warn(
 				`Ledger: booking {Rid} on '{Key}' has been open over {PRUNE_HORIZON // 86400} days and '{To}' has no record of it. giving it back could pay twice, so it is written off. check the audit log and give the {Held.Amount} of '{Held.Field}' back by hand if it never arrived`
 			)
 			table.insert(Ops, Booking.Take(Rid))
@@ -189,7 +190,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 		Records:Append(Key, Ops)
 	end)
 	if not Gave then
-		warn(`Ledger: could not settle {#Ops} overdue reservation(s) on '{Key}', so they wait for the next pass`)
+		Say.Warn(`Ledger: could not settle {#Ops} overdue reservation(s) on '{Key}', so they wait for the next pass`)
 	end
 	return Gave
 end

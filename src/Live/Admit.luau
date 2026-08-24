@@ -20,6 +20,7 @@
 		local Ruling = Admit.Admit(Active, Op, Bytes)
 --]=]
 
+local Say = require("../Util/Say")
 local NoYield = require("../Util/NoYield")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")
@@ -48,16 +49,16 @@ local UNRESOLVED = Reasons.Unresolved
 
 local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: boolean?): Admitted<S>
 	if self.Released then
-		warn(`Ledger: rejected op '{Op.Kind}', that session closed when the player left`)
+		Say.Warn(`Ledger: rejected op '{Op.Kind}', that session closed when the player left`)
 		return { Outcome = "Refused", Why = CLOSED }
 	end
 
 	if self.LogBytes + OpBytes > MAX_LOG_BYTES then
 		if self.Parked > 0 then
-			warn(`Ledger: rejected op '{Op.Kind}', '{self.Key}' has hit the {MAX_LOG_BYTES} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
+			Say.Warn(`Ledger: rejected op '{Op.Kind}', '{self.Key}' has hit the {MAX_LOG_BYTES} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
 			return { Outcome = "Refused", Why = BUSY }
 		end
-		warn(`Ledger: rejected op '{Op.Kind}', unsaved ops have hit the {MAX_LOG_BYTES} byte cap. saves are not going through, check the datastore`)
+		Say.Warn(`Ledger: rejected op '{Op.Kind}', unsaved ops have hit the {MAX_LOG_BYTES} byte cap. saves are not going through, check the datastore`)
 		return { Outcome = "Refused", Why = BACKLOG }
 	end
 
@@ -66,24 +67,24 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		if string.find(tostring(Next), NoYield.YIELDED, 1, true) ~= nil then
 			error(Next, 0)
 		end
-		warn(`Ledger: rejected op '{Op.Kind}', your reducer threw: {tostring(Next)}`)
+		Say.Warn(`Ledger: rejected op '{Op.Kind}', your reducer threw: {tostring(Next)}`)
 		return { Outcome = "Rejected" }
 	end
 	if Next ~= nil and type(Next) ~= "table" then
-		warn(`Ledger: rejected op '{Op.Kind}', your reducer handed back a {typeof(Next)} instead of the next state table`)
+		Say.Warn(`Ledger: rejected op '{Op.Kind}', your reducer handed back a {typeof(Next)} instead of the next state table`)
 		return { Outcome = "Refused", Why = INVALID }
 	end
 	if Next == nil then
 		local Waiting = self.Landed
 		if Waiting ~= nil and not Durable and Step(self.Shape.Reducer, Waiting, Op) ~= nil then
-			warn(`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction goes through. ask again once it settles`)
+			Say.Warn(`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction goes through. ask again once it settles`)
 			return { Outcome = "Refused", Why = UNRESOLVED }
 		end
 		return { Outcome = "Rejected" }
 	end
 
 	if self.Parked > 1 and not Durable then
-		warn(`Ledger: rejected op '{Op.Kind}', more than one transaction is parked on '{self.Key}' and this op only holds for some of the ways they can settle. ask again once they clear`)
+		Say.Warn(`Ledger: rejected op '{Op.Kind}', more than one transaction is parked on '{self.Key}' and this op only holds for some of the ways they can settle. ask again once they clear`)
 		return { Outcome = "Refused", Why = UNRESOLVED }
 	end
 
@@ -92,7 +93,7 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	if Parked ~= nil and not Durable then
 		Also = Step(self.Shape.Reducer, Parked, Op)
 		if Also == nil then
-			warn(`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction does not go through. ask again once it settles`)
+			Say.Warn(`Ledger: rejected op '{Op.Kind}', a transaction is parked on '{self.Key}' and this op only holds if that transaction does not go through. ask again once it settles`)
 			return { Outcome = "Refused", Why = UNRESOLVED }
 		end
 	end
@@ -100,11 +101,11 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	if self.StateBytes + OpBytes > STATE_CHECK_FLOOR then
 		local Counted, Bytes = pcall(Measure, Next)
 		if not Counted then
-			warn(`Ledger: rejected op '{Op.Kind}', your reducer built state a datastore cannot hold: {tostring(Bytes)}`)
+			Say.Warn(`Ledger: rejected op '{Op.Kind}', your reducer built state a datastore cannot hold: {tostring(Bytes)}`)
 			return { Outcome = "Refused", Why = INVALID }
 		end
 		if Bytes > MAX_STATE_BYTES and Bytes > Measure(self.State) then
-			warn(`Ledger: rejected op '{Op.Kind}', this profile is already at the {MAX_STATE_BYTES} byte cap and the op would make it bigger`)
+			Say.Warn(`Ledger: rejected op '{Op.Kind}', this profile is already at the {MAX_STATE_BYTES} byte cap and the op would make it bigger`)
 			return { Outcome = "Refused", Why = FULL }
 		end
 		return { Outcome = "Accepted", Next = Next, Bytes = Bytes, Also = Also }

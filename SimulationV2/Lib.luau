@@ -16,6 +16,7 @@ local Ledger = require("../src")
 local Mock = require("../src/Mock")
 local Session = require("../src/Live/Session")
 local DataStoreWrapper = require("../src/Util/DataStoreWrapper")
+local Say = require("../src/Util/Say")
 local Registry = require("../src/Store/Registry")
 local Horizons = require("../src/Contract/Horizons")
 local Reasons = require("../src/Contract/Reason")
@@ -35,6 +36,7 @@ return table.freeze({
 	Ledger = Ledger :: any,
 	Mock = Mock,
 	Wrapper = DataStoreWrapper,
+	Say = Say,
 	Reasons = Reasons,
 	Horizons = Horizons,
 

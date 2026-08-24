@@ -26,6 +26,7 @@
 		local Ok, Why = self:Written("1", Op, "edit")
 --]=]
 
+local Say = require("../Util/Say")
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
 local Observer = require("../Util/Observer")
@@ -68,11 +69,11 @@ local function Failed(What: string, Key: string, Err: any): Reason
 	end
 
 	if Why == BEHIND then
-		warn(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
+		Say.Warn(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
 		return Why
 	end
 
-	warn(`Ledger: could not {What} '{Key}': {Err}`)
+	Say.Warn(`Ledger: could not {What} '{Key}': {Err}`)
 	return Why
 end
 
@@ -119,7 +120,7 @@ function Store.Swelling(self: Store, Key: string, Record: Record)
 		break
 	end
 
-	warn(
+	Say.Warn(
 		`Ledger: '{Key}' is carrying {#Record.Ops} ops it cannot compact away because {Blocking} is still parked on it, so the record keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`
 	)
 
@@ -139,7 +140,7 @@ function Store.Starved(self: Store, Pool: Enum.DataStoreRequestType)
 	local Records = self.Wrapper.Spent - Meter.Records
 	local Markers = self.TxWrapper.Spent - Meter.Markers
 
-	warn(
+	Say.Warn(
 		`Ledger: {Meter.Skipped} autosave(s) skipped on '{self.Options.Name}' with {Pool.Name} budget at {self.Wrapper:Budget(Pool)}, so unsaved ops are piling up. this server spent {Records} request(s) on records and {Markers} on transaction markers since the last of these`
 	)
 
@@ -158,7 +159,7 @@ function Store.Maintain(self: Store, Key: string, Record: Record): Record
 		if Ok then
 			Settled = Resolution
 		else
-			warn(`Ledger: could not settle a pending transaction leg on '{Key}' during a write, so it stays pending: {Resolution}`)
+			Say.Warn(`Ledger: could not settle a pending transaction leg on '{Key}' during a write, so it stays pending: {Resolution}`)
 		end
 	end
 
@@ -236,18 +237,18 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 			return false, CLOSED
 		end
 		if Named == BEHIND then
-			warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
+			Say.Warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
 			return false, BEHIND
 		end
 		if Named == FULL then
-			warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
+			Say.Warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
 			return false, FULL
 		end
 		if Named == BUSY then
 			return false, BUSY
 		end
 
-		warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
+		Say.Warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
 		return false, UNRESOLVED
 	end
 
@@ -256,7 +257,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return false, Denied or REFUSED
 	end
 	if Swollen then
-		warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {MAX_STATE_BYTES} byte state cap and this would make it bigger`)
+		Say.Warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {MAX_STATE_BYTES} byte state cap and this would make it bigger`)
 		return false, FULL
 	end
 	if not Applied then
@@ -278,7 +279,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	end)
 
 	if not Ok then
-		warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
+		Say.Warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
 		return false, UNRESOLVED
 	end
 

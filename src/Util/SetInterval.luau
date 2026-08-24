@@ -15,6 +15,8 @@
 		task.cancel(Ticker)
 --]=]
 
+local Say = require("./Say")
+
 local function SetInterval(Seconds: number, Callback: (Count: number) -> (), Offset: number?): thread
 	return task.spawn(function()
 		local Count = 0
@@ -26,7 +28,7 @@ local function SetInterval(Seconds: number, Callback: (Count: number) -> (), Off
 			Count += 1
 			local Ok, Err = pcall(Callback, Count)
 			if not Ok then
-				warn(`Ledger: SetInterval callback errored: {Err}`)
+				Say.Warn(`Ledger: SetInterval callback errored: {Err}`)
 			end
 		end
 	end)

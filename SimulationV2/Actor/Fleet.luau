@@ -20,6 +20,7 @@ local ServerStorage = game:GetService("ServerStorage")
 export type Answer = {
 	From: number,
 	To: number,
+
 	Issued: number,
 	Calls: number,
 	Injected: number,
@@ -30,6 +31,7 @@ export type Answer = {
 	Threw: { string },
 	Broken: { string },
 	Reached: { [string]: number },
+	Said: { [string]: number },
 }
 
 export type Report = {
@@ -44,6 +46,7 @@ export type Report = {
 	Threw: { string },
 	Broken: { string },
 	Reached: { [string]: number },
+	Said: { [string]: number },
 	Seconds: number,
 }
 
@@ -143,6 +146,7 @@ local function Sweep(From: number, To: number, Count: number, Misdirect: boolean
 		Threw = {},
 		Broken = {},
 		Reached = {},
+		Said = {},
 		Seconds = os.clock() - Started,
 	}
 
@@ -162,6 +166,10 @@ local function Sweep(From: number, To: number, Count: number, Misdirect: boolean
 		end
 		for Bucket, Count0 in Held.Reached do
 			Report.Reached[Bucket] = (Report.Reached[Bucket] or 0) + Count0
+		end
+
+		for Says, Count0 in Held.Said do
+			Report.Said[Says] = (Report.Said[Says] or 0) + Count0
 		end
 	end
 

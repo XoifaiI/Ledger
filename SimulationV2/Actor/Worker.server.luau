@@ -16,6 +16,9 @@ local ServerStorage = game:GetService("ServerStorage")
 
 local Root = ServerStorage:WaitForChild("LedgerDev"):WaitForChild("SimulationV2")
 local Simulator = require(Root:WaitForChild("Simulator")) :: any
+local Say = require(Root.Parent:WaitForChild("src"):WaitForChild("Util"):WaitForChild("Say")) :: any
+
+Say.Quiet(true)
 
 local Actor = assert(script:GetActor(), "the fleet worker only runs inside an Actor")
 
@@ -26,6 +29,7 @@ Actor:BindToMessageParallel("Sweep", function(From: number, To: number, Misdirec
 	local Threw: { string } = {}
 	local Broken: { string } = {}
 	local Reached: { [string]: number } = {}
+	local Said: { [string]: number } = {}
 	local Issued, Calls, Injected, Lost, Checked, Outside, Crashes = 0, 0, 0, 0, 0, 0, 0
 
 	for Seed = From, To do
@@ -46,6 +50,10 @@ Actor:BindToMessageParallel("Sweep", function(From: number, To: number, Misdirec
 		Outside += #Out.Books.Broken
 		Crashes += Out.Crashes
 
+		for _, Record in Out.Said do
+			Said[Record.Says] = (Said[Record.Says] or 0) + Record.Count
+		end
+
 		for _, Line in Out.Threw do
 			table.insert(Threw, `seed {Seed}: {Line}`)
 		end
@@ -64,6 +72,7 @@ Actor:BindToMessageParallel("Sweep", function(From: number, To: number, Misdirec
 	Done:Fire({
 		From = From,
 		To = To,
+
 		Issued = Issued,
 		Calls = Calls,
 		Injected = Injected,
@@ -74,6 +83,7 @@ Actor:BindToMessageParallel("Sweep", function(From: number, To: number, Misdirec
 		Threw = Threw,
 		Broken = Broken,
 		Reached = Reached,
+		Said = Said,
 	})
 end)
 

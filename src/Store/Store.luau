@@ -22,6 +22,7 @@
 		local Bank = Store.New(Options)
 --]=]
 
+local Say = require("../Util/Say")
 local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local SetInterval = require("../Util/SetInterval")
@@ -115,7 +116,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 	Registry.Claimed[`{Config.Name}_Tx`] = true
 
 	if DataStoreWrapper.Swapped() then
-		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server. Ledger.UseReal() puts it back`)
+		Say.Warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server. Ledger.UseReal() puts it back`)
 	end
 
 	local Layers: { Layer.Layer } = {}
@@ -177,7 +178,7 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 
 	local Ok, Took = pcall(Answer, Player, Why)
 	if not Ok then
-		warn(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
+		Say.Warn(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
 		return false
 	end
 	if Took ~= true then
@@ -185,7 +186,7 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 	end
 
 	if Player.Parent ~= nil and Players:GetPlayerByUserId(Player.UserId) ~= nil then
-		warn(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
+		Say.Warn(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
 	end
 	return true
 end
@@ -219,7 +220,7 @@ function Store.Autosave(self: Store, UserId: number)
 	if Ok then
 		return
 	end
-	warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
+	Say.Warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
 end
 
 function Store.Save(self: Store, Active: any): Future<boolean, Reason?>
@@ -260,11 +261,11 @@ function Store.Load(self: Store, Player: Player)
 	local UserId = Player.UserId
 
 	if self.Loaded[UserId] ~= nil then
-		warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
+		Say.Warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
 		return
 	end
 	if self.Loads[UserId] == "Loading" then
-		warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
+		Say.Warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
 		return
 	end
 
@@ -286,7 +287,7 @@ function Store.Load(self: Store, Player: Player)
 	end
 
 	if self.Loaded[UserId] ~= nil then
-		warn(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
+		Say.Warn(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
 		Active:Release()
 		return
 	end

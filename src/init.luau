@@ -16,6 +16,7 @@
 --]=]
 
 local Future = require("@self/Util/Future")
+local Say = require("@self/Util/Say")
 local DataStoreWrapper = require("@self/Util/DataStoreWrapper")
 local Clock = require("@self/Util/Clock")
 local Contract = require("@self/Contract/Op")
@@ -62,7 +63,7 @@ end
 
 local function UseMock(Options: Mock.Options?): Mock.Service
 	if DataStoreWrapper.Swapped() and #Registry.Stores > 0 then
-		warn(
+		Say.Warn(
 			`Ledger: UseMock was called again while {#Registry.Stores} store(s) were live, so they are all on a fresh empty datastore now and nothing they wrote before this reads back. call it one time, before you build your stores`
 		)
 	end

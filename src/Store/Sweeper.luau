@@ -20,6 +20,7 @@
 		local Sweep = Sweeper.New(Stores)
 --]=]
 
+local Say = require("../Util/Say")
 local SetInterval = require("../Util/SetInterval")
 local Fault = require("../Contract/Fault")
 local Types = require("./Types")
@@ -81,7 +82,7 @@ function Sweeper.Add(self: Sweeper, Store: Store, Key: string)
 		return
 	end
 	if self.Count >= SWEEP_LIMIT then
-		warn(`Ledger: the recovery sweep is already following {SWEEP_LIMIT} keys, so nothing retries '{Key}' on its own. call Resettle on it yourself`)
+		Say.Warn(`Ledger: the recovery sweep is already following {SWEEP_LIMIT} keys, so nothing retries '{Key}' on its own. call Resettle on it yourself`)
 		return
 	end
 	self.Entries[Mark] = { Store = Store, Key = Key, Tries = 0 }
@@ -170,7 +171,7 @@ function Sweeper.Pass(self: Sweeper)
 			continue
 		end
 
-		warn(
+		Say.Warn(
 			`Ledger: gave up retrying '{Entry.Key}' after {SWEEP_TRIES} goes, so whatever is unfinished on it waits for the next write. call Resettle on it yourself: {if Ok
 				then "it still had something pending"
 				else tostring(Clean)}`

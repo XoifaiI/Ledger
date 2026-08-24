@@ -18,6 +18,8 @@
 		local At = Clock.Now()
 --]=]
 
+local Say = require("./Say")
+
 local CENTURY = 100 * 31556952
 
 local function Real(): number
@@ -40,7 +42,7 @@ local function Vet(Reads: () -> number)
 		return
 	end
 
-	warn(`Ledger: the clock you gave reads {Value} and the real one reads {Held}. Ledger counts in seconds since 1970, so give it seconds`)
+	Say.Warn(`Ledger: the clock you gave reads {Value} and the real one reads {Held}. Ledger counts in seconds since 1970, so give it seconds`)
 end
 
 local function Set(Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?)

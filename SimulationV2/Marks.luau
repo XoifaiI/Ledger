@@ -116,6 +116,13 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "WriteUnsure", Says = "though it might still have gone through" },
 	{ Name = "ClockUnits", Says = "the clock you gave reads" },
 
+	{ Name = "RetryAttempt", Says = "RetryAsync attempt" },
+	{ Name = "FutureThrew", Says = "Future callback errored" },
+	{ Name = "ObserverThrew", Says = "Observer listener errored" },
+	{ Name = "ObserverSlow", Says = "an Observer listener has run for" },
+	{ Name = "IntervalThrew", Says = "SetInterval callback errored" },
+	{ Name = "QueueTakenOver", Says = "ThreadQueue took over" },
+
 	{ Name = "CouldNot", Says = "could not " },
 }
 
@@ -130,11 +137,12 @@ function Marks.New(): Marks
 	return setmetatable({ Counts = Counts, Order = Order, Unknown = 0 }, Marks)
 end
 
-function Marks.Note(self: Marks, Message: string)
+function Marks.Note(self: Marks, Message: string, Count: number?)
 	if string.find(Message, "Ledger: ", 1, true) == nil then
 		return
 	end
 
+	local Times = Count or 1
 	local Best: string? = nil
 	local Longest = 0
 	for _, Held in FRAGMENTS do
@@ -144,10 +152,10 @@ function Marks.Note(self: Marks, Message: string)
 	end
 
 	if Best == nil then
-		self.Unknown += 1
+		self.Unknown += Times
 		return
 	end
-	self.Counts[Best] += 1
+	self.Counts[Best] += Times
 end
 
 function Marks.Missed(self: Marks): { string }

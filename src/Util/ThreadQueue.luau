@@ -16,6 +16,8 @@
 		local Value = Queue:SubmitAsync(Work)
 --]=]
 
+local Say = require("./Say")
+
 type Entry = {
 	Callback: () -> ...any,
 	Caller: thread,
@@ -76,7 +78,7 @@ end
 function ThreadQueue.SubmitAsync(self: ThreadQueue, Callback: () -> ...any): ...any
 	if not self.Busy or self:Abandoned() then
 		if self.Busy then
-			warn(`Ledger: ThreadQueue took over a queue whose thread was cancelled, {#self.Tasks} task(s) were waiting on it`)
+			Say.Warn(`Ledger: ThreadQueue took over a queue whose thread was cancelled, {#self.Tasks} task(s) were waiting on it`)
 		end
 
 		self.Busy = true

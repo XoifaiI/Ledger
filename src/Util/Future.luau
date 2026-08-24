@@ -14,6 +14,8 @@
 		local Value = Job:Wait()
 --]=]
 
+local Say = require("./Say")
+
 local Threads = require("./Threads")
 
 type Packed = { n: number, [number]: any }
@@ -115,7 +117,7 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: 
 	Private.Result = Result
 
 	if not Result[1] then
-		warn(`Ledger: Future callback errored: {tostring(Result[2])}`)
+		Say.Warn(`Ledger: Future callback errored: {tostring(Result[2])}`)
 	end
 
 	Finish(Private, Unpack(Private))

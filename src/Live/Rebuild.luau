@@ -26,6 +26,7 @@
 		local Stored, Whole = Rebuild.Push(Active)
 --]=]
 
+local Say = require("../Util/Say")
 local TableUtil = require("../Util/TableUtil")
 local Fault = require("../Contract/Fault")
 local Contract = require("../Contract/Op")
@@ -127,7 +128,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= Fence then
 		self.Released = true
-		warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
+		Say.Warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
 	end
 
 	self.LogSize = #Stored.Ops
@@ -170,7 +171,7 @@ local function CheckPurity<S>(self: Session<S>, Stored: Record, Base: S, Folded:
 		return
 	end
 
-	warn(
+	Say.Warn(
 		`Ledger: the reducer for '{self.Key}' is not deterministic, so two servers would fold this log differently. replaying the same ops changed {Where}. read only the two arguments, and pass os.time or math.random in on the op instead`
 	)
 end

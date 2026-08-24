@@ -19,6 +19,7 @@
 		local Ok, Why = Drive.Drive(TxStore, Legs, "trade1")
 --]=]
 
+local Say = require("../../Util/Say")
 local TableUtil = require("../../Util/TableUtil")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Fault = require("../../Contract/Fault")
@@ -127,14 +128,14 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 		elseif Verdict == "Busy" then
 			return Prepared, Settled, BUSY
 		elseif Verdict == "Spent" then
-			warn(
+			Say.Warn(
 				`Ledger: transaction '{Ops[Index].Tx}' was already used for different keys or a different amount, and a name has to mean the same thing every time. nothing was applied, so pick a new name`
 			)
 			return Prepared, Settled, SPENT
 		elseif Verdict == "Rejected" then
 			return Prepared, Settled, REFUSED
 		elseif Verdict == "Full" then
-			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key is carrying more ops than it can hold until it compacts. nothing was applied`)
+			Say.Warn(`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key is carrying more ops than it can hold until it compacts. nothing was applied`)
 			return Prepared, Settled, FULL
 		else
 			local Unreachable: never = Verdict
@@ -148,7 +149,7 @@ end
 local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Txid: string, Keys: string, Terms: string, Print: string, Floor: number, PerLeg: number?): Pass
 	local Created, Gen, Born, Minted = Marker.Create(TxStore, Txid, #Legs, Keys, Terms)
 	if Created == Marker.MISMATCH then
-		warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount, and a name has to mean the same thing every time. nothing was applied, so pick a new name`)
+		Say.Warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount, and a name has to mean the same thing every time. nothing was applied, so pick a new name`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Floor, Parked = Floor > 0 }
 	end
 	if Created == Marker.UNWRITTEN then
@@ -193,7 +194,7 @@ local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Tx
 		return { Committed = false, Why = SPENT, Again = true, Reached = Prepared, Parked = Stranded }
 	end
 	if Split then
-		warn(`Ledger: transaction '{Txid}' is only half remembered across its keys, so Ledger cancelled it rather than applying it to some keys and not others`)
+		Say.Warn(`Ledger: transaction '{Txid}' is only half remembered across its keys, so Ledger cancelled it rather than applying it to some keys and not others`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Prepared, Parked = Stranded }
 	end
 	return { Committed = false, Why = Cause, Again = Cause == UNRESOLVED, Reached = Prepared, Parked = Stranded }
@@ -202,7 +203,7 @@ end
 local function LegOp(Id: string, Index: number, Leg: Leg, Home: string): Op
 	local Op: { [any]: any } = if Leg.Fields then TableUtil.DeepCopy(Leg.Fields) else {}
 	if Op.Id ~= nil or Op.Kind ~= nil then
-		warn(`Ledger: transaction leg '{Leg.Kind}' passed Id or Kind in its fields. those two belong to Ledger, so they got overwritten`)
+		Say.Warn(`Ledger: transaction leg '{Leg.Kind}' passed Id or Kind in its fields. those two belong to Ledger, so they got overwritten`)
 	end
 	Op.Id = `tx:{Id}:{Index}`
 	Op.Kind = Leg.Kind
@@ -259,9 +260,9 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 	end
 
 	if Last == UNRESOLVED then
-		warn(`Ledger: transaction '{Id}' has no answer yet and might still go through. read the keys again instead of retrying it under a new name`)
+		Say.Warn(`Ledger: transaction '{Id}' has no answer yet and might still go through. read the keys again instead of retrying it under a new name`)
 	elseif Last == SPENT then
-		warn(`Ledger: transaction '{Id}' could not get through and changed nothing. that name is spent now, so use a new one`)
+		Say.Warn(`Ledger: transaction '{Id}' could not get through and changed nothing. that name is spent now, so use a new one`)
 	end
 	return false, Last, Parked
 end

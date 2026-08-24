@@ -24,6 +24,7 @@
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
 --]=]
 
+local Say = require("../Util/Say")
 local Clock = require("../Util/Clock")
 local Contract = require("../Contract/Op")
 local Fault = require("../Contract/Fault")
@@ -166,7 +167,7 @@ local function Tomb(Key: string, Owned: boolean): Rule
 		end,
 		After = function(_: Record, After: Record): string?
 			if Owned and Entombed(After) then
-				warn(
+				Say.Warn(
 					`Ledger: '{Key}' was erased and something wrote to it anyway, so a session on another server is still live on that key. it keeps turning away transfers until the tomb runs out. get the player off every server before erasing them`
 				)
 			end

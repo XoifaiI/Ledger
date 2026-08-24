@@ -18,6 +18,7 @@
 		local Count, Next = Reap.Reap(TxStore, Lookup)
 --]=]
 
+local Say = require("../../Util/Say")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Contract = require("../../Contract/Op")
@@ -94,7 +95,7 @@ local function Listed(TxStore: DataStoreWrapper, Limit: number, Resume: string):
 		if Carried then
 			return Onward :: DataStoreKeyPages
 		end
-		warn(`Ledger: could not carry on listing the transaction markers for '{TxStore.Name}' from where the last pass stopped, so this one starts at the front`)
+		Say.Warn(`Ledger: could not carry on listing the transaction markers for '{TxStore.Name}' from where the last pass stopped, so this one starts at the front`)
 	end
 
 	local Ok, Pages = TxStore:ListKeysAsync("", Limit, nil)
@@ -149,7 +150,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?,
 	end
 
 	if not Wrapped and Reaped == 0 then
-		warn(`Ledger: '{TxStore.Name}' holds more transaction markers than one pass can walk, and this pass removed none. the next pass carries on from where this one stopped`)
+		Say.Warn(`Ledger: '{TxStore.Name}' holds more transaction markers than one pass can walk, and this pass removed none. the next pass carries on from where this one stopped`)
 	end
 
 	return Reaped, if Wrapped then "" else Book.Cursor

@@ -27,6 +27,7 @@
 		local Record = Books:Read("1")
 --]=]
 
+local Say = require("../Util/Say")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Fault = require("../Contract/Fault")
 local Reasons = require("../Contract/Reason")
@@ -444,12 +445,12 @@ function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
 
 	local Bytes = Measure(Result.After)
 	if Bytes > WARN_BYTES then
-		warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {MAX_BYTES}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
+		Say.Warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {MAX_BYTES}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
 	end
 
 	local State = Result.After.Bytes
 	if type(State) == "number" and State > STATE_WARN_BYTES then
-		warn(
+		Say.Warn(
 			`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {MAX_STATE_BYTES}{Compact.Hint(Result.After.Snapshot)}. take out what the game no longer reads, or spread it over more keys`
 		)
 	end
@@ -466,7 +467,7 @@ function Log.Trim(self: Log, Key: string, Format: Shape<any>, Record: Record): R
 		return Packed
 	end
 
-	warn(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
+	Say.Warn(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
 	return Record
 end
 

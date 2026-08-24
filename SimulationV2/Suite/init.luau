@@ -16,7 +16,6 @@
 --]=]
 
 local EncodingService = game:GetService("EncodingService")
-local LogService = game:GetService("LogService")
 
 local Lib = require("./Lib")
 local Marks = require("./Marks")
@@ -113,14 +112,7 @@ local function Run(Files: { File }, Options: Options?): Report
 	local Started = os.clock()
 
 	local Sheet = Marks.New()
-	local Lines: { string } = {}
-	local Tap = LogService.MessageOut:Connect(function(Message: string, Kind: Enum.MessageType)
-		if Kind ~= Enum.MessageType.MessageWarning then
-			return
-		end
-		table.insert(Lines, Message)
-		Sheet:Note(Message)
-	end)
+	local Warnings = 0
 
 	local Broken: { Failure } = {}
 	local Accused: { string } = {}
@@ -136,7 +128,7 @@ local function Run(Files: { File }, Options: Options?): Report
 
 			Ran += 1
 			local Began = os.clock()
-			local Bench = Case.Open(Written.Name, Seeded(Written.Name), Lines)
+			local Bench = Case.Open(Written.Name, Seeded(Written.Name))
 
 			local Fine, Raised = pcall(Written.Body, Bench)
 			if not Fine then
@@ -152,6 +144,11 @@ local function Run(Files: { File }, Options: Options?): Report
 				table.insert(Accused, `{Book.Name}: {Written.Name}: {Line}`)
 			end
 
+			for _, Record in Bench.Records do
+				Warnings += Record.Count
+				Sheet:Note(Record.Says, Record.Count)
+			end
+
 			if #Bench.Broken > 0 then
 				Failed += 1
 			end
@@ -161,8 +158,6 @@ local function Run(Files: { File }, Options: Options?): Report
 			table.insert(Timed, { Name = `{Book.Name}: {Written.Name}`, Seconds = os.clock() - Began })
 		end
 	end
-
-	Tap:Disconnect()
 
 	table.sort(Timed, function(Left: { Name: string, Seconds: number }, Right: { Name: string, Seconds: number }): boolean
 		return Left.Seconds > Right.Seconds
@@ -177,7 +172,7 @@ local function Run(Files: { File }, Options: Options?): Report
 		Broken = Broken,
 		Accused = Accused,
 		Sheet = Sheet,
-		Warnings = #Lines,
+		Warnings = Warnings,
 		Slowest = Slowest,
 		Seconds = os.clock() - Started,
 	}

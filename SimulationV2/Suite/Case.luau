@@ -25,8 +25,10 @@ local Fixture = require("./Fixture")
 local Reducers = require("./Reducers")
 
 local Ledger = Lib.Ledger
+local Say = require("../../src/Util/Say")
 
 type Spec0 = Fault.Spec
+type Entry = Say.Entry
 
 export type Spec = {
 	Keys: string?,
@@ -43,7 +45,7 @@ export type Spec = {
 type CaseImpl = {
 	__index: CaseImpl,
 
-	Open: (Name: string, Seed: number, Sheet: { string }) -> Case,
+	Open: (Name: string, Seed: number) -> Case,
 	Close: (self: Case) -> (),
 	Judge: (self: Case) -> { string },
 
@@ -92,8 +94,7 @@ export type Case = setmetatable<{
 	Plate: Disk.Disk,
 	Faulty: Board.Board,
 	Built: { Fixture.Fixture },
-	Sheet: { string },
-	From: number,
+	Records: { Entry },
 	Expect: { Wanted },
 	Free: any,
 }, CaseImpl>
@@ -124,17 +125,18 @@ local function Quicken(Wrapper: any)
 	Wrapper.Jitter = 0
 end
 
-local function Counted(Lines: { string }, From: number, Fragment: string): number
+local function Counted(Records: { Entry }, Fragment: string): number
 	local Count = 0
-	for Index = From, #Lines do
-		if string.find(Lines[Index], Fragment, 1, true) ~= nil then
-			Count += 1
+	for _, Held in Records do
+		if string.find(Held.Says, Fragment, 1, true) ~= nil then
+			Count += Held.Count
 		end
 	end
 	return Count
 end
 
-function Case.Open(Name: string, Seed: number, Sheet: { string }): Case
+function Case.Open(Name: string, Seed: number): Case
+	Say.Reset()
 	Time.Restart()
 	Ledger.UseClock(Time.Read, Time.Sleep)
 	Lib.Ident.Restart(SIM_NODE)
@@ -160,8 +162,7 @@ function Case.Open(Name: string, Seed: number, Sheet: { string }): Case
 		Plate = Plate,
 		Faulty = Faulty,
 		Built = {},
-		Sheet = Sheet,
-		From = #Sheet + 1,
+		Records = Say.Records(),
 		Expect = {},
 		Free = Free,
 	}, Case) :: any
@@ -302,7 +303,7 @@ end
 function Case.Judge(self: Case): { string }
 	local Wanted: { string } = {}
 	for _, Held in self.Expect do
-		local Seen = Counted(self.Sheet, self.From, Held.Fragment)
+		local Seen = Counted(self.Records, Held.Fragment)
 
 		if Held.Kind == "Silent" then
 			if Seen > 0 then
@@ -331,8 +332,8 @@ function Case.Judge(self: Case): { string }
 	end
 
 	local Loose: { string } = {}
-	for Index = self.From, #self.Sheet do
-		local Line = self.Sheet[Index]
+	for _, Held in self.Records do
+		local Line = Held.Says
 		if string.find(Line, ACCUSED, 1, true) == nil then
 			continue
 		end
@@ -352,7 +353,11 @@ function Case.Judge(self: Case): { string }
 end
 
 function Case.Said(self: Case): { string }
-	return table.move(self.Sheet, self.From, #self.Sheet, 1, {})
+	local Lines: { string } = {}
+	for _, Held in self.Records do
+		table.insert(Lines, Held.Says)
+	end
+	return Lines
 end
 
 function Case.Fail(self: Case, Label: string, Says: string)

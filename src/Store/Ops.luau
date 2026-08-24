@@ -23,6 +23,7 @@
 		local Ok, Why = self:Edit(1, "Add", { Amount = 5 }):Wait()
 --]=]
 
+local Say = require("../Util/Say")
 local Future = require("../Util/Future")
 local Clock = require("../Util/Clock")
 local Fault = require("../Contract/Fault")
@@ -79,13 +80,13 @@ function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: an
 
 	local Named, Unnamed = MakeOp.Stamp(Op)
 	if not Named then
-		warn(`Ledger: Edit rejected op '{Kind}', {Unnamed}`)
+		Say.Warn(`Ledger: Edit rejected op '{Kind}', {Unnamed}`)
 		return Rejected(INVALID)
 	end
 
 	local Storable, Unstorable = IsStorable.Op(Op)
 	if not Storable then
-		warn(`Ledger: Edit rejected op '{Kind}', {Unstorable}`)
+		Say.Warn(`Ledger: Edit rejected op '{Kind}', {Unstorable}`)
 		return Rejected(INVALID)
 	end
 
@@ -107,7 +108,7 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 			return Transfer.Drive(self:Records(), self:Format(), FromKey, ToKey, Amount, Id)
 		end)
 		if not Ok then
-			warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
+			Say.Warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
 			return false, UNRESOLVED
 		end
 
@@ -159,7 +160,7 @@ function Store.Confirm(self: Store, Key: KeyLike, Id: string): Future<boolean, R
 		end, HELD)
 
 		if Why == HELD then
-			warn(
+			Say.Warn(
 				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to spend. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
 			)
 		end
@@ -179,7 +180,7 @@ function Store.Release(self: Store, Key: KeyLike, Id: string): Future<boolean, R
 		end, HELD)
 
 		if Why == HELD then
-			warn(
+			Say.Warn(
 				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to give back. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
 			)
 		end
@@ -358,7 +359,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 
 		local Storable, Unstorable = LegStorable(Leg)
 		if not Storable then
-			warn(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
+			Say.Warn(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
 			return Rejected(INVALID)
 		end
 	end
@@ -377,7 +378,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 		end
 
 		if not Ok then
-			warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
+			Say.Warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
 			Follow()
 			return false, UNRESOLVED
 		end

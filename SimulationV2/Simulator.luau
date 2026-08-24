@@ -22,6 +22,7 @@ local Coverage = require("./Coverage")
 local Disk = require("./Disk")
 local Invariants = require("./Invariants")
 local Lib = require("./Lib")
+local Say = require("../src/Util/Say")
 local Liveness = require("./Liveness")
 local Model = require("./Model")
 local Scheduler = require("./Scheduler")
@@ -49,6 +50,8 @@ export type Report = {
 	Crashes: number,
 	Steps: number,
 	Seconds: number,
+	Warnings: number,
+	Said: { Say.Entry },
 }
 
 local ROUNDS_LEAST = 120
@@ -380,6 +383,8 @@ local function Run(Seed: number, Options: Options?): Report
 	local Faulting = Held.Faults ~= false
 	local Count = Rng:NextInteger(KEYS_LEAST, KEYS_MOST)
 
+	Say.Reset()
+
 	Time.Restart()
 	Ledger.UseClock(Time.Read, Time.Sleep)
 
@@ -670,6 +675,8 @@ local function Run(Seed: number, Options: Options?): Report
 		Crashes = Crashes,
 		Steps = Steps,
 		Seconds = os.clock() - Started,
+		Warnings = Say.Total(),
+		Said = Say.Records(),
 	}
 end
 

@@ -14,6 +14,7 @@
 		local Op = MakeOp.New("Add", { Amount = 5 })
 --]=]
 
+local Say = require("../Util/Say")
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
 local Ident = require("../Encode/Ident")
@@ -44,7 +45,7 @@ local function MakeOp(Kind: string, Fields: { [any]: any }?): Op
 
 	local Op: { [any]: any } = if Fields then TableUtil.DeepCopy(Fields) else {}
 	if Op.Id ~= nil or Op.Kind ~= nil or Op.OnceAt ~= nil then
-		warn(`Ledger: op '{Kind}' passed Id, Kind or OnceAt in its fields. those belong to Ledger, so they got overwritten`)
+		Say.Warn(`Ledger: op '{Kind}' passed Id, Kind or OnceAt in its fields. those belong to Ledger, so they got overwritten`)
 	end
 
 	Op.Id = Ident.Fresh()

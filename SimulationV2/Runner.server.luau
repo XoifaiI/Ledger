@@ -14,11 +14,11 @@
 		Press play. Set SWEEP to false to keep only the cases.
 --]=]
 
-local LogService = game:GetService("LogService")
 local ServerStorage = game:GetService("ServerStorage")
 
 local Root = ServerStorage:WaitForChild("LedgerDev"):WaitForChild("SimulationV2")
 local Simulator = require(Root:WaitForChild("Simulator")) :: any
+local Say = require(ServerStorage:WaitForChild("LedgerDev"):WaitForChild("src"):WaitForChild("Util"):WaitForChild("Say")) :: any
 local Catalogue = require(Root:WaitForChild("Catalogue")) :: any
 local Marks = require(Root:WaitForChild("Marks")) :: any
 local Fleet = require(Root:WaitForChild("Actor"):WaitForChild("Fleet")) :: any
@@ -37,6 +37,7 @@ local TO = 1000
 local SEEDS: { number } = {}
 
 local TRACE = false
+local QUIET = true
 
 local PARALLEL = true
 local WORKERS = 8
@@ -46,6 +47,8 @@ local MISDIRECT = false
 local SELF_ACCUSED = "this is a bug in Ledger"
 
 local DRAIN_FRAMES = 8
+
+Say.Quiet(QUIET)
 
 local function Row(Title: string, Count: number)
 	print(`  {Title} {string.rep(".", math.max(1, 34 - #Title))} {if Count == 0 then "none" else tostring(Count)}`)
@@ -133,17 +136,16 @@ end
 local Sheet = Marks.New()
 local Warnings = 0
 local Accused: { string } = {}
-local Tap = LogService.MessageOut:Connect(function(Message: string, Kind: Enum.MessageType)
-	if Kind ~= Enum.MessageType.MessageWarning then
-		return
-	end
 
-	Warnings += 1
-	Sheet:Note(Message)
-	if string.find(Message, SELF_ACCUSED, 1, true) ~= nil then
-		table.insert(Accused, Message)
+local function Fold(Said: { { Says: string, Count: number } })
+	for _, Record in Said do
+		Warnings += Record.Count
+		Sheet:Note(Record.Says, Record.Count)
+		if string.find(Record.Says, SELF_ACCUSED, 1, true) ~= nil then
+			table.insert(Accused, Record.Says)
+		end
 	end
-end)
+end
 
 local Ahead: { string } = {}
 
@@ -178,6 +180,14 @@ if PARALLEL and #SEEDS == 0 then
 	Reached = Out.Reached
 	Threw = Out.Threw
 	Broken = Out.Broken
+
+	for Says, Count in Out.Said do
+		Warnings += Count
+		Sheet:Note(Says, Count)
+		if string.find(Says, SELF_ACCUSED, 1, true) ~= nil then
+			table.insert(Accused, Says)
+		end
+	end
 else
 	local Wanted: { number } = SEEDS
 	if #Wanted == 0 then
@@ -204,6 +214,7 @@ else
 		Checked += Out.Books.Checked
 		Outside += #Out.Books.Broken
 		Crashes += Out.Crashes
+		Fold(Out.Said)
 
 		for _, Line in Out.Threw do
 			table.insert(Threw, `seed {Seed}: {Line}`)
@@ -219,8 +230,6 @@ else
 		Reached[Bucket] = Count
 	end
 end
-
-Tap:Disconnect()
 
 local Missed: { string } = {}
 local Silent: { string } = {}

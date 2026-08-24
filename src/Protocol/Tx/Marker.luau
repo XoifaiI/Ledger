@@ -19,6 +19,7 @@
 		local Status = Marker.StatusOf(TxStore, "order1", 30)
 --]=]
 
+local Say = require("../../Util/Say")
 local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
@@ -87,7 +88,7 @@ local function Elsewhere(Name: string): DataStoreWrapper
 
 	if not Said then
 		Said = true
-		warn(
+		Say.Warn(
 			`Ledger: this server holds {MAX_HOMES} transaction homes, so '{Name}' gets a new handle each time. its writes no longer queue, and a shutdown cannot stop its retries. use fewer stores in your transactions`
 		)
 	end

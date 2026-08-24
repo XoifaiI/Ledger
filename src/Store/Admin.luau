@@ -22,6 +22,7 @@
 		local Ok, Why = self:Erase(1):Wait()
 --]=]
 
+local Say = require("../Util/Say")
 local Future = require("../Util/Future")
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
@@ -99,7 +100,7 @@ function Store.ReapMarkers(self: Store): number
 		return Reaped
 	end
 
-	warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
+	Say.Warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
 	return 0
 end
 
@@ -108,7 +109,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return self:Fold(Shape.Detached(Replaced))
 	end)
 	if not Ok then
-		warn(`Ledger: erased '{Key}' but could not read back what was on it, so this cannot say what went with it: {State}`)
+		Say.Warn(`Ledger: erased '{Key}' but could not read back what was on it, so this cannot say what went with it: {State}`)
 		return
 	end
 	if type(State) ~= "table" then
@@ -127,7 +128,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 			end
 		end
 		for Named, Amount in Held do
-			warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
+			Say.Warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
 		end
 	end
 
@@ -141,7 +142,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return
 	end
 
-	warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Log.TOMB_HORIZON // 86400} days is turned away and given back to whoever sent it`)
+	Say.Warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Log.TOMB_HORIZON // 86400} days is turned away and given back to whoever sent it`)
 end
 
 function Store.HeldOn(self: Store, Key: string): (boolean, any)
@@ -168,7 +169,7 @@ end
 function Store.HandOver(self: Store, Key: string): (number, number)
 	local Read, Held = self:HeldOn(Key)
 	if not Read then
-		warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
+		Say.Warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
 		return 0, 0
 	end
 	if not TableUtil.Occupied(Held) then
@@ -179,12 +180,12 @@ function Store.HandOver(self: Store, Key: string): (number, number)
 		Recovery.Transfers(self:Records(), self:Format(), Key, Held)
 	end)
 	if not Sent then
-		warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)
+		Say.Warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)
 	end
 
 	local Again, Left = self:HeldOn(Key)
 	if not Again then
-		warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
+		Say.Warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
 		return 0, 0
 	end
 	return CountHeld(Left)
@@ -259,7 +260,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Erase")
 
 	if self.Keys == "Player" and Players:GetPlayerByUserId(tonumber(Resolved) or 0) ~= nil then
-		warn(`Ledger: erasing {Resolved} while they are still in this server, so their session writes part of the record back`)
+		Say.Warn(`Ledger: erasing {Resolved} while they are still in this server, so their session writes part of the record back`)
 	end
 
 	return Future.New(function(): (boolean, Reason?)
@@ -297,7 +298,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		end
 
 		if Holds > 0 then
-			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} had not finished, so that money is gone for good. check the audit log and pay the receivers back by hand`)
+			Say.Warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} had not finished, so that money is gone for good. check the audit log and pay the receivers back by hand`)
 		end
 
 		local Before = Replaced :: Record

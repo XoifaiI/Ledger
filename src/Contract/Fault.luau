@@ -15,6 +15,7 @@
 		error(Fault.New(Reasons.Busy, "the key has a leg on it"))
 --]=]
 
+local Say = require("../Util/Say")
 local ThreadQueue = require("../Util/ThreadQueue")
 local Reasons = require("./Reason")
 
@@ -52,7 +53,7 @@ local function Of(Err: unknown): Reason?
 end
 
 local function Broke(Message: string)
-	warn(`Ledger: {Message}. that is a rule Ledger holds itself to, so this is a bug in Ledger and not in your game. please report it`)
+	Say.Warn(`Ledger: {Message}. that is a rule Ledger holds itself to, so this is a bug in Ledger and not in your game. please report it`, 1)
 end
 
 local function Holds(Condition: any, Message: string)

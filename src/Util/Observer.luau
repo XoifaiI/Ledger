@@ -17,6 +17,8 @@
 		Stream:Push(1)
 --]=]
 
+local Say = require("./Say")
+
 local NoYield = require("./NoYield")
 
 export type Connection = {
@@ -107,7 +109,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 		end
 
 		self.Said = Now
-		warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. it holds a thread for as long as it runs, so one that never returns leaks a thread for every value pushed`)
+		Say.Warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. it holds a thread for as long as it runs, so one that never returns leaks a thread for every value pushed`)
 	end)
 
 	local Ok, Err = pcall(Listener, Value)
@@ -117,7 +119,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 	end
 
 	if not Ok then
-		warn(`Ledger: Observer listener errored: {Err}`)
+		Say.Warn(`Ledger: Observer listener errored: {Err}`)
 	end
 end
 
@@ -135,7 +137,7 @@ local function Deliver<T>(self: Private<T>, Value: T)
 			else
 				local Ok, Err = NoYield.Try(Node.Listener, Value)
 				if not Ok then
-					warn(`Ledger: Observer listener errored: {Err}`)
+					Say.Warn(`Ledger: Observer listener errored: {Err}`)
 				end
 			end
 		end

@@ -17,6 +17,7 @@
 		if Compact.Overgrown(Record) then Fold() end
 --]=]
 
+local Say = require("../Util/Say")
 local TableUtil = require("../Util/TableUtil")
 local Measure = require("../Encode/Measure")
 local IsStorable = require("../Encode/Storable")
@@ -132,13 +133,13 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 
 	local Snapshot, Taken, Blocking = Absorbable(Record, Format)
 	if Taken == 0 and #Record.Ops > 0 then
-		warn(`Ledger: key '{Key}' cannot be compacted, its oldest op is a '{Blocking}' this build does not apply. a build that does apply it compacts the key`)
+		Say.Warn(`Ledger: key '{Key}' cannot be compacted, its oldest op is a '{Blocking}' this build does not apply. a build that does apply it compacts the key`)
 		return nil
 	end
 
 	local Storable, Where = IsStorable.Structure(Snapshot)
 	if not Storable then
-		warn(
+		Say.Warn(
 			`Ledger: key '{Key}' cannot be compacted, your reducer built state a datastore cannot hold, {Where}. the log is left alone rather than lose that field. no gaps in arrays, no mixing array and string keys, no nan`
 		)
 		return nil
@@ -146,7 +147,7 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 
 	local Held: { Op } = table.move(Record.Ops, Taken + 1, #Record.Ops, 1, {})
 	if Blocking ~= nil then
-		warn(`Ledger: key '{Key}' kept {#Held} op(s) through compaction, from a '{Blocking}' this build does not apply. they wait for a build that does rather than being dropped`)
+		Say.Warn(`Ledger: key '{Key}' kept {#Held} op(s) through compaction, from a '{Blocking}' this build does not apply. they wait for a build that does rather than being dropped`)
 	end
 
 	local Seen = table.clone(Record.Seen)
