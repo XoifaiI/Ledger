@@ -89,18 +89,24 @@ end
     The Id is the first argument, because the Id makes the call safe to repeat. Get the Id
     from the trade. Do not get the Id from the clock. A different Id makes a second trade.
 
-    A false result always has a reason. There are five reasons:
+    A false result always has a reason. There are six reasons:
 
         Refused     A reducer refused a leg. The seller no longer has the item, or the buyer
                     cannot pay. This result is permanent. Tell the player.
         Busy        A different transaction holds one of these keys. Nothing changed. Offer
                     the trade again in a moment.
         Spent       A different trade already used this Id. Use a new Id.
+        Full        A key is carrying more ops than it can hold until it compacts. Nothing was
+                    applied. Ledger writes a warning that names the key.
         Invalid     A leg carries a field that Ledger cannot store. This result is a fault in
                     the caller. Ledger writes a warning that gives the number of the leg.
         Unresolved  The datastore did not answer. The trade can still commit. Do not tell the
                     player that the trade failed. Do not send the trade again with a new Id.
                     Read both profiles again.
+
+    A leg reads the record on the datastore, not what a live session is holding. An item that
+    Apply accepted and has not written yet is not there for a leg to move, and the trade answers
+    Refused. Grant anything a trade depends on with Commit.
 
     Tx sends a transaction again after a lost acknowledgement, a stale marker or a torn
     verdict. These three conditions do not reach the caller.

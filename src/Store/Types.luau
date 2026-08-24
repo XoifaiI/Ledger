@@ -15,6 +15,7 @@
 --]=]
 
 local Future = require("../Util/Future")
+local Observer = require("../Util/Observer")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Contract = require("../Contract/Op")
 local Public = require("../Contract/Public")
@@ -71,6 +72,7 @@ export type Fields = {
 	Waiters: { [number]: { thread } },
 	Loads: { [number]: LoadPhase },
 	Saving: { [Future<boolean, Reason?>]: boolean },
+	Staleness: Observer.Subject<string>,
 	Meter: Meter,
 	ReapAt: string,
 	Closed: boolean
@@ -93,6 +95,8 @@ export type StoreImpl = {
 
 	Watch: (self: Store, Key: string, Record: Record) -> (),
 	WatchHeld: (self: Store, Key: string, State: any) -> (),
+	Stale: (self: Store) -> Observer.Observer<string>,
+	Went: (self: Store, Key: string) -> (),
 	Append: (self: Store, Key: string, Op: Op, Guard: Allow?) -> Record,
 	Maintain: (self: Store, Key: string, Record: Record) -> Record,
 	Applies: (self: Store, Op: Op, Record: Record) -> boolean,

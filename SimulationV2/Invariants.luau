@@ -16,6 +16,7 @@
 local Lib = require("./Lib")
 local Disk = require("./Disk")
 
+local Booking = Lib.Booking
 local Entries = Lib.Entries
 local Stamp = Lib.Stamp
 
@@ -169,6 +170,22 @@ local function Settled(Board: Disk, Where: Where, Format: any, Field: string, Ex
 		if type(State._Held) == "table" and next(State._Held) ~= nil then
 			table.insert(Held.Broken, `{Key} still holds escrow after everything went quiet`)
 		end
+
+		for Rid, Entry in if type(State._Booked) == "table" then State._Booked else {} do
+			local To = if type(Entry) == "table" then Entry.To else nil
+			if type(To) ~= "string" or Where[To] == nil then
+				continue
+			end
+
+			local Landed: any = Format:Fold(Record(Disk.Peek(Board, Where[To], To)))
+			if Booking.Granted(Landed, Rid, Booking.Terms(Key, Rid, Entry)) ~= Entries.SAME then
+				continue
+			end
+			table.insert(
+				Held.Broken,
+				`{Key} still holds {tostring(Entry.Amount)} under '{tostring(Rid)}' that {To} already took`
+			)
+		end
 	end
 
 	Held.Ok = #Held.Broken == 0
@@ -238,6 +255,17 @@ local function Unfinished(Board: Disk, Where: Where, Marks: { string }, Format: 
 				local Amount = if type(Entry) == "table" then Entry.Amount else "?"
 				local To = if type(Entry) == "table" then Entry.To else "?"
 				table.insert(Left, `'{Key}' still holds {tostring(Amount)} in escrow for '{tostring(Tid)}' bound for '{tostring(To)}'`)
+			end
+		end
+		if type(State._Booked) == "table" then
+			for Rid, Entry in State._Booked do
+				if type(Entry) ~= "table" or Entry.Handing ~= true then
+					continue
+				end
+				table.insert(
+					Left,
+					`'{Key}' is part way through handing {tostring(Entry.Amount)} under '{tostring(Rid)}' to '{tostring(Entry.To)}'`
+				)
 			end
 		end
 	end

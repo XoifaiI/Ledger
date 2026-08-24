@@ -56,8 +56,12 @@ type Private<T> = {
 	Head: Node<T>?,
 	Tail: Node<T>?,
 	Activate: Activate<T>?,
-	Teardown: (() -> ())?
+	Teardown: (() -> ())?,
+	Detached: boolean?,
+	Said: number?
 }
+
+local SLOW = 10
 
 local Observer = {}
 Observer.__index = Observer
@@ -94,17 +98,47 @@ local function Unlink<T>(self: Node<T>)
 	end
 end
 
+local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
+	local Done = false
+	local Watch = task.delay(SLOW, function()
+		local Now = os.clock()
+		if Done or (self.Said ~= nil and Now - self.Said < SLOW) then
+			return
+		end
+
+		self.Said = Now
+		warn(
+			`Observer listener has run for {SLOW} seconds without finishing. it holds a thread for as long as it runs, so one that never returns leaks a thread for every value pushed`
+		)
+	end)
+
+	local Ok, Err = pcall(Listener, Value)
+	Done = true
+	if coroutine.status(Watch) == "suspended" then
+		task.cancel(Watch)
+	end
+
+	if not Ok then
+		warn(`Observer listener errored: {Err}`)
+	end
+end
+
 local function Deliver<T>(self: Private<T>, Value: T)
 	local Node = self.Head
 	local Last = self.Tail
+	local Detached = self.Detached
 
 	while Node ~= nil do
 		local Following = if Node == Last then nil else Node.Next
 
 		if Node.Connected then
-			local Ok, Err = NoYield.Try(Node.Listener, Value)
-			if not Ok then
-				warn(`Observer listener errored: {Err}`)
+			if Detached then
+				task.spawn(Carry, self, Node.Listener, Value)
+			else
+				local Ok, Err = NoYield.Try(Node.Listener, Value)
+				if not Ok then
+					warn(`Observer listener errored: {Err}`)
+				end
 			end
 		end
 
@@ -112,14 +146,14 @@ local function Deliver<T>(self: Private<T>, Value: T)
 	end
 end
 
-local function Make<T>(Activate: Activate<T>?): Observer<T>
-	local Body: Private<T> = { Activate = Activate }
+local function Make<T>(Activate: Activate<T>?, Detached: boolean?): Observer<T>
+	local Body: Private<T> = { Activate = Activate, Detached = Detached }
 
 	return setmetatable(Body :: any, Observer) :: any
 end
 
-local function New<T>(): Subject<T>
-	return Make() :: any
+local function New<T>(Detached: boolean?): Subject<T>
+	return Make(nil, Detached) :: any
 end
 
 function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connection
@@ -163,7 +197,7 @@ function Observer.Use<T, U>(self: Observer<T>, Middleware: Middleware<T, U>): Ob
 		return function()
 			Connection:Disconnect()
 		end
-	end)
+	end, ToPrivate(self).Detached)
 end
 
 function Observer.Map<T, U>(self: Observer<T>, Transform: (T) -> U): Observer<U>

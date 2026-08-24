@@ -20,6 +20,7 @@ local Registry = require("../src/Store/Registry")
 local Horizons = require("../src/Contract/Horizons")
 local Reasons = require("../src/Contract/Reason")
 
+local Booking = require("../src/Feature/Booking")
 local Entries = require("../src/Kernel/Entries")
 local Ident = require("../src/Encode/Ident")
 local Mark = require("../src/Encode/Mark")
@@ -44,6 +45,7 @@ return table.freeze({
 	Stores = Registry.Stores,
 	Shutting = Registry.Shutting,
 
+	Booking = Booking,
 	Entries = Entries,
 	Mark = Mark,
 	Ident = Ident,

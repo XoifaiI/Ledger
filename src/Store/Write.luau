@@ -19,8 +19,8 @@
 	A key with a leg parked on it is asked twice, once against what it holds now and once against
 	what the leg committing would give. An op that holds either way is written. An op that holds
 	neither way never will, and writing it would stop the key from compacting for good.
-	
-	Return type: A table with Failed, Watch, WatchHeld, Append, Maintain, Applies, Written, Swelling, Starved and AUTOSAVE_INTERVAL.
+
+	Return type: A table with Failed, Watch, WatchHeld, Stale, Went, Append, Maintain, Applies, Written, Swelling, Starved and AUTOSAVE_INTERVAL.
 	Example usage:
 		local Write = require("./Write")
 		local Ok, Why = self:Written("1", Op, "edit")
@@ -28,6 +28,7 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
+local Observer = require("../Util/Observer")
 local Fault = require("../Contract/Fault")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")
@@ -73,6 +74,14 @@ local function Failed(What: string, Key: string, Err: any): Reason
 
 	warn(`Ledger: could not {What} '{Key}': {Err}`)
 	return Why
+end
+
+function Store.Stale(self: Store): Observer.Observer<string>
+	return self.Staleness
+end
+
+function Store.Went(self: Store, Key: string)
+	self.Staleness:Push(Key)
 end
 
 function Store.Watch(self: Store, Key: string, Record: Record)
@@ -274,6 +283,10 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	if not Ok then
 		warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
 		return false, UNRESOLVED
+	end
+
+	if Why == nil then
+		self:Went(Key)
 	end
 	return Why == nil, Why
 end

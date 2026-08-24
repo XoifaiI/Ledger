@@ -84,6 +84,7 @@ export type Store<D> = {
 	ClearDelivered: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	Reset: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	Erase: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
+	Stale: (self: Store<D>) -> Observer<string>,
 	Destroy: (self: Store<D>) -> ()
 }
 

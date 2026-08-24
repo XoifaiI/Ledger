@@ -23,6 +23,7 @@
 --]=]
 
 local Future = require("../Util/Future")
+local Observer = require("../Util/Observer")
 local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
 local Threads = require("../Util/Threads")
@@ -149,6 +150,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 		Waiters = {},
 		Loads = {},
 		Saving = {},
+		Staleness = Observer.New(true) :: Observer.Subject<string>,
 		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
 		ReapAt = "",
 		Closed = false
@@ -396,6 +398,7 @@ function Store.Destroy(self: Store)
 	Registry.Claimed[self.Options.Name] = nil
 	Registry.Claimed[`{self.Options.Name}_Tx`] = nil
 	Registry.Sweep():Forget(self)
+	self.Staleness:Destroy()
 
 	local Jobs: { Future<boolean, Reason?> } = {}
 	for UserId, Entry in self.Loaded do

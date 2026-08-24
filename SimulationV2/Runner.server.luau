@@ -45,6 +45,8 @@ local MISDIRECT = false
 
 local SELF_ACCUSED = "this is a bug in Ledger"
 
+local DRAIN_FRAMES = 8
+
 local function Row(Title: string, Count: number)
 	print(`  {Title} {string.rep(".", math.max(1, 34 - #Title))} {if Count == 0 then "none" else tostring(Count)}`)
 end
@@ -122,6 +124,10 @@ end
 
 if not SWEEP then
 	return
+end
+
+for _ = 1, DRAIN_FRAMES do
+	task.wait()
 end
 
 local Sheet = Marks.New()

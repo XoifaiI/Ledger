@@ -111,13 +111,15 @@ end
     that it has not written yet. Show the result to the player. Do not make a decision from
     the result. Put each decision in an op, where the reducer approves it.
 
-    A false Transfer always has a reason. There are five reasons:
+    A false Transfer always has a reason. There are six reasons:
 
         Refused     The move is not permitted. The sender does not hold enough. Nothing
                     moved. Tell the player.
         Busy        A different write holds the sender. Nothing moved. Send the transfer
                     again in a moment.
         Spent       A different transfer already used this Id. Use a new Id.
+        Closed      The server is shutting down and the write was dropped before it ran.
+                    Nothing moved. Do not send it again here.
         Held        The amount left the sender and waits in escrow for the receiver. The
                     money did move. Do not tell the player that nothing moved. Ledger
                     delivers the amount, or gives the amount back after the window. An

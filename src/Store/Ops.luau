@@ -114,6 +114,10 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 		if Why == BUSY or Why == HELD or Escrowed then
 			Registry.Sweep():Add(self, FromKey)
 		end
+		if Moved then
+			self:Went(FromKey)
+			self:Went(ToKey)
+		end
 		return Moved :: boolean, Why :: Reason?
 	end)
 end
@@ -225,6 +229,9 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any 
 		not Stamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`),
 		`booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`
 	)
+
+	self:Went(Key)
+	self:Went(To)
 	return true
 end
 
@@ -393,6 +400,11 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 
 		if Why == BUSY or Parked then
 			Follow()
+		end
+		if Committed then
+			for _, Target in Targets do
+				Target.Store:Went(Target.Key)
+			end
 		end
 		return Committed :: boolean, Why :: Reason?
 	end)

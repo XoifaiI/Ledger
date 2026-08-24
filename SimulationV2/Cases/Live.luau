@@ -618,6 +618,74 @@ Cases.Case("a listener dropped mid push is not called anyway", function(T: Case)
 	T:Is("listeners still connected once the push ended", Calls, 1)
 end)
 
+Cases.Case("a write names the key it landed on as stale", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 100, Touches = 0 })
+	Bank:Seed("b", { Gold = 0, Touches = 0 })
+
+	local Heard: { string } = {}
+	local Link = Bank.Store:Stale():Subscribe(function(Key: string)
+		table.insert(Heard, Key)
+	end)
+
+	Bank.Store:Edit("a", "Fund", { Amount = 5 }):Wait()
+	T:Is("an edit that landed", table.concat(Heard, ","), "a")
+
+	table.clear(Heard)
+	Bank.Store:Edit("a", "Give", { Amount = -100000 }):Wait()
+	T:Is("keys named by an edit the reducer refused", #Heard, 0)
+
+	table.clear(Heard)
+	Bank.Store:Transfer("a", "b", 5):Wait()
+	table.sort(Heard)
+	T:Is("keys named by a transfer", table.concat(Heard, ","), "a,b")
+
+	table.clear(Heard)
+	Bank.Store:Tx("deal", {
+		{ Key = "a", Kind = "Give", Fields = { Amount = -5 } },
+		{ Key = "b", Kind = "Fund", Fields = { Amount = 5 } }
+	}):Wait()
+	table.sort(Heard)
+	T:Is("keys named by a transaction", table.concat(Heard, ","), "a,b")
+
+	Link:Disconnect()
+	table.clear(Heard)
+	Bank.Store:Edit("a", "Fund", { Amount = 1 }):Wait()
+	T:Is("keys named once the listener is gone", #Heard, 0)
+end)
+
+Cases.Case("a stale listener may yield and does not hold up the write", function(T: Case)
+	T:Slow()
+
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 0, Touches = 0 })
+
+	local Woke = false
+	local Finished = false
+	Bank.Store:Stale():Subscribe(function()
+		task.wait(0.2)
+		Woke = true
+	end)
+
+	local Started = os.clock()
+	Bank.Store:Edit("a", "Fund", { Amount = 5 }):Wait()
+	local Took = os.clock() - Started
+	Finished = true
+
+	T:Is("the write answered without waiting for the listener", Took < 0.15, true)
+	T:Is("the listener had not finished yet", Woke, false)
+	T:Silent("a yielding listener is not reported as an error", "Observer listener errored")
+
+	local Stop = os.clock() + 5
+	while not Woke and os.clock() < Stop do
+		task.wait()
+	end
+
+	T:Is("the listener finished on its own thread", Woke, true)
+	T:Is("the write had already returned", Finished, true)
+	T:Is("gold the write landed", Bank:Amount("a"), 5)
+end)
+
 Cases.Case("every listener hears a push in the order they subscribed", function(T: Case)
 	local Stream = Observer.New()
 	local Heard: { number } = {}
