@@ -59,6 +59,7 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "RefundFailed", Says = "could not give back transfer" },
 	{ Name = "TransferWrittenOff", Says = "a refund could pay them twice" },
 	{ Name = "TransfersBacklogged", Says = "unfinished transfers, so" },
+	{ Name = "TransferOnBothKeys", Says = "was not settled, so the money is on both keys" },
 
 	{ Name = "BookingLate", Says = "has run past its hold" },
 	{ Name = "BookingNoTo", Says = "was not reserved with a To" },
@@ -90,6 +91,7 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "NotDeterministic", Says = "is not deterministic" },
 	{ Name = "ReducerWroteOwn", Says = "your reducer wrote its own" },
 	{ Name = "OnMock", Says = "is on a fake datastore" },
+	{ Name = "MockReused", Says = "UseMock was called again" },
 
 	{ Name = "LoadFailed", Says = "could not load '" },
 	{ Name = "SettleFoldSkipped", Says = "so this fold leaves it out" },
