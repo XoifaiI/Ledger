@@ -28,6 +28,9 @@ local SHARDS = 16
 local PART = "#"
 local ALGORITHM = Enum.HashAlgorithm.Blake3
 
+local LastNode = ""
+local LastShard = 0
+
 local function Bumping(Data: Data, Op: Op): Data?
 	local Field = Op.Field
 	if type(Field) ~= "string" or type(Data[Field]) ~= "number" then
@@ -42,16 +45,13 @@ local function Bumping(Data: Data, Op: Op): Data?
 	return Next
 end
 
-local Home = ""
-local Picked = 0
-
 local function Mine(): number
 	local Node = Ident.Home()
-	if Node ~= Home then
-		Home = Node
-		Picked = string.byte(EncodingService:ComputeStringHash(Node, ALGORITHM), 1) % SHARDS
+	if Node ~= LastNode then
+		LastNode = Node
+		LastShard = string.byte(EncodingService:ComputeStringHash(Node, ALGORITHM), 1) % SHARDS
 	end
-	return Picked
+	return LastShard
 end
 
 local function Shard(Name: string, Index: number): string
