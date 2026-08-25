@@ -5,11 +5,10 @@
 	Store: One fake datastore.
 
 	It holds its keys, and the versions that it keeps of each key.
-	A transform can hit a conflict when two writes land on one key. The version mark is read before
-	and after the transform, and a change means that another write came in between. The transform
-	then runs again against what that write left, which is what a real UpdateAsync does.
-	A transform that yields raises. A transform that throws for any other reason cancels the write
-	and tells the caller nothing, which is what a real one does, measured on a live datastore.
+	Two writes on one key can meet. Store reads the version mark before and after the transform, and
+	a change means another write came between. The transform then runs again, as a real one does.
+	A transform that yields raises. A transform that throws for another reason cancels the write and
+	tells the caller nothing, which is what a real datastore does.
 
 	Return type: A table with New, MAX_KEY and KEEP_VERSIONS.
 	Example usage:

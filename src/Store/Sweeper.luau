@@ -5,14 +5,11 @@
 	Sweeper: Retries each key that a failed write left unfinished.
 
 	It also removes transaction markers on each tenth pass.
-	It stops following a key after a few tries. A key that it cannot repair is a key that something
-	else has to hear about.
-	A pass that moved something makes progress, even when it is not finished. That pass therefore
-	does not count against the tries.
+	It stops following a key after a few tries, and warns about a key it cannot repair. A pass that
+	moved something counts as progress and does not spend a try.
 	The walk starts where the last walk stopped, so a store that runs out of budget does not starve
 	the stores after it.
-	A pass calls the datastore on its own thread. Stop counts up, and a pass gives up between keys once
-	that count moves. Stop therefore ends the pass that is running without also stopping a later one.
+	Stop ends the pass that runs now. A later pass is not affected.
 
 	Return type: A table with New.
 	Example usage:

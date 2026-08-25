@@ -4,16 +4,11 @@
 --[=[
 	Horizons: Every window that Ledger keeps something for, in one place.
 
-	Ledger holds nothing without a limit. Each set that it keeps is bounded by what happened inside
-	one of these windows, and not by the age of the key.
-	A tomb must outlast the last time that a transfer is sent again. If a tomb ran out first, a key
-	would start to accept transfers while one was still on its way to it. That is checked below,
-	and not left to a reader to notice.
-
-	A reservation cannot be handed over once its hold runs out, and its units are not taken back until
-	a margin after that. The margin covers how long a hand over can take, which is a few writes behind
-	a queue and their retries, and not how long the hold is. It makes that race rare and does not make
-	it impossible, so both sides also say so when they meet.
+	Ledger holds nothing without a limit. A window bounds each set that Ledger keeps, and the age of
+	the key does not.
+	The windows must agree with each other. A tomb must outlast the last time a transfer is sent
+	again, and a reservation must run out before a transfer does. The asserts below hold these rules,
+	so a reader does not have to find them.
 
 	Return type: A table of the windows in seconds, and the caps on one pass.
 	Example usage:

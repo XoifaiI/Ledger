@@ -4,18 +4,11 @@
 --[=[
 	Ops: The writes that a game asks for by name.
 
-	Each one checks its arguments, builds one op, and gives that op to Written.
-	The ones that touch two keys are the exceptions.
-	Grant writes the receiver first and clears the hold second. That is the order that a transfer
-	uses, and for the same reason. A server that stops between the two leaves the units on both keys,
-	which recovery can see and settle.
-	A hand over marks the booking on the sender before it writes the receiver, and goes on only once
-	that mark is on the key. Reading the mark back out of the state is what proves it, because an op
-	sits in the log whether or not the reducer took it. Something else took the booking in between
-	means nothing is handed over at all.
+	Each one checks its arguments, builds one op, and gives that op to Written. The writes that touch
+	two keys are the exceptions.
+	Grant writes the receiver first and clears the hold second. A server that stops between the two
+	leaves the units on both keys, and recovery settles them.
 	A leg that names another store must carry the class that Ledger.New gives a store.
-	Grant turns away a booking that has run past its hold. Recovery takes those units back a margin
-	later, so the two cannot both act on one booking.
 
 	Return type: A table with Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, Bump, Total and Tx.
 	Example usage:

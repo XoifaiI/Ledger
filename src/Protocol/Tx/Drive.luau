@@ -4,14 +4,11 @@
 --[=[
 	Drive: Runs one transaction.
 
-	Each leg is parked on its key first. One write to the marker then decides the whole set.
-	Each leg is resolved against that decision last.
-	A coordinator that stops between any two of those steps leaves a marker. Another server can then
-	decide that marker for it.
-	The marker decides, and not the server that asked. A server that wanted to cancel and finds the
-	marker committed resolves every leg, because that is what the marker now says.
-	Some legs may remember the name and some may not. There is then no answer that holds on every key,
-	so the transaction is cancelled and not applied.
+	Drive parks each leg on its key. One write to the marker then decides the whole set. Drive
+	resolves each leg against that decision last.
+	A coordinator that stops between two steps leaves a marker, and another server decides it.
+	The marker decides, and not the server that asked. A server that wanted to cancel but finds the
+	marker committed must resolve every leg.
 
 	Return type: A table with Drive, LEG_TIMEOUT, TIMEOUT, MAX_LEGS and PASSES.
 	Example usage:

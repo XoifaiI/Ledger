@@ -4,9 +4,8 @@
 --[=[
 	Limits: One rule per hardcoded ceiling, driven past its edge.
 
-	Every cap is a number somebody chose, and a cap is only worth having if the thing it guards
-	refuses cleanly when it is reached. Each case drives past the edge and asks two questions: what
-	the caller was told, and whether the store still works.
+	A cap is only worth having if the thing it guards refuses cleanly at the edge. Each case drives
+	past that edge and asks what the caller was told, and whether the store still works.
 	The reason matters as much as the refusal, because a caller that cannot tell Full from Unresolved
 	cannot write a retry.
 

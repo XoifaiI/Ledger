@@ -6,15 +6,10 @@
 
 	A transfer that is still worth sending is sent again. A transfer that is past its window is
 	given back. A reservation that is past its hold is settled or returned.
-	Each pass has a limit, so a key that has many stranded takes several passes and not one long one.
-	A transfer that is past the prune horizon is written off, not refunded. The receiver has
-	forgotten the delivery id, so a refund could pay a player two times. Ledger writes a warning
-	with the amount, and a person decides. A reservation that old is written off for the same reason.
-	One pass handles a fixed number of holds and a fixed number of reservations. The windows and
-	that cap are in Contract/Horizons.
-	A hold between the two windows is left alone on purpose, so nothing delivers it while another
-	server gives it back. It still means the key is not finished, and a pass that only rested counts
-	as progress, so the sweep keeps the key without spending a try on it.
+	Each pass has a limit, so a key with many stranded takes several passes and not one long one.
+	A transfer past the prune horizon is written off and not refunded, because the receiver has
+	forgotten the delivery id and a refund could pay twice. Ledger writes a warning, and a person
+	decides. The windows and the cap are in Contract/Horizons.
 
 	Return type: A table with Transfers, Bookings and PASS_LIMIT.
 	Example usage:

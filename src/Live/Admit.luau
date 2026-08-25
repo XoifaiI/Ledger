@@ -6,13 +6,10 @@
 
 	This is the only place that decides whether an op may join the session, and it answers with a
 	reason and not a boolean.
-
-	State is measured only when it could be near the cap, because a measure walks the whole profile.
-	One op can add no more than the largest that an op may be.
-	An op that makes an oversized profile smaller is still allowed, so a cleanup works when a game
-	is already past the cap.
-	With two or more transactions parked, there are too many ways for them to settle to prove that
-	an op holds for all of them. The op is turned away, and not guessed at.
+	Admit measures the state only when the state could be near the cap, because a measure walks the
+	whole profile. An op that makes an oversized profile smaller is still allowed.
+	Admit turns an op away while two or more transactions are parked, because it cannot prove that
+	the op holds for every way they can settle.
 
 	Return type: A table with Admit and MAX_STATE_BYTES.
 	Example usage:

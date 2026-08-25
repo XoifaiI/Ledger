@@ -2,23 +2,13 @@
 --!optimize 2
 
 --[=[
-	Write: Puts one op on one key, and reads what the record folds to.
+	Write: Puts one op on one key. Reads what the record folds to.
 
-	Each public write ends here. This is the one place that turns a datastore answer into a reason.
-	The order is fixed. The guard of the caller runs first, then Applies, then the append, then
-	Maintain, then Certain. Each step has a different answer when it fails.
-	The state cap is checked here as well, so a key cannot be grown past it by Edit and the money
-	methods the way it could before. The check is the cheap one first, the size the record already
-	carries, and it only folds when the key is near the cap. An op that makes an oversized profile
-	smaller is still allowed.
-	The sweep follows a key that holds money in the middle of a move, or units set aside. A read is
-	what puts it there, so a key that nobody writes to again is still reached.
-	Applies refuses an op that the reducer would refuse, so a log does not fill with ops that do
-	nothing. Each case that is not certain writes instead. To refuse a write that should have
-	happened is the worse fault.
-	A key with a leg parked on it is asked twice, once against what it holds now and once against
-	what the leg committing would give. An op that holds either way is written. An op that holds
-	neither way never will, and writing it would stop the key from compacting for good.
+	Every public write ends here. This is the only place that turns a datastore answer into a reason.
+	The steps run in a fixed order: the guard of the caller, Applies, the append, Maintain, then
+	Certain. Each step gives a different answer when it fails.
+	Write also holds the key to the state cap, and adds a key to the sweep when that key holds money
+	in the middle of a move.
 
 	Return type: A table with Failed, Watch, WatchHeld, Stale, Went, Append, Maintain, Applies, Written, Swelling, Starved and AUTOSAVE_INTERVAL.
 	Example usage:

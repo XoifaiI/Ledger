@@ -6,14 +6,11 @@
 
 	The legs are reserve, deliver and settle. Each leg is atomic on its own key, and the transfer id
 	makes each leg apply one time.
-	The order matters. The money is delivered first, and the hold on the sender clears second.
-	The other order would clear the hold before the money arrives, and a server that stops between
-	the two would destroy it.
-	A server that stops leaves the money set aside. Recovery then finishes it or gives it back.
-	A hold that is older than the window for sending it again belongs to recovery. Reserve leaves it
-	alone, so nothing pays it in while recovery gives it back.
-	Post proves the hold cleared by reading the applied name back out of the state. An op sits in the
-	log whether or not the reducer took it, so the log alone proves nothing.
+	The order matters. The money arrives first, and the hold on the sender clears second. The other
+	order would destroy the money if a server stopped between the two.
+	A server that stops leaves the money set aside, and recovery finishes it or gives it back.
+	Post reads the applied name back out of the state, because an op sits in the log whether or not
+	the reducer took it.
 
 	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms, Older and LandedOn.
 	Example usage:

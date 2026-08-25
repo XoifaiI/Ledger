@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
-	Class: The method table that every half of the store writes its methods onto.
+	Class: The method table for the store.
 
-	The store is too large for one file, and the halves cannot each hold their own class table. So the
-	table lives here on its own, and Core, Write, Read, Admin and Ops each write onto it directly.
-	Nothing has to be copied across afterwards, and a method is declared where it is written.
-	Store.luau requires all of them before it freezes this, which is what makes the table complete.
+	Core, Write, Read, Admin and Ops write their methods onto it. Store.luau requires those five, so
+	the table must be in a file of its own. Store.luau freezes the table last.
 
-	Return type: The method table, with __index already pointing at itself.
+	Return type: The method table. __index points at itself.
 	Example usage:
 		local Store = require("./Class")
 		function Store.Peek(self: Store, Key: KeyLike) end

@@ -6,19 +6,10 @@
 
 	The units stay set aside until something takes them or gives them back. Limited stock can
 	therefore sit on one key, and does not need a transaction across two keys.
-	The next booking on that key gives back each booking that is older than its hold.
-	A field that is no longer a number has no place to put the units back, so that booking is kept.
-	To drop it would take the units off the key.
-	A grant carries a mark of the booking that sent it. The receiver keeps that mark. A caller can
-	then tell its own grant from an earlier one that used the same name.
-	A hand over marks the booking before it reaches the receiver. Give lands on the receiver before
-	Sent clears the sender, so between them the units are on both keys on purpose, and only recovery
-	can ask the receiver which way it went. The mark is what stops Release deciding that instead, and
-	giving back units the receiver already has.
-	The sender lets go of handed units under a name of its own. A Confirm can therefore tell units it
-	spent itself from units that went to another key, which are the same absent booking otherwise.
-	A booking that is late can no longer be handed over, and its units come back only after a margin
-	past that. Nothing therefore hands the units over while something else gives them back.
+	The next booking on a key gives back each booking that is older than its hold.
+	A hand over marks the booking before it reaches the receiver. The units are on both keys between
+	the two writes, and only recovery can ask the receiver which way it went.
+	A booking that is late can no longer be handed over.
 
 	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, the four ids, BOOK_HORIZON and BOOK_MARGIN.
 	Example usage:

@@ -6,15 +6,9 @@
 
 	One store holds one datastore name. It owns each key under that name, and each session that is
 	live on this server.
-	The five requires with no name on them are what put the methods on the class. Core, Write, Read,
-	Admin and Ops each write onto the table in Class, and this file requires all of them before it
-	freezes that table. Nothing is copied across.
-	The layers are put in order here. Escrow is present only when the store names a balance.
-	Booking is next, then tally, then names outside all of them.
-	A session with nothing queued and nothing parked reads on each fourth turn. An idle player
-	therefore costs one request every two minutes.
-	Each session waits a different amount before its first save. Many players who join together
-	therefore spread their saves across the interval, and do not send them in one burst.
+	The five requires with no name on them put the methods on the class. Core, Write, Read, Admin and
+	Ops write onto the table in Class, and this file requires all five before it freezes that table.
+	This file also puts the layers in order, and starts the autosave for each session.
 
 	Return type: A table with New.
 	Example usage:

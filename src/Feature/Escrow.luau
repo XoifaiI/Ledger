@@ -6,9 +6,8 @@
 
 	The money leaves the sender into a hold under the transfer id. It is paid in on the receiver
 	against the set of applied names. The hold clears after both of those things happen.
-	A sender that already has this transfer written down as sent sets nothing aside for it a second
-	time. The reducer owns that record, so every way of setting money aside is covered by it, and the
-	money never leaves before the question is asked.
+	A sender that already has this transfer written down as sent sets nothing aside a second time.
+	The reducer owns that record, so the money never leaves before Escrow asks the question.
 	Each of the three legs is a separate op, so each one is atomic on its own key.
 
 	Return type: A table with Layered, the five op kinds, the five id prefixes, REDRIVE_HORIZON and EXPIRE_MARGIN.

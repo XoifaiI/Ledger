@@ -4,12 +4,11 @@
 --[=[
 	Clock: Gives the time that Ledger writes on a record, and the wait that Ledger polls on.
 
-	A test can replace the source of the time. The test can then hold the time still, or move it forward.
-	The default source is os.time.
-	Ledger counts each of its windows in seconds since 1970. A new source is read once and checked
-	against the real clock. A source in other units would make a key forget the names that stop a
-	payment happening two times.
-	A test can replace the wait for the same reason. The default wait is task.wait.
+	A test can replace the source of the time and the wait. The test can then hold the time still or
+	move it forward. The defaults are os.time and task.wait.
+	Ledger counts each of its windows in seconds since 1970. Clock reads a new source one time and
+	compares it against the real clock, because a source in other units would make a key forget the
+	names that stop a payment happening two times.
 
 	Return type: A table with Set, Now and Wait.
 	Example usage:

@@ -5,20 +5,11 @@
 	Log: The record on one key.
 
 	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, or fold its log.
-	Every way of writing a record asks first whether this build is allowed to. To erase one is the most
-	final of them, so it asks as well.
-	A transaction leg is an op of a game, so it stops at the same two ceilings that an ordinary write
-	stops at, the bytes of the log and the size of the state it folds to. Prepare does not run the
-	rules, so it carries both itself. The state is measured only when the record is near the cap.
-	A compaction knows the size of the state it just wrote, so it says so while there is still room
-	to act. It names the largest field, which is what tells a reader where the size went.
-	An append adds only the ops that the record has not seen. An append that runs two times
+	Every write first asks whether this build may write the record.
+	An append adds only the ops that the record does not have. An append that runs two times
 	therefore applies one time.
-	Materialize does not trust a field that it reads back, because another build can write a record.
-	A datastore swallows whatever a transform throws and cancels the write, so a reason raised inside
-	one never reaches the caller on its own. Update therefore keeps what was raised and raises it
-	again once the write has returned. It is kept for one run only, because a transform runs again
-	when two writes meet, and the run that counts is the last one.
+	Materialize does not trust a field that it reads, because another build can write a record.
+	A datastore hides an error that a transform throws. Update keeps that error and raises it again.
 
 	Return type: A table with New, Verdict, MAX_LOG_BYTES, TOMB_HORIZON, Entombed, NotEntombed and Known.
 	Example usage:

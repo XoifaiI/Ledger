@@ -6,15 +6,10 @@
 
 	It finishes what a dead server left, it resets a key, and it erases one.
 	These are the only paths that throw data away, so each one says what went with it.
-	A key with units set aside is not clean, because those units come back when their hold runs out.
-	The sweep therefore keeps it until then, and does not count the wait as a try that failed.
-	An erase keeps the set of applied names in the tombstone, and throws the rest away. A transfer
-	that was delivered before the erase must not pay in again while the tomb stands.
-	The first erase leaves a tombstone. Only an erase that finds an old tomb removes the key.
-	A tool that wants the key gone must call Erase two times, 8 days apart. A key can be written to
-	while its tomb stands, so both erases say what went with them.
-	The erase reads the record twice, once to keep the applied names and once to say what went. The
-	second read takes a copy, because putting a record into its current format may change it.
+	An erase keeps the applied names in the tombstone and throws the rest away, so a transfer that
+	arrived before the erase cannot pay in again.
+	The first erase leaves a tombstone. Only an erase that finds an old tomb removes the key, so a
+	caller that wants the key gone must call Erase two times, 8 days apart.
 
 	Return type: A table with Freed, Repair, ReapMarkers, Buried, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase.
 	Example usage:

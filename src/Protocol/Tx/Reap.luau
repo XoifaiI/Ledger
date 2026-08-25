@@ -4,13 +4,10 @@
 --[=[
 	Reap: Removes the markers of transactions that are over.
 
-	A committed marker can go only after each key that it touched has forgotten it.
-	A key that still names it would read a missing marker as an abort, and would undo a leg that
-	the transaction counted as committed.
-	A key that this pass cannot read counts as loud, so a datastore fault never removes a marker early.
-	One pass walks a few pages and then stops. It gives back the cursor of the place where it stopped,
-	and the pass after it carries on from there. A marker that a game keeps for years therefore cannot
-	hide the markers behind it.
+	A committed marker can go only after each key that it touched has forgotten it. A key that still
+	names the marker would read the missing marker as an abort, and would undo a committed leg.
+	A key that a pass cannot read counts as loud, so a datastore fault never removes a marker early.
+	One pass walks a few pages and stops. It gives back the cursor, and the next pass starts there.
 
 	Return type: A table with Reap, Spent, Quiet, Anywhere, REAP_HORIZON, REAP_LIMIT and REAP_PAGES.
 	Example usage:

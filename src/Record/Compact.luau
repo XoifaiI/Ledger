@@ -4,12 +4,11 @@
 --[=[
 	Compact: Folds the ops on a key into a new snapshot.
 
-	A large profile costs a lot to write again, so it waits until the log is a share of it.
-	A small profile is cheap, so it folds on a count.
-	Only the ops at the front that this build can apply are absorbed. The first op that this build
-	cannot apply stops the walk, and each op after it stays for a build that can apply it.
-	An op that the reducer refuses is held back and not dropped, even when this build knows its kind.
-	A later build may read it another way, and to absorb it would answer for that build.
+	A large profile costs a lot to write again, so Compact waits until the log is a share of it. A
+	small profile is cheap, so Compact folds it on a count.
+	Compact absorbs only the ops at the front that this build can apply. The first op that this build
+	cannot apply stops the walk, and each op after it waits for a build that can.
+	Compact holds back an op that the reducer refuses. It does not drop the op.
 
 	Return type: A table with Packed, Worthwhile, Oversized, Overgrown, Bulk, Hint and SEEN_LIMIT.
 	Example usage:

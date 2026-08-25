@@ -4,9 +4,8 @@
 --[=[
 	Logs: One rule per case for the op log itself.
 
-	The record is the whole state, so what it may contain and what a fold may do with it sit under
-	everything else. A junk record reads as an empty one, and an op the datastore could not describe
-	is dropped.
+	The record is the whole state. A junk record reads as an empty one, and an op the datastore could
+	not describe is dropped.
 	Compaction is the dangerous half. It rewrites the record from a fold, so it may only absorb a
 	prefix it can account for, or an older build would retract a write that already answered true.
 

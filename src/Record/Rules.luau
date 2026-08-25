@@ -4,19 +4,11 @@
 --[=[
 	Rules: The rules that an append is built from, in the order that they run.
 
-	Each rule answers one question. What a rule must remember for the test after the write goes in
-	the pass. It does not go in a local outside the transform, because the datastore can run the
-	transform again.
-	The tomb of an erased key clears only after the full 8 days. A write inside that window leaves
-	the tomb, so the key continues to turn transfers away.
-	A game's op stops at the log cap. One of Ledger's own may pass it, because a recovery op has to be
-	able to land on a key that is already full, but it stops at a higher ceiling of its own. Without
-	that second ceiling a key whose compaction is blocked grows until the datastore refuses it.
-
-	A write marks the record with the format floor that this build needs. A build that knows less than
-	that floor is then turned away at once, and not only after the next compaction.
-	A sift decides op by op whether the record will take one. An op that it turns away is named in the
-	pass, so the caller can drop it rather than offer it again for ever.
+	Each rule answers one question. A rule keeps what it must remember in the pass, because the
+	datastore can run the transform again.
+	A game's op stops at the log cap. One of Ledger's own may pass that cap, because a recovery op
+	must be able to land on a key that is already full. It stops at a higher ceiling of its own.
+	A sift decides op by op whether the record will take one.
 
 	Return type: A table with Legible, Allowed, Fresh, Capped, Format, Tomb, Entombed, MAX_LOG_BYTES, MAX_HELD_BYTES and TOMB_HORIZON.
 	Example usage:

@@ -5,10 +5,9 @@
 	Core: What each other half of the store needs first.
 
 	It resolves a key, and it gets the log and the shape that this store folds with.
-	The log handle is kept against the wrapper that built it. To swap the backend under a store
-	therefore gives back a new handle, and not one that still points at the old datastore.
-	A tally puts its shard number after a mark in the key. A key of a game may not hold that mark, or
-	the two would write one record.
+	Core keeps the log handle against the wrapper that built it, so a store that swaps its backend
+	gets a new handle and not one that points at the old datastore.
+	A tally puts its shard number after a mark in the key. A key of a game may not hold that mark.
 
 	Return type: A table with Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Records, Format, Fold, ReadRecord, ValidId and MAX_KEY.
 	Example usage:

@@ -5,10 +5,10 @@
 	Simulator: One seeded run.
 
 	A fleet, and not a set of workers. Every server is its own store with its own loaded map and
-	session cache, and they all point at one datastore name. A server can also stop where it stands
-	and be rebuilt from the log alone.
-	Two phases. Safety runs with the faults on. Liveness then heals everything and asks whether it
-	settles on its own. The seeded scheduler drives all of it, so a seed replays.
+	session cache, and they all point at one datastore name. A server can stop where it stands and
+	be rebuilt from the log alone.
+	Safety runs with the faults on. Liveness then heals everything and asks whether it settles on its
+	own. The seeded scheduler drives both, so a seed replays.
 
 	Return type: A table with Run, Banker and DEFAULT. The types are Report and Options.
 	Example usage:

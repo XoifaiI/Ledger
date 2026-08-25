@@ -2,23 +2,14 @@
 --!optimize 2
 
 --[=[
-	Rebuild: Pushes the queued ops to the log, and builds the state again.
+	Rebuild: Pushes the queued ops to the log. Builds the state again.
 
-	Push reads back which ops landed, and does not trust the call that returned. Another server can
-	write some of them first, and the guard can refuse the write.
-	The fence is the erase mark that the key had when this session loaded. A write lands only while
-	that mark is the same. A session that was live when the key was erased therefore stops,
-	and does not write part of a dead profile back.
-	Each op missing, and the fence broken, is the one shape that closes the session. A part of the
-	batch that is missing is normal, and means that another server was first.
-	The record is put into its current format one time, and both folds start from that. A migration
-	may change the state that it gets, so to build it a second time would run each migration again.
-	An op is only written if the record it lands in will take it, the way a store write is. An op that
-	the record turns away is dropped from the queue, because it will be turned away every time.
-	That test runs against the record every time. How many ops a key holds does not say which record
-	it is, because a compaction gives back a count that a session has already seen while the snapshot
-	under it has moved on. An op written without the test can never be folded, and a key carrying one
-	can never be compacted again.
+	Push reads back which ops landed. It does not trust the call that returned, because another
+	server can write first and the guard can refuse the write.
+	The fence is the erase mark that the key had at load. A write lands only while that mark is the
+	same, so a session stops if something erased the key.
+	Rebuild writes an op only if the record will take it. An op that the record turns away leaves the
+	queue, because the record turns it away every time.
 
 	Return type: A table with Push, Sifted, Rebuild, ApplyPending and SumBytes.
 	Example usage:

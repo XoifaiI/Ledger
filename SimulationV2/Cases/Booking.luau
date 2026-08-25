@@ -4,10 +4,10 @@
 --[=[
 	Booking: One rule per case for units set aside on a single key.
 
-	A booking holds units of a number field under a name, so limited stock can sit on one key. It
-	promises the units are neither spendable nor lost while held, and that they come back if nobody
-	takes them. Handing one to another key is two writes, so a server that stops between them leaves
-	the units on both, and only recovery may decide which way it went.
+	A booking holds units of a number field under a name, so limited stock can sit on one key. The
+	units are neither spendable nor lost while held, and they come back if nobody takes them.
+	Handing one to another key is two writes, so a server that stops between them leaves the units on
+	both, and only recovery may decide which way it went.
 	The tally cases are the other half: spread over its own keys, and only ever added to.
 
 	Return type: The case file.
