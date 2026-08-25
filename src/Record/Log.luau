@@ -345,7 +345,9 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 			return nil
 		end
 
-		if Compact.Bulk(Record) + Measure(Record.Ops) + Measure(Op) > STATE_CHECK_FLOOR then
+		local LogBytes = Measure(Record.Ops)
+		local OpBytes = Measure(Op)
+		if Compact.Bulk(Record) + LogBytes + OpBytes > STATE_CHECK_FLOOR then
 			local Bytes = Measure(Next)
 			if Bytes > MAX_STATE_BYTES and Bytes > Measure(State) then
 				Verdict = VERDICT.Full
@@ -353,8 +355,9 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 			end
 		end
 
+		local Separator = if #Record.Ops > 0 then 1 else 0
 		table.insert(Record.Ops, Op)
-		if Measure(Record.Ops) > MAX_LOG_BYTES then
+		if LogBytes + OpBytes + Separator > MAX_LOG_BYTES then
 			Verdict = VERDICT.Full
 			return nil
 		end

@@ -57,7 +57,7 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 	Say.Warn(
 		`Ledger: transfer {Tid} from {From} has been stuck over {PRUNE_HORIZON // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
 	)
-	Transfer.Settle(Records, From, Tid, Transfer.Terms(From, Entry.To, Entry.Amount))
+	Transfer.Settle(Records, From, Tid, Print)
 end
 
 local function Redeliver(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any): boolean

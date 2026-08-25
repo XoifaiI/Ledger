@@ -160,7 +160,8 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 	Fault.Holds(tostring(From) ~= tostring(To), `transfer {Tid} is being delivered to the key it came from, so the money would be counted twice`)
 	Fault.Holds(Amount > 0, `transfer {Tid} is being delivered with nothing in it`)
 
-	local DeliverOp: Op = { Id = `{Escrow.DELIVER_ID}:{Tid}`, Kind = Escrow.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Terms(From, To, Amount) }
+	local Print = Terms(From, To, Amount)
+	local DeliverOp: Op = { Id = `{Escrow.DELIVER_ID}:{Tid}`, Kind = Escrow.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print }
 	local Landed = Records:Append(tostring(To), { DeliverOp }, Log.NotEntombed)
 	if not Stamp.Carries(Landed, DeliverOp.Id) then
 		error(Fault.New(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`))
@@ -184,7 +185,7 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 		)
 	end
 
-	local Cleared = Settle(Records, From, Tid, Terms(From, To, Amount))
+	local Cleared = Settle(Records, From, Tid, Print)
 	Fault.Holds(
 		Entries.Has((Format:Fold(Cleared) :: any)._Received, Entries.SENT, Tid),
 		`transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`
