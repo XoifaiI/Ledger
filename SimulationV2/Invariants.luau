@@ -22,6 +22,8 @@ local Stamp = Lib.Stamp
 
 type Disk = Disk.Disk
 
+local TALLY = "_Tally"
+
 export type Report = {
 	Ok: boolean,
 	Broken: { string },
@@ -328,6 +330,7 @@ end
 
 local function Tallies(Board: Disk, Name: string, Named: { string }, Format: any, Store: any, Field: string): { string }
 	local Broken: { string } = {}
+	local Base = if type(Store.Initial[Field]) == "number" then Store.Initial[Field] else 0
 
 	for _, Tally in Named do
 		local Front = `{Tally}#`
@@ -340,7 +343,12 @@ local function Tallies(Board: Disk, Name: string, Named: { string }, Format: any
 			end
 
 			local State: any = Format:Fold(Record(Disk.Peek(Board, Name, Key)))
-			Total += if type(State[Field]) == "number" then State[Field] else 0
+			local Held: any = State[TALLY]
+			if type(Held) == "table" and type(Held[Field]) == "number" then
+				Total += Held[Field]
+			elseif type(State[Field]) == "number" then
+				Total += State[Field] - Base
+			end
 			Shards += 1
 		end
 

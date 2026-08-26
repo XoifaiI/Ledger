@@ -79,8 +79,9 @@ end
 
 function Store.ReapMarkers(self: Store): number
 	local Name = self.Wrapper.Name
+	local Reads = Enum.DataStoreRequestType.GetAsync
 
-	local Ok, Reaped = pcall(function(): number
+	local Ok, Reaped, Next = pcall(function(): (number, number)
 		return Tx.Reap(self.TxWrapper, function(Store: string)
 			for _, Known in Registry.Stores do
 				if Known.Wrapper.Name == Store then
@@ -88,9 +89,15 @@ function Store.ReapMarkers(self: Store): number
 				end
 			end
 			return nil
-		end)
+		end, {
+			From = self.Resume,
+			Afford = function(): boolean
+				return self:TxAffords(Reads, Tx.REAP_FLOOR) and self:Affords(Reads, Tx.REAP_FLOOR)
+			end,
+		})
 	end)
 	if Ok then
+		self.Resume = Next
 		return Reaped
 	end
 

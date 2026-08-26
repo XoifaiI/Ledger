@@ -55,11 +55,11 @@ local MIN_LIST_BUDGET = 2
 local REAP_EVERY = 10
 
 local function Affordable(Store: Store): boolean
-	return Store.Wrapper:Budget(Enum.DataStoreRequestType.GetAsync) >= MIN_SWEEP_BUDGET and Store.Wrapper:Budget(Enum.DataStoreRequestType.UpdateAsync) >= MIN_SWEEP_BUDGET
+	return Store:Affords(Enum.DataStoreRequestType.GetAsync, MIN_SWEEP_BUDGET) and Store:Affords(Enum.DataStoreRequestType.UpdateAsync, MIN_SWEEP_BUDGET)
 end
 
 local function Listable(Store: Store): boolean
-	return Store.TxWrapper:Budget(Enum.DataStoreRequestType.ListAsync) >= MIN_LIST_BUDGET
+	return Store:TxAffords(Enum.DataStoreRequestType.ListAsync, MIN_LIST_BUDGET)
 end
 
 local Sweeper = {} :: SweeperImpl

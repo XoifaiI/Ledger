@@ -7,14 +7,21 @@
 	These throw where the call was written. A wrong argument is a fault in the caller,
 	and not a thing that went wrong, so it does not get a reason.
 
-	Return type: A table with Amount, Field and Name.
+	A reducer cannot throw at a caller, so Positive answers the same question without one. Amount is
+	the throwing half, for the argument a game hands in.
+
+	Return type: A table with Positive, Amount, Field and Name.
 	Example usage:
 		local Arg = require("./Arg")
 		Arg.Amount(Value, "Transfer")
 --]=]
 
+local function Positive(Value: any): boolean
+	return type(Value) == "number" and Value > 0 and Value < math.huge
+end
+
 local function Amount(Value: any, What: string): number
-	assert(type(Value) == "number" and Value > 0 and Value < math.huge, `{What} needs a positive finite Amount, got {tostring(Value)}`)
+	assert(Positive(Value), `{What} needs a positive finite Amount, got {tostring(Value)}`)
 	return Value
 end
 
@@ -33,6 +40,7 @@ local function Name(Value: any, Limit: number, What: string, Optional: boolean):
 end
 
 return table.freeze({
+	Positive = Positive,
 	Amount = Amount,
 	Field = Field,
 	Name = Name,

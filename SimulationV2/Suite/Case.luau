@@ -25,6 +25,7 @@ local Fixture = require("./Fixture")
 local Reducers = require("./Reducers")
 
 local Ledger = Lib.Ledger
+local Limits = require("../../src/Contract/Limits")
 local Say = require("../../src/Util/Say")
 
 type Spec0 = Fault.Spec
@@ -169,6 +170,8 @@ function Case.Open(Name: string, Seed: number): Case
 end
 
 function Case.Close(self: Case)
+	Limits.Reset()
+
 	for _, Held in self.Built do
 		Held:Healed()
 	end

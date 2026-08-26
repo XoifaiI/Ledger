@@ -123,7 +123,7 @@ local function Hint(Snapshot: any): (string, boolean)
 	if Name == nil then
 		return "", false
 	end
-	return ` (largest field '{tostring(Name)}' at {Best} bytes)`, IsStorable.Reserved(tostring(Name))
+	return ` (largest field '{tostring(Name)}' at {Best} bytes)`, IsStorable.Bookkeeping(tostring(Name))
 end
 
 local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?

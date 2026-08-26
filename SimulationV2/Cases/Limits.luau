@@ -335,6 +335,24 @@ Cases.Case("a record swollen by a stuck leg stops at the ceiling and recovers", 
 	T:Is("the log compacts again now the leg is gone", #Bank:Record("swollen").Ops < #Swollen.Ops, true)
 end)
 
+Cases.Case("a state filled by Ledger's own bookkeeping says whose it is", function(T: Case)
+	Insides.Limits.Set({ Value = 65536, State = 4096, Op = 1024, Log = 2048, Compact = 1024 })
+
+	local Store = Stashing(T, "CaseOwnCap")
+	local Names: any = {}
+	for Index = 1, 30 do
+		Names[`o:{string.rep("n", 100)}{Index}`] = T:Now()
+	end
+	Store:Write("mine", { Snapshot = { Blobs = {}, _Received = Names }, Ops = {}, Seen = {} })
+
+	Store:Log():Compact("mine", Store:Format())
+
+	T:Warns("it said the state is near the cap", "Ledger stops taking writes at")
+	T:Warns("it named the largest field", "largest field '_Received'")
+	T:Warns("it said the field is Ledger's own", "Ledger's own bookkeeping and your game cannot take it out")
+	T:Silent("it did not tell them to take out their own data", "take out what the game no longer reads")
+end)
+
 Cases.Case("a record that cannot compact says what is blocking it", function(T: Case)
 	local Bank = T:Bank()
 

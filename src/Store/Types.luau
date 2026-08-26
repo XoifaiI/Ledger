@@ -74,6 +74,7 @@ export type Fields<D> = {
 	Saving: { [Future<boolean, Reason?>]: boolean },
 	Staleness: Observer.Subject<string>,
 	Meter: Meter,
+	Resume: number?,
 	Closed: boolean,
 }
 
@@ -87,6 +88,8 @@ export type StoreImpl<D> = {
 	Resolve: (self: Store<D>, Key: KeyLike, What: string) -> string,
 	ExpectPlayers: (self: Store<D>, What: string) -> (),
 	ExpectBalance: (self: Store<D>, What: string) -> (),
+	Affords: (self: Store<D>, Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
+	TxAffords: (self: Store<D>, Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	Records: (self: Store<D>) -> LogTypes.Log,
 	Format: (self: Store<D>) -> LogTypes.Shape<D>,
 	Fold: (self: Store<D>, Record: Record) -> D,

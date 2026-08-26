@@ -38,6 +38,7 @@ return table.freeze({
 	REAP_LOOKS = Reap.REAP_LOOKS,
 	REAP_PAGE = Reap.REAP_PAGE,
 	REAP_GRACE = Reap.REAP_GRACE,
+	REAP_FLOOR = Reap.REAP_FLOOR,
 	SHARDS = Roll.SHARDS,
 	Roll = Roll,
 })

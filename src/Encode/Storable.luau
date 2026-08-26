@@ -7,7 +7,7 @@
 	A value must survive one trip to the datastore and back.
 	No gaps in an array, no mix of array keys and string keys, no nan, no loop and no metatable.
 
-	Return type: A table with Op, Value, Structure and Reserved.
+	Return type: A table with Op, Value, Structure, Reserved and Bookkeeping.
 	Example usage:
 		local IsStorable = require("./Storable")
 		local Ok, Where = IsStorable.Op(Op)
@@ -19,9 +19,14 @@ local Measure = require("./Measure")
 local MAX_DEPTH = 64
 
 local RESERVED = "__"
+local BOOKKEEPING = "_"
 
 local function IsReservedKind(Kind: string): boolean
 	return string.sub(Kind, 1, #RESERVED) == RESERVED
+end
+
+local function IsBookkeepingField(Name: string): boolean
+	return string.sub(Name, 1, #BOOKKEEPING) == BOOKKEEPING
 end
 
 local Check: (Value: any, Path: string, Seen: { [any]: boolean }, Depth: number) -> (boolean, string)
@@ -150,4 +155,5 @@ return table.freeze({
 	Value = IsValueStorable,
 	Structure = IsStructureStorable,
 	Reserved = IsReservedKind,
+	Bookkeeping = IsBookkeepingField,
 })

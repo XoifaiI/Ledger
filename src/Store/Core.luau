@@ -69,6 +69,14 @@ function Store.ExpectBalance(self: Store, What: string)
 	assert(self.Options.Balance, `{What} needs the store to name a Balance field, like Balance = "Gold"`)
 end
 
+function Store.Affords(self: Store, Kind: Enum.DataStoreRequestType, Floor: number): boolean
+	return self.Wrapper:Budget(Kind) >= Floor
+end
+
+function Store.TxAffords(self: Store, Kind: Enum.DataStoreRequestType, Floor: number): boolean
+	return self.TxWrapper:Budget(Kind) >= Floor
+end
+
 function Store.Records(self: Store): LogTypes.Log
 	local Books = self.Books
 	if Books ~= nil and Books.Wrapper == self.Wrapper then

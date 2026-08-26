@@ -22,6 +22,7 @@ local Clock = require("../Util/Clock")
 local Fault = require("../Contract/Fault")
 local Horizons = require("../Contract/Horizons")
 local Fingerprint = require("../Encode/Fingerprint")
+local Arg = require("../Kernel/Arg")
 local Entries = require("../Kernel/Entries")
 local Layer = require("../Kernel/Layer")
 local Op = require("../Contract/Op")
@@ -98,7 +99,7 @@ local function Booking(Data: Data, Op: Op): Data?
 	if type(Field) ~= "string" or type(Data[Field]) ~= "number" then
 		return nil
 	end
-	if type(Op.Amount) ~= "number" or Op.Amount <= 0 or Op.Amount == math.huge then
+	if not Arg.Positive(Op.Amount) then
 		return nil
 	end
 	if type(Op.At) ~= "number" then
@@ -211,7 +212,7 @@ local function Giving(Data: Data, Op: Op): Data?
 	if type(Field) ~= "string" or type(Data[Field]) ~= "number" then
 		return nil
 	end
-	if type(Op.Amount) ~= "number" or Op.Amount <= 0 or Op.Amount == math.huge then
+	if not Arg.Positive(Op.Amount) then
 		return nil
 	end
 

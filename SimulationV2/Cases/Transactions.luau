@@ -384,13 +384,126 @@ Cases.Case("a pass costs the same however many markers are stuck", function(T: C
 	T:Advance(Tx.REAP_HORIZON + 600)
 
 	local Before = Bank.Store.TxWrapper.Spent
+	local Reading = Bank.Store.Wrapper.Spent
 	local Reaped = Bank.Store:ReapMarkers()
 	local Cost = Bank.Store.TxWrapper.Spent - Before
+	local Records = Bank.Store.Wrapper.Spent - Reading
 
 	T:Is("none of them can be reaped", Reaped, 0)
 	T:Is("the pass costs less than one call for each stuck marker", Cost < Stuck, true)
-	T:Is("and no more than the read cap allows", Cost <= Tx.SHARDS * (Tx.REAP_LOOKS + 2), true)
+	T:Is("and no more per shard than a list, a roll key, its looks and the two writes that carry the rest on", Cost <= Tx.SHARDS * (Tx.REAP_LOOKS + 4), true)
+	T:Is("what it spent on the store the records live in", Records <= Tx.SHARDS * Tx.REAP_LOOKS, true)
 	T:Is("every one of them is still there", #Bank:Marks(), Stuck)
+end)
+
+local function Hashed(Target: number, Count: number, Tag: string): { string }
+	local Found: { string } = {}
+	local Try = 0
+	while #Found < Count do
+		Try += 1
+		local Id = `{Tag}{Try}`
+		if Tx.Roll.Shard(Id) == Target then
+			table.insert(Found, Id)
+		end
+	end
+	return Found
+end
+
+Cases.Case("a pass that stopped at its cap starts the next one where it stopped", function(T: Case)
+	local Bank = T:Bank()
+	local Base = Tx.Roll.Mine()
+	local Fronts = 4
+
+	local function Bury(Held: { string })
+		for _, Id in Held do
+			Bank:Marker(Id, { Status = "Committed", Total = 1, Gen = "one", At = T:Now(), Adopted = {}, Dead = true })
+		end
+	end
+
+	for Step = 0, Fronts - 1 do
+		Bury(Hashed((Base + Step) % Tx.SHARDS, Tx.REAP_LOOKS * 2, `front{Step}x`))
+	end
+	local Last = Hashed((Base + Tx.SHARDS - 1) % Tx.SHARDS, 4, "tailx")
+	Bury(Last)
+
+	T:Advance(Tx.REAP_HORIZON + 600)
+	local First = Bank.Store:ReapMarkers()
+
+	T:Advance(Tx.REAP_GRACE + 60)
+	local Second = Bank.Store:ReapMarkers()
+
+	local Standing = 0
+	for _, Named in Bank:Marks() do
+		if table.find(Last, Named) ~= nil then
+			Standing += 1
+		end
+	end
+
+	T:Is("the first pass takes its fill", First, 64)
+	T:Is("the second takes another", Second, 64)
+	T:Is("the shard at the far end of the walk, which the first pass never reached", Standing, 0)
+end)
+
+Cases.Case("a roll key stops at its limit and the rest go on the next", function(T: Case)
+	local Bank = T:Bank()
+	local Slot = Tx.Roll.Shard("anchor")
+	local Spare = 40
+
+	local Names = Hashed(Slot, Tx.Roll.ROLL_LIMIT * 2 + Spare, "rollx")
+	local Ok = Tx.Roll.Carry(Bank.Store.TxWrapper, Names)
+
+	local Counts: { number } = {}
+	local Seen: { [string]: boolean } = {}
+	for Part = 1, 5 do
+		local Held = Bank:Mark(Tx.Roll.Named(Slot, T:Now(), Part))
+		if type(Held) ~= "string" then
+			continue
+		end
+
+		local Listed = Mark.Unpack(Held)
+		table.insert(Counts, #Listed)
+		for _, Txid in Listed do
+			Seen[Txid] = true
+		end
+	end
+
+	local Found = 0
+	for _, Txid in Names do
+		if Seen[Txid] then
+			Found += 1
+		end
+	end
+
+	T:Ok("every name went on the roll", Ok)
+	T:Is("names it can find again", Found, #Names)
+	T:Is("keys it took to hold them", #Counts, 3)
+	T:Is("the first key stops at the limit", Counts[1], Tx.Roll.ROLL_LIMIT)
+	T:Is("so does the second", Counts[2], Tx.Roll.ROLL_LIMIT)
+	T:Is("and the rest sit on the third", Counts[3], Spare)
+	T:Is("a key an older build wrote with no part still reads", Tx.Roll.At("__07:0000028800"), Tx.Roll.At("__07:0000028800:001"))
+end)
+
+Cases.Case("a pass stops when the store the records live in has no budget", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("named", { Gold = 0 })
+
+	local Keys = Mark.Pack({ Mark.Of(Bank.Data, "named") })
+	for Index = 1, 40 do
+		Bank:Marker(string.format("hungry-%03d", Index), { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {}, Keys = Keys })
+	end
+	T:Advance(Tx.REAP_HORIZON + 600)
+
+	Bank:Budget(function(): number
+		return 0
+	end)
+
+	local Before = Bank.Store.TxWrapper.Spent
+	local Reaped = Bank.Store:ReapMarkers()
+	local Cost = Bank.Store.TxWrapper.Spent - Before
+
+	T:Is("what a pass takes while the records cannot be read", Reaped, 0)
+	T:Is("what it spends on the markers before it gives up", Cost, 0)
+	T:Is("every marker is still there", #Bank:Marks(), 40)
 end)
 
 Cases.Case("a transaction writes its name on the cleanup list before it opens a marker", function(T: Case)

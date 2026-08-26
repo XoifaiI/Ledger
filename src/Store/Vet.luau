@@ -19,7 +19,6 @@ local Public = require("../Contract/Public")
 type Config<D> = Public.Config<D>
 
 local MAX_NAME = 47
-local RESERVED = "_"
 
 local function Named<D>(Options: Config<D>)
 	assert(type(Options.Name) == "string" and #Options.Name > 0 and #Options.Name <= MAX_NAME, `New needs Name, a datastore name of 1 to {MAX_NAME} characters (the transaction store appends _Tx)`)
@@ -32,7 +31,7 @@ end
 
 local function Storable<D>(Options: Config<D>)
 	for Key in Options.Default :: any do
-		assert(not (type(Key) == "string" and string.sub(Key, 1, #RESERVED) == RESERVED), `Default key '{tostring(Key)}' uses the {RESERVED} prefix reserved for Ledger's bookkeeping`)
+		assert(not (type(Key) == "string" and IsStorable.Bookkeeping(Key)), `Default key '{tostring(Key)}' uses the '_' prefix reserved for Ledger's bookkeeping`)
 	end
 
 	local Fine, Unstorable = IsStorable.Value(Options.Default)

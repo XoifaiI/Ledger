@@ -6,21 +6,22 @@
 
 	A transaction writes its name here before it opens a marker. No marker exists without a name on
 	the roll.
-	One key holds every name written in the same minute for one shard. The key carries the minute,
-	and the oldest work sorts to the front.
+	A key holds the names written in the same minute for one shard, up to a limit, and the names past
+	that limit go on the next key of that minute. A key therefore costs a bounded read and a bounded
+	write however much work is waiting, and the whole of a minute is still found under one prefix.
+	The key carries the minute, and the oldest work sorts to the front.
 	A name the reaper cannot clear yet moves to a key of the minute it was read in. An old key is
 	therefore always emptied and taken away.
 
-	Return type: A table with Shard, Key, Prefix, At, Mine, Add, Carry, RESERVED and SHARDS.
+	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add, Carry, RESERVED, SHARDS, ROLL_LIMIT and PARTS.
 	Example usage:
 		local Roll = require("./Roll")
 		Roll.Add(TxStore, "trade1")
 --]=]
 
-local EncodingService = game:GetService("EncodingService")
-
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Fingerprint = require("../../Encode/Fingerprint")
 local Ident = require("../../Encode/Ident")
 local Mark = require("../../Encode/Mark")
 
@@ -30,30 +31,42 @@ local RESERVED = "__"
 local SHARDS = 32
 local MINUTE = 60
 local WIDTH = 10
+local PART_WIDTH = 3
+
+local ROLL_LIMIT = 256
+local PARTS = 64
 
 local DIGITS = string.rep("%d", WIDTH)
-local FORMAT = `{RESERVED}%02d:%0{WIDTH}d`
+local FORMAT = `{RESERVED}%02d:%0{WIDTH}d:%0{PART_WIDTH}d`
 local HEAD = `{RESERVED}%02d:`
-local PATTERN = `^{RESERVED}%d%d:({DIGITS})$`
-local ALGORITHM = Enum.HashAlgorithm.Blake3
+local PATTERN = `^{RESERVED}%d%d:({DIGITS}):%d+$`
+local PLAIN = `^{RESERVED}%d%d:({DIGITS})$`
 
 local LastNode = ""
 local LastShard = 0
 
+local Filled: { [number]: number } = {}
+local FilledAt = -1
+
 local function Shard(Text: string): number
-	return string.byte(EncodingService:ComputeStringHash(Text, ALGORITHM), 1) % SHARDS
+	return Fingerprint.Bucket(Text, SHARDS)
+end
+
+local function Named(Slot: number, When: number, Part: number): string
+	return string.format(FORMAT, Slot, When // MINUTE, Part)
 end
 
 local function Key(Txid: string, When: number): string
-	return string.format(FORMAT, Shard(Txid), When // MINUTE)
+	return Named(Shard(Txid), When, 1)
 end
 
 local function Prefix(Slot: number): string
 	return string.format(HEAD, Slot)
 end
 
-local function At(Named: string): number?
-	local Digits = string.match(Named, PATTERN)
+-- Reads the minute out of a key, including one from a build that wrote a minute per key and no part.
+local function At(Held: string): number?
+	local Digits = string.match(Held, PATTERN) or string.match(Held, PLAIN)
 	if Digits == nil then
 		return nil
 	end
@@ -74,29 +87,40 @@ local function Mine(): number
 	return LastShard
 end
 
-local function Carry(TxStore: DataStoreWrapper, Txids: { string }): boolean
-	local Now = Clock.Now()
-	local Grouped: { [string]: { string } } = {}
-	for _, Txid in Txids do
-		local Named = Key(Txid, Now)
-		local Batch = Grouped[Named]
-		if Batch == nil then
-			Batch = {}
-			Grouped[Named] = Batch
-		end
-		table.insert(Batch, Txid)
+local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batch: { string }): boolean
+	local Minute = When // MINUTE
+	if FilledAt ~= Minute then
+		table.clear(Filled)
+		FilledAt = Minute
 	end
 
-	local Every = true
-	for Named, Batch in Grouped do
-		local Ok = TxStore:UpdateAsync(Named, function(Current: any): string?
+	local Left = Batch
+	local Part = Filled[Slot] or 1
+
+	while #Left > 0 and Part <= PARTS do
+		local Placed = 0
+		local Ok = TxStore:UpdateAsync(Named(Slot, When, Part), function(Current: any): string?
+			Placed = 0
 			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
+			local Known: { [string]: boolean } = {}
+			for _, Txid in Held do
+				Known[Txid] = true
+			end
+
 			local Added = false
-			for _, Txid in Batch do
-				if table.find(Held, Txid) == nil then
-					table.insert(Held, Txid)
-					Added = true
+			for _, Txid in Left do
+				if Known[Txid] then
+					Placed += 1
+					continue
 				end
+				if #Held >= ROLL_LIMIT then
+					break
+				end
+
+				Known[Txid] = true
+				table.insert(Held, Txid)
+				Added = true
+				Placed += 1
 			end
 
 			if not Added then
@@ -104,7 +128,38 @@ local function Carry(TxStore: DataStoreWrapper, Txids: { string }): boolean
 			end
 			return Mark.Pack(Held)
 		end)
-		Every = Every and Ok
+
+		if not Ok then
+			return false
+		end
+		if Placed >= #Left then
+			return true
+		end
+
+		Left = table.move(Left, Placed + 1, #Left, 1, {})
+		Part += 1
+		Filled[Slot] = Part
+	end
+
+	return #Left == 0
+end
+
+local function Carry(TxStore: DataStoreWrapper, Txids: { string }): boolean
+	local Now = Clock.Now()
+	local Grouped: { [number]: { string } } = {}
+	for _, Txid in Txids do
+		local Slot = Shard(Txid)
+		local Batch = Grouped[Slot]
+		if Batch == nil then
+			Batch = {}
+			Grouped[Slot] = Batch
+		end
+		table.insert(Batch, Txid)
+	end
+
+	local Every = true
+	for Slot, Batch in Grouped do
+		Every = Place(TxStore, Slot, Now, Batch) and Every
 	end
 	return Every
 end
@@ -116,6 +171,7 @@ end
 return table.freeze({
 	Shard = Shard,
 	Key = Key,
+	Named = Named,
 	Prefix = Prefix,
 	At = At,
 	Mine = Mine,
@@ -124,4 +180,6 @@ return table.freeze({
 
 	RESERVED = RESERVED,
 	SHARDS = SHARDS,
+	ROLL_LIMIT = ROLL_LIMIT,
+	PARTS = PARTS,
 })

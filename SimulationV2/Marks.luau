@@ -59,6 +59,8 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "Swelling", Says = "ops it cannot compact away" },
 	{ Name = "NearValueCap", Says = "saves will start failing if it keeps growing" },
 	{ Name = "NearStateCap", Says = "take out what the game no longer reads" },
+	{ Name = "NearStateCapOwned", Says = "Ledger's own bookkeeping and your game cannot take it out" },
+	{ Name = "TallyOlderShard", Says = "still has shard(s) an older build wrote" },
 
 	{ Name = "TransferSpent", Says = "already went through for a different amount" },
 	{ Name = "TransferAmountChanged", Says = "so that is what it pays out" },
