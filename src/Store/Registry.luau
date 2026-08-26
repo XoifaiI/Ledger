@@ -16,7 +16,7 @@
 local Sweeper = require("./Sweeper")
 local Types = require("./Types")
 
-type Store = Types.Store
+type Store = Types.Store<any>
 
 local Stores: { Store } = {}
 local Claimed: { [string]: boolean } = {}

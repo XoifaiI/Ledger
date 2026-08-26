@@ -53,7 +53,7 @@ type Reason = Reasons.Reason
 type Migration = Contract.Migration
 type Config<D> = Public.Config<D>
 type TxLeg = Public.TxLeg
-type Store = Types.Store
+type Store = Types.Store<any>
 
 local Players = game:GetService("Players")
 
@@ -127,7 +127,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 	local Initial = MakeInitial(Config.Default)
 	local Steps: { Migration } = Config.Migrations or {}
 
-	local Body: Types.Fields = {
+	local Body: Types.Fields<D> = {
 		Options = Config :: any,
 		Reducer = WrapSystem(Base, Initial, Steps),
 		Wrapper = DataStoreWrapper.New(Config.Name),
@@ -146,10 +146,10 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
 		Closed = false,
 	}
-	local Built: Store = setmetatable(Body :: any, Store) :: any
+	local Built = setmetatable(Body, Store)
 
 	table.insert(Registry.Stores, Built)
-	return Built :: any
+	return Built :: Public.Store<D>
 end
 
 function Store.Wake(self: Store, UserId: number, Active: any?)
@@ -377,11 +377,9 @@ function Store.Destroy(self: Store)
 	end
 	self.Closed = true
 
-	for Index, Known in Registry.Stores do
-		if Known == self then
-			table.remove(Registry.Stores, Index)
-			break
-		end
+	local Listed = table.find(Registry.Stores, self)
+	if Listed ~= nil then
+		table.remove(Registry.Stores, Listed)
 	end
 	Registry.Claimed[self.Options.Name] = nil
 	Registry.Claimed[`{self.Options.Name}_Tx`] = nil

@@ -23,11 +23,15 @@ type Op = Contract.Op
 type Reducer<S> = Contract.Reducer<S>
 
 local function StampOf(Op: Op): (string?, any, string?)
-	if type(Op.TxSticky) == "string" then
-		return Entries.Key(Entries.TX, Op.TxSticky), Op.TxAt, Op.TxTerms
+	local Sticky = Op.TxSticky
+	if type(Sticky) == "string" then
+		local Print = if type(Op.TxTerms) == "string" then Op.TxTerms else nil
+		return Entries.Key(Entries.TX, Sticky), Op.TxAt, Print
 	end
-	if type(Op.Once) == "string" then
-		return Entries.Key(Entries.ONCE, Op.Once), Op.OnceAt, nil
+
+	local Once = Op.Once
+	if type(Once) == "string" then
+		return Entries.Key(Entries.ONCE, Once), Op.OnceAt, nil
 	end
 	return nil, nil, nil
 end

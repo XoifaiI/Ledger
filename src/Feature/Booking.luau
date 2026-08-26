@@ -215,16 +215,22 @@ local function Giving(Data: Data, Op: Op): Data?
 		return nil
 	end
 
+	local Rid = Op.Rid
+	if type(Rid) ~= "string" then
+		return nil
+	end
+
+	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Received = (Data._Received or {}) :: { [string]: any }
-	if Entries.Has(Received, Entries.GRANT, Op.Rid) then
+	if Entries.Has(Received, Entries.GRANT, Rid) then
 		return nil
 	end
 
 	local Next = table.clone(Data)
 	Next[Field] = Data[Field] + Op.Amount
-	Next._Received = Entries.Remember(Received, Entries.Key(Entries.GRANT, Op.Rid), Op.At, Op.Print)
+	Next._Received = Entries.Remember(Received, Entries.Key(Entries.GRANT, Rid), Op.At, Print)
 
-	if not Entries.Has(Next._Received, Entries.GRANT, Op.Rid) then
+	if not Entries.Has(Next._Received, Entries.GRANT, Rid) then
 		Fault.Broke(`booking {tostring(Op.Rid)} was paid in without being remembered, so it could pay again`)
 		return nil
 	end

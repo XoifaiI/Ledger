@@ -46,7 +46,7 @@ type KeyLike = Contract.KeyLike
 type TxLeg = Public.TxLeg
 type HoldOptions = Public.HoldOptions
 type Reason = Reasons.Reason
-type Store = Types.Store
+type Store = Types.Store<any>
 type LegTarget = { Store: Store, Key: string }
 
 local MAX_TRANSFER_ID = 64

@@ -15,7 +15,7 @@
 	missing marker only aborts legs older than the whole transaction, and the new one's are not.
 	A key that a pass cannot read counts as loud, so a datastore fault never removes a marker early.
 	One pass walks every shard, and stops when it has taken enough away. It starts on the shard this
-	server hashes to.
+	server hashes to. A name it cannot clear moves on to a newer key, so an old key always empties.
 
 	Return type: A table with Reap, Spent, Quiet, Anywhere, REAP_HORIZON, REAP_GRACE, REAP_LIMIT and REAP_PAGE.
 	Example usage:
@@ -129,50 +129,47 @@ local function Sweep(TxStore: DataStoreWrapper, Lookup: Lookup, Named: string, N
 	end
 
 	local Held = Mark.Unpack(Packed)
-	local Dropped: { [string]: boolean } = {}
-	local Taken = 0
+	local Kept: { string } = {}
 	local Reaped = 0
-	for _, Txid in Held do
+	local Whole = true
+
+	for Index, Txid in Held do
 		if Reaped >= Room then
+			table.move(Held, Index, #Held, #Kept + 1, Kept)
+			Whole = false
 			break
 		end
 
 		local Drop, Took = Gone(TxStore, Txid, Lookup, Now, Older, Grace)
 		if not Drop then
+			table.insert(Kept, Txid)
 			continue
 		end
-
-		Dropped[Txid] = true
-		Taken += 1
 		if Took then
 			Reaped += 1
 		end
 	end
 
-	if Taken == 0 then
-		return 0
-	end
-	if Taken == #Held then
+	if #Kept == 0 then
 		TxStore:RemoveAsync(Named)
 		return Reaped
 	end
 
-	TxStore:UpdateAsync(Named, function(Current: any): string?
-		if type(Current) ~= "string" then
-			return nil
+	if Whole then
+		if Roll.Carry(TxStore, Kept) then
+			TxStore:RemoveAsync(Named)
 		end
+		return Reaped
+	end
 
-		local Left: { string } = {}
-		for _, Txid in Mark.Unpack(Current) do
-			if not Dropped[Txid] then
-				table.insert(Left, Txid)
+	if #Kept < #Held then
+		TxStore:UpdateAsync(Named, function(Current: any): string?
+			if type(Current) ~= "string" then
+				return nil
 			end
-		end
-		if #Left == 0 then
-			return nil
-		end
-		return Mark.Pack(Left)
-	end)
+			return Mark.Pack(Kept)
+		end)
+	end
 	return Reaped
 end
 
@@ -189,22 +186,34 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?,
 			break
 		end
 
-		local Ok, Book = TxStore:ListKeysAsync(Roll.Prefix((Base + Step) % Roll.SHARDS), REAP_PAGE, nil)
+		local Ok, Pages = TxStore:ListKeysAsync(Roll.Prefix((Base + Step) % Roll.SHARDS), REAP_PAGE, nil)
 		if not Ok then
 			continue
 		end
 
-		for _, Entry in (Book :: DataStoreKeyPages):GetCurrentPage() do
-			local Named = (Entry :: any).KeyName
-			local At = Roll.At(Named)
-			if At == nil then
-				continue
-			end
-			if Now - At < Grace or Reaped >= Room then
-				break
+		local Book = Pages :: DataStoreKeyPages
+		while true do
+			local Stop = false
+			for _, Entry in Book:GetCurrentPage() do
+				local Named = (Entry :: any).KeyName
+				local At = Roll.At(Named)
+				if At == nil then
+					continue
+				end
+				if Now - At < Grace or Reaped >= Room then
+					Stop = true
+					break
+				end
+
+				Reaped += Sweep(TxStore, Lookup, Named, Now, Older, Grace, Room - Reaped)
 			end
 
-			Reaped += Sweep(TxStore, Lookup, Named, Now, Older, Grace, Room - Reaped)
+			if Stop or Book.IsFinished or Reaped >= Room then
+				break
+			end
+			if not pcall(Book.AdvanceToNextPageAsync, Book) then
+				break
+			end
 		end
 	end
 

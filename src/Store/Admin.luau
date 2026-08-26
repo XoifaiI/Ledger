@@ -41,7 +41,7 @@ type Future<T...> = Future.Future<T...>
 type Record = Contract.Record<any>
 type KeyLike = Contract.KeyLike
 type Reason = Reasons.Reason
-type Store = Types.Store
+type Store = Types.Store<any>
 
 local Players = game:GetService("Players")
 

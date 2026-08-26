@@ -16,7 +16,7 @@
 export type Op = {
 	Id: string,
 	Kind: string,
-	[any]: any,
+	[any]: unknown,
 }
 
 export type Record<S> = {

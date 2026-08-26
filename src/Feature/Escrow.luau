@@ -42,94 +42,117 @@ local REDRIVE_HORIZON = Horizons.REDRIVE
 local EXPIRE_MARGIN = Horizons.EXPIRE_MARGIN
 
 local function Reserving(Data: Data, Op: Op, Field: string): Data?
-	if Data._Held and Data._Held[Op.Tid] ~= nil then
+	local Tid = Op.Tid
+	local Amount = Op.Amount
+	if type(Tid) ~= "string" or type(Amount) ~= "number" then
 		return nil
 	end
-	if Entries.Has(Data._Received, Entries.SENT, Op.Tid) then
+
+	if Data._Held and Data._Held[Tid] ~= nil then
 		return nil
 	end
-	if Op.Amount > (Data[Field] or 0) then
+	if Entries.Has(Data._Received, Entries.SENT, Tid) then
+		return nil
+	end
+	if Amount > (Data[Field] or 0) then
 		return nil
 	end
 
 	local Held = table.clone((Data._Held or {}) :: Data)
-	Held[Op.Tid] = { To = Op.To, Amount = Op.Amount, At = Op.At }
+	Held[Tid] = { To = Op.To, Amount = Amount, At = Op.At }
 
 	local Next = table.clone(Data)
-	Next[Field] = (Data[Field] or 0) - Op.Amount
+	Next[Field] = (Data[Field] or 0) - Amount
 	Next._Held = TableUtil.Some(Held)
 
 	if Next[Field] < 0 then
-		Fault.Broke(`setting {Op.Amount} aside for transfer {Op.Tid} took '{Field}' below zero`)
+		Fault.Broke(`setting {Amount} aside for transfer {Tid} took '{Field}' below zero`)
 		return nil
 	end
 	if TableUtil.Count(Next._Held) ~= TableUtil.Count(Data._Held) + 1 then
-		Fault.Broke(`setting aside for transfer {Op.Tid} did not leave exactly one more hold on the key`)
+		Fault.Broke(`setting aside for transfer {Tid} did not leave exactly one more hold on the key`)
 		return nil
 	end
 	return Next
 end
 
 local function Delivering(Data: Data, Op: Op, Field: string): Data?
+	local Tid = Op.Tid
+	local Amount = Op.Amount
+	if type(Tid) ~= "string" or type(Amount) ~= "number" then
+		return nil
+	end
+
+	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Received = (Data._Received or {}) :: { [string]: any }
-	if Entries.Has(Received, Entries.TRANSFER, Op.Tid) then
+	if Entries.Has(Received, Entries.TRANSFER, Tid) then
 		return nil
 	end
 
 	local Next = table.clone(Data)
-	Next[Field] = (Data[Field] or 0) + Op.Amount
-	Next._Received = Entries.Remember(Received, Entries.Key(Entries.TRANSFER, Op.Tid), Op.At, Op.Print)
+	Next[Field] = (Data[Field] or 0) + Amount
+	Next._Received = Entries.Remember(Received, Entries.Key(Entries.TRANSFER, Tid), Op.At, Print)
 
-	if not Entries.Has(Next._Received, Entries.TRANSFER, Op.Tid) then
-		Fault.Broke(`transfer {Op.Tid} was paid in without being remembered, so the same delivery could pay again`)
+	if not Entries.Has(Next._Received, Entries.TRANSFER, Tid) then
+		Fault.Broke(`transfer {Tid} was paid in without being remembered, so the same delivery could pay again`)
 		return nil
 	end
 	if TableUtil.Count(Next._Held) ~= TableUtil.Count(Data._Held) then
-		Fault.Broke(`paying in transfer {Op.Tid} changed what the receiver has set aside`)
+		Fault.Broke(`paying in transfer {Tid} changed what the receiver has set aside`)
 		return nil
 	end
 	return Next
 end
 
 local function Expiring(Data: Data, Op: Op, Field: string): Data?
+	local Tid = Op.Tid
+	if type(Tid) ~= "string" then
+		return nil
+	end
+
 	local Held = Data._Held :: Data?
-	local Entry = if Held then Held[Op.Tid] else nil
+	local Entry = if Held then Held[Tid] else nil
 	if not Entry then
 		return nil
 	end
 
 	local Rest = table.clone(Held :: Data)
-	Rest[Op.Tid] = nil
+	Rest[Tid] = nil
 
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) + Entry.Amount
 	Next._Held = TableUtil.Some(Rest)
 
 	if TableUtil.Count(Next._Held) ~= TableUtil.Count(Data._Held) - 1 then
-		Fault.Broke(`giving transfer {Op.Tid} back did not clear exactly the one hold it was held under`)
+		Fault.Broke(`giving transfer {Tid} back did not clear exactly the one hold it was held under`)
 		return nil
 	end
 	if Next[Field] < (Data[Field] or 0) then
-		Fault.Broke(`giving transfer {Op.Tid} back left the sender with less than they started with`)
+		Fault.Broke(`giving transfer {Tid} back left the sender with less than they started with`)
 		return nil
 	end
 	return Next
 end
 
 local function Settling(Data: Data, Op: Op): Data?
-	if not (Data._Held and Data._Held[Op.Tid]) then
+	local Tid = Op.Tid
+	if type(Tid) ~= "string" then
+		return nil
+	end
+	if not (Data._Held and Data._Held[Tid]) then
 		return nil
 	end
 
+	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Held = table.clone(Data._Held :: Data)
-	Held[Op.Tid] = nil
+	Held[Tid] = nil
 
 	local Next = table.clone(Data)
 	Next._Held = TableUtil.Some(Held)
-	Next._Received = Entries.Remember(Data._Received, Entries.Key(Entries.SENT, Op.Tid), Op.At, Op.Print)
+	Next._Received = Entries.Remember(Data._Received, Entries.Key(Entries.SENT, Tid), Op.At, Print)
 
 	if TableUtil.Count(Next._Held) ~= TableUtil.Count(Data._Held) - 1 then
-		Fault.Broke(`finishing transfer {Op.Tid} did not clear exactly the one hold it was held under`)
+		Fault.Broke(`finishing transfer {Tid} did not clear exactly the one hold it was held under`)
 		return nil
 	end
 	return Next

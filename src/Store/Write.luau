@@ -37,7 +37,7 @@ local Types = require("./Types")
 type Op = Contract.Op
 type Record = Contract.Record<any>
 type Reason = Reasons.Reason
-type Store = Types.Store
+type Store = Types.Store<any>
 type Allow = Types.Allow
 
 local AUTOSAVE_INTERVAL = 30

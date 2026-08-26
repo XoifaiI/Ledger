@@ -379,8 +379,18 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 		local Retired = 0
 		for _, Existing in Record.Ops do
 			local Txid = Existing.Tx
-			local Verdict = if type(Txid) == "string" then Verdicts[Txid] else nil
-			local Fated = if Verdict ~= nil then Fate(Existing, Verdict) else nil
+			if type(Txid) ~= "string" then
+				table.insert(Kept, Existing)
+				continue
+			end
+
+			local Verdict = Verdicts[Txid]
+			if Verdict == nil then
+				table.insert(Kept, Existing)
+				continue
+			end
+
+			local Fated = Fate(Existing, Verdict)
 			if Fated == nil then
 				table.insert(Kept, Existing)
 				continue
@@ -391,7 +401,7 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 			end
 
 			Counts[Txid] = (Counts[Txid] or 0) + 1
-			if not (Verdict :: Verdict).Commit then
+			if not Verdict.Commit then
 				continue
 			end
 

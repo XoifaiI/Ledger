@@ -15,7 +15,7 @@
 
 local Types = require("./Types")
 
-local Store = {} :: Types.StoreImpl
+local Store = {} :: Types.StoreImpl<any>
 Store.__index = Store
 
 return Store

@@ -340,6 +340,34 @@ Cases.Case("a finished marker behind more stuck ones than one pass can walk is s
 	T:Is("markers left standing, which should be the stuck ones only", #Bank:Marks(), Stuck)
 end)
 
+Cases.Case("a finished marker behind a shard full of stuck cleanup keys is still reaped", function(T: Case)
+	local Bank = T:Bank()
+	local Victim = "zzz-victim"
+	local Shard = Tx.Roll.Shard(Victim)
+	local Wall = Tx.REAP_PAGE + 6
+
+	for Index = 1, Wall do
+		local Try = 0
+		local Id = ""
+		repeat
+			Try += 1
+			Id = string.format("wall-%03d-%03d", Index, Try)
+		until Tx.Roll.Shard(Id) == Shard
+
+		Bank:Marker(Id, { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
+		T:Advance(60)
+	end
+
+	Bank:Marker(Victim, { Status = "Committed", Total = 1, Gen = "one", At = T:Now(), Adopted = {}, Dead = true })
+	T:Advance(Tx.REAP_HORIZON + 60)
+
+	local Reaped = Bank.Store:ReapMarkers()
+
+	T:Is("the finished marker sitting past a whole page of cleanup keys", Reaped, 1)
+	T:Is("nothing is left of it", Bank:Mark(Victim), nil)
+	T:Is("the stuck ones are all still there", #Bank:Marks(), Wall)
+end)
+
 Cases.Case("a transaction writes its name on the cleanup list before it opens a marker", function(T: Case)
 	local Bank = T:Bank()
 

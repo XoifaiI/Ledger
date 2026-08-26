@@ -72,7 +72,7 @@ end
 local function Written(Record: Record, Id: string): (boolean, string?, any)
 	for _, Op in Record.Ops do
 		if Op.Id == Id then
-			return true, Op.Print, Op.From
+			return true, if type(Op.Print) == "string" then Op.Print else nil, Op.From
 		end
 	end
 	for _, Seen in Record.Seen do

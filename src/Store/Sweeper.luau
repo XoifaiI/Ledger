@@ -22,7 +22,7 @@ local SetInterval = require("../Util/SetInterval")
 local Fault = require("../Contract/Fault")
 local Types = require("./Types")
 
-type Store = Types.Store
+type Store = Types.Store<any>
 type Stranded = { Store: Store, Key: string, Tries: number }
 
 type SweeperImpl = {

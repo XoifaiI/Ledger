@@ -8,8 +8,10 @@
 	the roll.
 	One key holds every name written in the same minute for one shard. The key carries the minute,
 	and the oldest work sorts to the front.
+	A name the reaper cannot clear yet moves to a key of the minute it was read in. An old key is
+	therefore always emptied and taken away.
 
-	Return type: A table with Shard, Key, Prefix, At, Mine, Add, RESERVED and SHARDS.
+	Return type: A table with Shard, Key, Prefix, At, Mine, Add, Carry, RESERVED and SHARDS.
 	Example usage:
 		local Roll = require("./Roll")
 		Roll.Add(TxStore, "trade1")
@@ -72,18 +74,43 @@ local function Mine(): number
 	return LastShard
 end
 
-local function Add(TxStore: DataStoreWrapper, Txid: string): boolean
-	local Named = Key(Txid, Clock.Now())
-	local Ok = TxStore:UpdateAsync(Named, function(Current: any): string?
-		local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
-		if table.find(Held, Txid) ~= nil then
-			return nil
+local function Carry(TxStore: DataStoreWrapper, Txids: { string }): boolean
+	local Now = Clock.Now()
+	local Grouped: { [string]: { string } } = {}
+	for _, Txid in Txids do
+		local Named = Key(Txid, Now)
+		local Batch = Grouped[Named]
+		if Batch == nil then
+			Batch = {}
+			Grouped[Named] = Batch
 		end
+		table.insert(Batch, Txid)
+	end
 
-		table.insert(Held, Txid)
-		return Mark.Pack(Held)
-	end)
-	return Ok
+	local Every = true
+	for Named, Batch in Grouped do
+		local Ok = TxStore:UpdateAsync(Named, function(Current: any): string?
+			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
+			local Added = false
+			for _, Txid in Batch do
+				if table.find(Held, Txid) == nil then
+					table.insert(Held, Txid)
+					Added = true
+				end
+			end
+
+			if not Added then
+				return nil
+			end
+			return Mark.Pack(Held)
+		end)
+		Every = Every and Ok
+	end
+	return Every
+end
+
+local function Add(TxStore: DataStoreWrapper, Txid: string): boolean
+	return Carry(TxStore, { Txid })
 end
 
 return table.freeze({
@@ -93,6 +120,7 @@ return table.freeze({
 	At = At,
 	Mine = Mine,
 	Add = Add,
+	Carry = Carry,
 
 	RESERVED = RESERVED,
 	SHARDS = SHARDS,

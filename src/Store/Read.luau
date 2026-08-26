@@ -29,7 +29,7 @@ type Record = Contract.Record<any>
 type KeyLike = Contract.KeyLike
 type HistoryEntry = Contract.HistoryEntry
 type Reason = Reasons.Reason
-type Store = Types.Store
+type Store = Types.Store<any>
 
 local Failed = Write.Failed
 

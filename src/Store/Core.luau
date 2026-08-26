@@ -26,7 +26,7 @@ local Types = require("./Types")
 
 type Record = Contract.Record<any>
 type KeyLike = Contract.KeyLike
-type Store = Types.Store
+type Store = Types.Store<any>
 
 local MAX_KEY = 50
 
