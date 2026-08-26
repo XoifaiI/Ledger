@@ -444,6 +444,30 @@ Cases.Case("a pass that stopped at its cap starts the next one where it stopped"
 	T:Is("the shard at the far end of the walk, which the first pass never reached", Standing, 0)
 end)
 
+Cases.Case("a drive slower than a transaction may writes its name on the list again", function(T: Case)
+	local Bank = T:Bank()
+	local Txid = "orphan1"
+
+	Tx.Roll.Add(Bank.Store.TxWrapper, Txid)
+	local Enrolled = Bank:Rolled()[Txid] == true
+
+	T:Advance(Tx.REAP_GRACE + 120)
+	Bank.Store:ReapMarkers()
+	local Dropped = Bank:Rolled()[Txid] == nil
+
+	Bank.DirectMarks:UpdateAsync(Txid, function(): any
+		return { Status = "Committed", Total = 1, Gen = "one", At = T:Now(), Adopted = {}, Dead = true }
+	end)
+	Tx.Roll.Add(Bank.Store.TxWrapper, Txid)
+
+	T:Advance(Tx.REAP_HORIZON + 60)
+	Bank.Store:ReapMarkers()
+
+	T:Ok("the name went on the list", Enrolled)
+	T:Ok("a reaper that read the list before the marker existed took it off", Dropped)
+	T:Is("the marker, once the name is back on the list", Bank:Mark(Txid), nil)
+end)
+
 Cases.Case("a roll key stops at its limit and the rest go on the next", function(T: Case)
 	local Bank = T:Bank()
 	local Slot = Tx.Roll.Shard("anchor")

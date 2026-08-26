@@ -158,25 +158,28 @@ function Store.Maintain(self: Store, Key: string, Record: Record): Record
 	return Settled
 end
 
-function Store.Applies(self: Store, Op: Op, Record: Record): boolean
+function Store.Applies(self: Store, Op: Op, Record: Record): (boolean, boolean)
 	if Stamp.Carries(Record, Op.Id) then
-		return true
+		return true, false
 	end
 
-	local Read, Holds = pcall(function(): boolean
+	local Read, Holds, Only = pcall(function(): (boolean, boolean)
 		local Format = self:Format()
 		if Step(Format.Reducer, Format:Fold(Shape.Detached(Record)), Op) ~= nil then
-			return true
+			return true, false
 		end
 		if not Stamp.HasPending(Record) then
-			return false
+			return false, false
 		end
 
 		local Committed = Shape.Detached(Record)
 		Committed.Ops = Stamp.Landed(Record.Ops, nil)
-		return Step(Format.Reducer, Format:Fold(Committed), Op) ~= nil
+		return Step(Format.Reducer, Format:Fold(Committed), Op) ~= nil, true
 	end)
-	return not Read or Holds
+	if not Read then
+		return true, false
+	end
+	return Holds, Holds and Only
 end
 
 function Store.Swollen(self: Store, Op: Op, Record: Record): boolean
@@ -208,9 +211,13 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 				return false
 			end
 
-			Applied = self:Applies(Op, Record)
+			local Only
+			Applied, Only = self:Applies(Op, Record)
 			if not Applied then
 				return false
+			end
+			if Only then
+				(Op :: any).TxOnly = true
 			end
 
 			Swollen = self:Swollen(Op, Record)

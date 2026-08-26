@@ -4,24 +4,15 @@
 --[=[
 	Reap: Removes the markers of transactions that are over.
 
-	Every transaction writes its name on the roll before it opens a marker. A pass reads the roll and
-	never searches the store.
-	A committed marker can go only after each key that it touched has forgotten it. A key that still
-	names the marker would read the missing marker as an abort, and would undo a committed leg.
-	A buried marker is already finished, so it goes on age alone, and it goes on a shorter window than
-	one that is still being decided. This is the one place that takes a
-	marker away. A delete names no generation, so it can still land on a marker made under the same
-	name after this pass read it. That costs the new transaction a retry and never a leg, because a
-	missing marker only aborts legs older than the whole transaction, and the new one's are not.
-	A key that a pass cannot read counts as loud, so a datastore fault never removes a marker early.
-	One pass walks the shards until it has taken enough away or the budget runs short, and gives back
-	the shard it stopped on. The next pass starts there, so no shard waits behind the ones in front of
-	it forever. A server with no pass behind it starts on the shard it hashes to.
-	A name it cannot clear moves on to a newer key, so an old key always empties.
-	A pass reads a fixed number of names per shard. A name it did not reach goes to the front of the
-	next key, so a name that can never be cleared cannot hold the ones behind it.
-	Deciding a marker reads the keys it named, which are in the store the records live in and not this
-	one. A pass therefore spends from two budgets, and asks about both before each shard.
+	Every transaction writes its name on the roll before it opens a marker, so a pass reads the roll
+	and never searches the store.
+	A marker goes only once every key it named has forgotten its leg, and a key that cannot be read
+	counts as still holding one. One already finished goes on a shorter window than one still being
+	decided. A delete names no generation, so it can land on a marker opened under the same name
+	after this pass read it, which costs that transaction a retry and never a leg.
+	A pass reads a fixed number of names per shard, stops at a cap or when either store runs short of
+	budget, and gives back the shard it stopped on so the next one starts there. A name it could not
+	reach goes to the front of the next key.
 
 	Return type: A table with Reap, Spent, Quiet, Anywhere, REAP_HORIZON, REAP_GRACE, REAP_LIMIT, REAP_LOOKS, REAP_PAGE and REAP_FLOOR. The type is Reaping.
 	Example usage:

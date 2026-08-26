@@ -6,12 +6,11 @@
 
 	A transaction writes its name here before it opens a marker. No marker exists without a name on
 	the roll.
-	A key holds the names written in the same minute for one shard, up to a limit, and the names past
-	that limit go on the next key of that minute. A key therefore costs a bounded read and a bounded
-	write however much work is waiting, and the whole of a minute is still found under one prefix.
-	The key carries the minute, and the oldest work sorts to the front.
-	A name the reaper cannot clear yet moves to a key of the minute it was read in. An old key is
-	therefore always emptied and taken away.
+	A key holds the names of one shard and one minute up to a limit, and the rest go on the next key
+	of that minute, so a key costs a bounded read and write however much is waiting. The key carries
+	the minute, and the oldest work sorts to the front.
+	A name the reaper cannot clear yet moves to a key of the minute it was read in, so an old key is
+	always emptied and taken away.
 
 	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add, Carry, RESERVED, SHARDS, ROLL_LIMIT and PARTS.
 	Example usage:
@@ -64,7 +63,6 @@ local function Prefix(Slot: number): string
 	return string.format(HEAD, Slot)
 end
 
--- Reads the minute out of a key, including one from a build that wrote a minute per key and no part.
 local function At(Held: string): number?
 	local Digits = string.match(Held, PATTERN) or string.match(Held, PLAIN)
 	if Digits == nil then

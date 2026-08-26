@@ -111,8 +111,8 @@ local function IsStorable(Op: any): (boolean, string?)
 		if type(Op.Kind) == "string" and IsReservedKind(Op.Kind) then
 			return false, `kind '{Op.Kind}' uses the {RESERVED} prefix reserved for Ledger's internal ops`
 		end
-		if Op.Tx ~= nil or Op.TxHome ~= nil or Op.TxSticky ~= nil or Op.TxAt ~= nil or Op.TxGen ~= nil or Op.TxTerms ~= nil then
-			return false, "the Tx, TxHome, TxSticky, TxAt, TxGen and TxTerms fields are reserved for the transaction path"
+		if Op.Tx ~= nil or Op.TxHome ~= nil or Op.TxSticky ~= nil or Op.TxAt ~= nil or Op.TxGen ~= nil or Op.TxTerms ~= nil or Op.TxOnly ~= nil then
+			return false, "the Tx, TxHome, TxSticky, TxAt, TxGen, TxTerms and TxOnly fields are reserved for the transaction path"
 		end
 	end
 

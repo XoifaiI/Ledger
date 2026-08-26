@@ -9,6 +9,8 @@
 	A coordinator that stops between two steps leaves a marker, and another server decides it.
 	The marker decides, and not the server that asked. A server that wanted to cancel but finds the
 	marker committed must resolve every leg.
+	A drive that took longer than a transaction may writes its name on the cleanup list again, because
+	a reaper that read the list while the marker was still unwritten will have taken the name off it.
 
 	Return type: A table with Drive, LEG_TIMEOUT, TIMEOUT, MAX_LEGS and PASSES.
 	Example usage:
@@ -17,6 +19,7 @@
 --]=]
 
 local Say = require("../../Util/Say")
+local Clock = require("../../Util/Clock")
 local TableUtil = require("../../Util/TableUtil")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Fault = require("../../Contract/Fault")
@@ -239,9 +242,16 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 	local Shape = Mark.Pack(Terms)
 	local Print = Fingerprint.Of(Mark.Pack({ Keys, Shape }))
 
+	local Added = Clock.Now()
 	if not Roll.Add(TxStore, Id) then
 		Say.Warn(`Ledger: transaction '{Id}' was not started, Ledger could not add it to the cleanup list. nothing was applied, try again`)
 		return false, UNRESOLVED, false
+	end
+
+	local function Enrolled()
+		if Clock.Now() - Added >= TIMEOUT then
+			Roll.Add(TxStore, Id)
+		end
 	end
 
 	local Last: Reason = UNRESOLVED
@@ -252,6 +262,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 		Floor = Attempt.Reached
 		Parked = Attempt.Parked
 		if Attempt.Committed then
+			Enrolled()
 			return true, nil, Parked
 		end
 
@@ -268,6 +279,8 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 	elseif Last == SPENT then
 		Say.Warn(`Ledger: transaction '{Id}' could not get through and changed nothing. that name is spent now, so use a new one`)
 	end
+
+	Enrolled()
 	return false, Last, Parked
 end
 

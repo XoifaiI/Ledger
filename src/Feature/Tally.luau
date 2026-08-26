@@ -7,6 +7,9 @@
 	Each server writes its own key, and does not wait behind the others.
 	A tally can only go up. No key can see the others, so no key knows the total,
 	and a limit cannot hold across them.
+	The total lives in a field of Ledger's own. The game's field on a shard is left at nothing once a
+	bump has moved the total across, so a build that still writes the old way adds to a field that is
+	counted alongside the total rather than hidden behind it.
 
 	Return type: A table with Layered, Bump, Counted, Mine, Shard, Shards, SHARDS, PART and FIELD.
 	Example usage:
@@ -31,20 +34,17 @@ local FIELD = "_Tally"
 local LastNode = ""
 local LastShard = 0
 
--- Gives back what one shard adds, and whether it was read the way a build before this one wrote it.
--- A key nobody has bumped holds the Default and nothing else, so it reads as nothing and counts as
--- neither.
 local function Counted(State: any, Field: string, Base: number): (number, boolean)
 	if type(State) ~= "table" then
 		return 0, false
 	end
 
 	local Sums = State[FIELD]
+	local Value = State[Field]
 	if type(Sums) == "table" and type(Sums[Field]) == "number" then
-		return Sums[Field], false
+		return Sums[Field] + (if type(Value) == "number" then Value else 0), false
 	end
 
-	local Value = State[Field]
 	if type(Value) ~= "number" then
 		return 0, false
 	end
@@ -70,12 +70,14 @@ local function Bumping(Data: Data, Op: Op): Data?
 		return Stale
 	end
 
-	local Sum = if type(Moved) == "number" then Moved else Data[Field] - (Base :: number)
+	local Raw = Data[Field]
+	local Sum = if type(Moved) == "number" then Moved + Raw else Raw - (Base :: number)
 
 	local Kept: Data = if type(Sums) == "table" then table.clone(Sums :: Data) else {}
 	Kept[Field] = Sum + Op.Amount
 
 	local Next = table.clone(Data)
+	Next[Field] = 0
 	Next[FIELD] = Kept
 	return Next
 end

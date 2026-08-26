@@ -101,7 +101,7 @@ export type StoreImpl<D> = {
 	Went: (self: Store<D>, Key: string) -> (),
 	Append: (self: Store<D>, Key: string, Op: Op, Guard: Allow?) -> Record,
 	Maintain: (self: Store<D>, Key: string, Record: Record) -> Record,
-	Applies: (self: Store<D>, Op: Op, Record: Record) -> boolean,
+	Applies: (self: Store<D>, Op: Op, Record: Record) -> (boolean, boolean),
 	Swollen: (self: Store<D>, Op: Op, Record: Record) -> boolean,
 	Written: (self: Store<D>, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?) -> (boolean, Reason?),
 	Swelling: (self: Store<D>, Key: string, Record: Record) -> (),

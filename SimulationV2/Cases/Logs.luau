@@ -588,6 +588,33 @@ Cases.Case("an op that holds no way is not written while a leg is parked", funct
 	T:Is("gold", Bank:Amount("a"), 14)
 end)
 
+Cases.Case("an op taken in for a leg that aborted stops holding the log open", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("wedge", { Gold = 100, Touches = 0 })
+
+	Bank:Marker("wedgetx", { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
+	Bank:Park("wedge", { Id = "tx:wedgetx:1", Kind = "Fund", Amount = 500, Tx = "wedgetx", TxGen = "one", TxAt = T:Now() })
+
+	local Ok, Why = Bank.Store:Edit("wedge", "Give", { Amount = -120 }):Wait()
+
+	T:Advance(Suite.Insides.Tx.TIMEOUT + 1)
+	Bank.Store:Resettle("wedge"):Wait()
+
+	for _ = 1, 40 do
+		Bank.Store:Edit("wedge", "Fund", { Amount = 1 }):Wait()
+	end
+
+	local Before = #Bank:Record("wedge").Ops
+	Bank:Log():Compact("wedge", Bank:Format())
+
+	T:Is("the edit that only held if the leg committed", Ok, false)
+	T:Is("the reason it gave", Why, "Unresolved")
+	T:Is("ops carried before the compaction", Before, 41)
+	T:Is("ops left once the leg had aborted and the key compacted", #Bank:Record("wedge").Ops, 0)
+	T:Is("gold, counting only what applied", Bank:Amount("wedge"), 140)
+	T:Silent("nothing said the key was stuck", "cannot be compacted")
+end)
+
 Cases.Case("an op that holds once the leg commits is still written", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 0 })

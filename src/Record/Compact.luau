@@ -9,7 +9,9 @@
 	Hint names the field taking the most room, and whether that field is Ledger's own.
 	Compact absorbs only the ops at the front that this build can apply. The first op that this build
 	cannot apply stops the walk, and each op after it waits for a build that can.
-	Compact holds back an op that the reducer refuses. It does not drop the op.
+	Compact holds back an op that the reducer refuses. It does not drop the op. The exception is an op
+	this build took in only because a transaction was parked, since a compaction runs on a settled
+	record and that op can never apply now.
 
 	Return type: A table with Packed, Worthwhile, Oversized, Overgrown, Bulk, Hint and SEEN_LIMIT.
 	Example usage:
@@ -74,6 +76,10 @@ end
 local function Accounted(State: any, Op: Op, Format: Shape<any>): boolean
 	local Handles = Format.Handles
 	if if Handles ~= nil then Handles[Op.Kind] == true else IsStorable.Reserved(Op.Kind) then
+		return true
+	end
+
+	if Op.TxOnly == true then
 		return true
 	end
 

@@ -344,10 +344,11 @@ local function Tallies(Board: Disk, Name: string, Named: { string }, Format: any
 
 			local State: any = Format:Fold(Record(Disk.Peek(Board, Name, Key)))
 			local Held: any = State[TALLY]
+			local Raw = if type(State[Field]) == "number" then State[Field] else 0
 			if type(Held) == "table" and type(Held[Field]) == "number" then
-				Total += Held[Field]
+				Total += Held[Field] + Raw
 			elseif type(State[Field]) == "number" then
-				Total += State[Field] - Base
+				Total += Raw - Base
 			end
 			Shards += 1
 		end
