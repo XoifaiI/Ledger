@@ -545,4 +545,61 @@ Cases.Case("a reset cannot leave granted units on both keys", function(T: Case)
 	T:Is("stock across both keys", Shelf:Amount("shelf") + Shelf:Amount("buyer"), Before)
 end)
 
+local function Stranded(T: Case, Count: number, To: string?): any
+	local Shelf = T:Shelf()
+	local Booked: { [string]: any } = {}
+	for Index = 1, Count do
+		Booked[`old{Index}`] = { Field = "Stock", Amount = 1, At = T:Now(), To = To }
+	end
+	Shelf:Write("shelf", { Snapshot = { Stock = 10, Sold = 0, Gold = 0, _Booked = Booked }, Ops = {}, Seen = {} })
+	return Shelf
+end
+
+Cases.Case("more overdue reservations than one pass takes are left for the next", function(T: Case)
+	local Shelf = Stranded(T, 40, nil)
+	T:Advance(STALE)
+
+	Shelf.Store:Resettle("shelf"):Wait()
+
+	T:Warns("it said it left some behind", "overdue reservations")
+	T:Is("reservations it could not get to this pass", Shelf:Booked("shelf") > 0, true)
+end)
+
+Cases.Case("a reservation whose receiver cannot be read waits for the next pass", function(T: Case)
+	local Shelf = Stranded(T, 1, "cart")
+	T:Advance(STALE)
+
+	Shelf:NoRetries()
+	Shelf:Fault(Fault.Reads():OnKey("cart"))
+	Shelf.Store:Resettle("shelf"):Wait()
+	Shelf:Healed()
+
+	T:Warns("it said it could not check the receiver", "before giving back booking")
+	T:Is("the reservation is still held", Shelf:Booked("shelf"), 1)
+end)
+
+Cases.Case("a reservation older than the prune horizon is written off not given back", function(T: Case)
+	local Shelf = Stranded(T, 1, "cart")
+	T:Advance(31 * 86400)
+
+	Shelf.Store:Resettle("shelf"):Wait()
+
+	T:Warns("it said giving it back could pay twice", "giving it back could pay twice")
+	T:Is("the reservation is gone", Shelf:Booked("shelf"), 0)
+	T:Is("the units were not given back", Shelf:Amount("shelf"), 10)
+end)
+
+Cases.Case("overdue reservations that cannot be settled wait for the next pass", function(T: Case)
+	local Shelf = Stranded(T, 2, nil)
+	T:Advance(STALE)
+
+	Shelf:NoRetries()
+	Shelf:Fault(Fault.Updates():OnKey("shelf"))
+	Shelf.Store:Resettle("shelf"):Wait()
+	Shelf:Healed()
+
+	T:Warns("it said they wait for the next pass", "overdue reservation(s) on")
+	T:Is("the reservations are still held", Shelf:Booked("shelf"), 2)
+end)
+
 return Cases

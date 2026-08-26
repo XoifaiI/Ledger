@@ -18,6 +18,7 @@
 
 local Say = require("../Util/Say")
 local TableUtil = require("../Util/TableUtil")
+local Limits = require("../Contract/Limits")
 local Measure = require("../Encode/Measure")
 local IsStorable = require("../Encode/Storable")
 local Fault = require("../Contract/Fault")
@@ -37,10 +38,9 @@ local SEEN_LIMIT = 2048
 local COMPACT_OPS = 128
 local COMPACT_CEILING = 512
 local COMPACT_SHARE = 0.2
-local COMPACT_BYTES = 1024 * 1024
 
 local function Worthwhile(Ops: number, Bytes: number, State: number): boolean
-	if Ops >= COMPACT_CEILING or Bytes >= COMPACT_BYTES then
+	if Ops >= COMPACT_CEILING or Bytes >= Limits.Compact then
 		return true
 	end
 	if Ops < COMPACT_OPS then
@@ -64,7 +64,7 @@ local function Overgrown(Record: Record): boolean
 	local Count = #Record.Ops
 	local Bytes = Measure(Record.Ops)
 	if Count < COMPACT_OPS then
-		return Bytes >= COMPACT_BYTES
+		return Bytes >= Limits.Compact
 	end
 
 	return Worthwhile(Count, Bytes, Bulk(Record))

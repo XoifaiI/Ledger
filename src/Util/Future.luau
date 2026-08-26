@@ -14,6 +14,7 @@
 		local Value = Job:Wait()
 --]=]
 
+local Async = require("./Async")
 local Say = require("./Say")
 
 local Threads = require("./Threads")
@@ -189,7 +190,7 @@ function Future.Wait<T...>(self: Future<T...>, Timeout: number?): T...
 			Timeouts = {}
 			Private.Timeouts = Timeouts
 		end
-		table.insert(Timeouts :: { thread }, task.delay(Timeout, TimeoutTask, self, Caller))
+		table.insert(Timeouts :: { thread }, Async.Delay(Timeout, TimeoutTask, self, Caller))
 	end
 
 	return coroutine.yield()

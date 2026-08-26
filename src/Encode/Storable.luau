@@ -7,20 +7,18 @@
 	A value must survive one trip to the datastore and back.
 	No gaps in an array, no mix of array keys and string keys, no nan, no loop and no metatable.
 
-	Return type: A table with Op, Value, Structure, Reserved and MAX_BYTES.
+	Return type: A table with Op, Value, Structure and Reserved.
 	Example usage:
 		local IsStorable = require("./Storable")
 		local Ok, Where = IsStorable.Op(Op)
 --]=]
 
+local Limits = require("../Contract/Limits")
 local Measure = require("./Measure")
 
 local MAX_DEPTH = 64
-local MAX_BYTES = 1024 * 1024
 
 local RESERVED = "__"
-
-local OVER = `op is larger than the {MAX_BYTES} byte per op limit`
 
 local function IsReservedKind(Kind: string): boolean
 	return string.sub(Kind, 1, #RESERVED) == RESERVED
@@ -118,8 +116,8 @@ local function IsStorable(Op: any): (boolean, string?)
 		return false, Where
 	end
 
-	if Measure(Op) > MAX_BYTES then
-		return false, OVER
+	if Measure(Op) > Limits.Op then
+		return false, `op is larger than the {Limits.Op} byte per op limit`
 	end
 
 	return true, nil
@@ -140,8 +138,8 @@ local function IsValueStorable(Value: any): (boolean, string?)
 		return false, Where
 	end
 
-	if Measure(Value) > MAX_BYTES then
-		return false, OVER
+	if Measure(Value) > Limits.Op then
+		return false, `op is larger than the {Limits.Op} byte per op limit`
 	end
 
 	return true, nil
@@ -152,5 +150,4 @@ return table.freeze({
 	Value = IsValueStorable,
 	Structure = IsStructureStorable,
 	Reserved = IsReservedKind,
-	MAX_BYTES = MAX_BYTES,
 })

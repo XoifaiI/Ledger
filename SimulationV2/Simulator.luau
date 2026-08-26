@@ -21,6 +21,8 @@ local Catalogue = require("./Catalogue")
 local Coverage = require("./Coverage")
 local Disk = require("./Disk")
 local Invariants = require("./Invariants")
+local Limits = require("../src/Contract/Limits")
+
 local Lib = require("./Lib")
 local Say = require("../src/Util/Say")
 local Liveness = require("./Liveness")
@@ -74,6 +76,14 @@ local APART: { [string]: boolean } = {
 	Confirm = true,
 }
 
+local SIM_LIMITS = table.freeze({
+	Value = 64 * 1024,
+	State = 32 * 1024,
+	Op = 16 * 1024,
+	Log = 24 * 1024,
+	Compact = 16 * 1024,
+})
+
 local DEFAULT: any = { Gold = 0, Touches = 0, Blobs = {} }
 
 local function Banker(State: any, Op: any): any?
@@ -97,6 +107,10 @@ local function Banker(State: any, Op: any): any?
 	end
 	return nil
 end
+
+local NODE = "v2simulation00"
+
+Lib.Ident.Restart(NODE)
 
 local Walker = Lib.Sweep()
 Walker:Stop()
@@ -187,7 +201,7 @@ local function Weighted(Rng: Random, Keys: string): Swarm.Weighted
 	return Catalogue.Weights(Rng, Held)
 end
 
-local FAT_BYTES = 262144
+local FAT_SHARE = 4
 local FAT_ROUNDS = 12
 
 local CROWD_STEPS = 4096
@@ -202,7 +216,7 @@ local function Fatten(Open: (Key: any) -> any?, Key: any, Cover: Coverage.Cover)
 		return
 	end
 
-	local Blob = string.rep("f", FAT_BYTES)
+	local Blob = string.rep("f", Limits.Op // FAT_SHARE)
 	for Slot = 1, FAT_ROUNDS do
 		local Ok, Why = Active:Apply("Stash", { Slot = `g{Slot}`, Blob = Blob })
 		Cover:Note("Apply", Ok, Why)
@@ -359,6 +373,7 @@ local function Judge(Books: Auditor.Auditor, Broken: { string }, Named: string, 
 end
 
 export type Options = {
+	Limits: Limits.Sizes?,
 	Rounds: number?,
 	Servers: number?,
 	Faults: boolean?,
@@ -384,6 +399,7 @@ local function Run(Seed: number, Options: Options?): Report
 	local Count = Rng:NextInteger(KEYS_LEAST, KEYS_MOST)
 
 	Say.Reset()
+	Limits.Set(Held.Limits or SIM_LIMITS)
 
 	Time.Restart()
 	Ledger.UseClock(Time.Read, Time.Sleep)
@@ -391,9 +407,9 @@ local function Run(Seed: number, Options: Options?): Report
 	Walker:Stop()
 	Walker.Passes = 0
 	Walker.Resume = 1
-	Lib.Ident.Restart("v2simulation00")
 
 	local Plate = Disk.New()
+	Plate.MaxValue = Limits.Value
 	Plate.Players = Held.Players or 20
 	Plate.Throttled = Held.Throttled == true
 
@@ -650,8 +666,8 @@ local function Run(Seed: number, Options: Options?): Report
 	Plate.Turn = nil
 	Time.Bind(nil)
 
-	Ledger.UseReal()
 	Ledger.UseClock(nil, nil)
+	Limits.Reset()
 
 	if not Fine then
 		table.insert(Threw, `the run itself threw: {tostring(Raised)}`)

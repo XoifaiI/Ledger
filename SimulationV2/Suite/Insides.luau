@@ -17,6 +17,7 @@ local Ledger = require("../../src")
 local Contract = require("../../src/Contract/Op")
 local Fault = require("../../src/Contract/Fault")
 local Horizons = require("../../src/Contract/Horizons")
+local Limits = require("../../src/Contract/Limits")
 local Reasons = require("../../src/Contract/Reason")
 local Clock = require("../../src/Util/Clock")
 local DataStoreWrapper = require("../../src/Util/DataStoreWrapper")
@@ -71,7 +72,7 @@ local Log = table.freeze({
 	Known = Records.Known,
 	Entombed = Records.Entombed,
 	NotEntombed = Records.NotEntombed,
-	MAX_LOG_BYTES = Records.MAX_LOG_BYTES,
+	MAX_LOG_BYTES = Limits.Log,
 	TOMB_HORIZON = Records.TOMB_HORIZON,
 
 	Holds = Stamp.Holds,
@@ -219,6 +220,7 @@ return table.freeze({
 	Mock = Mock,
 	Types = Contract,
 	Horizons = Horizons,
+	Limits = Limits,
 	Reasons = Reasons,
 	Fault = Fault,
 

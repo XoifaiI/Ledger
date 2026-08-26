@@ -1086,4 +1086,36 @@ Cases.Case("recovery cannot settle a hold against another sender's delivery", fu
 	T:Is("the sender whose money never arrived gets it back", Bank:Amount("raceA") + Bank:Aside("raceA"), 1000)
 end)
 
+Cases.Case("a retry once recovery owns the hold is left alone", function(T: Case)
+	local Bank = Funded(T, { ownA = 100, ownB = 0 })
+
+	Reserve(Bank, "ownA", "ownB", 40, "own1")
+	T:Advance(PAST_REDRIVE)
+
+	local Ok, Why = Bank.Store:Transfer("ownA", "ownB", 40, "own1"):Wait()
+
+	T:Is("a retry of a hold older than the redrive window", Ok, false)
+	T:Is("the reason", Why, "Held")
+	T:Warns("it said recovery owns it now", "recovery owns it now")
+	T:Is("the amount is still set aside", Bank:Aside("ownA"), 40)
+	T:Is("money is conserved", Bank:Amount("ownA") + Bank:Amount("ownB") + Bank:Aside("ownA"), 100)
+end)
+
+Cases.Case("a refund that cannot be written leaves the money set aside", function(T: Case)
+	local Bank = Funded(T, { refundA = 100, refundB = 0 })
+
+	Reserve(Bank, "refundA", "refundB", 40, "refund1")
+	T:Advance(PAST_REDRIVE)
+
+	Bank:Fault(Fault.Updates())
+	local Ok, Why = Bank.Store:RecoverTransfers("refundA"):Wait()
+	Bank:Healed()
+
+	T:Warns("it said the refund did not go through", "could not give back transfer")
+	T:Is("the recovery", Ok, false)
+	T:Is("the reason", Why, "Busy")
+	T:Is("the amount is still set aside", Bank:Aside("refundA"), 40)
+	T:Is("money is conserved", Bank:Amount("refundA") + Bank:Amount("refundB") + Bank:Aside("refundA"), 100)
+end)
+
 return Cases

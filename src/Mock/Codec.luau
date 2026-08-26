@@ -15,12 +15,10 @@
 		local Text = Codec.Encode(Value)
 --]=]
 
-local Contract = require("../Contract/Op")
+local Limits = require("../Contract/Limits")
 
 local EncodingService = game:GetService("EncodingService")
 local HttpService = game:GetService("HttpService")
-
-local MAX_VALUE = Contract.MAX_VALUE_BYTES
 
 local BLOB = "__Buffer"
 
@@ -66,8 +64,8 @@ local function Encode(Raw: any): string
 	if not Fine or type(Text) ~= "string" then
 		error(`Ledger mock: {UNSTORABLE}`, 0)
 	end
-	if #Text > MAX_VALUE then
-		error(`Ledger mock: value is larger than the {MAX_VALUE} byte limit`, 0)
+	if #Text > Limits.Value then
+		error(`Ledger mock: value is larger than the {Limits.Value} byte limit`, 0)
 	end
 
 	local Again, Back = pcall(function(): any
@@ -91,6 +89,6 @@ end
 return table.freeze({
 	Encode = Encode,
 	Decode = Decode,
-	MAX_VALUE = MAX_VALUE,
+	MAX_VALUE = Limits.Value,
 	BLOB = BLOB,
 })

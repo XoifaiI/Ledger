@@ -9,7 +9,7 @@
 	CloseAll cuts each queue down to its last write and gives it fewer tries. A shutdown has seconds,
 	and a queue of retries would spend all of them on one key.
 
-	Return type: A table with Reason, New, UseMock, UseReal, UseClock, Sweep and CloseAll.
+	Return type: A table with Reason, New, UseMock, UseReal, UseClock, UseAsync, Sweep and CloseAll.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
 		local Bank = Ledger.New({ Name = "Bank", Default = { Gold = 0 }, Reducer = Reducer })
@@ -18,6 +18,7 @@
 local Future = require("@self/Util/Future")
 local Say = require("@self/Util/Say")
 local DataStoreWrapper = require("@self/Util/DataStoreWrapper")
+local Async = require("@self/Util/Async")
 local Clock = require("@self/Util/Clock")
 local Contract = require("@self/Contract/Op")
 local Public = require("@self/Contract/Public")
@@ -50,6 +51,7 @@ export type Export = {
 	read UseMock: (Options: Mock.Options?) -> Mock.Service,
 	read UseReal: () -> (),
 	read UseClock: (Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?) -> (),
+	read UseAsync: (Defer: Async.Defers?, Delay: Async.Delays?, Cancel: Async.Cancels?) -> (),
 	read Sweep: () -> (),
 	read CloseAll: () -> (),
 }
@@ -85,6 +87,10 @@ end
 
 local function UseClock(Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?)
 	Clock.Set(Reads, Sleeps)
+end
+
+local function UseAsync(Defer: Async.Defers?, Delay: Async.Delays?, Cancel: Async.Cancels?)
+	Async.Set(Defer, Delay, Cancel)
 end
 
 local function Sweep()
@@ -140,6 +146,7 @@ return table.freeze({
 	UseMock = UseMock,
 	UseReal = UseReal,
 	UseClock = UseClock,
+	UseAsync = UseAsync,
 	Sweep = Sweep,
 	CloseAll = CloseAll,
 }) :: Export

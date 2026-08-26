@@ -61,6 +61,11 @@ local function Sum(Entries: any, Field: string): number
 	return Total
 end
 
+local function Buried(Board: Disk, Table: string, Txid: string): boolean
+	local Held = Disk.Peek(Board, Table, Txid)
+	return type(Held) == "table" and Held.Dead == true
+end
+
 local function Across(Keys: { string }, Name: string): Where
 	local Held: Where = {}
 	for _, Key in Keys do
@@ -215,7 +220,7 @@ local function Transactions(Board: Disk, Where: Where, Marks: { string }, Format
 	if Quiet then
 		for _, Table in Marks do
 			for _, Txid in Disk.Keys(Board, Table) do
-				if Legs[Txid] ~= nil then
+				if Legs[Txid] ~= nil and not Buried(Board, Table, Txid) then
 					table.insert(Broken, `{Txid} left its marker behind in {Table}`)
 				end
 			end
@@ -230,7 +235,9 @@ local function Unfinished(Board: Disk, Where: Where, Marks: { string }, Format: 
 
 	for _, Table in Marks do
 		for _, Txid in Disk.Keys(Board, Table) do
-			table.insert(Left, `marker '{Txid}' is still in {Table}`)
+			if not Buried(Board, Table, Txid) then
+				table.insert(Left, `marker '{Txid}' is still in {Table}`)
+			end
 		end
 	end
 
@@ -359,7 +366,8 @@ local function Markers(Board: Disk, Marks: { string }, Horizon: number, Now: num
 			local Written = Disk.Stamp(Board, Table, Txid)
 			local Age = if Written ~= nil then `{Now - Written}s old and the reaper wants {Horizon}s` else "never written"
 
-			table.insert(Said, `'{Txid}' in {Table} is {tostring(Held.Status)}, {Adopted} of {tostring(Held.Total)} leg(s) adopted, {Age}, keys [{table.concat(Named, ", ")}]`)
+			local Grave = if Held.Dead == true then " buried" else ""
+			table.insert(Said, `'{Txid}' in {Table} is {tostring(Held.Status)}{Grave}, {Adopted} of {tostring(Held.Total)} leg(s) adopted, {Age}, keys [{table.concat(Named, ", ")}]`)
 		end
 	end
 

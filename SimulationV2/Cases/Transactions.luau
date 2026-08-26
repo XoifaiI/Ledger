@@ -352,7 +352,7 @@ Cases.Case("a name reused once its marker is gone is still spent", function(T: C
 		})
 		:Wait())
 
-	local Marker = Bank:Mark("gone1")
+	local Marker = Bank:Buried("gone1")
 
 	local Ok, Why = Bank.Store
 		:Tx("gone1", {
@@ -369,7 +369,7 @@ Cases.Case("a name reused once its marker is gone is still spent", function(T: C
 		:Wait())
 
 	T:Is("the first transaction", First, true)
-	T:Is("the marker every leg already adopted", type(Marker) == "table", false)
+	T:Is("the marker every leg already adopted", Marker, true)
 	T:Is("the same name for a different amount", Ok, false)
 	T:Is("the reason", Why, "Spent")
 	T:Is("an honest retry of the original terms", Honest, true)
@@ -558,7 +558,7 @@ Cases.Case("a stale pending marker aborts for a bystander", function(T: Case)
 	T:Is("the seller keeps the sword", Shop:State("staleA").Items.Sword, true)
 	T:Is("the buyer's gold", Shop:State("staleB").Gold, 100)
 	T:Is("anything left pending on the seller", Shop:Pending("staleA"), false)
-	T:Is("the timed out marker is gone", Shop:Mark(Txid), nil)
+	T:Is("the timed out marker is buried", Shop:Buried(Txid), true)
 end)
 
 Cases.Case("a committed marker heals after a crash", function(T: Case)
@@ -574,7 +574,7 @@ Cases.Case("a committed marker heals after a crash", function(T: Case)
 	T:Is("the seller gave up the sword", Shop:State("healA").Items.Sword, nil)
 	T:Is("the buyer's gold", Shop:State("healB").Gold, 75)
 	T:Is("the buyer got the sword", Shop:State("healB").Items.Sword, true)
-	T:Is("the finished marker is gone", Shop:Mark(Txid), nil)
+	T:Is("the finished marker is buried", Shop:Buried(Txid), true)
 end)
 
 Cases.Case("a busy key refuses a new transaction", function(T: Case)
@@ -625,7 +625,7 @@ Cases.Case("an aborted husk heals in one call", function(T: Case)
 
 	T:Is("a swap under a name whose husk marker was left aborted", Ok, true)
 	T:Is("the reason", Why, nil)
-	T:Is("the husk is gone", Shop:Mark("husk1"), nil)
+	T:Is("the husk is buried", Shop:Buried("husk1"), true)
 	T:Is("the seller's gold", Shop:State("huskA").Gold, 125)
 	T:Is("the buyer's gold", Shop:State("huskB").Gold, 75)
 	T:Is("anything left pending on the seller", Shop:Pending("huskA"), false)
@@ -641,7 +641,7 @@ Cases.Case("a husk naming more legs than the retry still heals", function(T: Cas
 
 	T:Is("a swap under a husk naming more legs than the retry drives", Ok, true)
 	T:Is("the reason", Why, nil)
-	T:Is("the husk is gone", Shop:Mark("wide1"), nil)
+	T:Is("the husk is buried", Shop:Buried("wide1"), true)
 	T:Is("the seller's gold", Shop:State("wideA").Gold, 125)
 	T:Is("the buyer's gold", Shop:State("wideB").Gold, 75)
 	T:Is("anything left pending on the seller", Shop:Pending("wideA"), false)
@@ -656,7 +656,7 @@ Cases.Case("a zero total husk also heals", function(T: Case)
 	local Ok = Swap(Shop, "zeroA", "zeroB", 25, "zero1")
 
 	T:Is("a swap under a zero total husk", Ok, true)
-	T:Is("the husk is gone", Shop:Mark("zero1"), nil)
+	T:Is("the husk is buried", Shop:Buried("zero1"), true)
 	T:Is("the seller's gold", Shop:State("zeroA").Gold, 125)
 	T:Is("the buyer's gold", Shop:State("zeroB").Gold, 75)
 end)
@@ -819,7 +819,7 @@ Cases.Case("a repeated name moves the money once", function(T: Case)
 	T:Is("the first attempt", First, true)
 	T:Is("the second attempt under the same name", Second, true)
 	T:Is("the third attempt under the same name", Third, true)
-	T:Is("no marker is left behind", Shop:Mark("once1"), nil)
+	T:Is("no live marker is left behind", Shop:Buried("once1"), true)
 	T:Is("gold in the shop, moved exactly once", Shop:State("onceA").Gold, 75)
 	T:Is("coins in the vault, moved exactly once", Vault:State("onceB").Coins, 25)
 end)
@@ -1099,6 +1099,50 @@ Cases.Case("a three legged transaction moves all or nothing", function(T: Case)
 	T:Is("anything left pending in the second vault", Second:Pending("triC"), false)
 end)
 
+Cases.Case("a marker taken away under a fresh transaction leaves its legs alone", function(T: Case)
+	local Bank = T:Bank()
+	local Born = T:Now()
+
+	Bank:Seed("vanA", { Gold = 100 })
+	local Txid = Craft(Bank, "vanA", "Committed", "vang", "vang", Born, Born)
+	Bank:Unmark(Txid)
+
+	T:Advance(5)
+	Bank.Store:Resettle("vanA"):Wait()
+
+	T:Is("the marker a slow delete took away", Bank:Mark(Txid), nil)
+	T:Is("the leg of a transaction still inside its window", Bank:Pending("vanA"), true)
+	T:Is("gold on the key", Bank:Amount("vanA"), 100)
+end)
+
+Cases.Case("a leg with no marker is cleared once its window has passed", function(T: Case)
+	local Bank = T:Bank()
+	local Born = T:Now()
+
+	Bank:Seed("loneA", { Gold = 100 })
+	local Txid = Craft(Bank, "loneA", "Committed", "loneg", "loneg", Born, Born)
+	Bank:Unmark(Txid)
+
+	T:Advance(Tx.LEG_TIMEOUT * Tx.MAX_LEGS + 1)
+	Bank.Store:Resettle("loneA"):Wait()
+
+	T:Is("the leg a coordinator never decided", Bank:Pending("loneA"), false)
+	T:Is("gold on the key", Bank:Amount("loneA"), 100)
+end)
+
+Cases.Case("a buried marker is reaped once it is old enough", function(T: Case)
+	local Bank = T:Bank()
+
+	Bank:Seed("reapA", { Gold = 100 })
+	Bank:Marker("reap1", { Status = "Committed", Total = 2, Gen = "reapg", At = T:Now(), Adopted = {}, Dead = true })
+
+	T:Advance(Tx.REAP_HORIZON + 60)
+	local Reaped = Bank.Store:ReapMarkers()
+
+	T:Is("the buried marker was reaped", Reaped, 1)
+	T:Is("nothing is left of it", Bank:Mark("reap1"), nil)
+end)
+
 Cases.Case("an orphan leg past a shrunk marker is rolled back", function(T: Case)
 	local Shop, Vault = T:Market(), T:Vault()
 	Wares(Shop, "orphA", 100, false)
@@ -1110,14 +1154,14 @@ Cases.Case("an orphan leg past a shrunk marker is rolled back", function(T: Case
 	Vault:Healed()
 
 	local Orphan = Vault:Pending("orphB")
-	local Marker = Shop:Mark("orph1")
+	local Marker = Shop:Buried("orph1")
 
-	T:Advance(Tx.TIMEOUT + 1)
+	T:Advance(Tx.LEG_TIMEOUT * Tx.MAX_LEGS + 1)
 	Vault.Store:Resettle("orphB"):Wait()
 
 	T:Is("a transaction whose second leg landed but reported failure", Ok, false)
 	T:Is("the leg it left behind past the shrunk marker", Orphan, true)
-	T:Is("the marker, already adopted by every leg it owns", Marker, nil)
+	T:Is("the marker, already adopted by every leg it owns", Marker, true)
 	T:Is("gold in the shop", Shop:State("orphA").Gold, 100)
 	T:Is("coins in the vault", Vault:State("orphB").Coins, 0)
 	T:Is("anything left pending in the shop", Shop:Pending("orphA"), false)
@@ -1356,7 +1400,7 @@ Cases.Case("a leg settles against a marker in another store", function(T: Case)
 	T:Is("gold in the shop", Shop:State("homeA").Gold, 75)
 	T:Is("anything left pending in the vault", Vault:Pending("homeB"), false)
 	T:Is("anything left pending in the shop", Shop:Pending("homeA"), false)
-	T:Is("the finished marker is gone", Shop:Mark("home1"), nil)
+	T:Is("the finished marker is buried", Shop:Buried("home1"), true)
 end)
 
 Cases.Case("a pass that reaches no key never disowns an earlier pass", function(T: Case)
@@ -1372,7 +1416,7 @@ Cases.Case("a pass that reaches no key never disowns an earlier pass", function(
 	local Ok = Swap(Shop, "brickA", "brickB", 25, "brick1")
 
 	Shop:Healed()
-	T:Advance(Tx.TIMEOUT + 1)
+	T:Advance(Tx.LEG_TIMEOUT * Tx.MAX_LEGS + 1)
 	Shop.Store:Resettle("brickA"):Wait()
 	Shop.Store:Resettle("brickB"):Wait()
 
@@ -1470,7 +1514,7 @@ Cases.Case("a session settles a leg homed in another store", function(T: Case)
 	T:Is("an edit on top of it", Applied, true)
 	T:Is("gold on disk", Bank:Amount("foreign"), 30)
 	T:Is("anything left pending", Bank:Pending("foreign"), false)
-	T:Is("the finished marker is gone", Away:Mark("foreign1"), nil)
+	T:Is("the finished marker is buried", Away:Buried("foreign1"), true)
 end)
 
 Cases.Case("a key held by another coordinator is busy", function(T: Case)
@@ -1531,9 +1575,41 @@ Cases.Case("a marker naming a store this server never built is still reaped", fu
 	local Reaped = Shop.Store:ReapMarkers()
 
 	T:Is("the transaction across two stores", Ok, true)
-	T:Is("markers reaped by a server missing the far store", Reaped, 1)
+	T:Is("markers reaped by a server missing the far store", Reaped, 2)
 	T:Is("gold in the shop", Shop:State("farA").Gold, 75)
 	T:Is("coins in the vault", Vault:State("farB").Coins, 25)
+end)
+
+Cases.Case("a marker table too crowded to walk in one pass says so", function(T: Case)
+	local Bank = T:Bank()
+	local Crowd = 550
+
+	for Index = 1, Crowd do
+		Bank:Marker(string.format("crowd-%04d", Index), { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
+	end
+
+	local Reaped = Bank.Store:ReapMarkers()
+
+	T:Is("markers reaped when every one of them is too fresh", Reaped, 0)
+	T:Is("markers left standing", #Bank:Marks(), Crowd)
+	T:Warns("it said the table is bigger than one pass", "holds more transaction markers than one pass can walk")
+end)
+
+Cases.Case("a reap that cannot carry on from last time starts at the front", function(T: Case)
+	local Bank = T:Bank()
+
+	Bank:Marker("resume1", { Status = "Aborted", Total = 1, Adopted = {} })
+	Bank.Store.ReapAt = "resume0"
+
+	Bank:NoRetries()
+	Bank:MarkerFault(Fault.Lists():Only(1))
+	T:Advance(Tx.REAP_HORIZON + 60)
+	local Reaped = Bank.Store:ReapMarkers()
+	Bank:Healed()
+
+	T:Warns("it said it could not carry on", "could not carry on listing")
+	T:Is("it still reaped from the front", Reaped, 1)
+	T:Is("the marker is gone", Bank:Mark("resume1"), nil)
 end)
 
 return Cases

@@ -1100,4 +1100,56 @@ Cases.Case("a thread that threw is not handed out again", function(T: Case)
 	T:Is("the callback ran", Reached, true)
 end)
 
+local function Blinded(T: Case, Data: string): Fixture
+	return T:Store({
+		Default = Reducers.PLAIN,
+		Reducer = Adder,
+		Data = Data,
+		Migrations = {
+			function(_State: any): any
+				error("this build cannot migrate that record")
+			end,
+		},
+	})
+end
+
+Cases.Case("an erase that cannot read back what went with it says so", function(T: Case)
+	local Store = Blinded(T, "CaseEraseBlind")
+	Store:Write("blind", { Snapshot = { Gold = 40 }, Ops = {}, Seen = {}, Version = 0, Floor = 0 })
+
+	local Ok = Store.Store:Erase("blind"):Wait()
+
+	T:Is("the erase itself", Ok, true)
+	T:Warns("it said it could not say what went with it", "but could not read back what was on it")
+	T:Is("the key was entombed anyway", Store:Record("blind").Erased ~= nil, true)
+end)
+
+Cases.Case("a write it cannot read back is unresolved rather than landed", function(T: Case)
+	local Store = Blinded(T, "CaseWriteBlind")
+	Store:Write("blind", { Snapshot = { Gold = 5 }, Ops = {}, Seen = {}, Version = 0, Floor = 0 })
+
+	local Ok, Why = Store.Store:Edit("blind", "Add", { Amount = 1 }):Wait()
+
+	T:Is("the write", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Warns("it said it could not read the record back", "could not read the record back to say what it folded to")
+	T:Is("the op is in the log even so", #Store:Record("blind").Ops, 1)
+end)
+
+Cases.Case("an erase that cannot check its holds a second time says the money is gone", function(T: Case)
+	local Store = Purse(T, "CaseEraseRecheck")
+
+	Store:Append("recheck", { MakeOp.New("Add", { Amount = 100 }) })
+	Store:Append("recheck", {
+		{ Id = "res:recheck", Kind = "__TransferReserve", To = "elsewhere", Amount = 40, Tid = "recheck", At = T:Now() } :: any,
+	})
+
+	Store:NoRetries()
+	Store:Fault(Fault.Reads():OnKey("recheck"):After(1))
+	Store.Store:Erase("recheck"):Wait()
+	Store:Healed()
+
+	T:Warns("it said it could not look again", "again after finishing its transfers")
+end)
+
 return Cases

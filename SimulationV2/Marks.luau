@@ -8,7 +8,9 @@
 	reached. A mark nothing reaches is either a message to delete or a case to test.
 	One line can hold more than one fragment, so the longest match counts.
 
-	Return type: A table with New and FRAGMENTS. The type is Marks.
+	A message that carries ACCUSED is Ledger blaming itself.
+
+	Return type: A table with New, FRAGMENTS and ACCUSED. The type is Marks.
 	Example usage:
 		local Sheet = Marks.New()
 		Sheet:Note(Message)
@@ -25,6 +27,13 @@ export type Marks = typeof(setmetatable(
 	},
 	Marks
 ))
+
+export type Folded = {
+	Counts: { [string]: number },
+	Unknown: number,
+}
+
+local ACCUSED = "this is a bug in Ledger"
 
 local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "LoadFailedHandled", Says = "said it handled" },
@@ -128,6 +137,17 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "CouldNot", Says = "could not " },
 }
 
+local RANKED: { { Name: string, Says: string, At: number } } = {}
+for Index, Held in FRAGMENTS do
+	table.insert(RANKED, { Name = Held.Name, Says = Held.Says, At = Index })
+end
+table.sort(RANKED, function(Left: { Name: string, Says: string, At: number }, Right: { Name: string, Says: string, At: number }): boolean
+	if #Left.Says ~= #Right.Says then
+		return #Left.Says > #Right.Says
+	end
+	return Left.At < Right.At
+end)
+
 function Marks.New(): Marks
 	local Counts: { [string]: number } = {}
 	local Order: { string } = {}
@@ -145,19 +165,14 @@ function Marks.Note(self: Marks, Message: string, Count: number?)
 	end
 
 	local Times = Count or 1
-	local Best: string? = nil
-	local Longest = 0
-	for _, Held in FRAGMENTS do
-		if #Held.Says > Longest and string.find(Message, Held.Says, 1, true) ~= nil then
-			Best, Longest = Held.Name, #Held.Says
+	for _, Held in RANKED do
+		if string.find(Message, Held.Says, 1, true) ~= nil then
+			self.Counts[Held.Name] += Times
+			return
 		end
 	end
 
-	if Best == nil then
-		self.Unknown += Times
-		return
-	end
-	self.Counts[Best] += Times
+	self.Unknown += Times
 end
 
 function Marks.Missed(self: Marks): { string }
@@ -170,7 +185,7 @@ function Marks.Missed(self: Marks): { string }
 	return Held
 end
 
-function Marks.Merge(self: Marks, Other: Marks)
+function Marks.Merge(self: Marks, Other: Folded)
 	for Name, Count in Other.Counts do
 		self.Counts[Name] = (self.Counts[Name] or 0) + Count
 	end
@@ -192,4 +207,5 @@ table.freeze(Marks)
 return table.freeze({
 	New = Marks.New,
 	FRAGMENTS = FRAGMENTS,
+	ACCUSED = ACCUSED,
 })

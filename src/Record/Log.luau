@@ -11,7 +11,7 @@
 	Materialize does not trust a field that it reads, because another build can write a record.
 	A datastore hides an error that a transform throws. Update keeps that error and raises it again.
 
-	Return type: A table with New, Verdict, MAX_LOG_BYTES, TOMB_HORIZON, Entombed, NotEntombed and Known.
+	Return type: A table with New, Verdict, TOMB_HORIZON, Entombed, NotEntombed and Known.
 	Example usage:
 		local Log = require("./Log")
 		local Books = Log.New(Wrapper, 0)
@@ -21,6 +21,7 @@
 local Say = require("../Util/Say")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Fault = require("../Contract/Fault")
+local Limits = require("../Contract/Limits")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")
 local Entries = require("../Kernel/Entries")
@@ -51,12 +52,6 @@ export type Fated = Types.Fated
 
 local ENVELOPE = Contract.ENVELOPE
 
-local MAX_BYTES = Contract.MAX_VALUE_BYTES
-local WARN_BYTES = MAX_BYTES - 512 * 1024
-local MAX_STATE_BYTES = Contract.MAX_STATE_BYTES
-local STATE_CHECK_FLOOR = MAX_STATE_BYTES - IsStorable.MAX_BYTES
-local STATE_WARN_BYTES = MAX_STATE_BYTES - 512 * 1024
-local MAX_LOG_BYTES = Rules.MAX_LOG_BYTES
 local TOMB_HORIZON = Rules.TOMB_HORIZON
 
 local OWNED = "Owned" :: "Owned"
@@ -347,9 +342,9 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 
 		local LogBytes = Measure(Record.Ops)
 		local OpBytes = Measure(Op)
-		if Compact.Bulk(Record) + LogBytes + OpBytes > STATE_CHECK_FLOOR then
+		if Compact.Bulk(Record) + LogBytes + OpBytes > Limits.StateFloor then
 			local Bytes = Measure(Next)
-			if Bytes > MAX_STATE_BYTES and Bytes > Measure(State) then
+			if Bytes > Limits.State and Bytes > Measure(State) then
 				Verdict = VERDICT.Full
 				return nil
 			end
@@ -357,7 +352,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 
 		local Separator = if #Record.Ops > 0 then 1 else 0
 		table.insert(Record.Ops, Op)
-		if LogBytes + OpBytes + Separator > MAX_LOG_BYTES then
+		if LogBytes + OpBytes + Separator > Limits.Log then
 			Verdict = VERDICT.Full
 			return nil
 		end
@@ -438,14 +433,14 @@ function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
 	)
 
 	local Bytes = Measure(Result.After)
-	if Bytes > WARN_BYTES then
-		Say.Warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {MAX_BYTES}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
+	if Bytes > Limits.ValueWarn then
+		Say.Warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {Limits.Value}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
 	end
 
 	local State = Result.After.Bytes
-	if type(State) == "number" and State > STATE_WARN_BYTES then
+	if type(State) == "number" and State > Limits.StateWarn then
 		Say.Warn(
-			`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {MAX_STATE_BYTES}{Compact.Hint(Result.After.Snapshot)}. take out what the game no longer reads, or spread it over more keys`
+			`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Limits.State}{Compact.Hint(Result.After.Snapshot)}. take out what the game no longer reads, or spread it over more keys`
 		)
 	end
 	return Result.After
@@ -470,7 +465,6 @@ table.freeze(Log)
 return table.freeze({
 	New = Log.New,
 	Verdict = VERDICT,
-	MAX_LOG_BYTES = MAX_LOG_BYTES,
 	TOMB_HORIZON = TOMB_HORIZON,
 	Entombed = Entombed,
 	NotEntombed = NotEntombed,

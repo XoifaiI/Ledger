@@ -21,10 +21,10 @@ local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
 local Observer = require("../Util/Observer")
 local Fault = require("../Contract/Fault")
+local Limits = require("../Contract/Limits")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")
 local Measure = require("../Encode/Measure")
-local IsStorable = require("../Encode/Storable")
 local Compact = require("../Record/Compact")
 local Shape = require("../Record/Shape")
 local Stamp = require("../Record/Stamp")
@@ -41,9 +41,6 @@ type Store = Types.Store
 type Allow = Types.Allow
 
 local AUTOSAVE_INTERVAL = 30
-
-local MAX_STATE_BYTES = Contract.MAX_STATE_BYTES
-local STATE_CHECK_FLOOR = MAX_STATE_BYTES - IsStorable.MAX_BYTES
 
 local REFUSED = Reasons.Refused
 local UNRESOLVED = Reasons.Unresolved
@@ -183,7 +180,7 @@ function Store.Applies(self: Store, Op: Op, Record: Record): boolean
 end
 
 function Store.Swollen(self: Store, Op: Op, Record: Record): boolean
-	if Compact.Bulk(Record) + Measure(Record.Ops) + Measure(Op) <= STATE_CHECK_FLOOR then
+	if Compact.Bulk(Record) + Measure(Record.Ops) + Measure(Op) <= Limits.StateFloor then
 		return false
 	end
 
@@ -196,7 +193,7 @@ function Store.Swollen(self: Store, Op: Op, Record: Record): boolean
 		end
 
 		local Bytes = Measure(Next)
-		return Bytes > MAX_STATE_BYTES and Bytes > Measure(Folded)
+		return Bytes > Limits.State and Bytes > Measure(Folded)
 	end)
 	return Read and Over
 end
@@ -247,7 +244,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return false, Denied or REFUSED
 	end
 	if Swollen then
-		Say.Warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {MAX_STATE_BYTES} byte state cap and this would make it bigger`)
+		Say.Warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {Limits.State} byte state cap and this would make it bigger`)
 		return false, FULL
 	end
 	if not Applied then

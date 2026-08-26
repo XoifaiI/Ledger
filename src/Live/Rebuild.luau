@@ -21,8 +21,8 @@ local Say = require("../Util/Say")
 local TableUtil = require("../Util/TableUtil")
 local Fault = require("../Contract/Fault")
 local Contract = require("../Contract/Op")
+local Limits = require("../Contract/Limits")
 local Measure = require("../Encode/Measure")
-local IsStorable = require("../Encode/Storable")
 local Compact = require("../Record/Compact")
 local Fold = require("../Record/Fold")
 local Shape = require("../Record/Shape")
@@ -35,8 +35,6 @@ type Record = Contract.Record<any>
 type Session<S> = Types.Session<S>
 
 local AUDITING = game:GetService("RunService"):IsStudio()
-
-local STATE_CHECK_FLOOR = Contract.MAX_STATE_BYTES - IsStorable.MAX_BYTES
 
 local function SumBytes(Ops: { Op }): number
 	local Total = 0
@@ -194,7 +192,7 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 	self.LogBytes = SumBytes(Stored.Ops) + SumBytes(self.Pending)
 
 	local Reach = Compact.Bulk(Stored) + self.LogBytes
-	self.StateBytes = if Reach > STATE_CHECK_FLOOR then Measure(State) else Reach
+	self.StateBytes = if Reach > Limits.StateFloor then Measure(State) else Reach
 
 	local Written: { [string]: boolean } = {}
 	for _, Op in Stored.Ops do

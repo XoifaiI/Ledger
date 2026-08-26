@@ -16,6 +16,7 @@
 		local Value = Queue:SubmitAsync(Work)
 --]=]
 
+local Async = require("./Async")
 local Say = require("./Say")
 
 type Entry = {
@@ -87,7 +88,7 @@ function ThreadQueue.SubmitAsync(self: ThreadQueue, Callback: () -> ...any): ...
 
 		self.Holder = nil
 		if self.Tasks[1] then
-			task.defer(self.Drain, self)
+			Async.Defer(self.Drain, self)
 		else
 			self.Busy = false
 		end

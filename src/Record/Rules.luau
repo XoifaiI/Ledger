@@ -10,7 +10,7 @@
 	must be able to land on a key that is already full. It stops at a higher ceiling of its own.
 	A sift decides op by op whether the record will take one.
 
-	Return type: A table with Legible, Allowed, Fresh, Capped, Format, Tomb, Entombed, MAX_LOG_BYTES, MAX_HELD_BYTES and TOMB_HORIZON.
+	Return type: A table with Legible, Allowed, Fresh, Capped, Format, Tomb, Entombed and TOMB_HORIZON.
 	Example usage:
 		local Rules = require("./Rules")
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
@@ -21,6 +21,7 @@ local Clock = require("../Util/Clock")
 local Contract = require("../Contract/Op")
 local Fault = require("../Contract/Fault")
 local Reasons = require("../Contract/Reason")
+local Limits = require("../Contract/Limits")
 local Measure = require("../Encode/Measure")
 local Horizons = require("../Contract/Horizons")
 local Rule = require("../Kernel/Rule")
@@ -34,8 +35,6 @@ export type Sift = (Record: Record) -> (Op: Op) -> boolean
 
 local ENVELOPE = Contract.ENVELOPE
 
-local MAX_LOG_BYTES = 1536 * 1024
-local MAX_HELD_BYTES = MAX_LOG_BYTES + 256 * 1024
 local TOMB_HORIZON = Horizons.TOMB
 
 local function Entombed(Record: Record): boolean
@@ -125,7 +124,7 @@ local function Capped(Key: string, Owned: boolean): Rule
 	return {
 		Name = "capped",
 		Check = function(Record: Record): Reasons.Reason?
-			local Ceiling = if Owned then MAX_LOG_BYTES else MAX_HELD_BYTES
+			local Ceiling = if Owned then Limits.Log else Limits.Held
 			if Measure(Record.Ops) <= Ceiling then
 				return nil
 			end
@@ -176,7 +175,5 @@ return table.freeze({
 	Format = Format,
 	Tomb = Tomb,
 	Entombed = Entombed,
-	MAX_LOG_BYTES = MAX_LOG_BYTES,
-	MAX_HELD_BYTES = MAX_HELD_BYTES,
 	TOMB_HORIZON = TOMB_HORIZON,
 })

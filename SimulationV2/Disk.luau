@@ -25,6 +25,7 @@ type Turn = Scheduler.Scheduler
 
 export type Version = {
 	Text: string?,
+	Value: any,
 	Written: number,
 	Deleted: boolean,
 	Label: string,
@@ -55,6 +56,7 @@ export type Disk = {
 	Players: number,
 	Throttled: boolean,
 	Blobbed: boolean,
+	MaxValue: number,
 }
 
 local MAX_KEY = 50
@@ -97,6 +99,7 @@ local function New(): Disk
 		Players = 0,
 		Throttled = false,
 		Blobbed = false,
+		MaxValue = MAX_VALUE,
 	}
 end
 
@@ -194,35 +197,27 @@ local function Unpacked(Value: any): any
 end
 
 local function Encode(self: Disk, Raw: any): string
-	local Fine, Text = pcall(function(): string
-		return HttpService:JSONEncode(Raw)
-	end)
+	local Fine, Text = pcall(HttpService.JSONEncode, HttpService, Raw)
 	if not Fine or type(Text) ~= "string" then
-		local Again, Held = pcall(function(): string
-			return HttpService:JSONEncode(Packed(Raw))
-		end)
+		local Again, Held = pcall(HttpService.JSONEncode, HttpService, Packed(Raw))
 		Fine, Text = Again, Held
 		self.Blobbed = Again
 	end
 	if not Fine or type(Text) ~= "string" then
 		error("SimulationV2 disk: value cannot be stored, a datastore only holds json", 0)
 	end
-	if #Text > MAX_VALUE then
-		error(`SimulationV2 disk: value is larger than the {MAX_VALUE} byte limit`, 0)
+	if #Text > self.MaxValue then
+		error(`SimulationV2 disk: value is larger than the {self.MaxValue} byte limit`, 0)
 	end
 	return Text
 end
 
--- a disk that has never packed a buffer cannot be holding one, and that is a cheaper question than
--- looking through the text for the mark on every read
 local function Decode(self: Disk, Text: string?): any
 	if Text == nil then
 		return nil
 	end
 
-	local Fine, Value = pcall(function(): any
-		return HttpService:JSONDecode(Text :: string)
-	end)
+	local Fine, Value = pcall(HttpService.JSONDecode, HttpService, Text :: string)
 	if not Fine then
 		return nil
 	end
@@ -232,16 +227,34 @@ local function Decode(self: Disk, Text: string?): any
 	return Unpacked(Value)
 end
 
+local function Clone(Value: any): any
+	if type(Value) == "buffer" then
+		local Fresh = buffer.create(buffer.len(Value))
+		buffer.copy(Fresh, 0, Value)
+		return Fresh
+	end
+	if type(Value) ~= "table" then
+		return Value
+	end
+
+	local Out: { [any]: any } = {}
+	for Key, Inner in Value do
+		Out[Key] = Clone(Inner)
+	end
+	return Out
+end
+
 local function Newest(Held: Slot): Version?
 	return Held.Versions[#Held.Versions]
 end
 
-local function Commit(self: Disk, Key: string, Text: string?, Deleted: boolean): Version
+local function Commit(self: Disk, Key: string, Text: string?, Stored: any, Deleted: boolean): Version
 	local Held = Slot(self, Key)
 	self.Ticket += 1
 
 	local Fresh: Version = {
 		Text = Text,
+		Value = Stored,
 		Written = Time.Read(),
 		Deleted = Deleted,
 		Label = tostring(self.Ticket),
@@ -258,13 +271,18 @@ local function Commit(self: Disk, Key: string, Text: string?, Deleted: boolean):
 	return Fresh
 end
 
+local function Save(self: Disk, Key: string, Value: any): Version
+	local Text = Encode(self, Value)
+	return Commit(self, Key, Text, Decode(self, Text), false)
+end
+
 local function Current(self: Disk, Key: string): (any, Info?)
 	local Held = Slot(self, Key)
 	local Mark = Newest(Held)
 	if Held.Live == nil or Mark == nil then
 		return nil, nil
 	end
-	return Decode(self, Held.Live), Stamped(Mark.Label, Mark.Written)
+	return Clone(Mark.Value), Stamped(Mark.Label, Mark.Written)
 end
 
 local PAGE_LIMIT = 100
@@ -339,8 +357,8 @@ local function Open(self: Disk, Name: string): any
 				continue
 			end
 
-			local Fresh = Commit(self, At(Key), Encode(self, Next), false)
-			return Decode(self, Fresh.Text), Stamped(Fresh.Label, Fresh.Written)
+			local Fresh = Save(self, At(Key), Next)
+			return Clone(Fresh.Value), Stamped(Fresh.Label, Fresh.Written)
 		end
 
 		error(`SimulationV2 disk: UpdateAsync on '{Key}' could not settle, too many conflicting writes`, 0)
@@ -355,7 +373,7 @@ local function Open(self: Disk, Name: string): any
 		if Info == nil then
 			return nil, nil
 		end
-		Commit(self, At(Key), nil, true)
+		Commit(self, At(Key), nil, nil, true)
 		return Was, Info
 	end
 
@@ -366,7 +384,7 @@ local function Open(self: Disk, Name: string): any
 
 		for _, Mark in Slot(self, At(Key)).Versions do
 			if Mark.Label == Version then
-				return Decode(self, Mark.Text), Stamped(Mark.Label, Mark.Written)
+				return Clone(Mark.Value), Stamped(Mark.Label, Mark.Written)
 			end
 		end
 		error(`SimulationV2 disk: no version '{Version}' for key '{Key}'`, 0)
@@ -429,7 +447,12 @@ local function Open(self: Disk, Name: string): any
 end
 
 local function Peek(self: Disk, Name: string, Key: string): any
-	return Decode(self, Slot(self, Named(Name, Key)).Live)
+	local Held = Slot(self, Named(Name, Key))
+	local Mark = Newest(Held)
+	if Held.Live == nil or Mark == nil then
+		return nil
+	end
+	return Clone(Mark.Value)
 end
 
 local function Stamp(self: Disk, Name: string, Key: string): number?

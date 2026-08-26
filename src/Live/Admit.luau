@@ -11,7 +11,7 @@
 	Admit turns an op away while two or more transactions are parked, because it cannot prove that
 	the op holds for every way they can settle.
 
-	Return type: A table with Admit and MAX_STATE_BYTES.
+	Return type: A table with Admit.
 	Example usage:
 		local Admit = require("./Admit")
 		local Ruling = Admit.Admit(Active, Op, Bytes)
@@ -19,11 +19,10 @@
 
 local Say = require("../Util/Say")
 local NoYield = require("../Util/NoYield")
+local Limits = require("../Contract/Limits")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")
 local Measure = require("../Encode/Measure")
-local IsStorable = require("../Encode/Storable")
-local Log = require("../Record/Log")
 local Step = require("../Record/Step")
 local Types = require("./Types")
 
@@ -31,12 +30,6 @@ type Op = Contract.Op
 type Reason = Reasons.Reason
 type Session<S> = Types.Session<S>
 type Admitted<S> = Types.Admitted<S>
-
-local MAX_STATE_BYTES = Contract.MAX_STATE_BYTES
-
-local STATE_CHECK_FLOOR = MAX_STATE_BYTES - IsStorable.MAX_BYTES
-
-local MAX_LOG_BYTES = Log.MAX_LOG_BYTES
 
 local BUSY = Reasons.Busy
 local CLOSED = Reasons.Closed
@@ -65,11 +58,11 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		return Refused(CLOSED, `Ledger: rejected op '{Kind}', that session closed when the player left`)
 	end
 
-	if self.LogBytes + OpBytes > MAX_LOG_BYTES then
+	if self.LogBytes + OpBytes > Limits.Log then
 		if self.Parked > 0 then
-			return Refused(BUSY, `Ledger: rejected op '{Kind}', '{Key}' has hit the {MAX_LOG_BYTES} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
+			return Refused(BUSY, `Ledger: rejected op '{Kind}', '{Key}' has hit the {Limits.Log} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
 		end
-		return Refused(BACKLOG, `Ledger: rejected op '{Kind}', unsaved ops have hit the {MAX_LOG_BYTES} byte cap. saves are not going through, check the datastore`)
+		return Refused(BACKLOG, `Ledger: rejected op '{Kind}', unsaved ops have hit the {Limits.Log} byte cap. saves are not going through, check the datastore`)
 	end
 
 	local Fine, Next = pcall(NoYield.Run, self.Shape.Reducer, self.State, Op)
@@ -108,13 +101,13 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		end
 	end
 
-	if self.StateBytes + OpBytes > STATE_CHECK_FLOOR then
+	if self.StateBytes + OpBytes > Limits.StateFloor then
 		local Counted, Bytes = pcall(Measure, Next)
 		if not Counted then
 			return Refused(INVALID, `Ledger: rejected op '{Kind}', your reducer built state a datastore cannot hold: {tostring(Bytes)}`)
 		end
-		if Bytes > MAX_STATE_BYTES and Bytes > Measure(self.State) then
-			return Refused(FULL, `Ledger: rejected op '{Kind}', this profile is already at the {MAX_STATE_BYTES} byte cap and the op would make it bigger`)
+		if Bytes > Limits.State and Bytes > Measure(self.State) then
+			return Refused(FULL, `Ledger: rejected op '{Kind}', this profile is already at the {Limits.State} byte cap and the op would make it bigger`)
 		end
 		return { Outcome = "Accepted", Next = Next, Bytes = Bytes, Also = Also }
 	end
@@ -124,5 +117,4 @@ end
 
 return table.freeze({
 	Admit = Admit,
-	MAX_STATE_BYTES = MAX_STATE_BYTES,
 })

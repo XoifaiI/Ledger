@@ -31,6 +31,7 @@ export type Marker = {
 	Adopted: { [string]: boolean }?,
 	Keys: string?,
 	Terms: string?,
+	Dead: boolean?,
 }
 
 export type Leg = {

@@ -47,6 +47,8 @@ type FixtureImpl = {
 	Pending: (self: Fixture, Key: string) -> boolean,
 	Marks: (self: Fixture) -> { string },
 	Mark: (self: Fixture, Id: string) -> any,
+	Buried: (self: Fixture, Id: string) -> boolean,
+	Unmark: (self: Fixture, Id: string) -> (),
 
 	Session: (self: Fixture, Key: string) -> any,
 	TrySession: (self: Fixture, Key: string) -> (any, string?),
@@ -271,6 +273,15 @@ end
 
 function Fixture.Mark(self: Fixture, Id: string): any
 	return Disk.Peek(self.Plate, self.Marked, Id)
+end
+
+function Fixture.Buried(self: Fixture, Id: string): boolean
+	local Held = self:Mark(Id)
+	return Held == nil or (type(Held) == "table" and Held.Dead == true)
+end
+
+function Fixture.Unmark(self: Fixture, Id: string)
+	self.DirectMarks:RemoveAsync(Id)
 end
 
 function Fixture.Session(self: Fixture, Key: string): any

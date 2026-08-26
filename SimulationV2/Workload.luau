@@ -14,6 +14,8 @@
 		local Ran, Answer = Workload.Issue(World, "Edit")
 --]=]
 
+local Limits = require("../src/Contract/Limits")
+
 local Catalogue = require("./Catalogue")
 local Model = require("./Model")
 local Swarm = require("./Swarm")
@@ -64,6 +66,7 @@ local GREED = 0.15
 local HOLD_LEAST = 5
 local HOLD_MOST = 1200
 local NAMES_IN_PLAY = 12
+local CLOBBER = 0.08
 local LEAVES = 0.15
 
 local Handlers: { [string]: (World) -> Outcome } = {}
@@ -130,10 +133,10 @@ local function Player(Named: any, Gone: boolean?): any
 end
 
 local BLOB_CHANCE = 0.04
-local BLOB_BYTES = 262144
+local BLOB_SHARE = 4
 
 local function Blob(self: World): string
-	return string.rep("b", BLOB_BYTES)
+	return string.rep("b", Limits.Op // BLOB_SHARE)
 end
 
 local function Written(self: World, Once: string?): (string, { [string]: any }, boolean)
@@ -188,6 +191,10 @@ function Handlers.WaitForLoaded(self: World): Outcome
 	local Woke = false
 	local Answered = false
 	task.spawn(function()
+		if self.Store.Closed then
+			return
+		end
+
 		Woke = self.Store:WaitForLoaded(Player(Named)) ~= nil
 		Answered = true
 	end)
@@ -263,7 +270,7 @@ function Handlers.CommitOp(self: World): Outcome
 	local Forged = if self.Rng:NextNumber() < 0.25 then self.Rng:NextInteger(1, 2) else 0
 	local Kind, Fields, Junk = Written(self, Name(self, "once"))
 	local Op: any = table.clone(Fields)
-	Op.Id = `w{self.Round}n{self.Rng:NextInteger(1, 1000)}`
+	Op.Id = `{self.Store.Options.Name}:w{self.Round}`
 	Op.Kind = Kind
 	Op.OnceAt = if Forged == 1 then 4 * 10 ^ 12 elseif Forged == 2 then 0 / 0 else nil
 	local Sent, Cause = Active:CommitOp(Op):Wait()
@@ -423,7 +430,7 @@ function Handlers.Reserve(self: World): Outcome
 
 	local Units = Amount(self)
 	local Ok, Why = self.Store:Reserve(Named, "Gold", Units, Rid, Options):Wait()
-	if Ok and Options.To ~= nil then
+	if Options.To ~= nil then
 		self.Model:Booked(Rid :: string, Named, Options.To, Units)
 	end
 	if Ok then
@@ -499,10 +506,18 @@ function Handlers.Tx(self: World): Outcome
 	local Player = self.Mode == "Player"
 	self.Legs[Id] = 2
 	Asked(self, Model.TX, Id, From, To, Sent)
+
+	local Debit: { [any]: any } = { Amount = -Sent }
+	local Credit: { [any]: any } = { Amount = Sent }
+	if self.Rng:NextNumber() < CLOBBER then
+		Debit.Id = "hax"
+		Credit.Kind = "hax"
+	end
+
 	local Ok, Why = self.Store
 		:Tx(Id, {
-			{ UserId = if Player then From else nil, Key = if Player then nil else From, Kind = "Give", Fields = { Amount = -Sent } },
-			{ UserId = if Player then To else nil, Key = if Player then nil else To, Kind = "Give", Fields = { Amount = Sent } },
+			{ UserId = if Player then From else nil, Key = if Player then nil else From, Kind = "Give", Fields = Debit },
+			{ UserId = if Player then To else nil, Key = if Player then nil else To, Kind = "Give", Fields = Credit },
 		})
 		:Wait()
 	Keep(self.Txids, Id)

@@ -61,6 +61,17 @@ local function BornAt(Value: any, Fallback: number): number
 	return Value.At
 end
 
+local function Buried(Value: any): boolean
+	return type(Value) == "table" and Value.Dead == true
+end
+
+local function Finished(Current: any): boolean
+	if Current.Total > 0 then
+		return TableUtil.Count(Current.Adopted) >= Current.Total
+	end
+	return Current.Status == ABORTED
+end
+
 local function Ours(Current: any, Gen: string?): boolean
 	local Held = GenOf(Current)
 	return type(Held) ~= "string" or type(Gen) ~= "string" or Held == Gen
@@ -109,7 +120,7 @@ local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Ke
 	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
 		Clash = false
 		Minted = false
-		if type(Current) ~= "table" then
+		if type(Current) ~= "table" or Buried(Current) then
 			Minted = true
 			return {
 				Status = PENDING,
@@ -158,6 +169,9 @@ local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrin
 		if Shrink ~= nil and Current.Status == ABORTED and Shrink < Current.Total then
 			Current.Total = Shrink
 		end
+		if Shrink ~= nil and Current.Status == ABORTED and Finished(Current) then
+			Current.Dead = true
+		end
 		return Current
 	end)
 
@@ -167,9 +181,6 @@ local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrin
 	local Decided = Value :: Marker
 	Fault.Holds(Decided.Status ~= PENDING, `transaction '{Txid}' was decided but its marker is still pending, so another server could decide it the other way`)
 
-	if Shrink ~= nil and Decided.Status == ABORTED and (Decided.Total <= 0 or TableUtil.Count(Decided.Adopted) >= Decided.Total) then
-		TxStore:RemoveAsync(Txid)
-	end
 	return Decided.Status
 end
 
@@ -179,8 +190,8 @@ local function StatusOf(TxStore: DataStoreWrapper, Txid: string, PerLeg: number)
 	if not Ok then
 		return nil, nil, Looked
 	end
-	if type(Value) ~= "table" then
-		return ABORTED, nil, Looked
+	if type(Value) ~= "table" or Buried(Value) then
+		return ABORTED, nil, Looked - PerLeg * MAX_LEGS
 	end
 
 	local Marker = Value :: Marker
@@ -212,6 +223,9 @@ local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string },
 			Adopted[Mark] = true
 		end
 		Current.Adopted = Adopted
+		if Current.Status ~= PENDING and Finished(Current) then
+			Current.Dead = true
+		end
 		return Current
 	end)
 
@@ -220,10 +234,8 @@ local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string },
 	end
 
 	local Marker = Value :: Marker
-	local Done = if Marker.Total > 0 then TableUtil.Count(Marker.Adopted) >= Marker.Total else Marker.Status == ABORTED
-	if Done then
-		Fault.Holds(Marker.Status ~= PENDING, `transaction '{Txid}' is having its marker taken away while it is still undecided, so a retry would run it again`)
-		TxStore:RemoveAsync(Txid)
+	if Finished(Marker) then
+		Fault.Holds(Marker.Status ~= PENDING, `transaction '{Txid}' is finished but its marker is still undecided, so a retry would run it again`)
 	end
 end
 

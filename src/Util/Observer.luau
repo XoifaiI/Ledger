@@ -17,6 +17,7 @@
 		Stream:Push(1)
 --]=]
 
+local Async = require("./Async")
 local Say = require("./Say")
 
 local NoYield = require("./NoYield")
@@ -102,7 +103,7 @@ end
 
 local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 	local Done = false
-	local Watch = task.delay(SLOW, function()
+	local Watch = Async.Delay(SLOW, function()
 		local Now = os.clock()
 		if Done or (self.Said ~= nil and Now - self.Said < SLOW) then
 			return
@@ -114,9 +115,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 
 	local Ok, Err = pcall(Listener, Value)
 	Done = true
-	if coroutine.status(Watch) == "suspended" then
-		task.cancel(Watch)
-	end
+	Async.Cancel(Watch)
 
 	if not Ok then
 		Say.Warn(`Ledger: Observer listener errored: {Err}`)

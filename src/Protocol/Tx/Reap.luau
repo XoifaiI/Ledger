@@ -6,6 +6,10 @@
 
 	A committed marker can go only after each key that it touched has forgotten it. A key that still
 	names the marker would read the missing marker as an abort, and would undo a committed leg.
+	A buried marker is already finished, so it goes on age alone. This is the one place that takes a
+	marker away. A delete names no generation, so it can still land on a marker made under the same
+	name after this pass read it. That costs the new transaction a retry and never a leg, because a
+	missing marker only aborts legs older than the whole transaction, and the new one's are not.
 	A key that a pass cannot read counts as loud, so a datastore fault never removes a marker early.
 	One pass walks a few pages and stops. It gives back the cursor, and the next pass starts there.
 
@@ -126,7 +130,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?,
 				continue
 			end
 
-			if Held.Status ~= Marker.ABORTED and not Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0)) then
+			if Held.Dead ~= true and Held.Status ~= Marker.ABORTED and not Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0)) then
 				continue
 			end
 
