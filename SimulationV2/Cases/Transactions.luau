@@ -361,11 +361,36 @@ Cases.Case("a finished marker behind a shard full of stuck cleanup keys is still
 	Bank:Marker(Victim, { Status = "Committed", Total = 1, Gen = "one", At = T:Now(), Adopted = {}, Dead = true })
 	T:Advance(Tx.REAP_HORIZON + 60)
 
-	local Reaped = Bank.Store:ReapMarkers()
+	local Passes, Reaped = 0, 0
+	while Reaped == 0 and Passes < 20 do
+		Passes += 1
+		Reaped += Bank.Store:ReapMarkers()
+		T:Advance(600)
+	end
 
 	T:Is("the finished marker sitting past a whole page of cleanup keys", Reaped, 1)
+	T:Is("the passes it took to rotate round to it", Passes <= Wall // Tx.REAP_LOOKS + 2, true)
 	T:Is("nothing is left of it", Bank:Mark(Victim), nil)
 	T:Is("the stuck ones are all still there", #Bank:Marks(), Wall)
+end)
+
+Cases.Case("a pass costs the same however many markers are stuck", function(T: Case)
+	local Bank = T:Bank()
+	local Stuck = 800
+
+	for Index = 1, Stuck do
+		Bank:Marker(string.format("stuck-%05d", Index), { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
+	end
+	T:Advance(Tx.REAP_HORIZON + 600)
+
+	local Before = Bank.Store.TxWrapper.Spent
+	local Reaped = Bank.Store:ReapMarkers()
+	local Cost = Bank.Store.TxWrapper.Spent - Before
+
+	T:Is("none of them can be reaped", Reaped, 0)
+	T:Is("the pass costs less than one call for each stuck marker", Cost < Stuck, true)
+	T:Is("and no more than the read cap allows", Cost <= Tx.SHARDS * (Tx.REAP_LOOKS + 2), true)
+	T:Is("every one of them is still there", #Bank:Marks(), Stuck)
 end)
 
 Cases.Case("a transaction writes its name on the cleanup list before it opens a marker", function(T: Case)

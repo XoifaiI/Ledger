@@ -16,8 +16,10 @@
 	A key that a pass cannot read counts as loud, so a datastore fault never removes a marker early.
 	One pass walks every shard, and stops when it has taken enough away. It starts on the shard this
 	server hashes to. A name it cannot clear moves on to a newer key, so an old key always empties.
+	A pass reads a fixed number of names per shard. A name it did not reach goes to the front of the
+	next key, so a name that can never be cleared cannot hold the ones behind it.
 
-	Return type: A table with Reap, Spent, Quiet, Anywhere, REAP_HORIZON, REAP_GRACE, REAP_LIMIT and REAP_PAGE.
+	Return type: A table with Reap, Spent, Quiet, Anywhere, REAP_HORIZON, REAP_GRACE, REAP_LIMIT, REAP_LOOKS and REAP_PAGE.
 	Example usage:
 		local Reap = require("./Reap")
 		local Count = Reap.Reap(TxStore, Lookup)
@@ -41,6 +43,7 @@ type Lookup = Types.Lookup
 local REAP_HORIZON = Horizons.REAP
 local REAP_GRACE = Horizons.REAP_GRACE
 local REAP_LIMIT = 64
+local REAP_LOOKS = 16
 local REAP_PAGE = 64
 
 local function Spent(Record: Record, Txid: string, Gen: string?, Born: number): boolean
@@ -122,24 +125,25 @@ local function Gone(TxStore: DataStoreWrapper, Txid: string, Lookup: Lookup, Now
 	return true, true
 end
 
-local function Sweep(TxStore: DataStoreWrapper, Lookup: Lookup, Named: string, Now: number, Older: number, Grace: number, Room: number): number
+local function Sweep(TxStore: DataStoreWrapper, Lookup: Lookup, Named: string, Now: number, Older: number, Grace: number, Room: number, Looks: number): (number, number)
 	local Read, Packed = TxStore:GetAsync(Named)
 	if not Read or type(Packed) ~= "string" then
-		return 0
+		return 0, 0
 	end
 
 	local Held = Mark.Unpack(Packed)
+	local Later: { string } = {}
 	local Kept: { string } = {}
 	local Reaped = 0
-	local Whole = true
+	local Looked = 0
 
 	for Index, Txid in Held do
-		if Reaped >= Room then
-			table.move(Held, Index, #Held, #Kept + 1, Kept)
-			Whole = false
+		if Looked >= Looks or Reaped >= Room then
+			table.move(Held, Index, #Held, #Later + 1, Later)
 			break
 		end
 
+		Looked += 1
 		local Drop, Took = Gone(TxStore, Txid, Lookup, Now, Older, Grace)
 		if not Drop then
 			table.insert(Kept, Txid)
@@ -150,27 +154,18 @@ local function Sweep(TxStore: DataStoreWrapper, Lookup: Lookup, Named: string, N
 		end
 	end
 
-	if #Kept == 0 then
+	for _, Txid in Kept do
+		table.insert(Later, Txid)
+	end
+
+	if #Later == 0 then
 		TxStore:RemoveAsync(Named)
-		return Reaped
+		return Reaped, Looked
 	end
-
-	if Whole then
-		if Roll.Carry(TxStore, Kept) then
-			TxStore:RemoveAsync(Named)
-		end
-		return Reaped
+	if Roll.Carry(TxStore, Later) then
+		TxStore:RemoveAsync(Named)
 	end
-
-	if #Kept < #Held then
-		TxStore:UpdateAsync(Named, function(Current: any): string?
-			if type(Current) ~= "string" then
-				return nil
-			end
-			return Mark.Pack(Kept)
-		end)
-	end
-	return Reaped
+	return Reaped, Looked
 end
 
 local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?, Limit: number?): number
@@ -191,6 +186,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?,
 			continue
 		end
 
+		local Looks = REAP_LOOKS
 		local Book = Pages :: DataStoreKeyPages
 		while true do
 			local Stop = false
@@ -200,12 +196,14 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Horizon: number?,
 				if At == nil then
 					continue
 				end
-				if Now - At < Grace or Reaped >= Room then
+				if Now - At < Grace or Reaped >= Room or Looks <= 0 then
 					Stop = true
 					break
 				end
 
-				Reaped += Sweep(TxStore, Lookup, Named, Now, Older, Grace, Room - Reaped)
+				local Took, Looked = Sweep(TxStore, Lookup, Named, Now, Older, Grace, Room - Reaped, Looks)
+				Reaped += Took
+				Looks -= Looked
 			end
 
 			if Stop or Book.IsFinished or Reaped >= Room then
@@ -228,5 +226,6 @@ return table.freeze({
 	REAP_HORIZON = REAP_HORIZON,
 	REAP_GRACE = REAP_GRACE,
 	REAP_LIMIT = REAP_LIMIT,
+	REAP_LOOKS = REAP_LOOKS,
 	REAP_PAGE = REAP_PAGE,
 })

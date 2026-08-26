@@ -128,6 +128,7 @@ local Tx = table.freeze({
 	TIMEOUT = Deals.TIMEOUT,
 	MAX_LEGS = Deals.MAX_LEGS,
 	REAP_HORIZON = Deals.REAP_HORIZON,
+	REAP_LOOKS = Deals.REAP_LOOKS,
 	REAP_PAGE = Deals.REAP_PAGE,
 	REAP_GRACE = Deals.REAP_GRACE,
 	SHARDS = Deals.SHARDS,

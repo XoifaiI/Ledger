@@ -259,6 +259,7 @@ Cases.Case("reaping is capped per pass and finishes over several", function(T: C
 	T:Is("one pass did real work", First > 0, true)
 
 	for _ = 1, 4 do
+		T:Advance(Tx.REAP_GRACE + 60)
 		Store.Store:ReapMarkers()
 	end
 

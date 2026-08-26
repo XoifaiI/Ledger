@@ -6,7 +6,7 @@
 
 	A caller above this tier does not have to know which half of the protocol owns what.
 
-	Return type: A table with Drive, Settle, Reap, ShutdownHomes, RESERVED, LEG_TIMEOUT, TIMEOUT, MAX_LEGS, REAP_HORIZON, REAP_GRACE, REAP_PAGE, SHARDS and Roll.
+	Return type: A table with Drive, Settle, Reap, ShutdownHomes, RESERVED, LEG_TIMEOUT, TIMEOUT, MAX_LEGS, REAP_HORIZON, REAP_GRACE, REAP_LOOKS, REAP_PAGE, SHARDS and Roll.
 	Example usage:
 		local Tx = require("../Protocol/Tx")
 		local Ok, Why = Tx.Drive(TxStore, Legs, "trade1")
@@ -35,6 +35,7 @@ return table.freeze({
 	TIMEOUT = Drive.TIMEOUT,
 	MAX_LEGS = Drive.MAX_LEGS,
 	REAP_HORIZON = Reap.REAP_HORIZON,
+	REAP_LOOKS = Reap.REAP_LOOKS,
 	REAP_PAGE = Reap.REAP_PAGE,
 	REAP_GRACE = Reap.REAP_GRACE,
 	SHARDS = Roll.SHARDS,
