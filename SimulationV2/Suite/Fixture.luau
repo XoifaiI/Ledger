@@ -17,9 +17,12 @@
 
 local Disk = require("../Disk")
 local Lib = require("../Lib")
+local Time = require("../Time")
 local Fault = require("./Fault")
 
 local Entries = Lib.Entries
+local Mark = Lib.Mark
+local Roll = Lib.Roll
 local Stamp = Lib.Stamp
 
 type Spec = Fault.Spec
@@ -46,6 +49,7 @@ type FixtureImpl = {
 	Knows: (self: Fixture, Key: string, Tag: string, Id: string) -> boolean,
 	Pending: (self: Fixture, Key: string) -> boolean,
 	Marks: (self: Fixture) -> { string },
+	Rolled: (self: Fixture) -> { [string]: boolean },
 	Mark: (self: Fixture, Id: string) -> any,
 	Buried: (self: Fixture, Id: string) -> boolean,
 	Unmark: (self: Fixture, Id: string) -> (),
@@ -75,6 +79,8 @@ export type Fixture = setmetatable<{
 	Faults: { Spec },
 	MarkerFaults: { Spec },
 }, FixtureImpl>
+
+local ROLL = "__"
 
 local Fixture = {} :: FixtureImpl
 Fixture.__index = Fixture
@@ -176,6 +182,15 @@ function Fixture.Marker(self: Fixture, Id: string, Fields: { [string]: any })
 	self.DirectMarks:UpdateAsync(Id, function(): any
 		return Fields
 	end)
+	self.DirectMarks:UpdateAsync(Roll.Key(Id, Time.Read()), function(Current: any): any
+		local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
+		if table.find(Held, Id) ~= nil then
+			return Current
+		end
+
+		table.insert(Held, Id)
+		return Mark.Pack(Held)
+	end)
 end
 
 function Fixture.Park(self: Fixture, Key: string, Op: { [string]: any })
@@ -268,7 +283,32 @@ function Fixture.Pending(self: Fixture, Key: string): boolean
 end
 
 function Fixture.Marks(self: Fixture): { string }
-	return Disk.Keys(self.Plate, self.Marked)
+	local Found: { string } = {}
+	for _, Named in Disk.Keys(self.Plate, self.Marked) do
+		if string.sub(Named, 1, #ROLL) == ROLL then
+			continue
+		end
+		table.insert(Found, Named)
+	end
+	return Found
+end
+
+function Fixture.Rolled(self: Fixture): { [string]: boolean }
+	local Found: { [string]: boolean } = {}
+	for _, Named in Disk.Keys(self.Plate, self.Marked) do
+		if string.sub(Named, 1, #ROLL) ~= ROLL then
+			continue
+		end
+
+		local Held = Disk.Peek(self.Plate, self.Marked, Named)
+		if type(Held) ~= "string" then
+			continue
+		end
+		for _, Id in Mark.Unpack(Held) do
+			Found[Id] = true
+		end
+	end
+	return Found
 end
 
 function Fixture.Mark(self: Fixture, Id: string): any

@@ -28,6 +28,7 @@ local IsStorable = require("../../Encode/Storable")
 local Log = require("../../Record/Log")
 local Stamp = require("../../Record/Stamp")
 local Marker = require("./Marker")
+local Roll = require("./Roll")
 local Settle = require("./Settle")
 local Types = require("./Types")
 
@@ -217,6 +218,7 @@ end
 local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLeg: number?): (boolean, Reason?, boolean)
 	assert(type(Id) == "string" and #Id > 0, "a transaction needs an Id, a stable name derived from the thing being settled")
 	assert(#Legs >= 2 and #Legs <= MAX_LEGS, `a transaction takes 2 to {MAX_LEGS} legs, got {#Legs}`)
+	assert(string.sub(Id, 1, #Roll.RESERVED) ~= Roll.RESERVED, `a transaction Id cannot start with '{Roll.RESERVED}', Ledger keeps that prefix for its own keys`)
 
 	local Marks: { string } = {}
 	local Terms: { string } = {}
@@ -236,6 +238,11 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 	local Keys = Mark.Pack(Marks)
 	local Shape = Mark.Pack(Terms)
 	local Print = Fingerprint.Of(Mark.Pack({ Keys, Shape }))
+
+	if not Roll.Add(TxStore, Id) then
+		Say.Warn(`Ledger: transaction '{Id}' was not started, Ledger could not add it to the cleanup list. nothing was applied, try again`)
+		return false, UNRESOLVED, false
+	end
 
 	local Last: Reason = UNRESOLVED
 	local Floor = 0

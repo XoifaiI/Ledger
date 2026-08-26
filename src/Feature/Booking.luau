@@ -11,7 +11,7 @@
 	the two writes, and only recovery can ask the receiver which way it went.
 	A booking that is late can no longer be handed over.
 
-	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, the four ids, BOOK_HORIZON and BOOK_MARGIN.
+	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, the four ids, BOOK_HORIZON, BOOK_MARGIN and HOLD_CAP.
 	Example usage:
 		local Booking = require("./Booking")
 		local Op = Booking.Book("order1", "Stock", 1)
@@ -47,6 +47,7 @@ local UNHAND_ID = "uh"
 
 local BOOK_HORIZON = Horizons.BOOK
 local BOOK_MARGIN = Horizons.BOOK_MARGIN
+local HOLD_CAP = Horizons.HOLD_CAP
 
 local function Entry(Booked: any, Rid: any): Data?
 	if type(Booked) ~= "table" or type(Rid) ~= "string" then
@@ -360,4 +361,5 @@ return table.freeze({
 	UNHAND_ID = UNHAND_ID,
 	BOOK_HORIZON = BOOK_HORIZON,
 	BOOK_MARGIN = BOOK_MARGIN,
+	HOLD_CAP = HOLD_CAP,
 })

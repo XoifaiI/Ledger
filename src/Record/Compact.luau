@@ -6,6 +6,7 @@
 
 	A large profile costs a lot to write again, so Compact waits until the log is a share of it. A
 	small profile is cheap, so Compact folds it on a count.
+	Hint names the field taking the most room, and whether that field is Ledger's own.
 	Compact absorbs only the ops at the front that this build can apply. The first op that this build
 	cannot apply stops the walk, and each op after it waits for a build that can.
 	Compact holds back an op that the reducer refuses. It does not drop the op.
@@ -106,9 +107,9 @@ local function Absorbable(Record: Record, Format: Shape<any>): (any, number, str
 	return State, Taken, nil
 end
 
-local function Hint(Snapshot: any): string
+local function Hint(Snapshot: any): (string, boolean)
 	if type(Snapshot) ~= "table" then
-		return ""
+		return "", false
 	end
 
 	local Name, Best = nil :: any, 0
@@ -120,9 +121,9 @@ local function Hint(Snapshot: any): string
 	end
 
 	if Name == nil then
-		return ""
+		return "", false
 	end
-	return ` (largest field '{tostring(Name)}' at {Best} bytes)`
+	return ` (largest field '{tostring(Name)}' at {Best} bytes)`, IsStorable.Reserved(tostring(Name))
 end
 
 local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?

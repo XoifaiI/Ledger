@@ -85,8 +85,6 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "TxUnanswered", Says = "has no answer yet and might still go through" },
 	{ Name = "TxLegFull", Says = "cannot put a leg on" },
 	{ Name = "TxHomesFull", Says = "transaction homes" },
-	{ Name = "ReapCrowded", Says = "holds more transaction markers than one pass can walk" },
-	{ Name = "ReapResumeLost", Says = "could not carry on listing" },
 
 	{ Name = "Behind", Says = "finish the deploy" },
 	{ Name = "SessionBehind", Says = "now needs a newer build than this server has" },

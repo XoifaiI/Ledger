@@ -74,7 +74,6 @@ export type Fields = {
 	Saving: { [Future<boolean, Reason?>]: boolean },
 	Staleness: Observer.Subject<string>,
 	Meter: Meter,
-	ReapAt: string,
 	Closed: boolean,
 }
 

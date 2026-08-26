@@ -132,6 +132,10 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 	if Extra.To ~= nil then
 		To = self:Resolve(Extra.To, "Reserve To")
 		assert(To ~= Resolved, `Reserve needs To to be a different key, both resolved to '{Resolved}'`)
+		assert(
+			Hold == nil or Hold <= Booking.HOLD_CAP,
+			`Reserve Hold must be {Booking.HOLD_CAP} seconds or less when you give a To, got {Hold}. a longer hold is written off instead of given back`
+		)
 	end
 
 	local Op = Booking.Book(Rid :: string, Field, Amount, Hold, To)
@@ -340,6 +344,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 		type(Id) == "string" and #Id > 0 and #Id <= MAX_TX_ID and utf8.len(Id) ~= nil,
 		`Tx needs an Id first, a stable name of 1 to {MAX_TX_ID} characters derived from the thing being settled, never from the clock`
 	)
+	assert(string.sub(Id, 1, #Tx.RESERVED) ~= Tx.RESERVED, `Tx Id cannot start with '{Tx.RESERVED}', Ledger keeps that prefix for its own keys`)
 	assert(type(Legs) == "table", "Tx takes an array of legs after the Id")
 	assert(#Legs >= 2 and #Legs <= Tx.MAX_LEGS, `Tx takes 2 to {Tx.MAX_LEGS} legs, got {#Legs}`)
 

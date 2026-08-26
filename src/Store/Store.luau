@@ -144,7 +144,6 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 		Saving = {},
 		Staleness = Observer.New(true) :: Observer.Subject<string>,
 		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
-		ReapAt = "",
 		Closed = false,
 	}
 	local Built: Store = setmetatable(Body :: any, Store) :: any

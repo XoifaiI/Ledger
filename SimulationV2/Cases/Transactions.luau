@@ -123,7 +123,7 @@ Cases.Case("a lost decision leaves prepared legs alone", function(T: Case)
 	Bank.Store:Edit("lostB", "Fund", { Amount = 100 }):Wait()
 
 	Bank:Fault(Fault.Updates():OnKey("lostB"))
-	Bank:MarkerFault(Fault.Updates():After(1))
+	Bank:MarkerFault(Fault.Updates():After(2))
 
 	local Ok, Why = Bank.Store
 		:Tx("lost1", {
@@ -217,7 +217,7 @@ Cases.Case("a done transaction is not called busy", function(T: Case)
 		})
 		:Wait()
 
-	Other:MarkerFault(Fault.Updates():After(1))
+	Other:MarkerFault(Fault.Updates():After(2))
 	Other.Store
 		:Tx("stuck1", {
 			{ Key = "doneA", Kind = "Give", Fields = { Amount = -1 } },
@@ -247,7 +247,7 @@ Cases.Case("a renamed amount never half applies", function(T: Case)
 	Bank.Store:Edit("termsA", "Fund", { Amount = 100 }):Wait()
 	Bank.Store:Edit("termsB", "Fund", { Amount = 100 }):Wait()
 
-	Bank:MarkerFault(Fault.Updates():After(1))
+	Bank:MarkerFault(Fault.Updates():After(2))
 	Bank.Store
 		:Tx("terms1", {
 			{ Key = "termsA", Kind = "Give", Fields = { Amount = -43 } },
@@ -300,8 +300,85 @@ Cases.Case("markers behind a wall of unreapable ones are still reaped", function
 	T:Advance(Tx.REAP_HORIZON + 60)
 	local Reaped = Bank.Store:ReapMarkers()
 
-	T:Is("the finished markers sitting behind a full page of stuck ones", Reaped, 30)
+	T:Is("the finished markers sitting behind the stuck ones", Reaped, 30)
 	T:Is("what is left, which is the stuck ones only", #Bank:Marks(), 70)
+end)
+
+Cases.Case("a finished marker behind more stuck ones than one pass can walk is still reaped", function(T: Case)
+	local Bank = T:Bank()
+	local Stuck = 120
+	local Deals = 6
+	local Born = T:Now()
+
+	for Index = 1, Stuck do
+		Bank:Marker(string.format("aaa-wall-%04d", Index), {
+			Status = "Pending",
+			Total = 2,
+			Gen = "one",
+			At = Born,
+			Adopted = {},
+		})
+	end
+
+	Bank:Seed("wallA", { Gold = 1000 })
+	Bank:Seed("wallB", { Gold = 0 })
+
+	for Index = 1, Deals do
+		Bank.Store
+			:Tx(string.format("zzz-deal-%02d", Index), {
+				{ Key = "wallA", Kind = "Give", Fields = { Amount = -1 } },
+				{ Key = "wallB", Kind = "Give", Fields = { Amount = 1 } },
+			})
+			:Wait()
+	end
+
+	T:Advance(Tx.REAP_HORIZON + 60)
+
+	Bank.Store:ReapMarkers()
+
+	T:Is("the deals went through", Bank:Amount("wallB"), Deals)
+	T:Is("markers left standing, which should be the stuck ones only", #Bank:Marks(), Stuck)
+end)
+
+Cases.Case("a transaction writes its name on the cleanup list before it opens a marker", function(T: Case)
+	local Bank = T:Bank()
+
+	Bank:Seed("rollA", { Gold = 100 })
+	Bank:Seed("rollB", { Gold = 0 })
+
+	for Index = 1, 3 do
+		Bank.Store
+			:Tx(string.format("roll-%02d", Index), {
+				{ Key = "rollA", Kind = "Give", Fields = { Amount = -5 } },
+				{ Key = "rollB", Kind = "Give", Fields = { Amount = 5 } },
+			})
+			:Wait()
+	end
+
+	local Rolled = Bank:Rolled()
+
+	T:Ok("the first name is on the list", Rolled["roll-01"])
+	T:Ok("the second name is on the list", Rolled["roll-02"])
+	T:Ok("the third name is on the list", Rolled["roll-03"])
+	T:Is("gold that moved", Bank:Amount("rollB"), 15)
+	T:Is("markers standing, one for each transaction", #Bank:Marks(), 3)
+end)
+
+Cases.Case("a transaction Id cannot use the prefix Ledger keeps for itself", function(T: Case)
+	local Bank = T:Bank()
+
+	Bank:Seed("mineA", { Gold = 100 })
+	Bank:Seed("mineB", { Gold = 0 })
+
+	local Says = T:Throws("an Id under Ledger's own prefix", function()
+		Bank.Store:Tx("__mine", {
+			{ Key = "mineA", Kind = "Give", Fields = { Amount = -5 } },
+			{ Key = "mineB", Kind = "Give", Fields = { Amount = 5 } },
+		})
+	end)
+
+	T:Ok("it said the prefix belongs to Ledger", string.find(tostring(Says), "keeps that prefix", 1, true) ~= nil)
+	T:Is("nothing moved", Bank:Amount("mineB"), 0)
 end)
 
 Cases.Case("a coordinator that dies between its legs is healed by the retry", function(T: Case)
@@ -852,7 +929,7 @@ Cases.Case("a decision whose acknowledgement is lost still commits", function(T:
 	Vault:Seed("lostackB", { Coins = 0 })
 
 	Shop:NoRetries()
-	Shop:MarkerFault(Fault.Updates():Only(2):Swallow())
+	Shop:MarkerFault(Fault.Updates():Only(3):Swallow())
 	local Ok, Why = Cross(Shop, Vault, "lostackA", "lostackB", 25, "lostack1")
 	Shop:Healed()
 
@@ -907,7 +984,7 @@ Cases.Case("a retry after a lost acknowledgement moves once", function(T: Case)
 	Vault:Seed("onceackB", { Coins = 0 })
 
 	Shop:NoRetries()
-	Shop:MarkerFault(Fault.Updates():Only(2):Swallow())
+	Shop:MarkerFault(Fault.Updates():Only(3):Swallow())
 	local First = Cross(Shop, Vault, "onceackA", "onceackB", 25, "onceack1")
 	Shop:Healed()
 
@@ -1143,6 +1220,35 @@ Cases.Case("a buried marker is reaped once it is old enough", function(T: Case)
 	T:Is("nothing is left of it", Bank:Mark("reap1"), nil)
 end)
 
+Cases.Case("a finished marker goes sooner than one still being decided", function(T: Case)
+	local Bank = T:Bank()
+
+	Bank:Seed("graceA", { Gold = 100 })
+	Bank:Marker("gracedone", { Status = "Committed", Total = 1, Gen = "graceg", At = T:Now(), Adopted = {}, Dead = true })
+	Bank:Marker("gracewait", {
+		Status = "Committed",
+		Total = 1,
+		Gen = "graceg",
+		At = T:Now(),
+		Adopted = {},
+		Keys = Mark.Pack({ Mark.Of(Bank.Data, "graceA") }),
+	})
+
+	T:Advance(Tx.REAP_GRACE + 60)
+	local Early = Bank.Store:ReapMarkers()
+
+	T:Is("the finished marker goes on the short window", Early, 1)
+	T:Is("nothing is left of it", Bank:Mark("gracedone"), nil)
+	T:Is("the one still being decided stays", type(Bank:Mark("gracewait")), "table")
+
+	T:Advance(Tx.REAP_HORIZON + 60)
+	local Late = Bank.Store:ReapMarkers()
+
+	T:Is("it goes once the long window runs out", Late, 1)
+	T:Is("nothing is left of that one either", Bank:Mark("gracewait"), nil)
+	T:Is("gold is untouched", Bank:Amount("graceA"), 100)
+end)
+
 Cases.Case("an orphan leg past a shrunk marker is rolled back", function(T: Case)
 	local Shop, Vault = T:Market(), T:Vault()
 	Wares(Shop, "orphA", 100, false)
@@ -1282,7 +1388,7 @@ Cases.Case("a transaction that leaves a leg parked follows that key", function(T
 	Bank:Seed("b", { Gold = 500, Touches = 0 })
 
 	Bank:Fault(Fault.Updates():OnKey("b"))
-	Bank:MarkerFault(Fault.Updates():After(1))
+	Bank:MarkerFault(Fault.Updates():After(2))
 	local Sent, Why = Bank.Store
 		:Tx("stranded", {
 			{ Key = "a", Kind = "Give", Fields = { Amount = -50 } },
@@ -1409,7 +1515,7 @@ Cases.Case("a pass that reaches no key never disowns an earlier pass", function(
 	Wares(Shop, "brickB", 100, false)
 
 	Shop:NoRetries()
-	Shop:MarkerFault(Fault.Updates():Only(2))
+	Shop:MarkerFault(Fault.Updates():Only(3))
 	Shop:Fault(Fault.Reads():OnKey("brickA"):After(1))
 	Shop:Fault(Fault.Updates():OnKey("brickA"):After(1))
 
@@ -1578,38 +1684,6 @@ Cases.Case("a marker naming a store this server never built is still reaped", fu
 	T:Is("markers reaped by a server missing the far store", Reaped, 2)
 	T:Is("gold in the shop", Shop:State("farA").Gold, 75)
 	T:Is("coins in the vault", Vault:State("farB").Coins, 25)
-end)
-
-Cases.Case("a marker table too crowded to walk in one pass says so", function(T: Case)
-	local Bank = T:Bank()
-	local Crowd = 550
-
-	for Index = 1, Crowd do
-		Bank:Marker(string.format("crowd-%04d", Index), { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
-	end
-
-	local Reaped = Bank.Store:ReapMarkers()
-
-	T:Is("markers reaped when every one of them is too fresh", Reaped, 0)
-	T:Is("markers left standing", #Bank:Marks(), Crowd)
-	T:Warns("it said the table is bigger than one pass", "holds more transaction markers than one pass can walk")
-end)
-
-Cases.Case("a reap that cannot carry on from last time starts at the front", function(T: Case)
-	local Bank = T:Bank()
-
-	Bank:Marker("resume1", { Status = "Aborted", Total = 1, Adopted = {} })
-	Bank.Store.ReapAt = "resume0"
-
-	Bank:NoRetries()
-	Bank:MarkerFault(Fault.Lists():Only(1))
-	T:Advance(Tx.REAP_HORIZON + 60)
-	local Reaped = Bank.Store:ReapMarkers()
-	Bank:Healed()
-
-	T:Warns("it said it could not carry on", "could not carry on listing")
-	T:Is("it still reaped from the front", Reaped, 1)
-	T:Is("the marker is gone", Bank:Mark("resume1"), nil)
 end)
 
 return Cases

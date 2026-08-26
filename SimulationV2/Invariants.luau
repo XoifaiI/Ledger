@@ -61,6 +61,28 @@ local function Sum(Entries: any, Field: string): number
 	return Total
 end
 
+local function Rolled(Named: string): boolean
+	return string.sub(Named, 1, #Lib.Roll.RESERVED) == Lib.Roll.RESERVED
+end
+
+local function Enrolled(Board: Disk, Table: string): { [string]: boolean }
+	local Found: { [string]: boolean } = {}
+	for _, Named in Disk.Keys(Board, Table) do
+		if not Rolled(Named) then
+			continue
+		end
+
+		local Held = Disk.Peek(Board, Table, Named)
+		if type(Held) ~= "string" then
+			continue
+		end
+		for _, Txid in Lib.Mark.Unpack(Held) do
+			Found[Txid] = true
+		end
+	end
+	return Found
+end
+
 local function Buried(Board: Disk, Table: string, Txid: string): boolean
 	local Held = Disk.Peek(Board, Table, Txid)
 	return type(Held) == "table" and Held.Dead == true
@@ -217,12 +239,17 @@ local function Transactions(Board: Disk, Where: Where, Marks: { string }, Format
 		end
 	end
 
-	if Quiet then
-		for _, Table in Marks do
-			for _, Txid in Disk.Keys(Board, Table) do
-				if Legs[Txid] ~= nil and not Buried(Board, Table, Txid) then
-					table.insert(Broken, `{Txid} left its marker behind in {Table}`)
-				end
+	for _, Table in Marks do
+		local Rolls = Enrolled(Board, Table)
+		for _, Txid in Disk.Keys(Board, Table) do
+			if Rolled(Txid) then
+				continue
+			end
+			if not Rolls[Txid] then
+				table.insert(Broken, `marker '{Txid}' in {Table} is not on the roll, so nothing will ever reap it`)
+			end
+			if Quiet and Legs[Txid] ~= nil and not Buried(Board, Table, Txid) then
+				table.insert(Broken, `{Txid} left its marker behind in {Table}`)
 			end
 		end
 	end
@@ -235,6 +262,9 @@ local function Unfinished(Board: Disk, Where: Where, Marks: { string }, Format: 
 
 	for _, Table in Marks do
 		for _, Txid in Disk.Keys(Board, Table) do
+			if Rolled(Txid) then
+				continue
+			end
 			if not Buried(Board, Table, Txid) then
 				table.insert(Left, `marker '{Txid}' is still in {Table}`)
 			end

@@ -128,6 +128,9 @@ local Tx = table.freeze({
 	TIMEOUT = Deals.TIMEOUT,
 	MAX_LEGS = Deals.MAX_LEGS,
 	REAP_HORIZON = Deals.REAP_HORIZON,
+	REAP_GRACE = Deals.REAP_GRACE,
+	SHARDS = Deals.SHARDS,
+	Roll = Deals.Roll,
 
 	Wrap = Names.Wrap,
 })
@@ -164,6 +167,7 @@ local Held = table.freeze({
 	Delivered = Booking.Delivered,
 	BOOK_HORIZON = Booking.BOOK_HORIZON,
 	BOOK_MARGIN = Booking.BOOK_MARGIN,
+	HOLD_CAP = Booking.HOLD_CAP,
 
 	Counted = Counted,
 	Wrap = WrapBooking,

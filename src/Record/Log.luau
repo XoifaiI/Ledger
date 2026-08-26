@@ -439,9 +439,11 @@ function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
 
 	local State = Result.After.Bytes
 	if type(State) == "number" and State > Limits.StateWarn then
-		Say.Warn(
-			`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Limits.State}{Compact.Hint(Result.After.Snapshot)}. take out what the game no longer reads, or spread it over more keys`
-		)
+		local Said, Ours = Compact.Hint(Result.After.Snapshot)
+		local Fix = if Ours
+			then "that field is Ledger's own record of the names applied here. it grows with every transaction on this key. spread the work over more keys"
+			else "take out what the game no longer reads, or spread it over more keys"
+		Say.Warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Limits.State}{Said}. {Fix}`)
 	end
 	return Result.After
 end

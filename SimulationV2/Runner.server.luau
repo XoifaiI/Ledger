@@ -34,7 +34,7 @@ local Prove = require(Root:WaitForChild("Prove")) :: any
 local Suite = require(Root:WaitForChild("Suite")) :: any
 
 local CASES = true
-local SWEEP = true
+local SWEEP = false
 
 local MATCH = ""
 

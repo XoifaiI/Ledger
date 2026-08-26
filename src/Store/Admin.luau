@@ -80,7 +80,7 @@ end
 function Store.ReapMarkers(self: Store): number
 	local Name = self.Wrapper.Name
 
-	local Ok, Reaped, Next = pcall(function(): (number, string)
+	local Ok, Reaped = pcall(function(): number
 		return Tx.Reap(self.TxWrapper, function(Store: string)
 			for _, Known in Registry.Stores do
 				if Known.Wrapper.Name == Store then
@@ -88,10 +88,9 @@ function Store.ReapMarkers(self: Store): number
 				end
 			end
 			return nil
-		end, nil, nil, self.ReapAt)
+		end)
 	end)
 	if Ok then
-		self.ReapAt = Next
 		return Reaped
 	end
 

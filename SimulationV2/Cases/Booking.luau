@@ -602,4 +602,25 @@ Cases.Case("overdue reservations that cannot be settled wait for the next pass",
 	T:Is("the reservations are still held", Shelf:Booked("shelf"), 2)
 end)
 
+Cases.Case("a hold too long to be given back is refused", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf:Seed("capA", { Stock = 10, Sold = 0, Gold = 0 })
+	Shelf:Seed("capB", { Stock = 0, Sold = 0, Gold = 0 })
+
+	T:Holds("a hold right on the cap", function()
+		Shelf.Store:Reserve("capA", "Stock", 1, "capfits", { Hold = Booking.HOLD_CAP, To = "capB" }):Wait()
+	end)
+
+	local Says = T:Throws("a hold past the cap", function()
+		Shelf.Store:Reserve("capA", "Stock", 1, "caplong", { Hold = Booking.HOLD_CAP + 1, To = "capB" })
+	end)
+
+	T:Holds("a long hold with nowhere to hand it to", function()
+		Shelf.Store:Reserve("capA", "Stock", 1, "capfree", { Hold = Booking.HOLD_CAP * 2 }):Wait()
+	end)
+
+	T:Ok("it said what a longer hold does", string.find(tostring(Says), "written off instead of given back", 1, true) ~= nil)
+	T:Is("units set aside by the two that went through", Shelf:Booked("capA"), 2)
+end)
+
 return Cases

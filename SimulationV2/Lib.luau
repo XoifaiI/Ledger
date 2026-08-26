@@ -25,6 +25,7 @@ local Booking = require("../src/Feature/Booking")
 local Entries = require("../src/Kernel/Entries")
 local Ident = require("../src/Encode/Ident")
 local Mark = require("../src/Encode/Mark")
+local Roll = require("../src/Protocol/Tx/Roll")
 local Shape = require("../src/Record/Shape")
 local Stamp = require("../src/Record/Stamp")
 local LogTypes = require("../src/Record/Types")
@@ -51,6 +52,7 @@ return table.freeze({
 	Entries = Entries,
 	Mark = Mark,
 	Ident = Ident,
+	Roll = Roll,
 	Shape = Shape,
 	Stamp = Stamp,
 })

@@ -571,10 +571,25 @@ end)
 Cases.Case("the reap works its way round every store when it cannot afford them all at once", function(T: Case)
 	local Allowed = 0
 
+	local Names: { string } = {}
+	local Found = 0
+	local Tried = 0
+	while Found < Tx.SHARDS do
+		Tried += 1
+		local Try = `husk{Tried}`
+		local Slot = Tx.Roll.Shard(Try) + 1
+		if Names[Slot] == nil then
+			Names[Slot] = Try
+			Found += 1
+		end
+	end
+
 	local Stores: { Fixture } = {}
 	for Index = 1, 4 do
 		local Store = Plain(T, "String", Adder, `CaseRound{Index}`)
-		Store:Marker("husk", { Status = "Aborted", Total = 1, Adopted = {} })
+		for _, Named in Names do
+			Store:Marker(Named, { Status = "Aborted", Total = 1, Adopted = {} })
+		end
 		Store:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
 			if Kind ~= Enum.DataStoreRequestType.ListAsync then
 				return 1000
@@ -590,14 +605,14 @@ Cases.Case("the reap works its way round every store when it cannot afford them 
 	local function Left(): number
 		local Standing = 0
 		for _, Store in Stores do
-			if type(Store:Mark("husk")) == "table" then
+			if #Store:Marks() == Tx.SHARDS then
 				Standing += 1
 			end
 		end
 		return Standing
 	end
 
-	T:Is("every store starts with a husk to reap", Left(), 4)
+	T:Is("every store starts with husks to reap", Left(), 4)
 
 	for _ = 1, 10 do
 		Allowed = 2
