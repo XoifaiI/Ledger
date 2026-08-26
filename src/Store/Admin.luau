@@ -82,7 +82,7 @@ function Store.ReapMarkers(self: Store): number
 	local Reads = Enum.DataStoreRequestType.GetAsync
 
 	local Ok, Reaped, Next = pcall(function(): (number, number)
-		return Tx.Reap(self.TxWrapper, function(Store: string)
+		return Tx.Reap(self.TxWrapper, function(Store: string): Log.Log?
 			for _, Known in Registry.Stores do
 				if Known.Wrapper.Name == Store then
 					return Known:Records()
