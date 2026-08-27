@@ -8,7 +8,8 @@
 	A name that is used again for different terms therefore reads as different.
 
 	Bucket spreads a name over a fixed number of slots, so that two servers asked to place the same
-	name land on the same one.
+	name land on the same one. It reads four bytes of the hash rather than one, so a slot count that
+	does not divide a single byte still gets an even spread.
 
 	Return type: A table with Canon, Of, Bucket and BYTES.
 	Example usage:
@@ -19,6 +20,7 @@
 local EncodingService = game:GetService("EncodingService")
 
 local BYTES = 6
+local SPREAD = 4
 local ALGORITHM = Enum.HashAlgorithm.Blake3
 
 local function Sorter(Left: any, Right: any): boolean
@@ -54,7 +56,9 @@ local function Of(Text: string): string
 end
 
 local function Bucket(Text: string, Count: number): number
-	return string.byte(EncodingService:ComputeStringHash(Text, ALGORITHM), 1) % Count
+	local Raw = EncodingService:ComputeStringHash(Text, ALGORITHM)
+	local One, Two, Three, Four = string.byte(Raw, 1, SPREAD)
+	return (((One * 256 + Two) * 256 + Three) * 256 + Four) % Count
 end
 
 return table.freeze({

@@ -16,10 +16,12 @@
 local Limits = require("../Contract/Limits")
 local Measure = require("./Measure")
 
-local MAX_DEPTH = 64
+local MAX_DEPTH = Limits.Depth
 
 local RESERVED = "__"
 local BOOKKEEPING = "_"
+
+local RESERVED_FIELDS = table.freeze({ "Tx", "TxHome", "TxSticky", "TxAt", "TxGen", "TxTerms", "TxOnly" })
 
 local function IsReservedKind(Kind: string): boolean
 	return string.sub(Kind, 1, #RESERVED) == RESERVED
@@ -106,13 +108,22 @@ function Check(Value: any, Path: string, Seen: { [any]: boolean }, Depth: number
 	return Ok, Where
 end
 
+local function Fits(Value: any, What: string): (boolean, string?)
+	if Measure(Value) > Limits.Op then
+		return false, `{What} is larger than the {Limits.Op} byte per op limit`
+	end
+	return true, nil
+end
+
 local function IsStorable(Op: any): (boolean, string?)
 	if type(Op) == "table" then
 		if type(Op.Kind) == "string" and IsReservedKind(Op.Kind) then
 			return false, `kind '{Op.Kind}' uses the {RESERVED} prefix reserved for Ledger's internal ops`
 		end
-		if Op.Tx ~= nil or Op.TxHome ~= nil or Op.TxSticky ~= nil or Op.TxAt ~= nil or Op.TxGen ~= nil or Op.TxTerms ~= nil or Op.TxOnly ~= nil then
-			return false, "the Tx, TxHome, TxSticky, TxAt, TxGen, TxTerms and TxOnly fields are reserved for the transaction path"
+		for _, Named in RESERVED_FIELDS do
+			if Op[Named] ~= nil then
+				return false, `the {Named} field is reserved for the transaction path`
+			end
 		end
 	end
 
@@ -121,11 +132,7 @@ local function IsStorable(Op: any): (boolean, string?)
 		return false, Where
 	end
 
-	if Measure(Op) > Limits.Op then
-		return false, `op is larger than the {Limits.Op} byte per op limit`
-	end
-
-	return true, nil
+	return Fits(Op, "the op")
 end
 
 local function IsStructureStorable(Value: any): (boolean, string?)
@@ -143,11 +150,7 @@ local function IsValueStorable(Value: any): (boolean, string?)
 		return false, Where
 	end
 
-	if Measure(Value) > Limits.Op then
-		return false, `op is larger than the {Limits.Op} byte per op limit`
-	end
-
-	return true, nil
+	return Fits(Value, "it")
 end
 
 return table.freeze({

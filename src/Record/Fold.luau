@@ -15,12 +15,12 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Step = require("./Step")
-local Op = require("../Contract/Op")
+local Contract = require("../Contract/Op")
 
 local FreezeDelta = TableUtil.FreezeDelta
 
-type Op = Op.Op
-type Reducer<S> = Op.Reducer<S>
+type Op = Contract.Op
+type Reducer<S> = Contract.Reducer<S>
 
 local function Fold<S>(Base: S, Ops: { Op }, Reducer: Reducer<S>, Mark: string?): (S, boolean)
 	local State = FreezeDelta(Base)

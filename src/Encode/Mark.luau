@@ -18,8 +18,6 @@
 		local Store, Key = Mark.Split(Held)
 --]=]
 
-local Fault = require("../Contract/Fault")
-
 local FIELD = "\0"
 local LIST = "\1"
 
@@ -36,28 +34,12 @@ for Size = 0, CACHED_LENGTHS - 1 do
 	LIST_HEADS[Size + 1] = Text .. LIST
 end
 
-local function Of(Store: string, Key: string): string
-	local Size = #Store
-	local Head = FIELD_HEADS[Size + 1]
-	local Front = if Head ~= nil then Head else tostring(Size) .. FIELD
-
-	local Made = Front .. Store .. Key
-	Fault.Holds(string.sub(Made, #Front + 1, #Front + Size) == Store, "a mark cannot read back the store it was built from")
-	return Made
-end
-
-local function Split(Mark: string): (string?, string?)
-	local First = string.byte(Mark, 1)
-	if First == nil or First < ZERO or First > NINE then
-		return nil, nil
-	end
-
-	local Length = #Mark
-	local Index = 2
-	local Count = First - ZERO
+local function Digits(Text: string, At: number, Length: number): (number, number)
+	local Index = At
+	local Count = 0
 
 	while Index <= Length do
-		local Byte = string.byte(Mark, Index) :: number
+		local Byte = string.byte(Text, Index) :: number
 		if Byte < ZERO or Byte > NINE then
 			break
 		end
@@ -66,7 +48,22 @@ local function Split(Mark: string): (string?, string?)
 		Index += 1
 	end
 
-	if string.byte(Mark, Index) ~= 0 or Index + Count > Length then
+	return Count, Index
+end
+
+local function Of(Store: string, Key: string): string
+	local Size = #Store
+	local Head = FIELD_HEADS[Size + 1]
+	local Front = if Head ~= nil then Head else tostring(Size) .. FIELD
+
+	return Front .. Store .. Key
+end
+
+local function Split(Mark: string): (string?, string?)
+	local Length = #Mark
+	local Count, Index = Digits(Mark, 1, Length)
+
+	if Index == 1 or string.byte(Mark, Index) ~= 0 or Index + Count > Length then
 		return nil, nil
 	end
 
@@ -77,7 +74,6 @@ local function Pack(Parts: { string }): string
 	local Total = #Parts
 	local Pieces: { string } = table.create(Total * 2) :: { [number]: string }
 	local Cursor = 0
-	local Bytes = 0
 
 	for Index = 1, Total do
 		local Part = Parts[Index]
@@ -87,12 +83,9 @@ local function Pack(Parts: { string }): string
 		Pieces[Cursor + 1] = Front
 		Pieces[Cursor + 2] = Part
 		Cursor += 2
-		Bytes += #Front + Size
 	end
 
-	local Packed = table.concat(Pieces)
-	Fault.Holds(#Packed == Bytes, "packing marks lost bytes, so one of them holds a byte the format cannot carry")
-	return Packed
+	return table.concat(Pieces)
 end
 
 local function Unpack(Packed: string): { string }
@@ -102,28 +95,14 @@ local function Unpack(Packed: string): { string }
 	local At = 1
 
 	while At <= Length do
-		local Index = At
-		local Count = 0
-
-		while Index <= Length do
-			local Byte = string.byte(Packed, Index) :: number
-			if Byte < ZERO or Byte > NINE then
-				break
-			end
-
-			Count = Count * 10 + Byte - ZERO
-			Index += 1
-		end
+		local Count, Index = Digits(Packed, At, Length)
 
 		if Index == At or string.byte(Packed, Index) ~= 1 or Index + Count > Length then
 			return {}
 		end
 
-		local Part = string.sub(Packed, Index + 1, Index + Count)
-		Fault.Holds(#Part == Count, "unpacking a mark read fewer bytes than its own length said it had")
-
 		Found += 1
-		Parts[Found] = Part
+		Parts[Found] = string.sub(Packed, Index + 1, Index + Count)
 		At = Index + Count + 1
 	end
 

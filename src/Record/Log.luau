@@ -203,13 +203,7 @@ function Log.New(Wrapper: DataStoreWrapper, Known: number?, Floor: number?): Log
 end
 
 function Log.Legible(self: Log, Key: string, Record: Record)
-	local Known = self.Known
-	local Floor = Record.Floor
-	if type(Known) ~= "number" or type(Floor) ~= "number" or Floor <= Known then
-		return
-	end
-
-	error(Fault.New(Reasons.Behind, `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`))
+	Rules.Readable(Key, self.Known, Record)
 end
 
 function Log.Update(self: Log, Key: string, Apply: Transform): Outcome

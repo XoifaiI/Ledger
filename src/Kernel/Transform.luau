@@ -38,9 +38,7 @@ local function Run(Update: Update, Key: string, Rules: { Rule }): Outcome
 	local Pass: Pass = Rule.New()
 
 	local Result = Update(Key, function(Record: Record): Record?
-		Pass.Refused = nil
-		Pass.Silent = false
-		table.clear(Pass.Notes)
+		Rule.Reset(Pass)
 
 		local Next: Record = Record
 		for _, Held in Rules do

@@ -64,6 +64,7 @@ local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
 
 local RESET_KIND = "__Reset"
+local TX_SUFFIX = "_Tx"
 
 local UNRESOLVED = Reasons.Unresolved
 
@@ -105,9 +106,10 @@ local function WrapSystem(GameReducer: Contract.Reducer<any>, Initial: any, Step
 end
 
 local function New<D>(Config: Config<D>): Public.Store<D>
-	assert(not Registry.Claimed[Config.Name] and not Registry.Claimed[`{Config.Name}_Tx`], `a store named '{Config.Name}' already exists in this server`)
+	local Marked = `{Config.Name}{TX_SUFFIX}`
+	assert(not Registry.Claimed[Config.Name] and not Registry.Claimed[Marked], `a store named '{Config.Name}' already exists in this server`)
 	Registry.Claimed[Config.Name] = true
-	Registry.Claimed[`{Config.Name}_Tx`] = true
+	Registry.Claimed[Marked] = true
 
 	if DataStoreWrapper.Swapped() then
 		Say.Warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server. Ledger.UseReal() puts it back`)
@@ -131,7 +133,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 		Options = Config :: any,
 		Reducer = WrapSystem(Base, Initial, Steps),
 		Wrapper = DataStoreWrapper.New(Config.Name),
-		TxWrapper = DataStoreWrapper.New(`{Config.Name}_Tx`),
+		TxWrapper = DataStoreWrapper.New(Marked),
 		Initial = Initial,
 		Migrations = Steps,
 		Handles = Handled,
@@ -150,7 +152,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 	local Built = setmetatable(Body, Store)
 
 	table.insert(Registry.Stores, Built)
-	return Built :: Public.Store<D>
+	return Built
 end
 
 function Store.Wake(self: Store, UserId: number, Active: any?)
@@ -383,7 +385,7 @@ function Store.Destroy(self: Store)
 		table.remove(Registry.Stores, Listed)
 	end
 	Registry.Claimed[self.Options.Name] = nil
-	Registry.Claimed[`{self.Options.Name}_Tx`] = nil
+	Registry.Claimed[`{self.Options.Name}{TX_SUFFIX}`] = nil
 	Registry.Sweep():Forget(self)
 	self.Staleness:Destroy()
 

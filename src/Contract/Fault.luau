@@ -16,6 +16,7 @@
 --]=]
 
 local Say = require("../Util/Say")
+local Carried = require("../Util/Carried")
 local ThreadQueue = require("../Util/ThreadQueue")
 local Reasons = require("./Reason")
 
@@ -37,16 +38,16 @@ local UNRESOLVED = Reasons.Unresolved
 local Fault = {} :: FaultImpl
 
 local function New(Why: Reason, Message: string): Fault
-	return table.freeze(setmetatable({ Ledger = true, Why = Why, Message = Message }, Fault)) :: any
+	return table.freeze(setmetatable({ [Carried.TAG] = true, Why = Why, Message = Message }, Fault)) :: any
 end
 
 local function Of(Err: unknown): Reason?
-	if type(Err) ~= "table" then
+	if not Carried.Is(Err) then
 		return nil
 	end
 
-	local Tagged = Err :: { Ledger: unknown, Why: unknown }
-	if Tagged.Ledger ~= true or type(Tagged.Why) ~= "string" then
+	local Tagged = Err :: { Why: unknown }
+	if type(Tagged.Why) ~= "string" then
 		return nil
 	end
 	return Tagged.Why :: Reason

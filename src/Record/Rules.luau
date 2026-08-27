@@ -10,7 +10,10 @@
 	must be able to land on a key that is already full. It stops at a higher ceiling of its own.
 	A sift decides op by op whether the record will take one.
 
-	Return type: A table with Legible, Allowed, Fresh, Capped, Format, Tomb, Entombed and TOMB_HORIZON.
+	Readable is the one place that says whether this build may write a record at all. Legible is that
+	same question as a rule, and the log asks it directly on the paths that are not an append.
+
+	Return type: A table with Readable, Legible, Allowed, Fresh, Capped, Format, Tomb, Entombed and TOMB_HORIZON.
 	Example usage:
 		local Rules = require("./Rules")
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
@@ -42,16 +45,21 @@ local function Entombed(Record: Record): boolean
 	return type(At) == "number" and Clock.Now() - At <= TOMB_HORIZON
 end
 
+local function Readable(Key: string, Known: number?, Record: Record)
+	local Floor = Record.Floor
+	if type(Known) ~= "number" or type(Floor) ~= "number" or Floor <= Known then
+		return
+	end
+
+	error(Fault.New(Reasons.Behind, `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`))
+end
+
 local function Legible(Key: string, Known: number?): Rule
 	return {
 		Name = "legible",
 		Check = function(Record: Record): Reasons.Reason?
-			local Floor = Record.Floor
-			if type(Known) ~= "number" or type(Floor) ~= "number" or Floor <= Known then
-				return nil
-			end
-
-			error(Fault.New(Reasons.Behind, `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`))
+			Readable(Key, Known, Record)
+			return nil
 		end,
 	}
 end
@@ -168,6 +176,7 @@ local function Tomb(Key: string, Owned: boolean): Rule
 end
 
 return table.freeze({
+	Readable = Readable,
 	Legible = Legible,
 	Allowed = Allowed,
 	Fresh = Fresh,

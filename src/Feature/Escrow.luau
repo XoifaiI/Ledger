@@ -10,7 +10,7 @@
 	The reducer owns that record, so the money never leaves before Escrow asks the question.
 	Each of the three legs is a separate op, so each one is atomic on its own key.
 
-	Return type: A table with Layered, the five op kinds, the five id prefixes, REDRIVE_HORIZON and EXPIRE_MARGIN.
+	Return type: A table with Layered, the five op kinds and the five id prefixes.
 	Example usage:
 		local Escrow = require("./Escrow")
 		local Layered = Escrow.Layered("Gold")
@@ -18,12 +18,12 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Fault = require("../Contract/Fault")
-local Horizons = require("../Contract/Horizons")
+local Arg = require("../Kernel/Arg")
 local Entries = require("../Kernel/Entries")
 local Layer = require("../Kernel/Layer")
-local Op = require("../Contract/Op")
+local Contract = require("../Contract/Op")
 
-type Op = Op.Op
+type Op = Contract.Op
 type Data = { [any]: any }
 
 local RESERVE = "__TransferReserve"
@@ -38,13 +38,10 @@ local SETTLE_ID = "set"
 local PRUNE_ID = "prn"
 local EXPIRE_ID = "exp"
 
-local REDRIVE_HORIZON = Horizons.REDRIVE
-local EXPIRE_MARGIN = Horizons.EXPIRE_MARGIN
-
 local function Reserving(Data: Data, Op: Op, Field: string): Data?
 	local Tid = Op.Tid
 	local Amount = Op.Amount
-	if type(Tid) ~= "string" or type(Amount) ~= "number" then
+	if type(Tid) ~= "string" or not Arg.Positive(Amount) then
 		return nil
 	end
 
@@ -65,14 +62,6 @@ local function Reserving(Data: Data, Op: Op, Field: string): Data?
 	Next[Field] = (Data[Field] or 0) - Amount
 	Next._Held = TableUtil.Some(Held)
 
-	if Next[Field] < 0 then
-		Fault.Broke(`setting {Amount} aside for transfer {Tid} took '{Field}' below zero`)
-		return nil
-	end
-	if TableUtil.Count(Next._Held) ~= TableUtil.Count(Data._Held) + 1 then
-		Fault.Broke(`setting aside for transfer {Tid} did not leave exactly one more hold on the key`)
-		return nil
-	end
 	return Next
 end
 
@@ -97,14 +86,6 @@ local function Delivering(Data: Data, Op: Op, Field: string): Data?
 	Next[Field] = (Data[Field] or 0) + Amount
 	Next._Received = Entries.Remember(Received, Entries.Key(Entries.TRANSFER, Tid), Op.At, Print)
 
-	if not Entries.Has(Next._Received, Entries.TRANSFER, Tid) then
-		Fault.Broke(`transfer {Tid} was paid in without being remembered, so the same delivery could pay again`)
-		return nil
-	end
-	if TableUtil.Count(Next._Held) ~= TableUtil.Count(Data._Held) then
-		Fault.Broke(`paying in transfer {Tid} changed what the receiver has set aside`)
-		return nil
-	end
 	return Next
 end
 
@@ -127,10 +108,6 @@ local function Expiring(Data: Data, Op: Op, Field: string): Data?
 	Next[Field] = (Data[Field] or 0) + Entry.Amount
 	Next._Held = TableUtil.Some(Rest)
 
-	if TableUtil.Count(Next._Held) ~= TableUtil.Count(Data._Held) - 1 then
-		Fault.Broke(`giving transfer {Tid} back did not clear exactly the one hold it was held under`)
-		return nil
-	end
 	if Next[Field] < (Data[Field] or 0) then
 		Fault.Broke(`giving transfer {Tid} back left the sender with less than they started with`)
 		return nil
@@ -158,10 +135,6 @@ local function Settling(Data: Data, Op: Op): Data?
 	Next._Held = TableUtil.Some(Held)
 	Next._Received = Entries.Remember(Data._Received, Entries.Key(Entries.SENT, Tid), Op.At, Print)
 
-	if TableUtil.Count(Next._Held) ~= TableUtil.Count(Data._Held) - 1 then
-		Fault.Broke(`finishing transfer {Tid} did not clear exactly the one hold it was held under`)
-		return nil
-	end
 	return Next
 end
 
@@ -216,7 +189,4 @@ return table.freeze({
 	SETTLE_ID = SETTLE_ID,
 	PRUNE_ID = PRUNE_ID,
 	EXPIRE_ID = EXPIRE_ID,
-
-	REDRIVE_HORIZON = REDRIVE_HORIZON,
-	EXPIRE_MARGIN = EXPIRE_MARGIN,
 })

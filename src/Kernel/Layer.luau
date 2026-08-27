@@ -15,10 +15,10 @@
 --]=]
 
 local Fault = require("../Contract/Fault")
-local Op = require("../Contract/Op")
+local Contract = require("../Contract/Op")
 
-type Op = Op.Op
-type Reducer<S> = Op.Reducer<S>
+type Op = Contract.Op
+type Reducer<S> = Contract.Reducer<S>
 
 type Data = { [any]: any }
 
@@ -51,14 +51,11 @@ local function Carried(Next: any, Data: Data, Owns: { Owned }): any
 		return Next
 	end
 
+	local Merged = table.clone(Plain)
 	for _, Owned in Owns do
 		if Plain[Owned.Field] ~= nil and Plain[Owned.Field] ~= Data[Owned.Field] then
 			Fault.Broke(`your reducer wrote its own {Owned.Field}, so Ledger put {Owned.Says} back`)
 		end
-	end
-
-	local Merged = table.clone(Plain)
-	for _, Owned in Owns do
 		Merged[Owned.Field] = Data[Owned.Field]
 	end
 	return Merged

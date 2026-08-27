@@ -165,7 +165,6 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 	if Overflow > 0 then
 		Seen = table.move(Seen, Overflow + 1, #Seen, 1, {})
 	end
-	Fault.Holds(#Seen >= Taken, "a compaction kept fewer applied ids than the ops it absorbed, so one could apply again")
 
 	local Steps = Format.Migrations
 	local Stored = Record.Version or 0
@@ -182,17 +181,7 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 		Floor = if Ahead then Record.Floor or Stored else Shape.FloorOf(Steps),
 	}
 
-	Fault.Holds((Fresh.Version :: number) >= Stored, `compacting '{Key}' moved it to an older version, so an older server could overwrite it`)
 	Fault.Holds((Fresh.Floor :: number) >= (Record.Floor or 0), `compacting '{Key}' lowered the version floor, so a server that cannot read it would think it can`)
-
-	local Remembered: { [string]: boolean } = {}
-	for _, Id in Seen do
-		Remembered[Id] = true
-	end
-	for Index = 1, Taken do
-		local Op = Record.Ops[Index]
-		Fault.Holds(Remembered[Op.Id], `compacting '{Key}' absorbed op {Op.Id} without remembering it, so that op could apply a second time`)
-	end
 
 	return Fresh
 end

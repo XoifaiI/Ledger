@@ -35,7 +35,6 @@ export type ShapeImpl<S> = {
 	__index: ShapeImpl<S>,
 
 	New: (Reducer: Reducer<S>, Initial: S, Migrations: { Migration }?, Handles: { [string]: boolean }?) -> Shape<S>,
-	Floor: (self: Shape<S>) -> number,
 	Rehydrate: (self: Shape<S>, Record: Record<any>) -> S,
 	Fold: (self: Shape<S>, Record: Record<any>) -> S,
 	Certain: (self: Shape<S>, Record: Record<any>, Id: string) -> (boolean, boolean),

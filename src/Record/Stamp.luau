@@ -60,20 +60,23 @@ local function PendingTx(Record: Record): { [string]: string | true }
 	return Set
 end
 
-local function Holds(Record: Record, Id: string): boolean
+local function Find(Record: Record, Id: string): Op?
 	for _, Op in Record.Ops do
 		if Op.Id == Id then
-			return true
+			return Op
 		end
 	end
-	return false
+	return nil
+end
+
+local function Holds(Record: Record, Id: string): boolean
+	return Find(Record, Id) ~= nil
 end
 
 local function Written(Record: Record, Id: string): (boolean, string?, any)
-	for _, Op in Record.Ops do
-		if Op.Id == Id then
-			return true, if type(Op.Print) == "string" then Op.Print else nil, Op.From
-		end
+	local Op = Find(Record, Id)
+	if Op ~= nil then
+		return true, if type(Op.Print) == "string" then Op.Print else nil, Op.From
 	end
 	for _, Seen in Record.Seen do
 		if Seen == Id then

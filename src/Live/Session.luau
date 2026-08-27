@@ -27,7 +27,6 @@ local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")
 local Entries = require("../Kernel/Entries")
 local Measure = require("../Encode/Measure")
-local IsStorable = require("../Encode/Storable")
 local LogTypes = require("../Record/Types")
 local MakeOp = require("../Record/MakeOp")
 local Stamp = require("../Record/Stamp")
@@ -140,15 +139,9 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 
 	local Op = MakeOp.New(Kind, Fields)
 
-	local Named, Unnamed = MakeOp.Stamp(Op)
-	if not Named then
-		Say.Warn(`Ledger: rejected op '{Kind}', {Unnamed}`)
-		return false, INVALID
-	end
-
-	local Storable, Unstorable = IsStorable.Op(Op)
-	if not Storable then
-		Say.Warn(`Ledger: rejected op '{Kind}', {Unstorable}`)
+	local Fine, Wrong = MakeOp.Vet(Op)
+	if not Fine then
+		Say.Warn(`Ledger: rejected op '{Kind}', {Wrong}`)
 		return false, INVALID
 	end
 
@@ -181,15 +174,9 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		return Rejected(INVALID)
 	end
 
-	local Named, Unnamed = MakeOp.Stamp(Op)
-	if not Named then
-		Say.Warn(`Ledger: rejected commit '{Op.Kind}', {Unnamed}`)
-		return Rejected(INVALID)
-	end
-
-	local Storable, Unstorable = IsStorable.Op(Op)
-	if not Storable then
-		Say.Warn(`Ledger: rejected commit '{Op.Kind}', {Unstorable}`)
+	local Fine, Wrong = MakeOp.Vet(Op)
+	if not Fine then
+		Say.Warn(`Ledger: rejected commit '{Op.Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -202,10 +189,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		local Ok, Accepted, Stuck = pcall(function(): (boolean, boolean)
 			Rebuild.Push(self)
 
-			local Fence = self.Fence
-			local Stored = self:Settled((self.Log:Append(self.Key, { Op }, function(Record: Record): boolean
-				return Record.Erased == Fence
-			end, Rebuild.Sifted(self))))
+			local Stored = self:Settled((Rebuild.Append(self, { Op })))
 			local Deadline = Clock.Now() + Tx.TIMEOUT + PENDING_POLL
 			while Stamp.HasPending(Stored) and Clock.Now() < Deadline do
 				Clock.Wait(PENDING_POLL)

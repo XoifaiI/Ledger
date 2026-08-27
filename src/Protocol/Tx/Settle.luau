@@ -38,10 +38,8 @@ local function Settle(Records: Log, TxStore: DataStoreWrapper, Key: string, Reco
 		local Where = Marker.HomeOf(TxStore, Home)
 		Markers[Txid] = Where
 		local Status, Gen, Since = Marker.StatusOf(Where, Txid, Limit)
-		if Status == Marker.COMMITTED then
-			Verdicts[Txid] = { Commit = true, Gen = Gen, Since = Since }
-		elseif Status == Marker.ABORTED then
-			Verdicts[Txid] = { Commit = false, Gen = Gen, Since = Since }
+		if Status == Marker.COMMITTED or Status == Marker.ABORTED then
+			Verdicts[Txid] = { Commit = Status == Marker.COMMITTED, Gen = Gen, Since = Since }
 		end
 	end
 	if next(Verdicts) == nil then

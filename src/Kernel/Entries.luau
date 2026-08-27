@@ -34,8 +34,10 @@ local UNSEEN: Recalled = "Unseen"
 local SAME: Recalled = "Same"
 local OTHER: Recalled = "Other"
 
+local TAGS: { [string]: boolean } = { [TRANSFER] = true, [TX] = true, [ONCE] = true, [SENT] = true, [GRANT] = true }
+
 local function Key(Tag: string, Id: string): string
-	assert(Tag == TRANSFER or Tag == TX or Tag == ONCE or Tag == SENT or Tag == GRANT, "an applied name has to be tagged transfer, transaction, once, sent or grant")
+	assert(TAGS[Tag], "an applied name has to be tagged transfer, transaction, once, sent or grant")
 	assert(type(Id) == "string" and #Id > 0, "an applied name cannot be empty, or two of them would share an entry")
 	return `{Tag}{Id}`
 end
@@ -97,14 +99,31 @@ local function Tagged(Id: any, Tag: string): boolean
 	return type(Id) == "string" and string.sub(Id, 1, #Tag) == Tag
 end
 
+local function Fresh(Stamp: any, Floor: number): boolean
+	local When = At(Stamp)
+	return When ~= nil and When >= Floor
+end
+
 local function AnyOlderThan(Received: { [string]: any }, Floor: number): boolean
 	for _, Stamp in Received do
-		local When = At(Stamp)
-		if When == nil or When < Floor then
+		if not Fresh(Stamp, Floor) then
 			return true
 		end
 	end
 	return false
+end
+
+local function Survivors(Received: { [string]: any }, Floor: number): ({ [string]: any }, boolean)
+	local Kept: { [string]: any } = {}
+	local Dropped = false
+	for Name, Stamp in Received do
+		if Fresh(Stamp, Floor) then
+			Kept[Name] = Stamp
+		else
+			Dropped = true
+		end
+	end
+	return Kept, Dropped
 end
 
 local function Remember(Received: any, Id: string, Stamped: number, Print: string?): { [string]: any }
@@ -121,13 +140,7 @@ local function Remember(Received: any, Id: string, Stamped: number, Print: strin
 		return Kept
 	end
 
-	local Next: { [string]: any } = {}
-	for Name, Stamp in Received do
-		local When = At(Stamp)
-		if When ~= nil and When >= Floor then
-			Next[Name] = Stamp
-		end
-	end
+	local Next = Survivors(Received, Floor)
 	Next[Id] = Mark
 	return Next
 end
@@ -137,18 +150,7 @@ local function Prune(Received: any, Stamped: any): { [string]: any }?
 		return nil
 	end
 
-	local Floor = Stamped - PRUNE_HORIZON
-	local Kept: { [string]: any } = {}
-	local Dropped = false
-	for Name, Stamp in Received do
-		local When = At(Stamp)
-		if When ~= nil and When >= Floor then
-			Kept[Name] = Stamp
-		else
-			Dropped = true
-		end
-	end
-
+	local Kept, Dropped = Survivors(Received, Stamped - PRUNE_HORIZON)
 	return if Dropped then Kept else nil
 end
 

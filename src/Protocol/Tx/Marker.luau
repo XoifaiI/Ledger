@@ -166,11 +166,13 @@ local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrin
 		if Current.Status == PENDING then
 			Current.Status = To
 		end
-		if Shrink ~= nil and Current.Status == ABORTED and Shrink < Current.Total then
-			Current.Total = Shrink
-		end
-		if Shrink ~= nil and Current.Status == ABORTED and Finished(Current) then
-			Current.Dead = true
+		if Shrink ~= nil and Current.Status == ABORTED then
+			if Shrink < Current.Total then
+				Current.Total = Shrink
+			end
+			if Finished(Current) then
+				Current.Dead = true
+			end
 		end
 		return Current
 	end)

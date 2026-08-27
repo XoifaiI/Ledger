@@ -8,7 +8,7 @@
 	the state after the game reducer has had it.
 	This is not a plain layer. It refuses an op before the reducer runs, and its message names the op.
 
-	Return type: A table with Wrap and StampOf.
+	Return type: A table with Wrap.
 	Example usage:
 		local Names = require("./Names")
 		local Reducer = Names.Wrap(Inner)
@@ -57,11 +57,6 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 			end
 			local Marked = table.clone(Plain)
 			Marked._Received = Entries.Remember(Data._Received, Stamp, At, Print)
-
-			if (Marked._Received :: any)[Stamp] == nil then
-				Fault.Broke(`op '{tostring(Op.Kind)}' applied under a name that was not written down, so it could apply again`)
-				return nil
-			end
 			return Marked :: any
 		end
 
@@ -84,5 +79,4 @@ end
 
 return table.freeze({
 	Wrap = Wrap,
-	StampOf = StampOf,
 })

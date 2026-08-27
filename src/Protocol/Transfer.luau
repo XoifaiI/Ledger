@@ -21,8 +21,10 @@
 local Say = require("../Util/Say")
 local Clock = require("../Util/Clock")
 local Fault = require("../Contract/Fault")
+local Horizons = require("../Contract/Horizons")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")
+local Arg = require("../Kernel/Arg")
 local Entries = require("../Kernel/Entries")
 local Fingerprint = require("../Encode/Fingerprint")
 local Ident = require("../Encode/Ident")
@@ -47,6 +49,15 @@ local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
 local HELD = Reasons.Held
+
+local function Stopped(Why: Reason): Reserved
+	return { Outcome = "Stopped", Why = Why }
+end
+
+local function Spent(Tid: string): Reserved
+	Say.Warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
+	return Stopped(SPENT)
+end
 
 local function Terms(From: number | string, To: number | string, Amount: number): string
 	return Fingerprint.Of(Fingerprint.Canon({ From = tostring(From), To = tostring(To), Amount = Amount }))
@@ -75,8 +86,8 @@ local function Delivered(Records: Log, Format: Format, To: number | string, Tid:
 end
 
 local function Reserve(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): Reserved
-	if not (type(Amount) == "number" and Amount > 0 and Amount < math.huge) then
-		return { Outcome = "Stopped", Why = REFUSED }
+	if not Arg.Positive(Amount) then
+		return Stopped(REFUSED)
 	end
 
 	local Tid = Id or Ident.Fresh()
@@ -88,8 +99,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 			return { Outcome = "Finished" }
 		end
 		if Already == Entries.OTHER then
-			Say.Warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
-			return { Outcome = "Stopped", Why = SPENT }
+			return Spent(Tid)
 		end
 	end
 
@@ -111,11 +121,11 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		end
 
 		local At = Escrowed.At
-		if type(At) == "number" and Clock.Now() - At > Escrow.REDRIVE_HORIZON then
+		if type(At) == "number" and Clock.Now() - At > Horizons.REDRIVE then
 			Say.Warn(
 				`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again, so recovery owns it now and this call left it alone. it is finished or given back on its own`
 			)
-			return { Outcome = "Stopped", Why = HELD }
+			return Stopped(HELD)
 		end
 
 		return { Outcome = "Escrowed", Tid = Tid, Hold = Escrowed }
@@ -123,20 +133,19 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 	local Spend = Entries.Recall((State :: any)._Received, Entries.SENT, Tid, Print)
 	if Spend == Entries.OTHER then
-		Say.Warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
-		return { Outcome = "Stopped", Why = SPENT }
+		return Spent(Tid)
 	end
 	if Spend == Entries.SAME or Stamp.Carries(Record, `{Escrow.SETTLE_ID}:{Tid}`) then
 		return { Outcome = "Finished" }
 	end
 	if Stamp.Carries(Record, `{Escrow.EXPIRE_ID}:{Tid}`) then
-		return { Outcome = "Stopped", Why = SPENT }
+		return Stopped(SPENT)
 	end
 	if Stamp.HasPending(Record) then
-		return { Outcome = "Stopped", Why = BUSY }
+		return Stopped(BUSY)
 	end
 
-	return { Outcome = "Stopped", Why = REFUSED }
+	return Stopped(REFUSED)
 end
 
 local function Settle(Records: Log, From: number | string, Tid: string, Print: string?): Record

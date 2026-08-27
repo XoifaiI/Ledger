@@ -13,10 +13,10 @@
 --]=]
 
 local NoYield = require("../Util/NoYield")
-local Op = require("../Contract/Op")
+local Contract = require("../Contract/Op")
 
-type Op = Op.Op
-type Reducer<S> = Op.Reducer<S>
+type Op = Contract.Op
+type Reducer<S> = Contract.Reducer<S>
 
 local function Step<S>(Reducer: Reducer<S>, State: S, Op: Op): S?
 	local Ok, Next = NoYield.Try(Reducer, State, Op)

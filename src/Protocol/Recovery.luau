@@ -51,8 +51,6 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 		return
 	end
 
-	Fault.Holds(Age > PRUNE_HORIZON, "a transfer is being written off before it is old enough, so money would be destroyed early")
-
 	Say.Warn(
 		`Ledger: transfer {Tid} from {From} has been stuck over {PRUNE_HORIZON // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
 	)

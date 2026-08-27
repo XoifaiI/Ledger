@@ -14,6 +14,7 @@
 --]=]
 
 local Say = require("./Say")
+local Carried = require("./Carried")
 
 type Handler = (() -> ...any) -> (boolean, ...any)
 
@@ -28,10 +29,6 @@ local DEFAULT_ATTEMPTS = 5
 local DEFAULT_CONSTANT = 1
 local DEFAULT_EXPONENT = 1.5
 local DEFAULT_JITTER = 0.5
-
-local function Settled(Err: any): boolean
-	return type(Err) == "table" and (Err :: { Ledger: unknown }).Ledger == true
-end
 
 local function RetryAsync(Callback: () -> ...any, Limits: Limits?, Handler: Handler?): (boolean, ...any)
 	local Bounds: Limits = Limits or {}
@@ -56,7 +53,7 @@ local function RetryAsync(Callback: () -> ...any, Limits: Limits?, Handler: Hand
 			Say.Warn(`Ledger: RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
 		end
 
-		if Result[1] or Attempt >= Allowed or Settled(Result[2]) then
+		if Result[1] or Attempt >= Allowed or Carried.Is(Result[2]) then
 			return table.unpack(Result, 1, Result.n)
 		end
 

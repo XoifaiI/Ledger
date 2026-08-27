@@ -8,10 +8,13 @@
 	A rule that refuses with no reason is quiet. The caller asked, and the answer is no,
 	which is not a failure.
 
-	Return type: A table with New, Quiet and Refuse.
+	A pass is made once and cleared before each run, because a datastore may run one transform more
+	than one time. New and Reset are next to each other so a part added to a pass is cleared as well.
+
+	Return type: A table with New, Reset and Quiet.
 	Example usage:
 		local Rule = require("./Rule")
-		Rule.Refuse(Pass, Reasons.Busy)
+		Rule.Quiet(Pass)
 --]=]
 
 local Contract = require("../Contract/Op")
@@ -37,16 +40,18 @@ local function Quiet(Pass: Pass)
 	Pass.Silent = true
 end
 
-local function Refuse(Pass: Pass, Why: Reason)
-	Pass.Refused = Why
-end
-
 local function New(): Pass
 	return { Refused = nil, Silent = false, Notes = {} }
 end
 
+local function Reset(Pass: Pass)
+	Pass.Refused = nil
+	Pass.Silent = false
+	table.clear(Pass.Notes)
+end
+
 return table.freeze({
 	New = New,
+	Reset = Reset,
 	Quiet = Quiet,
-	Refuse = Refuse,
 })

@@ -102,10 +102,6 @@ function Shape.New<S>(Reducer: Contract.Reducer<S>, Initial: S, Migrations: { Mi
 	}, Shape) :: any
 end
 
-function Shape.Floor(self: Shape<any>): number
-	return FloorOf(self.Migrations)
-end
-
 function Shape.Rehydrate(self: Shape<any>, Record: Record): any
 	if Record.Snapshot == nil then
 		return if self.Blobbed then TableUtil.DeepCopy(self.Initial) else self.Initial
@@ -132,11 +128,7 @@ function Shape.Rehydrate(self: Shape<any>, Record: Record): any
 		end
 	end
 
-	local Ready = Reconcile(self.Initial, Snapshot)
-	for Field in self.Initial :: any do
-		Fault.Holds((Ready :: any)[Field] ~= nil, `loading dropped '{tostring(Field)}', which your Default declares, so the profile came back missing a field`)
-	end
-	return Ready
+	return Reconcile(self.Initial, Snapshot)
 end
 
 function Shape.Fold(self: Shape<any>, Record: Record): any

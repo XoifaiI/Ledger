@@ -9,7 +9,10 @@
 	in the future would hold the name past its own horizon. A time further back than the window is
 	already past it, so the next write that carries a name drops it and the op could apply again.
 
-	Return type: A table with New and Stamp.
+	Vet is the whole check an op has to pass before it is offered anywhere: it is stamped, then it is
+	held against what a datastore can store. The three places that take an op from a game share it.
+
+	Return type: A table with New, Stamp and Vet.
 	Example usage:
 		local MakeOp = require("./MakeOp")
 		local Op = MakeOp.New("Add", { Amount = 5 })
@@ -19,6 +22,7 @@ local Say = require("../Util/Say")
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
 local Ident = require("../Encode/Ident")
+local IsStorable = require("../Encode/Storable")
 local Contract = require("../Contract/Op")
 local Horizons = require("../Contract/Horizons")
 
@@ -48,6 +52,14 @@ local function Stamp(Op: Op): (boolean, string?)
 	return true, nil
 end
 
+local function Vet(Op: Op): (boolean, string?)
+	local Named, Unnamed = Stamp(Op)
+	if not Named then
+		return false, Unnamed
+	end
+	return IsStorable.Op(Op)
+end
+
 local function MakeOp(Kind: string, Fields: { [any]: any }?): Op
 	assert(type(Kind) == "string" and #Kind > 0, "an op needs a Kind, a non-empty string")
 	assert(Fields == nil or type(Fields) == "table", `op '{Kind}' Fields must be a table when given`)
@@ -67,4 +79,5 @@ end
 return table.freeze({
 	New = MakeOp,
 	Stamp = Stamp,
+	Vet = Vet,
 })

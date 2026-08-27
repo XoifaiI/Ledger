@@ -17,14 +17,12 @@
 		local Value = NoYield.Run(Callback, 1, 2)
 --]=]
 
+local Carried = require("./Carried")
+
 local YIELDED = "the callback must complete without yielding"
 
 local DONE = newproxy(false)
 local Idle: { thread } = {}
-
-local function Carried(Raised: any): boolean
-	return type(Raised) == "table" and (Raised :: { Ledger: unknown }).Ledger == true
-end
 
 local function Serve(Callback: (...any) -> ...any, First: any, Second: any): ...any
 	return coroutine.yield(DONE, Callback(First, Second))
@@ -39,7 +37,7 @@ end
 
 local function Finish(Thread: thread, Success: boolean, Signal: any, ...: any): ...any
 	if not Success then
-		if Carried(Signal) then
+		if Carried.Is(Signal) then
 			error(Signal, 0)
 		end
 		error(debug.traceback(Thread, tostring(Signal)), 2)
@@ -57,7 +55,7 @@ end
 
 local function Answer(Thread: thread, Success: boolean, Signal: any, ...: any): (boolean, ...any)
 	if not Success then
-		if Carried(Signal) then
+		if Carried.Is(Signal) then
 			return false, Signal
 		end
 		return false, debug.traceback(Thread, tostring(Signal))

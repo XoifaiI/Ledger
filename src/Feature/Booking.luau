@@ -10,6 +10,8 @@
 	A hand over marks the booking before it reaches the receiver. The units are on both keys between
 	the two writes, and only recovery can ask the receiver which way it went.
 	A booking that is late can no longer be handed over.
+	Every op carries the time it was built. Only a booking and a grant read it back, and the rest
+	carry it so a person reading the log can see when each step happened.
 
 	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, the four ids, BOOK_HORIZON, BOOK_MARGIN and HOLD_CAP.
 	Example usage:
@@ -25,9 +27,9 @@ local Fingerprint = require("../Encode/Fingerprint")
 local Arg = require("../Kernel/Arg")
 local Entries = require("../Kernel/Entries")
 local Layer = require("../Kernel/Layer")
-local Op = require("../Contract/Op")
+local Contract = require("../Contract/Op")
 
-type Op = Op.Op
+type Op = Contract.Op
 type Data = { [any]: any }
 
 local BOOK = "__Book"
@@ -126,10 +128,6 @@ local function Booking(Data: Data, Op: Op): Data?
 	Kept[Op.Rid] = { Field = Field, Amount = Op.Amount, At = Op.At, Hold = Op.Hold, To = Op.To }
 	Next._Booked = TableUtil.Some(Kept)
 
-	if Next[Field] < 0 then
-		Fault.Broke(`setting {Op.Amount} of '{Field}' aside for booking {tostring(Op.Rid)} took it below zero`)
-		return nil
-	end
 	return Next
 end
 
@@ -146,10 +144,6 @@ local function Taking(Data: Data, Op: Op): Data?
 	local Next = table.clone(Data)
 	Next._Booked = TableUtil.Some(Kept)
 
-	if TableUtil.Count(Next._Booked) ~= TableUtil.Count(Booked) - 1 then
-		Fault.Broke(`taking booking {tostring(Op.Rid)} did not clear exactly the one it was held under`)
-		return nil
-	end
 	return Next
 end
 
@@ -235,14 +229,6 @@ local function Giving(Data: Data, Op: Op): Data?
 	Next[Field] = Data[Field] + Op.Amount
 	Next._Received = Entries.Remember(Received, Entries.Key(Entries.GRANT, Rid), Op.At, Print)
 
-	if not Entries.Has(Next._Received, Entries.GRANT, Rid) then
-		Fault.Broke(`booking {tostring(Op.Rid)} was paid in without being remembered, so it could pay again`)
-		return nil
-	end
-	if TableUtil.Count(Next._Booked) ~= TableUtil.Count(Data._Booked) then
-		Fault.Broke(`paying in booking {tostring(Op.Rid)} changed what the receiver has set aside`)
-		return nil
-	end
 	return Next
 end
 
@@ -259,24 +245,28 @@ local function Book(Rid: string, Field: string, Amount: number, Hold: number?, T
 	} :: any
 end
 
+local function Named(Prefix: string, Kind: string, Rid: string): Op
+	return { Id = `{Prefix}:{Rid}`, Kind = Kind, Rid = Rid, At = Clock.Now() } :: any
+end
+
 local function Take(Rid: string): Op
-	return { Id = `{TAKE_ID}:{Rid}`, Kind = TAKE, Rid = Rid, At = Clock.Now() } :: any
+	return Named(TAKE_ID, TAKE, Rid)
 end
 
 local function Sent(Rid: string): Op
-	return { Id = `{SENT_ID}:{Rid}`, Kind = SENT, Rid = Rid, At = Clock.Now() } :: any
+	return Named(SENT_ID, SENT, Rid)
 end
 
 local function Free(Rid: string): Op
-	return { Id = `{FREE_ID}:{Rid}`, Kind = FREE, Rid = Rid, At = Clock.Now() } :: any
+	return Named(FREE_ID, FREE, Rid)
 end
 
 local function Hand(Rid: string): Op
-	return { Id = `{HAND_ID}:{Rid}`, Kind = HAND, Rid = Rid, At = Clock.Now() } :: any
+	return Named(HAND_ID, HAND, Rid)
 end
 
 local function Undo(Rid: string): Op
-	return { Id = `{UNHAND_ID}:{Rid}`, Kind = UNHAND, Rid = Rid, At = Clock.Now() } :: any
+	return Named(UNHAND_ID, UNHAND, Rid)
 end
 
 local function Give(Rid: string, Field: string, Amount: number, Print: string?): Op

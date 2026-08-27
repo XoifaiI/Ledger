@@ -71,15 +71,9 @@ function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: an
 
 	local Op = MakeOp.New(Kind, Fields)
 
-	local Named, Unnamed = MakeOp.Stamp(Op)
-	if not Named then
-		Say.Warn(`Ledger: Edit rejected op '{Kind}', {Unnamed}`)
-		return Rejected(INVALID)
-	end
-
-	local Storable, Unstorable = IsStorable.Op(Op)
-	if not Storable then
-		Say.Warn(`Ledger: Edit rejected op '{Kind}', {Unstorable}`)
+	local Fine, Wrong = MakeOp.Vet(Op)
+	if not Fine then
+		Say.Warn(`Ledger: Edit rejected op '{Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -94,7 +88,7 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 	local ToKey = self:Resolve(To, "Transfer")
 	assert(FromKey ~= ToKey, `Transfer needs two different keys, both resolved to '{FromKey}'`)
 	Arg.Amount(Amount, "Transfer")
-	Arg.Name(Id, MAX_TRANSFER_ID, "Transfer Id", true)
+	Arg.Maybe(Id, MAX_TRANSFER_ID, "Transfer Id")
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Moved, Why, Escrowed = pcall(function(): (boolean, Reason?, boolean?)
@@ -120,7 +114,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 	local Resolved = self:Resolve(Key, "Reserve")
 	Arg.Field(self.Initial, Field, "Reserve")
 	Arg.Amount(Amount, "Reserve")
-	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Reserve", false)
+	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Reserve")
 
 	local Extra: HoldOptions = Options or {}
 	assert(type(Extra) == "table", "Reserve takes an options table after the Id when you pass one")
@@ -138,51 +132,40 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 		)
 	end
 
-	local Op = Booking.Book(Rid :: string, Field, Amount, Hold, To)
+	local Op = Booking.Book(Rid, Field, Amount, Hold, To)
 
 	return Future.New(function(): (boolean, Reason?)
 		return self:Written(Resolved, Op, `reserve {Amount} {Field}`)
 	end)
 end
 
-function Store.Confirm(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
-	local Resolved = self:Resolve(Key, "Confirm")
-	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Confirm", false) :: string
-	local Op = Booking.Take(Rid)
+local function Standing(self: Store, Key: KeyLike, Id: string, What: string, Make: (string) -> Op, Wanted: string): Future<boolean, Reason?>
+	local Resolved = self:Resolve(Key, What)
+	local Rid = Arg.Name(Id, MAX_BOOKING_ID, What)
+	local Doing = string.lower(What)
+	local Op = Make(Rid)
 
 	return Future.New(function(): (boolean, Reason?)
-		local Ok, Why = self:Written(Resolved, Op, `confirm booking '{Rid}'`, function(Record: Record): boolean
+		local Ok, Why = self:Written(Resolved, Op, `{Doing} booking '{Rid}'`, function(Record: Record): boolean
 			local Booked = Booking.Entry((self:Fold(Record) :: any)._Booked, Rid)
 			return Booked == nil or Booked.Handing ~= true
 		end, HELD)
 
 		if Why == HELD then
 			Say.Warn(
-				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to spend. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
+				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to {Wanted}. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
 			)
 		end
 		return Ok, Why
 	end)
 end
 
+function Store.Confirm(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
+	return Standing(self, Key, Id, "Confirm", Booking.Take, "spend")
+end
+
 function Store.Release(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
-	local Resolved = self:Resolve(Key, "Release")
-	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Release", false) :: string
-	local Op = Booking.Free(Rid)
-
-	return Future.New(function(): (boolean, Reason?)
-		local Ok, Why = self:Written(Resolved, Op, `release booking '{Rid}'`, function(Record: Record): boolean
-			local Booked = Booking.Entry((self:Fold(Record) :: any)._Booked, Rid)
-			return Booked == nil or Booked.Handing ~= true
-		end, HELD)
-
-		if Why == HELD then
-			Say.Warn(
-				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to give back. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
-			)
-		end
-		return Ok, Why
-	end)
+	return Standing(self, Key, Id, "Release", Booking.Free, "give back")
 end
 
 function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any }): boolean
@@ -228,7 +211,7 @@ end
 
 function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Grant")
-	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Grant", false) :: string
+	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Grant")
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Gave = pcall(function(): boolean

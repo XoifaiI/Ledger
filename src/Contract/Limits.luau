@@ -2,7 +2,7 @@
 --!optimize 2
 
 --[=[
-	Limits: Every byte cap Ledger holds itself to, in one place a test can move.
+	Limits: Every cap Ledger holds itself to, in one place a test can move.
 
 	The defaults are the real ones. A datastore value stops at 4 MB, and the rest are cut from that
 	so a record always has room for the op that is about to go on it.
@@ -10,7 +10,9 @@
 	brings its margin down with it and the order they fire in never changes.
 	This is the one table in Ledger that is not frozen. A harness that shrinks these reaches the same
 	refusals with a hundredth of the data, which is the only reason it can be written to at all. Set
-	takes whole bytes and Reset puts the real ones back.
+	takes whole bytes and Reset puts the real ones back. Depth counts levels rather than bytes, and
+	is the one cap here that neither of them moves, because a value that nests that far is cyclic
+	whatever size the rest of the caps are cut to.
 
 	Return type: A table of the caps, with Set and Reset.
 	Example usage:
@@ -26,22 +28,27 @@ export type Sizes = {
 	read Compact: number?,
 }
 
-local VALUE = 4 * 1024 * 1024
-local STATE = 2 * 1024 * 1024
-local OP = 1024 * 1024
-local LOG = 1536 * 1024
-local COMPACT = 1024 * 1024
+local DEFAULTS: { [string]: number } = {
+	Value = 4 * 1024 * 1024,
+	State = 2 * 1024 * 1024,
+	Op = 1024 * 1024,
+	Log = 1536 * 1024,
+	Compact = 1024 * 1024,
+}
+
+local DEPTH = 64
 
 local VALUE_MARGIN = 8
 local STATE_MARGIN = 4
 local HELD_MARGIN = 6
 
 local Limits = {
-	Value = VALUE,
-	State = STATE,
-	Op = OP,
-	Log = LOG,
-	Compact = COMPACT,
+	Value = DEFAULTS.Value,
+	State = DEFAULTS.State,
+	Op = DEFAULTS.Op,
+	Log = DEFAULTS.Log,
+	Compact = DEFAULTS.Compact,
+	Depth = DEPTH,
 
 	Held = 0,
 	StateFloor = 0,
@@ -62,7 +69,7 @@ local function Set(Sizes: Sizes)
 	assert(type(Sizes) == "table", "Limits.Set takes a table of byte counts")
 
 	local Given = Sizes :: { [string]: any }
-	for _, Named in { "Value", "State", "Op", "Log", "Compact" } do
+	for Named in DEFAULTS do
 		local Held = Given[Named]
 		if Held == nil then
 			continue
@@ -79,11 +86,9 @@ local function Set(Sizes: Sizes)
 end
 
 local function Reset()
-	Limits.Value = VALUE
-	Limits.State = STATE
-	Limits.Op = OP
-	Limits.Log = LOG
-	Limits.Compact = COMPACT
+	for Named, Held in DEFAULTS do
+		Loose[Named] = Held
+	end
 	Derive()
 end
 

@@ -11,7 +11,10 @@
 	Rebuild writes an op only if the record will take it. An op that the record turns away leaves the
 	queue, because the record turns it away every time.
 
-	Return type: A table with Push, Sifted, Rebuild, ApplyPending and SumBytes.
+	The fence rule lives in Append, so every write a session makes carries it and there is one place
+	that says a write lands only while the erase mark is unchanged.
+
+	Return type: A table with Append, Push, Rebuild, ApplyPending and SumBytes.
 	Example usage:
 		local Rebuild = require("./Rebuild")
 		local Stored, Whole = Rebuild.Push(Active)
@@ -74,6 +77,13 @@ local function Sifted<S>(self: Session<S>): (Record) -> (Op) -> boolean
 	end
 end
 
+local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string })
+	local Fence = self.Fence
+	return self.Log:Append(self.Key, Ops, function(Record: Record): boolean
+		return Record.Erased == Fence
+	end, Sifted(self))
+end
+
 local function Push<S>(self: Session<S>): (Record?, boolean?)
 	local Count = #self.Pending
 	if Count == 0 then
@@ -81,10 +91,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	end
 
 	local Batch = table.move(self.Pending, 1, Count, 1, {})
-	local Fence = self.Fence
-	local Stored, Turned = self.Log:Append(self.Key, Batch, function(Record: Record): boolean
-		return Record.Erased == Fence
-	end, Sifted(self))
+	local Stored, Turned = Append(self, Batch)
 
 	local Landed: { [string]: boolean } = {}
 	for _, Op in Stored.Ops do
@@ -115,7 +122,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	end
 	Fault.Holds(Missed <= Count, "a push lost more ops than it was given, so one was counted twice")
 
-	if Missed == Count and #Turned == 0 and Stored.Erased ~= Fence then
+	if Missed == Count and #Turned == 0 and Stored.Erased ~= self.Fence then
 		self.Released = true
 		Say.Warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
 	end
@@ -169,9 +176,11 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 	local Base: S = self.Shape:Rehydrate(Stored)
 	local State, Accepted = Fold(Base, Stored.Ops, self.Shape.Reducer, Mark)
 	local Applied: { [string]: boolean } = {}
+	local Written: { [string]: boolean } = {}
 	local Waiting: { [string]: boolean } = {}
 	local Parked = 0
 	for _, Op in Stored.Ops do
+		Written[Op.Id] = true
 		if Op.Tx == nil then
 			Applied[Op.Id] = true
 		elseif type(Op.Tx) == "string" and not Waiting[Op.Tx] then
@@ -194,10 +203,6 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 	local Reach = Compact.Bulk(Stored) + self.LogBytes
 	self.StateBytes = if Reach > Limits.StateFloor then Measure(State) else Reach
 
-	local Written: { [string]: boolean } = {}
-	for _, Op in Stored.Ops do
-		Written[Op.Id] = true
-	end
 	for _, Op in self.Pending do
 		Fault.Holds(not Written[Op.Id], `op {Op.Id} is queued and already in the log for '{self.Key}', so it would be counted and folded twice`)
 	end
@@ -206,8 +211,8 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 end
 
 return table.freeze({
+	Append = Append,
 	Push = Push,
-	Sifted = Sifted,
 	Rebuild = Rebuild,
 	ApplyPending = ApplyPending,
 	SumBytes = SumBytes,

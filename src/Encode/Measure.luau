@@ -3,7 +3,17 @@
 --!native
 
 --[=[
-	Measure: Counts the bytes of a stored value.
+	Measure: Counts the bytes a value takes once a datastore has it as json.
+
+	The count is exact rather than an estimate, because every cap in Ledger is decided against it and
+	a write that is refused one byte late is a write that fails at the datastore instead.
+	A string is the expensive part, so its scan reads four bytes at a time and only walks a group
+	byte by byte when a lane in it holds a quote, a backslash or a control character. EXTRA holds how
+	many extra bytes each byte costs once escaped, so a dirty lane costs a lookup rather than a
+	branch. SCRATCH is one buffer the scan reuses, which is safe because nothing here yields and the
+	scan never runs inside itself.
+	A table starts at two bytes for its braces and adds one separator per entry, then gives the last
+	one back, which is what the two at the top and the take away at the bottom are for.
 
 	Return type: A function that gives back the number of bytes.
 	Example usage:
@@ -11,9 +21,11 @@
 		local Bytes = Measure(State)
 --]=]
 
+local Limits = require("../Contract/Limits")
+
 local MAX_EXACT = 2 ^ 53
 local BUFFER_WRAP = 35
-local MAX_DEPTH = 64
+local MAX_DEPTH = Limits.Depth
 local FRACTION_MARGIN = 3
 
 local TOO_DEEP = "Measure went deeper than a storable value can nest, so the value is cyclic"
@@ -212,8 +224,8 @@ local function MeasureValue(Value: any, Depth: number): number
 	return 0
 end
 
-local function Measure(Value: any, Depth: number?): number
-	return MeasureValue(Value, Depth or 0)
+local function Measure(Value: any): number
+	return MeasureValue(Value, 0)
 end
 
 return Measure

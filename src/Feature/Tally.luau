@@ -21,9 +21,9 @@ local Fingerprint = require("../Encode/Fingerprint")
 local Ident = require("../Encode/Ident")
 local Arg = require("../Kernel/Arg")
 local Layer = require("../Kernel/Layer")
-local Op = require("../Contract/Op")
+local Contract = require("../Contract/Op")
 
-type Op = Op.Op
+type Op = Contract.Op
 type Data = { [any]: any }
 
 local BUMP = "__Bump"

@@ -40,13 +40,13 @@ local UNRESOLVED = Reasons.Unresolved
 
 local REJECTED: Admitted<any> = table.freeze({ Outcome = "Rejected" }) :: any
 
-local function Refused(Why: Reason, Message: string): Admitted<any>
-	Say.Warn(Message, 1)
+local function Refused(Kind: string, Why: Reason, Says: string): Admitted<any>
+	Say.Warn(`Ledger: rejected op '{Kind}', {Says}`, 1)
 	return { Outcome = "Refused", Why = Why }
 end
 
-local function Rejected(Message: string): Admitted<any>
-	Say.Warn(Message, 1)
+local function Rejected(Kind: string, Says: string): Admitted<any>
+	Say.Warn(`Ledger: rejected op '{Kind}', {Says}`, 1)
 	return REJECTED
 end
 
@@ -55,14 +55,14 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	local Key = self.Key
 
 	if self.Released then
-		return Refused(CLOSED, `Ledger: rejected op '{Kind}', that session closed when the player left`)
+		return Refused(Kind, CLOSED, `that session closed when the player left`)
 	end
 
 	if self.LogBytes + OpBytes > Limits.Log then
 		if self.Parked > 0 then
-			return Refused(BUSY, `Ledger: rejected op '{Kind}', '{Key}' has hit the {Limits.Log} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
+			return Refused(Kind, BUSY, `'{Key}' has hit the {Limits.Log} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
 		end
-		return Refused(BACKLOG, `Ledger: rejected op '{Kind}', unsaved ops have hit the {Limits.Log} byte cap. saves are not going through, check the datastore`)
+		return Refused(Kind, BACKLOG, `unsaved ops have hit the {Limits.Log} byte cap. saves are not going through, check the datastore`)
 	end
 
 	local Fine, Next = pcall(NoYield.Run, self.Shape.Reducer, self.State, Op)
@@ -70,25 +70,26 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		if string.find(tostring(Next), NoYield.YIELDED, 1, true) ~= nil then
 			error(Next, 0)
 		end
-		return Rejected(`Ledger: rejected op '{Kind}', your reducer threw: {tostring(Next)}`)
+		return Rejected(Kind, `your reducer threw: {tostring(Next)}`)
 	end
 
 	if Next ~= nil and type(Next) ~= "table" then
-		return Refused(INVALID, `Ledger: rejected op '{Kind}', your reducer handed back a {typeof(Next)} instead of the next state table`)
+		return Refused(Kind, INVALID, `your reducer handed back a {typeof(Next)} instead of the next state table`)
 	end
 
 	if Next == nil then
 		local Waiting = self.Landed
 		if Waiting ~= nil and not Durable and Step(self.Shape.Reducer, Waiting, Op) ~= nil then
-			return Refused(UNRESOLVED, `Ledger: rejected op '{Kind}', a transaction is parked on '{Key}' and this op only holds if that transaction goes through. ask again once it settles`)
+			return Refused(Kind, UNRESOLVED, `a transaction is parked on '{Key}' and this op only holds if that transaction goes through. ask again once it settles`)
 		end
 		return REJECTED
 	end
 
 	if self.Parked > 1 and not Durable then
 		return Refused(
+			Kind,
 			UNRESOLVED,
-			`Ledger: rejected op '{Kind}', more than one transaction is parked on '{Key}' and this op only holds for some of the ways they can settle. ask again once they clear`
+			`more than one transaction is parked on '{Key}' and this op only holds for some of the ways they can settle. ask again once they clear`
 		)
 	end
 
@@ -97,17 +98,17 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	if Parked ~= nil and not Durable then
 		Also = Step(self.Shape.Reducer, Parked, Op)
 		if Also == nil then
-			return Refused(UNRESOLVED, `Ledger: rejected op '{Kind}', a transaction is parked on '{Key}' and this op only holds if that transaction does not go through. ask again once it settles`)
+			return Refused(Kind, UNRESOLVED, `a transaction is parked on '{Key}' and this op only holds if that transaction does not go through. ask again once it settles`)
 		end
 	end
 
 	if self.StateBytes + OpBytes > Limits.StateFloor then
 		local Counted, Bytes = pcall(Measure, Next)
 		if not Counted then
-			return Refused(INVALID, `Ledger: rejected op '{Kind}', your reducer built state a datastore cannot hold: {tostring(Bytes)}`)
+			return Refused(Kind, INVALID, `your reducer built state a datastore cannot hold: {tostring(Bytes)}`)
 		end
 		if Bytes > Limits.State and Bytes > Measure(self.State) then
-			return Refused(FULL, `Ledger: rejected op '{Kind}', this profile is already at the {Limits.State} byte cap and the op would make it bigger`)
+			return Refused(Kind, FULL, `this profile is already at the {Limits.State} byte cap and the op would make it bigger`)
 		end
 		return { Outcome = "Accepted", Next = Next, Bytes = Bytes, Also = Also }
 	end
