@@ -536,6 +536,24 @@ Cases.Case("a compacted tally reads the same on a build that changed the Default
 	T:Is("a tally that build has never been bumped", Read.Store:Total("other", "Gold"):Wait(), 0)
 end)
 
+Cases.Case("a shard holding a total below zero is caught and not counted", function(T: Case)
+	local Shelf = T:Store({ Default = { Gold = 0 }, Reducer = Reducers.Keep, Data = "CaseTallyBent" })
+	local Shard = Tally.Shard("bent", Tally.Mine())
+
+	Shelf:Write(Shard, { Snapshot = { Gold = 0, [Tally.FIELD] = { Gold = -50 } }, Ops = {}, Seen = {} })
+
+	local Said = Suite.Invariants.Tallies(Shelf.Plate, Shelf.Data, { "bent" }, Shelf:Format(), Shelf.Store, "Gold")
+	local Named = false
+	for _, Line in Said do
+		if string.find(Line, "a total only ever goes up", 1, true) ~= nil then
+			Named = true
+		end
+	end
+
+	T:Is("the total a reader is given, which never goes below zero", Shelf.Store:Total("bent", "Gold"):Wait(), 0)
+	T:Is("the check that says a total went backwards", Named, true)
+end)
+
 Cases.Case("a bump that carries no Default is counted like any other", function(T: Case)
 	local Shelf = T:Store({ Default = { Gold = 0 }, Reducer = Reducers.Keep, Data = "CaseTallyMixed" })
 	local Shard = Tally.Shard("pot", Tally.Mine())

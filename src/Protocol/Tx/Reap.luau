@@ -39,7 +39,7 @@ type Lookup = Types.Lookup
 
 local REAP_HORIZON = Horizons.REAP
 local REAP_GRACE = Horizons.REAP_GRACE
-local STUCK_HORIZON = Horizons.PRUNE
+local STUCK_HORIZON = Horizons.STUCK
 local REAP_LIMIT = 64
 local REAP_LOOKS = 16
 local REAP_PAGE = 64
@@ -96,9 +96,8 @@ local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born
 			return false, false
 		end
 
-		local Records = Anywhere(Lookup, Store)
 		local Read, Record = pcall(function(): Record
-			return Records:Read(Key :: string)
+			return Anywhere(Lookup, Store):Read(Key :: string)
 		end)
 		if not Read or not Spent(Record, Txid, Gen, Born) then
 			return false, true

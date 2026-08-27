@@ -9,7 +9,7 @@
 	Every warning Ledger writes is caught for the case that wrote it. A case can then say what Ledger
 	explained, and the run can say that Ledger never accused itself.
 
-	Return type: A table with File, Run, Fault, Reducers, Insides, Entries, Reasons and Horizons.
+	Return type: A table with File, Run, Fault, Reducers, Insides, Invariants, Entries, Reasons and Horizons.
 	Example usage:
 		local Cases = Suite.File("Once")
 		Cases.Case("a replay under the same name changes nothing", function(T) end)
@@ -23,6 +23,7 @@ local Case = require("@self/Case")
 local Fault = require("@self/Fault")
 local Fixture = require("@self/Fixture")
 local Insides = require("@self/Insides")
+local Invariants = require("./Invariants")
 local Reducers = require("@self/Reducers")
 
 export type Case = Case.Case
@@ -185,6 +186,7 @@ return table.freeze({
 	Fault = Fault,
 	Reducers = Reducers,
 	Insides = Insides,
+	Invariants = Invariants,
 	Entries = Lib.Entries,
 	Reasons = Lib.Reasons,
 	Horizons = Lib.Horizons,

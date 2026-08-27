@@ -28,6 +28,7 @@ local REAP = 3600
 local REAP_GRACE = 300
 
 local ONCE_MARGIN = REDRIVE
+local STUCK = PRUNE
 
 local HOLD_CAP = PRUNE - BOOK_MARGIN
 local ONCE_FLOOR = PRUNE - ONCE_MARGIN
@@ -42,6 +43,10 @@ assert(REAP_GRACE < REAP, "a marker that is already finished goes on the shorter
 assert(
 	ONCE_MARGIN >= REDRIVE,
 	"a name a caller stamps in the past has to go on turning a retry away for at least as long as a transfer can still be sent again, or the retry the name exists to stop would land a second time"
+)
+assert(
+	STUCK > REAP,
+	"a marker nothing can judge has to outlive the window an ordinary one is judged in by a wide margin, or a pass would give up on one that a later pass could still have read properly"
 )
 assert(ONCE_FLOOR > 0 and ONCE_FLOOR < PRUNE, "a caller has to be able to stamp a name in the past at all, so the margin cannot take the whole window or none of it")
 assert(
@@ -59,6 +64,7 @@ return table.freeze({
 	REAP = REAP,
 	REAP_GRACE = REAP_GRACE,
 	ONCE_MARGIN = ONCE_MARGIN,
+	STUCK = STUCK,
 	HOLD_CAP = HOLD_CAP,
 	ONCE_FLOOR = ONCE_FLOOR,
 

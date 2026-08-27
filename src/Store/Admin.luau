@@ -250,20 +250,18 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	local Op = MakeOp.New(RESET_KIND, { State = self.Initial, Version = Known, Floor = Shape.FloorOf(Steps) })
 
 	return Future.New(function(): (boolean, Reason?)
-		local Dropping: any = nil
+		local Looked, Before = pcall(function(): any
+			return self:Fold(self:ReadRecord(Resolved))
+		end)
+		local Dropping: any = if Looked and type(Before) == "table" then (Before :: any)._Booked else nil
 
 		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
 			if Stamp.HasPending(Record) then
 				error(Fault.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
 			end
 
-			local Booked = (self:Fold(Record) :: any)._Booked
-			if Booking.Owed(Booked) then
+			if Booking.Owed((self:Fold(Record) :: any)._Booked) then
 				error(Fault.New(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`))
-			end
-
-			if TableUtil.Occupied(Booked) then
-				Dropping = Booked
 			end
 			return (Record.Version or 0) <= Known
 		end, BEHIND)

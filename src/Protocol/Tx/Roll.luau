@@ -99,6 +99,10 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 		local Placed = 0
 		local Ok = TxStore:UpdateAsync(Named(Slot, When, Part), function(Current: any): string?
 			Placed = 0
+			if type(Current) == "string" and #Current > 0 and #Mark.Unpack(Current) == 0 then
+				return nil
+			end
+
 			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
 			local Known: { [string]: boolean } = {}
 			for _, Txid in Held do

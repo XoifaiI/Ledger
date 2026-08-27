@@ -52,6 +52,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		local Stamp, At, Print = StampOf(Op)
 		if Stamp ~= nil then
 			if type(At) ~= "number" then
+				Fault.Broke(`op '{tostring(Op.Kind)}' carries a name with no time on it, so the name could never be aged out`)
 				return nil
 			end
 			local Marked = table.clone(Plain)
