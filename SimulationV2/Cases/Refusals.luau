@@ -559,11 +559,12 @@ Cases.Case("erasing a key with an undeliverable hold says so", function(T: Case)
 	Store:Append("marginA", {
 		{ Id = "res:margin", Kind = "__TransferReserve", To = "marginB", Amount = 40, Tid = "margin", At = T:Now() } :: any,
 	})
+	Store.Store:Erase("marginB"):Wait()
 	T:Advance(7 * 86400 + 43200)
 
 	Store.Store:Erase("marginA"):Wait()
 
-	T:Is("gold to a receiver whose hold is inside the margin", Store:Amount("marginB"), 0)
+	T:Is("gold to a receiver that was erased before the sender", Store:Amount("marginB"), 0)
 	T:Is("gold left on the erased key", Store:Amount("marginA"), 0)
 	T:Warns("it warned that money went with it", "had not finished")
 end)

@@ -6,6 +6,8 @@
 
 	A transfer that is still worth sending is sent again. A transfer that is past its window is
 	given back. A reservation that is past its hold is settled or returned.
+	A hold between those two windows is left alone, because the key can still be given it back. A key
+	that is going away cannot be, so Going sends that one rather than resting it.
 	Each pass has a limit, so a key with many stranded takes several passes and not one long one.
 	A transfer past the prune horizon is written off and not refunded, because the receiver has
 	forgotten the delivery id and a refund could pay twice. Ledger writes a warning, and a person
@@ -77,7 +79,7 @@ local function GiveBack(Records: Log, Format: Format, From: number | string, Tid
 	return Ok
 end
 
-local function Transfers(Records: Log, Format: Format, From: number | string, Held: any): (boolean, boolean)
+local function Transfers(Records: Log, Format: Format, From: number | string, Held: any, Going: boolean?): (boolean, boolean)
 	if type(Held) ~= "table" then
 		return true, false
 	end
@@ -91,8 +93,8 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 		end
 
 		local Age = if type(Entry.At) == "number" then Now - Entry.At else nil
-		local Fresh = Age ~= nil and Age <= REDRIVE_HORIZON
 		local Overdue = Age == nil or Age > REDRIVE_HORIZON + EXPIRE_MARGIN
+		local Fresh = if Going then not Overdue else Age ~= nil and Age <= REDRIVE_HORIZON
 		Fault.Holds(not (Fresh and Overdue), `transfer {Tid} counts as both still worth sending and long overdue, so recovery cannot tell whether to deliver it or give it back`)
 
 		if not Fresh and not Overdue then

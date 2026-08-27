@@ -8,6 +8,9 @@
 	These are the only paths that throw data away, so each one says what went with it.
 	An erase keeps the applied names in the tombstone and throws the rest away, so a transfer that
 	arrived before the erase cannot pay in again.
+	An erase tells recovery the key is going, so a hold recovery would have rested is sent instead, and
+	it hands over each reservation owed to another key. Neither is kept for a key that will not be
+	there to be given it back.
 	The first erase leaves a tombstone. Only an erase that finds an old tomb removes the key, so a
 	caller that wants the key gone must call Erase two times, 8 days apart.
 
@@ -184,7 +187,7 @@ function Store.HandOver(self: Store, Key: string): (number, number)
 	end
 
 	local Sent, Why = pcall(function()
-		Recovery.Transfers(self:Records(), self:Format(), Key, Held)
+		Recovery.Transfers(self:Records(), self:Format(), Key, Held, true)
 	end)
 	if not Sent then
 		Say.Warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)
@@ -196,6 +199,38 @@ function Store.HandOver(self: Store, Key: string): (number, number)
 		return 0, 0
 	end
 	return CountHeld(Left)
+end
+
+function Store.HandBooked(self: Store, Key: string)
+	local Read, State = pcall(function(): any
+		return self:Fold(self:ReadRecord(Key))
+	end)
+	if not Read or type(State) ~= "table" then
+		Say.Warn(`Ledger: could not check '{Key}' for units set aside for another key before erasing it, so any that were owed go with it: {State}`)
+		return
+	end
+
+	local Booked = State._Booked
+	if not TableUtil.Occupied(Booked) then
+		return
+	end
+
+	for Rid in Booked do
+		local Held = Booking.Entry(Booked, Rid)
+		if Held == nil or type(Held.To) ~= "string" then
+			continue
+		end
+
+		local Gave, Moved = pcall(function(): boolean
+			return self:Handed(Key, Rid, Held)
+		end)
+		if Gave and Moved then
+			continue
+		end
+
+		local Says = if Gave then "the booking could not be marked as leaving" else tostring(Moved)
+		Say.Warn(`Ledger: could not hand booking '{Rid}' on '{Key}' over to '{Held.To}' before erasing it, so its {Held.Amount} {Held.Field} goes with the key: {Says}`)
+	end
 end
 
 function Store.Resettle(self: Store, Key: KeyLike): Future<boolean, Reason?>
@@ -291,6 +326,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		if self.Options.Balance then
 			Holds, Amount = self:HandOver(Resolved)
 		end
+		self:HandBooked(Resolved)
 
 		local Steps = self.Migrations
 		local Ok, Replaced = pcall(function(): Record

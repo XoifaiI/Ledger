@@ -110,6 +110,7 @@ export type StoreImpl<D> = {
 	Freed: (self: Store<D>, Key: string, State: any) -> boolean,
 	HeldOn: (self: Store<D>, Key: string) -> (boolean, any),
 	HandOver: (self: Store<D>, Key: string) -> (number, number),
+	HandBooked: (self: Store<D>, Key: string) -> (),
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
 	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
 	ReapMarkers: (self: Store<D>) -> number,

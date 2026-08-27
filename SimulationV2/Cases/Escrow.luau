@@ -1115,4 +1115,26 @@ Cases.Case("a delivery that already landed still settles after the window has pa
 	T:Is("the receiver took nothing from it", Bank:Amount("later"), 137)
 end)
 
+Cases.Case("an erase delivers money recovery was still holding for a refund", function(T: Case)
+	local Bank = Funded(T, { freshA = 1000, freshB = 10, restA = 1000, restB = 10, oldA = 1000, oldB = 10 })
+	Reserve(Bank, "freshA", "freshB", 137)
+	Reserve(Bank, "restA", "restB", 137)
+	Reserve(Bank, "oldA", "oldB", 137)
+
+	T:Advance(2 * 86400)
+	Bank.Store:Erase("freshA"):Wait()
+	T:Is("a hold recovery still sends again", Bank:Amount("freshB"), 147)
+
+	T:Advance(5.5 * 86400)
+	Bank.Store:Erase("restA"):Wait()
+	T:Is("a hold too old to send again but not old enough to give back", Bank:Amount("restB"), 147)
+	T:Is("anything left set aside on the key that went", Bank:Aside("restA"), 0)
+
+	T:Advance(1.5 * 86400)
+	Bank.Store:Erase("oldA"):Wait()
+	T:Is("a hold past the window it is given back in", Bank:Amount("oldB"), 10)
+
+	T:Silent("nothing was written off on the way out", "gone for good")
+end)
+
 return Cases

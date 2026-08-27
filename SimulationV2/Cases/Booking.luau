@@ -758,4 +758,39 @@ Cases.Case("a hold too long to be given back is refused", function(T: Case)
 	T:Is("units set aside by the two that went through", Shelf:Booked("capA"), 2)
 end)
 
+Cases.Case("an erase hands over the units it owes another key", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("shelf", "Stock", 3, "move1", { To = "cart" }):Wait()
+
+	T:Is("stock left on the shelf once it is set aside", Shelf:Amount("shelf"), 7)
+	T:Is("stock the receiver holds before the erase", Shelf:Amount("cart"), 10)
+
+	T:Is("erasing the key the units are owed by", Shelf.Store:Erase("shelf"):Wait(), true)
+
+	T:Is("stock the receiver got", Shelf:Amount("cart"), 13)
+	T:Is("anything still set aside", Shelf:Booked("shelf"), 0)
+	T:Silent("nothing was destroyed on the way out", "destroyed 1 reservation")
+end)
+
+Cases.Case("an erase cannot hand over units the receiver will not take", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("shelf", "Stock", 3, "move1", { To = "cart" }):Wait()
+	Shelf.Store:Erase("cart"):Wait()
+
+	T:Is("erasing the key the units are owed by", Shelf.Store:Erase("shelf"):Wait(), true)
+
+	T:Is("stock the erased receiver got", Shelf:Amount("cart"), 10)
+	T:Warns("it named the booking it could not hand over", "could not hand booking 'move1'")
+	T:Warns("it named what went with the key", "destroyed 1 reservation(s) holding 3 Stock")
+end)
+
+Cases.Case("an erase leaves a booking that is owed to nobody alone", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("shelf", "Stock", 3, "keep1"):Wait()
+
+	T:Is("erasing the key holding it", Shelf.Store:Erase("shelf"):Wait(), true)
+
+	T:Warns("it named what went with the key", "destroyed 1 reservation(s) holding 3 Stock")
+end)
+
 return Cases
