@@ -8,14 +8,20 @@
 	This file is the whole surface that a game can reach.
 	CloseAll cuts each queue down to its last write and gives it fewer tries. A shutdown has seconds,
 	and a queue of retries would spend all of them on one key.
+	New takes any kind with any fields. NewTyped takes a map of the kinds a game writes and what each
+	carries, so every write is checked and a reducer reads its fields with no cast. Both build the
+	same store. NewTyped casts, since neither view is a subtype of the other, and Contract/Public
+	holds their method names against each other so that cast cannot hide drift.
 
-	Return type: A table with Reason, New, UseMock, UseReal, UseClock, UseAsync, Sweep and CloseAll.
+	Return type: A table with Reason, New, NewTyped, UseMock, UseReal, UseClock, UseAsync, Sweep and CloseAll.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
 		local Bank = Ledger.New({ Name = "Bank", Default = { Gold = 0 }, Reducer = Reducer })
+		local Shop = Ledger.NewTyped<<Profile, { Buy: { Item: string } }>>(Options)
 --]=]
 
 local Future = require("@self/Util/Future")
+local Observer = require("@self/Util/Observer")
 local Say = require("@self/Util/Say")
 local DataStoreWrapper = require("@self/Util/DataStoreWrapper")
 local Async = require("@self/Util/Async")
@@ -23,21 +29,28 @@ local Clock = require("@self/Util/Clock")
 local Contract = require("@self/Contract/Op")
 local Public = require("@self/Contract/Public")
 local Reasons = require("@self/Contract/Reason")
+local Typed = require("@self/Contract/Typed")
 local Mock = require("@self/Mock")
 local Tx = require("@self/Protocol/Tx")
 local Registry = require("@self/Store/Registry")
 local Store = require("@self/Store/Store")
 local Vet = require("@self/Store/Vet")
 
-type Future<T...> = Future.Future<T...>
-
 export type Store<D> = Public.Store<D>
+export type TypedStore<D, O> = Public.TypedStore<D, O>
 export type Session<S> = Public.Live<S>
+export type TypedSession<S, O> = Public.TypedLive<S, O>
 export type Config<D> = Public.Config<D>
+export type TypedConfig<D, O> = Public.TypedConfig<D, O>
+export type OpMap = Public.OpMap
 export type TxLeg = Public.TxLeg
 export type HoldOptions = Public.HoldOptions
-export type Op = Contract.Op
-export type Reducer<S> = Contract.Reducer<S>
+export type Op<O = any> = Typed.OpUnion<O>
+export type OpOf<O, K> = Typed.OpOf<O, K>
+export type Reducer<S, O = any> = (State: S, Op: Typed.OpUnion<O>) -> S?
+export type Record<D> = Contract.Record<D>
+export type Future<T...> = Future.Future<T...>
+export type Observer<T> = Observer.Observer<T>
 export type KeyLike = Contract.KeyLike
 export type KeysMode = Contract.KeysMode
 export type Migration = Contract.Migration
@@ -48,6 +61,7 @@ export type Export = {
 	read Reason: typeof(Reasons),
 
 	read New: <D>(Options: Config<D>) -> Store<D>,
+	read NewTyped: <D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>,
 	read UseMock: (Options: Mock.Options?) -> Mock.Service,
 	read UseReal: () -> (),
 	read UseClock: (Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?) -> (),
@@ -61,6 +75,10 @@ local SHUTDOWN_ATTEMPTS = 2
 local function New<D>(Options: Config<D>): Store<D>
 	Vet(Options)
 	return Store.New(Options)
+end
+
+local function NewTyped<D, O>(Options: TypedConfig<D, O>): TypedStore<D, O>
+	return New(Options :: any) :: any
 end
 
 local function UseMock(Options: Mock.Options?): Mock.Service
@@ -143,6 +161,7 @@ return table.freeze({
 	Reason = Reasons,
 
 	New = New,
+	NewTyped = NewTyped,
 	UseMock = UseMock,
 	UseReal = UseReal,
 	UseClock = UseClock,

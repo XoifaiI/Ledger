@@ -8,12 +8,13 @@
 	and not a thing that went wrong, so it does not get a reason.
 
 	A reducer cannot throw at a caller, so Positive answers the same question without one. Amount is
-	the throwing half, for the argument a game hands in.
+	the throwing half, for an argument a game hands in, and Number is the narrowing half, for a field
+	read off an op.
 
 	Name is for an Id a caller must give, and Maybe is the same check for one they may leave out, so
 	neither hands back something a caller has to narrow before using it.
 
-	Return type: A table with Positive, Amount, Field, Name and Maybe.
+	Return type: A table with Positive, Number, Amount, Field, Name and Maybe.
 	Example usage:
 		local Arg = require("./Arg")
 		Arg.Amount(Value, "Transfer")
@@ -21,6 +22,10 @@
 
 local function Positive(Value: any): boolean
 	return type(Value) == "number" and Value > 0 and Value < math.huge
+end
+
+local function Number(Value: any): number?
+	return if Positive(Value) then Value else nil
 end
 
 local function Amount(Value: any, What: string): number
@@ -44,6 +49,7 @@ end
 
 return table.freeze({
 	Positive = Positive,
+	Number = Number,
 	Amount = Amount,
 	Field = Field,
 	Name = Name,

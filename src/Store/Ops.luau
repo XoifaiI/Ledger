@@ -147,7 +147,7 @@ local function Standing(self: Store, Key: KeyLike, Id: string, What: string, Mak
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Why = self:Written(Resolved, Op, `{Doing} booking '{Rid}'`, function(Record: Record): boolean
-			local Booked = Booking.Entry((self:Fold(Record) :: any)._Booked, Rid)
+			local Booked = Booking.Entry(self:Fold(Record)._Booked, Rid)
 			return Booked == nil or Booked.Handing ~= true
 		end, HELD)
 
@@ -168,7 +168,7 @@ function Store.Release(self: Store, Key: KeyLike, Id: string): Future<boolean, R
 	return Standing(self, Key, Id, "Release", Booking.Free, "give back")
 end
 
-function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any }): boolean
+function Store.Handed(self: Store, Key: string, Rid: string, Held: Contract.Booked): boolean
 	local To = Held.To
 	if type(To) ~= "string" then
 		return false
@@ -177,7 +177,7 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: { [any]: any 
 	local Records = self:Records()
 
 	local Marked = Records:Append(Key, { Booking.Hand(Rid) })
-	local Mine = Booking.Entry((self:Fold(Marked) :: any)._Booked, Rid)
+	local Mine = Booking.Entry(self:Fold(Marked)._Booked, Rid)
 	if Mine == nil or not Mine.Handing then
 		return false
 	end

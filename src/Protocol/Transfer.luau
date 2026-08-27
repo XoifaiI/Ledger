@@ -41,7 +41,7 @@ type Reason = Reasons.Reason
 type Log = LogTypes.Log
 type Format = LogTypes.Shape<any>
 
-export type Hold = { To: number | string, Amount: number, At: number }
+export type Hold = Contract.Held
 
 export type Reserved = { read Outcome: "Finished" } | { read Outcome: "Escrowed", read Tid: string, read Hold: Hold } | { read Outcome: "Stopped", read Why: Reason }
 
@@ -113,15 +113,14 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	end)
 	local State = Format:Fold(Record)
 
-	local Holds: any = State._Held
-	local Escrowed: Hold? = if type(Holds) == "table" then Holds[Tid] else nil
+	local Escrowed = Escrow.Entry(State._Held, Tid)
 	if Escrowed ~= nil then
 		if Escrowed.To ~= To or Escrowed.Amount ~= Amount then
 			Say.Warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}, so that is what it pays out, not the {Amount} to {To} you just asked for`)
 		end
 
 		local At = Escrowed.At
-		if type(At) == "number" and Clock.Now() - At > Horizons.REDRIVE then
+		if At ~= nil and Clock.Now() - At > Horizons.REDRIVE then
 			Say.Warn(
 				`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again, so recovery owns it now and this call left it alone. it is finished or given back on its own`
 			)
@@ -131,7 +130,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		return { Outcome = "Escrowed", Tid = Tid, Hold = Escrowed }
 	end
 
-	local Spend = Entries.Recall((State :: any)._Received, Entries.SENT, Tid, Print)
+	local Spend = Entries.Recall(State._Received, Entries.SENT, Tid, Print)
 	if Spend == Entries.OTHER then
 		return Spent(Tid)
 	end
@@ -184,7 +183,7 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 
 	local Cleared = Settle(Records, From, Tid, Print)
 	Fault.Holds(
-		Entries.Has((Format:Fold(Cleared) :: any)._Received, Entries.SENT, Tid),
+		Entries.Has(Format:Fold(Cleared)._Received, Entries.SENT, Tid),
 		`transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`
 	)
 

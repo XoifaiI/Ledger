@@ -153,7 +153,7 @@ local function Known(Record: Record, Op: Op, Format: Shape<any>, Hold: { any }?)
 	end
 
 	if type(Op.Tx) == "string" and type(Op.TxTerms) == "string" then
-		local Recalled = Entries.Recall((Held(Record, Format, Folded) :: any)._Received, Entries.TX, Op.Tx, Op.TxTerms)
+		local Recalled = Entries.Recall(Held(Record, Format, Folded)._Received, Entries.TX, Op.Tx, Op.TxTerms)
 		if Recalled == Entries.OTHER then
 			return VERDICT.Spent
 		end
@@ -172,7 +172,7 @@ local function Known(Record: Record, Op: Op, Format: Shape<any>, Hold: { any }?)
 		return nil
 	end
 
-	if Entries.Has((Held(Record, Format, Folded) :: any)._Received, Entries.TX, Op.Tx) then
+	if Entries.Has(Held(Record, Format, Folded)._Received, Entries.TX, Op.Tx) then
 		return VERDICT.Settled
 	end
 	return nil

@@ -51,6 +51,7 @@ server. Changes are ops with names, and a reducer validates them.
 - **Recovery** | 30 days of history, auto cleanup
 - **Idempotent** | a write retried applies one time
 - **`Once`** | receipts and webhooks land exactly once
+- **Typed ops** | name them once, every write is checked
 - **Loud misuse** | bad code throws, immediately
 
 ## Installing
@@ -59,7 +60,7 @@ server. Changes are ops with names, and a reducer validates them.
 
 ```toml
 [server-dependencies]
-Ledger = "xoifaii/ledger@4.1.1"
+Ledger = "xoifaii/ledger@4.3.0"
 ```
 
 **Model file**: insert the [Ledger](https://github.com/XoifaiI/Ledger/releases) module anywhere server side.

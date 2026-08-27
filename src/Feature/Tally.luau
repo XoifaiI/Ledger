@@ -24,7 +24,7 @@ local Layer = require("../Kernel/Layer")
 local Contract = require("../Contract/Op")
 
 type Op = Contract.Op
-type Data = { [any]: any }
+type Data = Contract.Folded
 
 local BUMP = "__Bump"
 local SHARDS = 16
@@ -34,13 +34,13 @@ local FIELD = "_Tally"
 local LastNode = ""
 local LastShard = 0
 
-local function Counted(State: any, Field: string): number
+local function Counted(State: Data, Field: string): number
 	if type(State) ~= "table" then
 		return 0
 	end
 
-	local Sums = State[FIELD]
-	if type(Sums) ~= "table" or type(Sums[Field]) ~= "number" then
+	local Sums = State._Tally
+	if Sums == nil or type(Sums[Field]) ~= "number" then
 		return 0
 	end
 	return math.max(Sums[Field], 0)
@@ -48,22 +48,22 @@ end
 
 local function Bumping(Data: Data, Op: Op): Data?
 	local Field = Op.Field
+	local Amount = Arg.Number(Op.Amount)
 	if type(Field) ~= "string" or type(Data[Field]) ~= "number" then
 		return nil
 	end
-	if not Arg.Positive(Op.Amount) then
+	if Amount == nil then
 		return nil
 	end
 
-	local Sums = Data[FIELD]
-	local Held = if type(Sums) == "table" then Sums :: Data else nil
+	local Held = Data._Tally
 	local Running = if Held ~= nil and type(Held[Field]) == "number" then Held[Field] else 0
 
-	local Kept: Data = if Held ~= nil then table.clone(Held) else {}
-	Kept[Field] = Running + Op.Amount
+	local Kept: { [string]: number } = if Held ~= nil then table.clone(Held) else {}
+	Kept[Field] = Running + Amount
 
 	local Next = table.clone(Data)
-	Next[FIELD] = Kept
+	Next._Tally = Kept
 	return Next
 end
 

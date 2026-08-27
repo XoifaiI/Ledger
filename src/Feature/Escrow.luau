@@ -10,7 +10,7 @@
 	The reducer owns that record, so the money never leaves before Escrow asks the question.
 	Each of the three legs is a separate op, so each one is atomic on its own key.
 
-	Return type: A table with Layered, the five op kinds and the five id prefixes.
+	Return type: A table with Layered, Entry, the five op kinds and the five id prefixes.
 	Example usage:
 		local Escrow = require("./Escrow")
 		local Layered = Escrow.Layered("Gold")
@@ -24,7 +24,8 @@ local Layer = require("../Kernel/Layer")
 local Contract = require("../Contract/Op")
 
 type Op = Contract.Op
-type Data = { [any]: any }
+type Data = Contract.Folded
+type Held = Contract.Held
 
 local RESERVE = "__TransferReserve"
 local DELIVER = "__TransferDeliver"
@@ -38,10 +39,27 @@ local SETTLE_ID = "set"
 local PRUNE_ID = "prn"
 local EXPIRE_ID = "exp"
 
+local function Entry(Held: any, Tid: any): Held?
+	if type(Held) ~= "table" or type(Tid) ~= "string" then
+		return nil
+	end
+
+	local Found = Held[Tid]
+	if type(Found) ~= "table" or type(Found.Amount) ~= "number" then
+		return nil
+	end
+	if Found.At ~= nil and type(Found.At) ~= "number" then
+		return nil
+	end
+
+	local To = Found.To
+	return if type(To) == "string" or type(To) == "number" then Found else nil
+end
+
 local function Reserving(Data: Data, Op: Op, Field: string): Data?
 	local Tid = Op.Tid
-	local Amount = Op.Amount
-	if type(Tid) ~= "string" or not Arg.Positive(Amount) then
+	local Amount = Arg.Number(Op.Amount)
+	if type(Tid) ~= "string" or Amount == nil then
 		return nil
 	end
 
@@ -55,12 +73,18 @@ local function Reserving(Data: Data, Op: Op, Field: string): Data?
 		return nil
 	end
 
-	local Held = table.clone((Data._Held or {}) :: Data)
-	Held[Tid] = { To = Op.To, Amount = Amount, At = Op.At }
+	local To = Op.To
+	local At = if type(Op.At) == "number" then Op.At else nil
+	if type(To) ~= "string" and type(To) ~= "number" then
+		return nil
+	end
+
+	local Holds: { [string]: Held } = table.clone(Data._Held or {})
+	Holds[Tid] = { To = To, Amount = Amount, At = At }
 
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) - Amount
-	Next._Held = TableUtil.Some(Held)
+	Next._Held = TableUtil.Some(Holds)
 
 	return Next
 end
@@ -95,17 +119,17 @@ local function Expiring(Data: Data, Op: Op, Field: string): Data?
 		return nil
 	end
 
-	local Held = Data._Held :: Data?
-	local Entry = if Held then Held[Tid] else nil
-	if not Entry then
+	local Held = Data._Held
+	local Found = Entry(Held, Tid)
+	if Held == nil or Found == nil then
 		return nil
 	end
 
-	local Rest = table.clone(Held :: Data)
+	local Rest = table.clone(Held)
 	Rest[Tid] = nil
 
 	local Next = table.clone(Data)
-	Next[Field] = (Data[Field] or 0) + Entry.Amount
+	Next[Field] = (Data[Field] or 0) + Found.Amount
 	Next._Held = TableUtil.Some(Rest)
 
 	if Next[Field] < (Data[Field] or 0) then
@@ -120,7 +144,8 @@ local function Settling(Data: Data, Op: Op): Data?
 	if type(Tid) ~= "string" then
 		return nil
 	end
-	if not (Data._Held and Data._Held[Tid]) then
+	local Holds = Data._Held
+	if Holds == nil or Entry(Holds, Tid) == nil then
 		return nil
 	end
 	if type(Op.At) ~= "number" then
@@ -128,7 +153,7 @@ local function Settling(Data: Data, Op: Op): Data?
 	end
 
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
-	local Held = table.clone(Data._Held :: Data)
+	local Held = table.clone(Holds)
 	Held[Tid] = nil
 
 	local Next = table.clone(Data)
@@ -177,6 +202,7 @@ end
 
 return table.freeze({
 	Layered = Layered,
+	Entry = Entry,
 
 	RESERVE = RESERVE,
 	DELIVER = DELIVER,

@@ -4,15 +4,17 @@
 --[=[
 	Public: The only types that a game can name.
 
-	A leg names a store, and a store takes legs. Both shapes are therefore in one file.
-	Two files would have to require each other.
+	A leg names a store, and a store takes legs. Both shapes are therefore in one file, because two
+	files would have to require each other.
 	Store.New hands its store back without a cast, so the checker holds these shapes against what a
-	store actually is and a method named here that the store does not have is an error where it is
-	built. That check is only had by leaving self open. A store's own methods read fields this file
-	does not name, so a self typed as the narrow shape here is one those methods could never accept,
-	and the cast that used to bridge that gap checked nothing at all.
+	store actually is. That check is only had by leaving self open, since a store's own methods read
+	fields this file does not name.
+	A store comes in two views. Store takes any kind with any fields, and TypedStore carries one call
+	shape per kind a game named. Both take the kind and the fields as two arguments, so a game moves
+	between them without touching a call site. Everything that does not take an op is declared once
+	and shared, and the foot of this file fails the build if the two ever drift apart.
 
-	Return type: An empty table. The types are Store, Live, Config, TxLeg and HoldOptions.
+	Return type: An empty table. The types are Store, TypedStore, Live, TypedLive, Config, TypedConfig, OpMap, TxLeg and HoldOptions.
 	Example usage:
 		local Public = require("./Public")
 		type Store<D> = Public.Store<D>
@@ -22,6 +24,7 @@ local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local Contract = require("./Op")
 local Reasons = require("./Reason")
+local Typed = require("./Typed")
 
 type Future<T...> = Future.Future<T...>
 type Observer<T> = Observer.Observer<T>
@@ -33,6 +36,8 @@ type KeyLike = Contract.KeyLike
 type KeysMode = Contract.KeysMode
 type Migration = Contract.Migration
 type Reason = Reasons.Reason
+
+export type OpMap = { [string]: { [any]: any } }
 
 export type TxLeg = {
 	Store: Store<any>?,
@@ -47,14 +52,11 @@ export type HoldOptions = {
 	To: KeyLike?,
 }
 
-export type Live<S> = {
+type LiveCommon<S> = {
 	read LogSize: number,
 	read LogBytes: number,
 
 	Get: (self: any) -> S,
-	Apply: (self: any, Kind: string, Fields: { [any]: any }?) -> (boolean, Reason?),
-	Commit: (self: any, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
-	CommitOp: (self: any, Op: Op) -> Future<boolean, Reason?>,
 	Flush: (self: any) -> Future<boolean, Reason?>,
 	Compact: (self: any) -> Future<boolean, Reason?>,
 	Release: (self: any) -> Future<boolean, Reason?>,
@@ -62,28 +64,35 @@ export type Live<S> = {
 	DidApply: (self: any, Id: string) -> boolean,
 }
 
-export type Store<D> = {
+export type Live<S> = LiveCommon<S> & {
+	Apply: (self: any, Kind: string, Fields: { [any]: any }?) -> (boolean, Reason?),
+	Commit: (self: any, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
+	CommitOp: (self: any, Op: Op) -> Future<boolean, Reason?>,
+}
+
+export type TypedLive<S, O> = LiveCommon<S> & {
+	Apply: Typed.Overloads<O, (any) -> (boolean, Reason?)>,
+	Commit: Typed.Overloads<O, (any) -> Future<boolean, Reason?>>,
+	CommitOp: (self: any, Op: Typed.OpUnion<O>) -> Future<boolean, Reason?>,
+}
+
+type StoreCommon<D, F> = {
 	Load: (self: any, Player: Player) -> (),
 	Unload: (self: any, Player: Player) -> (),
-	Get: (self: any, Player: Player) -> Live<D>?,
-	Expect: (self: any, Player: Player) -> Live<D>,
 	IsLoaded: (self: any, Player: Player) -> boolean,
-	WaitForLoaded: (self: any, Player: Player) -> Live<D>?,
 	Read: (self: any, Player: Player) -> D?,
 	Peek: (self: any, Key: KeyLike) -> Future<D?, Reason?>,
 	Inspect: (self: any, Key: KeyLike) -> Future<Record<D>?, Reason?>,
 	DidApply: (self: any, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,
 	History: (self: any, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
 	PeekVersion: (self: any, Key: KeyLike, Version: string) -> Future<D?, Reason?>,
-	Edit: (self: any, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Transfer: (self: any, From: KeyLike, To: KeyLike, Amount: number, Id: string?) -> Future<boolean, Reason?>,
-	Bump: (self: any, Name: string, Field: string, Amount: number) -> Future<boolean, Reason?>,
-	Total: (self: any, Name: string, Field: string) -> Future<number?, Reason?>,
-	Reserve: (self: any, Key: KeyLike, Field: string, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
+	Bump: (self: any, Name: string, Field: F, Amount: number) -> Future<boolean, Reason?>,
+	Total: (self: any, Name: string, Field: F) -> Future<number?, Reason?>,
+	Reserve: (self: any, Key: KeyLike, Field: F, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
 	Confirm: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Release: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Grant: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
-	Tx: (self: any, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 	Resettle: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
 	RecoverTransfers: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
 	ClearDelivered: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
@@ -93,14 +102,45 @@ export type Store<D> = {
 	Destroy: (self: any) -> (),
 }
 
-export type Config<D> = {
+export type Store<D> = StoreCommon<D, string> & {
+	Get: (self: any, Player: Player) -> Live<D>?,
+	Expect: (self: any, Player: Player) -> Live<D>,
+	WaitForLoaded: (self: any, Player: Player) -> Live<D>?,
+	Edit: (self: any, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
+	Tx: (self: any, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
+}
+
+export type TypedStore<D, O> = StoreCommon<D, Typed.NumberKeys<D>> & {
+	Get: (self: any, Player: Player) -> TypedLive<D, O>?,
+	Expect: (self: any, Player: Player) -> TypedLive<D, O>,
+	WaitForLoaded: (self: any, Player: Player) -> TypedLive<D, O>?,
+	Edit: Typed.Overloads<O, (any, KeyLike) -> Future<boolean, Reason?>>,
+	Tx: (self: any, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
+}
+
+type ConfigCommon<D> = {
 	read Name: string,
-	read Reducer: (State: D, Op: Op) -> unknown,
 	read Default: D,
 	read Balance: string?,
 	read Migrations: { Migration }?,
 	read Keys: KeysMode?,
 	read OnLoadFailed: ((Player: Player, Why: Reason) -> boolean)?,
 }
+
+export type Config<D> = ConfigCommon<D> & {
+	read Reducer: (State: D, Op: Op) -> unknown,
+}
+
+export type TypedConfig<D, O> = ConfigCommon<D> & {
+	read Reducer: (State: D, Op: Typed.OpUnion<O>) -> D?,
+}
+
+type DriftState = { Gold: number }
+type DriftOps = { Buy: { Item: string } }
+
+local _Drift: Typed.SameKeys<keyof<Store<DriftState>>, keyof<TypedStore<DriftState, DriftOps>>> & Typed.SameKeys<
+	keyof<Live<DriftState>>,
+	keyof<TypedLive<DriftState, DriftOps>>
+> & Typed.SameKeys<keyof<Config<DriftState>>, keyof<TypedConfig<DriftState, DriftOps>>> = true
 
 return table.freeze({})

@@ -120,7 +120,7 @@ export type StoreImpl<D> = {
 	Handled: (self: Store<D>, Player: Player, Why: Reason) -> boolean,
 	Autosave: (self: Store<D>, UserId: number) -> (),
 	Save: (self: Store<D>, Active: Session<D>) -> Future<boolean, Reason?>,
-	Handed: (self: Store<D>, Key: string, Rid: string, Held: { [any]: any }) -> boolean,
+	Handed: (self: Store<D>, Key: string, Rid: string, Held: Contract.Booked) -> boolean,
 
 	Load: (self: Store<D>, Player: Player) -> (),
 	Unload: (self: Store<D>, Player: Player) -> (),

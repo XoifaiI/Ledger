@@ -30,7 +30,8 @@ local Layer = require("../Kernel/Layer")
 local Contract = require("../Contract/Op")
 
 type Op = Contract.Op
-type Data = { [any]: any }
+type Data = Contract.Folded
+type Kept = { [string]: Contract.Booked }
 
 local BOOK = "__Book"
 local TAKE = "__Take"
@@ -52,16 +53,19 @@ local BOOK_HORIZON = Horizons.BOOK
 local BOOK_MARGIN = Horizons.BOOK_MARGIN
 local HOLD_CAP = Horizons.HOLD_CAP
 
-local function Entry(Booked: any, Rid: any): Data?
+local function Entry(Booked: any, Rid: any): Contract.Booked?
 	if type(Booked) ~= "table" or type(Rid) ~= "string" then
 		return nil
 	end
 
 	local Found = Booked[Rid]
-	return if type(Found) == "table" and type(Found.Amount) == "number" and type(Found.Field) == "string" then Found else nil
+	if type(Found) ~= "table" or type(Found.Amount) ~= "number" or type(Found.Field) ~= "string" then
+		return nil
+	end
+	return if type(Found.At) == "number" then Found else nil
 end
 
-local function Ends(Held: Data): number?
+local function Ends(Held: Contract.Booked): number?
 	if type(Held.At) ~= "number" then
 		return nil
 	end
@@ -70,18 +74,18 @@ local function Ends(Held: Data): number?
 	return Held.At + Hold
 end
 
-local function Late(Held: Data, Now: number): boolean
+local function Late(Held: Contract.Booked, Now: number): boolean
 	local Runs = Ends(Held)
 	return Runs ~= nil and Runs < Now
 end
 
-local function Expired(Held: Data, Now: number): boolean
+local function Expired(Held: Contract.Booked, Now: number): boolean
 	local Runs = Ends(Held)
 	return Runs ~= nil and Runs + BOOK_MARGIN < Now
 end
 
-local function Stale(Data: Data, Booked: Data, Now: number): (Data, { [string]: number })
-	local Kept: Data = {}
+local function Stale(Data: Data, Booked: Kept, Now: number): (Kept, { [string]: number })
+	local Kept: Kept = {}
 	local Back: { [string]: number } = {}
 
 	for Rid, Held in Booked do
@@ -101,31 +105,46 @@ local function Booking(Data: Data, Op: Op): Data?
 	if type(Field) ~= "string" or type(Data[Field]) ~= "number" then
 		return nil
 	end
-	if not Arg.Positive(Op.Amount) then
+	local Amount = Arg.Number(Op.Amount)
+	local At = Op.At
+	if Amount == nil then
 		return nil
 	end
-	if type(Op.At) ~= "number" then
-		return nil
-	end
-
-	local Booked = (Data._Booked or {}) :: Data
-	if Booked[Op.Rid] ~= nil then
+	if type(At) ~= "number" then
 		return nil
 	end
 
-	local Kept, Back = Stale(Data, Booked, Op.At)
+	local Rid = Op.Rid
+	local Hold = Op.Hold
+	local To = Op.To
+	if type(Rid) ~= "string" or #Rid == 0 then
+		return nil
+	end
+	if Hold ~= nil and type(Hold) ~= "number" then
+		return nil
+	end
+	if To ~= nil and type(To) ~= "string" then
+		return nil
+	end
+
+	local Booked = Data._Booked or {}
+	if Booked[Rid] ~= nil then
+		return nil
+	end
+
+	local Kept, Back = Stale(Data, Booked, At)
 
 	local Next = table.clone(Data)
-	for Name, Amount in Back do
-		Next[Name] += Amount
+	for Name, Given in Back do
+		Next[Name] += Given
 	end
 
-	if Next[Field] < Op.Amount then
+	if Next[Field] < Amount then
 		return nil
 	end
-	Next[Field] -= Op.Amount
+	Next[Field] -= Amount
 
-	Kept[Op.Rid] = { Field = Field, Amount = Op.Amount, At = Op.At, Hold = Op.Hold, To = Op.To }
+	Kept[Rid] = { Field = Field, Amount = Amount, At = At, Hold = Hold, To = To }
 	Next._Booked = TableUtil.Some(Kept)
 
 	return Next
@@ -273,7 +292,7 @@ local function Give(Rid: string, Field: string, Amount: number, Print: string?):
 	return { Id = `{GIVEN_ID}:{Rid}`, Kind = GIVEN, Rid = Rid, Field = Field, Amount = Amount, At = Clock.Now(), Print = Print } :: any
 end
 
-local function Terms(From: string, Rid: string, Held: Data): string
+local function Terms(From: string, Rid: string, Held: Contract.Booked): string
 	return Fingerprint.Of(Fingerprint.Canon({
 		From = From,
 		Rid = Rid,
@@ -284,11 +303,11 @@ local function Terms(From: string, Rid: string, Held: Data): string
 end
 
 local function Granted(State: any, Rid: string, Print: string?): Entries.Recalled
-	return Entries.Recall((State :: any)._Received, Entries.GRANT, Rid, Print)
+	return Entries.Recall(State._Received, Entries.GRANT, Rid, Print)
 end
 
 local function Delivered(State: any, Rid: string): boolean
-	return Entries.Has((State :: any)._Received, Entries.GRANT, Rid)
+	return Entries.Has(State._Received, Entries.GRANT, Rid)
 end
 
 local function Overdue(Data: Data, Now: number): { string }

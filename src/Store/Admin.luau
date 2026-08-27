@@ -83,7 +83,7 @@ function Store.Repair(self: Store, Key: string): (boolean, boolean)
 
 	local State = self:Fold(Record)
 	local Gave = self:Freed(Key, State)
-	local Waiting = TableUtil.Occupied((State :: any)._Booked)
+	local Waiting = TableUtil.Occupied(State._Booked)
 
 	local Held = State._Held
 	if not TableUtil.Occupied(Held) then
@@ -134,7 +134,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return
 	end
 
-	local Count, Fields = Aside((State :: any)._Booked)
+	local Count, Fields = Aside(State._Booked)
 	for Named, Amount in Fields do
 		Say.Warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
 	end
@@ -144,7 +144,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return
 	end
 
-	local Balance = (State :: any)[Field]
+	local Balance = State[Field]
 	if type(Balance) ~= "number" or Balance <= 0 then
 		return
 	end
@@ -253,14 +253,14 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		local Looked, Before = pcall(function(): any
 			return self:Fold(self:ReadRecord(Resolved))
 		end)
-		local Dropping: any = if Looked and type(Before) == "table" then (Before :: any)._Booked else nil
+		local Dropping: any = if Looked and type(Before) == "table" then Before._Booked else nil
 
 		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
 			if Stamp.HasPending(Record) then
 				error(Fault.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
 			end
 
-			if Booking.Owed((self:Fold(Record) :: any)._Booked) then
+			if Booking.Owed(self:Fold(Record)._Booked) then
 				error(Fault.New(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`))
 			end
 			return (Record.Version or 0) <= Known
@@ -298,7 +298,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 					return self:Fold(Record)
 				end)
 
-				local Names = if Fine and type(State) == "table" then (State :: any)._Received else nil
+				local Names = if Fine and type(State) == "table" then State._Received else nil
 				if type(Names) ~= "table" or next(Names) == nil then
 					return { Ops = {}, Seen = {} }
 				end

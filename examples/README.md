@@ -14,6 +14,7 @@ They are type-checked against `src`, so they cannot quietly drift out of date.
 | [Economy](Economy.luau) | `Transfer` with a dedupe key, `Edit` and `Once` for offline players, `Peek` |
 | [Clans](Clans.luau) | an entity store, and a transaction across two stores |
 | [Effects](Effects.luau) | getting time into a pure reducer, and rendering gameplay from state |
+| [Typed](Typed.luau) | naming your ops, so a write is checked and the reducer needs no casts |
 
 ## Start here
 
@@ -24,10 +25,10 @@ Most games need `Shop` and `Effects`. That is `New`, `Load`, `Apply`, `Commit`, 
 never touch the escrow, the transaction marker, or any of their horizons. Nothing in
 `Economy`, `Trading` or `Clans` is machinery you are carrying until you ask for it.
 
-## Reading fields in a typed reducer
+## Reading fields in a reducer
 
-An op is `{ Id, Kind, ...whatever you passed }`, so the checker cannot know its fields. Read
-them into a typed local at the top of the branch:
+An op is `{ Id, Kind, ...whatever you passed }`, so on an untyped store the checker cannot know its
+fields. Read them into a typed local at the top of the branch:
 
 ```luau
 local function Reducer(State: Profile, Op: Ledger.Op): Profile?
@@ -37,4 +38,8 @@ local function Reducer(State: Profile, Op: Ledger.Op): Profile?
 ```
 
 That puts the annotation and the validation in one place, and everything below it is checked
-normally. Every example does this.
+normally. Every example here except `Typed` does this.
+
+Name your ops instead and the cast goes away. `Op.Kind == "Buy"` narrows to that kind, so `Op.Item`
+is a string on its own and reading a field off the wrong kind is an error where you read it. See
+[Typed](Typed.luau).
