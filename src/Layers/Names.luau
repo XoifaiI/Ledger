@@ -60,7 +60,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 			return Marked :: any
 		end
 
-		local Touched = Data._Received ~= nil and Plain._Received ~= Data._Received and not IsStorable.Reserved(Op.Kind)
+		local Touched = Plain._Received ~= Data._Received and not IsStorable.Reserved(Op.Kind)
 		if not Touched then
 			return Next
 		end

@@ -45,6 +45,8 @@ export type Hold = Contract.Held
 
 export type Reserved = { read Outcome: "Finished" } | { read Outcome: "Escrowed", read Tid: string, read Hold: Hold } | { read Outcome: "Stopped", read Why: Reason }
 
+local REDRIVE_WINDOW = Horizons.REDRIVE + Horizons.EXPIRE_MARGIN
+
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
@@ -152,14 +154,28 @@ local function Settle(Records: Log, From: number | string, Tid: string, Print: s
 	return (Records:Append(tostring(From), { SettleOp }))
 end
 
-local function Post(Records: Log, Format: Format, From: number | string, Tid: string, To: number | string, Amount: number)
+local function Sound(At: number?): boolean
+	return type(At) ~= "number" or Clock.Now() - At <= REDRIVE_WINDOW
+end
+
+local function Post(Records: Log, Format: Format, From: number | string, Tid: string, To: number | string, Amount: number, At: number?)
 	Fault.Holds(tostring(From) ~= tostring(To), `transfer {Tid} is being delivered to the key it came from, so the money would be counted twice`)
 	Fault.Holds(Amount > 0, `transfer {Tid} is being delivered with nothing in it`)
 
 	local Print = Terms(From, To, Amount)
 	local DeliverOp: Op = { Id = `{Escrow.DELIVER_ID}:{Tid}`, Kind = Escrow.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print }
-	local Landed = Records:Append(tostring(To), { DeliverOp }, Log.NotEntombed)
+	local Landed = Records:Append(tostring(To), { DeliverOp }, function(Record: Record): boolean
+		return Sound(At) and Log.NotEntombed(Record)
+	end)
 	if not Stamp.Carries(Landed, DeliverOp.Id) then
+		if not Sound(At) then
+			error(
+				Fault.New(
+					HELD,
+					`transfer {Tid} reached '{To}' later than the window it is given back in, so it was not delivered. the {Amount} stays set aside on '{From}' until recovery gives it back`
+				)
+			)
+		end
 		error(Fault.New(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`))
 	end
 
@@ -215,7 +231,7 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 
 	local Tid, Hold = Ruling.Tid, Ruling.Hold
 	local Handed, Why = pcall(function()
-		Post(Records, Format, From, Tid, Hold.To, Hold.Amount)
+		Post(Records, Format, From, Tid, Hold.To, Hold.Amount, Hold.At)
 	end)
 	if Handed then
 		return true, nil, nil

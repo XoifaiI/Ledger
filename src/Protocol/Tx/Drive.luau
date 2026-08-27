@@ -218,6 +218,13 @@ local function LegOp(Id: string, Index: number, Leg: Leg, Home: string): Op
 	return Op :: Op
 end
 
+local function Enrolled(TxStore: DataStoreWrapper, Id: string, Added: number)
+	if Clock.Now() - Added < TIMEOUT then
+		return
+	end
+	Roll.Add(TxStore, Id)
+end
+
 local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLeg: number?): (boolean, Reason?, boolean)
 	assert(type(Id) == "string" and #Id > 0, "a transaction needs an Id, a stable name derived from the thing being settled")
 	assert(#Legs >= 2 and #Legs <= MAX_LEGS, `a transaction takes 2 to {MAX_LEGS} legs, got {#Legs}`)
@@ -248,12 +255,6 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 		return false, UNRESOLVED, false
 	end
 
-	local function Enrolled()
-		if Clock.Now() - Added >= TIMEOUT then
-			Roll.Add(TxStore, Id)
-		end
-	end
-
 	local Last: Reason = UNRESOLVED
 	local Floor = 0
 	local Parked = false
@@ -262,7 +263,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 		Floor = Attempt.Reached
 		Parked = Attempt.Parked
 		if Attempt.Committed then
-			Enrolled()
+			Enrolled(TxStore, Id, Added)
 			return true, nil, Parked
 		end
 
@@ -280,7 +281,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 		Say.Warn(`Ledger: transaction '{Id}' could not get through and changed nothing. that name is spent now, so use a new one`)
 	end
 
-	Enrolled()
+	Enrolled(TxStore, Id, Added)
 	return false, Last, Parked
 end
 

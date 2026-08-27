@@ -1038,7 +1038,7 @@ Cases.Case("a transfer out of a record a newer server wrote says behind", functi
 end)
 
 Cases.Case("a maintenance call says whether it ran", function(T: Case)
-	local Store = Plain(T, "String", nil, "CaseTidy")
+	local Store = T:Store({ Keys = "String", Default = Reducers.PLAIN, Reducer = Keep, Balance = "Gold", Data = "CaseTidy" })
 
 	T:Is("clearing the delivered transfers on a key", Store.Store:ClearDelivered("tidy"):Wait(), true)
 
@@ -1165,6 +1165,28 @@ Cases.Case("an erase that cannot check its holds a second time says the money is
 	Store:Healed()
 
 	T:Warns("it said it could not look again", "again after finishing its transfers")
+end)
+
+Cases.Case("a reducer cannot plant applied names on a key that has none", function(T: Case)
+	local Store = T:Store({
+		Default = Reducers.PLAIN,
+		Data = "CasePlantReceived",
+		Reducer = function(State: any, Op: any): any?
+			local Next = table.clone(State)
+			Next.Gold = (Next.Gold or 0) + 1
+			if Op.Kind == "Plant" then
+				Next._Received = { ["o:free"] = Op.At }
+			end
+			return Next
+		end,
+	})
+
+	Store.Store:Edit("k", "Plant", { At = T:Now() }):Wait()
+
+	T:Accuses("it named itself for a mistake the reducer made", "your reducer wrote its own _Received")
+	T:Is("the name the reducer planted", Store.Store:DidApply("k", "free"):Wait(), false)
+	T:Is("an op under the name it tried to spend", Store.Store:Edit("k", "Add", { Once = "free" }):Wait(), true)
+	T:Is("gold after both writes", Store:Amount("k"), 2)
 end)
 
 return Cases

@@ -152,6 +152,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 	local Built = setmetatable(Body, Store)
 
 	table.insert(Registry.Stores, Built)
+	Registry.Sweep()
 	return Built
 end
 

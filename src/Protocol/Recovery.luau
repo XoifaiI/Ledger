@@ -59,7 +59,7 @@ end
 
 local function Redeliver(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any): boolean
 	local Ok, Reason = pcall(function()
-		Transfer.Post(Records, Format, From, Tid, Entry.To, Entry.Amount)
+		Transfer.Post(Records, Format, From, Tid, Entry.To, Entry.Amount, Entry.At)
 	end)
 	if not Ok then
 		Say.Warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
@@ -123,14 +123,30 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 	return Failures == 0 and Waiting == 0 and Resting == 0, Moved > 0 or Resting > 0
 end
 
+local function Unreadable(Booked: any, Key: string)
+	if type(Booked) ~= "table" then
+		return
+	end
+
+	for Rid in Booked do
+		if Booking.Entry(Booked, Rid) ~= nil then
+			continue
+		end
+		Say.Warn(
+			`Ledger: '{Key}' holds a reservation named '{tostring(Rid)}' that Ledger cannot read. nothing will ever settle it and its units stay out of circulation. check the audit log and put them back by hand`
+		)
+	end
+end
+
 local function Bookings(Records: Log, Format: Format, Key: string, State: any, Read: (string) -> any): boolean
 	local Now = Clock.Now()
+	local Booked = (State :: any)._Booked
+	Unreadable(Booked, Key)
+
 	local Late = Booking.Overdue(State, Now)
 	if #Late == 0 then
 		return false
 	end
-
-	local Booked = (State :: any)._Booked
 	local Ops: { Op } = {}
 	for _, Rid in Late do
 		if #Ops >= PASS_LIMIT then
@@ -164,7 +180,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 		end
 
 		local At = if Held ~= nil then Held.At else nil
-		if Held ~= nil and type(At) == "number" and Now - At > PRUNE_HORIZON then
+		if Held ~= nil and Held.Handing == true and type(At) == "number" and Now - At > PRUNE_HORIZON then
 			Say.Warn(
 				`Ledger: booking {Rid} on '{Key}' has been open over {PRUNE_HORIZON // 86400} days and '{To}' has no record of it. giving it back could pay twice, so it is written off. check the audit log and give the {Held.Amount} of '{Held.Field}' back by hand if it never arrived`
 			)

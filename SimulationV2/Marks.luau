@@ -79,6 +79,8 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "BookingsBacklogged", Says = "overdue reservations" },
 	{ Name = "BookingsSettleFailed", Says = "overdue reservation(s) on" },
 	{ Name = "BookingCheckFailed", Says = "before giving back booking" },
+	{ Name = "BookingUnreadable", Says = "that Ledger cannot read" },
+	{ Name = "BookingHandedAfterRefund", Says = "had already given the same units back" },
 
 	{ Name = "TxSpent", Says = "could not get through and changed nothing" },
 	{ Name = "TxMismatch", Says = "was already used for different keys" },

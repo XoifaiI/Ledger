@@ -20,6 +20,7 @@ local Suite = require("../Suite")
 local Fault = Suite.Fault
 local Insides = Suite.Insides
 local Reducers = Suite.Reducers
+local Horizons = Suite.Horizons
 
 local Log = Insides.Log
 local Recovery = Insides.Recovery
@@ -1060,6 +1061,58 @@ Cases.Case("a refund that cannot be written leaves the money set aside", functio
 	T:Is("the reason", Why, "Busy")
 	T:Is("the amount is still set aside", Bank:Aside("refundA"), 40)
 	T:Is("money is conserved", Bank:Amount("refundA") + Bank:Amount("refundB") + Bank:Aside("refundA"), 100)
+end)
+
+Cases.Case("a delivery that arrives after the hold may be given back is turned away", function(T: Case)
+	local Bank = Funded(T, { lateA = 1000, lateB = 0 })
+
+	local Ruling = Transfer.Reserve(Bank:Log(), Bank:Format(), "lateA", "lateB", 137, "late1") :: any
+	T:Advance(Horizons.REDRIVE + Horizons.EXPIRE_MARGIN + 60)
+
+	T:Throws("a delivery past the window it is given back in", function()
+		Transfer.Post(Bank:Log(), Bank:Format(), "lateA", "late1", "lateB", 137, Ruling.Hold.At)
+	end)
+
+	T:Is("the receiver got nothing", Bank:Amount("lateB"), 0)
+	T:Is("the amount is still set aside", Bank:Aside("lateA"), 137)
+	T:Is("money is conserved", Bank:Amount("lateA") + Bank:Amount("lateB") + Bank:Aside("lateA"), 1000)
+end)
+
+Cases.Case("clearing delivered transfers needs the store to name a Balance", function(T: Case)
+	local Shelf = T:Shelf()
+
+	T:Throws("clearing on a store with no Balance", function()
+		Shelf.Store:ClearDelivered("shelf")
+	end)
+
+	local Bank = T:Bank()
+	T:Holds("clearing on a store that names one", function()
+		Bank.Store:ClearDelivered("a"):Wait()
+	end)
+end)
+
+Cases.Case("a delivery that already landed still settles after the window has passed", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("lates", { Gold = 1000 })
+	Bank:Seed("later", { Gold = 0 })
+
+	local At = T:Now()
+	T:Is("the transfer goes through", Bank.Store:Transfer("lates", "later", 137, "late1"):Wait(), true)
+
+	T:Advance(9 * 86400)
+	T:Holds("posting a delivery that already arrived, long past the window", function()
+		Transfer.Post(Bank:Log(), Bank:Format(), "lates", "late1", "later", 137, At)
+	end)
+
+	T:Is("the sender", Bank:Amount("lates"), 863)
+	T:Is("the receiver", Bank:Amount("later"), 137)
+	T:Is("the hold is gone", Bank:Aside("lates"), 0)
+
+	local Why = T:Throws("posting one that never arrived, long past the window", function()
+		Transfer.Post(Bank:Log(), Bank:Format(), "lates", "never1", "later", 1, At)
+	end)
+	T:Ok("the guard is what turned that one away", Why ~= nil and string.find(Why :: string, "later than the window") ~= nil)
+	T:Is("the receiver took nothing from it", Bank:Amount("later"), 137)
 end)
 
 return Cases

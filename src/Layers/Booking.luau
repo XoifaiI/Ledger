@@ -13,7 +13,7 @@
 	Every op carries the time it was built. Only a booking and a grant read it back, and the rest
 	carry it so a person reading the log can see when each step happened.
 
-	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Overdue, Owed, Granted, Delivered, the four ids, BOOK_HORIZON, BOOK_MARGIN and HOLD_CAP.
+	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Expired, Overdue, Owed, Granted, Delivered, the four ids, BOOK_HORIZON, BOOK_MARGIN and HOLD_CAP.
 	Example usage:
 		local Booking = require("./Booking")
 		local Op = Booking.Book("order1", "Stock", 1)
@@ -23,6 +23,7 @@ local TableUtil = require("../Util/Tools/TableUtil")
 local Clock = require("../Util/Engine/Clock")
 local Fault = require("../Contract/Fault")
 local Horizons = require("../Contract/Horizons")
+local Limits = require("../Contract/Limits")
 local Fingerprint = require("../Encode/Fingerprint")
 local Arg = require("../Contract/Arg")
 local Entries = require("../Contract/Entries")
@@ -133,6 +134,9 @@ local function Booking(Data: Data, Op: Op): Data?
 	end
 
 	local Kept, Back = Stale(Data, Booked, At)
+	if TableUtil.Count(Kept) >= Limits.Booked then
+		return nil
+	end
 
 	local Next = table.clone(Data)
 	for Name, Given in Back do
@@ -371,6 +375,7 @@ return table.freeze({
 	Terms = Terms,
 	Entry = Entry,
 	Late = Late,
+	Expired = Expired,
 	Overdue = Overdue,
 	Owed = Owed,
 	Granted = Granted,

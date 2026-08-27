@@ -10,9 +10,9 @@
 	brings its margin down with it and the order they fire in never changes.
 	This is the one table in Ledger that is not frozen. A harness that shrinks these reaches the same
 	refusals with a hundredth of the data, which is the only reason it can be written to at all. Set
-	takes whole bytes and Reset puts the real ones back. Depth counts levels rather than bytes, and
-	is the one cap here that neither of them moves, because a value that nests that far is cyclic
-	whatever size the rest of the caps are cut to.
+	takes whole numbers and Reset puts the real ones back. Booked counts reservations on one key and
+	Depth counts levels, and Depth is the one cap here that neither of them moves, because a value
+	that nests that far is cyclic whatever size the rest of the caps are cut to.
 
 	Return type: A table of the caps, with Set and Reset.
 	Example usage:
@@ -26,6 +26,7 @@ export type Sizes = {
 	read Op: number?,
 	read Log: number?,
 	read Compact: number?,
+	read Booked: number?,
 }
 
 local DEFAULTS: { [string]: number } = {
@@ -34,6 +35,7 @@ local DEFAULTS: { [string]: number } = {
 	Op = 1024 * 1024,
 	Log = 1536 * 1024,
 	Compact = 1024 * 1024,
+	Booked = 256,
 }
 
 local DEPTH = 64
@@ -48,6 +50,7 @@ local Limits = {
 	Op = DEFAULTS.Op,
 	Log = DEFAULTS.Log,
 	Compact = DEFAULTS.Compact,
+	Booked = DEFAULTS.Booked,
 	Depth = DEPTH,
 
 	Held = 0,
@@ -75,7 +78,7 @@ local function Set(Sizes: Sizes)
 			continue
 		end
 
-		assert(type(Held) == "number" and Held == Held // 1 and Held > 0, `Limits.{Named} has to be a whole number of bytes above zero`)
+		assert(type(Held) == "number" and Held == Held // 1 and Held > 0, `Limits.{Named} has to be a whole number above zero`)
 		Loose[Named] = Held
 	end
 

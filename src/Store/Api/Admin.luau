@@ -229,6 +229,7 @@ function Store.RecoverTransfers(self: Store, Key: KeyLike): Future<boolean, Reas
 end
 
 function Store.ClearDelivered(self: Store, Key: KeyLike): Future<boolean, Reason?>
+	self:ExpectBalance("ClearDelivered")
 	local Resolved = self:Resolve(Key, "ClearDelivered")
 
 	return Future.New(function(): (boolean, Reason?)

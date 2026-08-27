@@ -20,6 +20,7 @@ local Suite = require("../Suite")
 local Fault = Suite.Fault
 local Insides = Suite.Insides
 local Reducers = Suite.Reducers
+local Reasons = Suite.Reasons
 
 local Booking = Insides.Booking
 local Tally = Insides.Tally
@@ -612,11 +613,11 @@ Cases.Case("a reset cannot leave granted units on both keys", function(T: Case)
 	T:Is("stock across both keys", Shelf:Amount("shelf") + Shelf:Amount("buyer"), Before)
 end)
 
-local function Stranded(T: Case, Count: number, To: string?): any
+local function Stranded(T: Case, Count: number, To: string?, Handing: boolean?): any
 	local Shelf = T:Shelf()
 	local Booked: { [string]: any } = {}
 	for Index = 1, Count do
-		Booked[`old{Index}`] = { Field = "Stock", Amount = 1, At = T:Now(), To = To }
+		Booked[`old{Index}`] = { Field = "Stock", Amount = 1, At = T:Now(), To = To, Handing = Handing }
 	end
 	Shelf:Write("shelf", { Snapshot = { Stock = 10, Sold = 0, Gold = 0, _Booked = Booked }, Ops = {}, Seen = {} })
 	return Shelf
@@ -645,8 +646,8 @@ Cases.Case("a reservation whose receiver cannot be read waits for the next pass"
 	T:Is("the reservation is still held", Shelf:Booked("shelf"), 1)
 end)
 
-Cases.Case("a reservation older than the prune horizon is written off not given back", function(T: Case)
-	local Shelf = Stranded(T, 1, "cart")
+Cases.Case("a hand over that started is written off past the prune horizon", function(T: Case)
+	local Shelf = Stranded(T, 1, "cart", true)
 	T:Advance(31 * 86400)
 
 	Shelf.Store:Resettle("shelf"):Wait()
@@ -654,6 +655,73 @@ Cases.Case("a reservation older than the prune horizon is written off not given 
 	T:Warns("it said giving it back could pay twice", "giving it back could pay twice")
 	T:Is("the reservation is gone", Shelf:Booked("shelf"), 0)
 	T:Is("the units were not given back", Shelf:Amount("shelf"), 10)
+end)
+
+Cases.Case("a reservation that never started a hand over is given back past the prune horizon", function(T: Case)
+	local Shelf = Stranded(T, 1, "cart")
+	T:Advance(31 * 86400)
+
+	Shelf.Store:Resettle("shelf"):Wait()
+
+	T:Is("the reservation is gone", Shelf:Booked("shelf"), 0)
+	T:Is("the units came back", Shelf:Amount("shelf"), 11)
+end)
+
+Cases.Case("a hand over that reaches the receiver past the grace is turned away", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("shelf", "Stock", 3, "cart1", { To = "buyer" }):Wait()
+
+	local Held = assert(Booking.Entry(Shelf:Stored("shelf")._Booked, "cart1"), "the reservation was not set aside")
+	local Stale = table.clone(Held)
+	Stale.At = Held.At - (Booking.BOOK_HORIZON + Booking.BOOK_MARGIN + 60)
+
+	T:Throws("a hand over landing after recovery may act", function()
+		Shelf.Store:Handed("shelf", "cart1", Stale)
+	end)
+
+	T:Is("the receiver holds no grant", Booking.Delivered(Shelf:State("buyer"), "cart1"), false)
+	T:Is("the units are still set aside", Shelf:Booked("shelf"), 1)
+end)
+
+Cases.Case("a hand over onto units the key already gave back accuses itself", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf:Append("shelf", { Booking.Undo("cart1") })
+	Shelf.Store:Reserve("shelf", "Stock", 3, "cart1", { To = "buyer" }):Wait()
+
+	local Ok, Why = Shelf.Store:Grant("shelf", "cart1"):Wait()
+
+	T:Accuses("it noticed the units had been given back", "had already given the same units back")
+	T:Is("the hand over", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+end)
+
+Cases.Case("a key stops taking reservations at the cap", function(T: Case)
+	local Shelf = T:Shelf()
+	Insides.Limits.Set({ Booked = 2 })
+
+	T:Is("the first", (Shelf.Store:Reserve("shelf", "Stock", 1, "b1"):Wait()), true)
+	T:Is("the second", (Shelf.Store:Reserve("shelf", "Stock", 1, "b2"):Wait()), true)
+
+	local Ok, Why = Shelf.Store:Reserve("shelf", "Stock", 1, "b3"):Wait()
+	T:Is("the one past the cap", Ok, false)
+	T:Is("the reason", Why, Reasons.Refused)
+	T:Is("what the key holds", Shelf:Booked("shelf"), 2)
+	T:Is("the units it did not take", Shelf:Amount("shelf"), 8)
+end)
+
+Cases.Case("a reservation Ledger cannot read is named in a warning", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf:Write("shelf", {
+		Snapshot = { Stock = 10, Sold = 0, Gold = 0, _Booked = { torn = { Field = "Stock", Amount = "gone" } } },
+		Ops = {},
+		Seen = {},
+	})
+
+	Shelf.Store:Resettle("shelf"):Wait()
+
+	T:Warns("it named the reservation", "that Ledger cannot read")
+	T:Is("nothing cleared it", Shelf:State("shelf")._Booked.torn ~= nil, true)
 end)
 
 Cases.Case("overdue reservations that cannot be settled wait for the next pass", function(T: Case)

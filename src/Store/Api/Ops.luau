@@ -185,6 +185,9 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: Contract.Book
 	local Print = Booking.Terms(Key, Rid, Held)
 	local Given = Booking.Give(Rid, Held.Field, Held.Amount, Print)
 	local Landed = Records:Append(To, { Given }, function(Record: Record): boolean
+		if Booking.Expired(Held, Clock.Now()) then
+			return false
+		end
 		return Log.NotEntombed(Record) and self:Applies(Given, Record)
 	end)
 
@@ -202,7 +205,8 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: Contract.Book
 	end
 
 	local Cleared = Records:Append(Key, { Booking.Sent(Rid) })
-	Fault.Holds(not Stamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`), `booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`)
+	local Gave = Stamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`) or Stamp.Carries(Cleared, `{Booking.UNHAND_ID}:{Rid}`)
+	Fault.Holds(not Gave, `booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`)
 
 	self:Went(Key)
 	self:Went(To)
@@ -320,6 +324,12 @@ local function MapLeg(Coordinator: Store, Index: number, Leg: TxLeg, Touched: { 
 	}, { Store = Target, Key = Resolved }
 end
 
+local function Follow(Targets: { LegTarget })
+	for _, Target in Targets do
+		Registry.Sweep():Add(Target.Store, Target.Key)
+	end
+end
+
 function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Reason?>
 	self:Live("Tx")
 	assert(
@@ -351,20 +361,14 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 			return Tx.Drive(self.TxWrapper, Mapped, Id)
 		end)
 
-		local function Follow()
-			for _, Target in Targets do
-				Registry.Sweep():Add(Target.Store, Target.Key)
-			end
-		end
-
 		if not Ok then
 			Say.Warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
-			Follow()
+			Follow(Targets)
 			return false, UNRESOLVED
 		end
 
 		if Why == BUSY or Parked then
-			Follow()
+			Follow(Targets)
 		end
 		if Committed then
 			for _, Target in Targets do
