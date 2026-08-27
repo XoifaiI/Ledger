@@ -1915,7 +1915,7 @@ Cases.Case("a marker naming no generation stays while its key still holds the le
 	T:Is("the marker while a leg it cannot attribute is still parked", type(Bank:Mark("heldgen1")), "table")
 end)
 
-Cases.Case("a stale marker naming no keys goes undecided and stays committed", function(T: Case)
+Cases.Case("a stale marker naming no keys says so rather than sitting there quietly", function(T: Case)
 	local Bank = T:Bank()
 
 	Bank:Marker("blind1", { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
@@ -1924,8 +1924,9 @@ Cases.Case("a stale marker naming no keys goes undecided and stays committed", f
 
 	Bank.Store:ReapMarkers()
 
-	T:Is("the one still undecided, which already reads as aborted wherever its legs are", Bank:Mark("blind1"), nil)
+	T:Is("the undecided one, which nothing can prove is finished", type(Bank:Mark("blind1")), "table")
 	T:Is("the one that says it committed, whose keys nothing else knows", type(Bank:Mark("blind2")), "table")
+	T:Warns("it named the ones only a person can clear", "names no keys, so nothing can prove", 2)
 end)
 
 return Cases

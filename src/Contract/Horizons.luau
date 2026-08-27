@@ -27,7 +27,10 @@ local BOOK_MARGIN = 10 * 60
 local REAP = 3600
 local REAP_GRACE = 300
 
+local ONCE_MARGIN = REDRIVE
+
 local HOLD_CAP = PRUNE - BOOK_MARGIN
+local ONCE_FLOOR = PRUNE - ONCE_MARGIN
 
 local PASS_LIMIT = 32
 
@@ -36,6 +39,11 @@ assert(TOMB < PRUNE, "a delivery id has to outlive the tomb of the key it was de
 assert(BOOK + BOOK_MARGIN < REDRIVE, "a reservation has to run out before a transfer does, or stock would be held longer than money")
 assert(HOLD_CAP > BOOK, "a game has to be able to ask for a hold at least as long as the one Ledger uses by default")
 assert(REAP_GRACE < REAP, "a marker that is already finished goes on the shorter window, and one that is still being decided goes on the longer one")
+assert(
+	ONCE_MARGIN >= REDRIVE,
+	"a name a caller stamps in the past has to go on turning a retry away for at least as long as a transfer can still be sent again, or the retry the name exists to stop would land a second time"
+)
+assert(ONCE_FLOOR > 0 and ONCE_FLOOR < PRUNE, "a caller has to be able to stamp a name in the past at all, so the margin cannot take the whole window or none of it")
 assert(
 	BOOK_MARGIN > 0 and BOOK_MARGIN < BOOK,
 	"a reservation is held past its hold so a slow hand over cannot race the recovery that gives its units back, and that wait is added to the hold a game asked for, so it has to be the smaller of the two"
@@ -50,7 +58,9 @@ return table.freeze({
 	BOOK_MARGIN = BOOK_MARGIN,
 	REAP = REAP,
 	REAP_GRACE = REAP_GRACE,
+	ONCE_MARGIN = ONCE_MARGIN,
 	HOLD_CAP = HOLD_CAP,
+	ONCE_FLOOR = ONCE_FLOOR,
 
 	PASS_LIMIT = PASS_LIMIT,
 })

@@ -87,6 +87,7 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "TxUnanswered", Says = "has no answer yet and might still go through" },
 	{ Name = "TxLegFull", Says = "cannot put a leg on" },
 	{ Name = "TxHomesFull", Says = "transaction homes" },
+	{ Name = "TxMarkerKeyless", Says = "names no keys, so nothing can prove" },
 
 	{ Name = "Behind", Says = "finish the deploy" },
 	{ Name = "SessionBehind", Says = "now needs a newer build than this server has" },

@@ -21,6 +21,7 @@
 		local Count, Next = Reap.Reap(TxStore, Lookup)
 --]=]
 
+local Say = require("../../Util/Say")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Contract = require("../../Contract/Op")
@@ -118,9 +119,12 @@ local function Gone(TxStore: DataStoreWrapper, Txid: string, Lookup: Lookup, Now
 			return false, false
 		end
 
-		local Blind = type(Held.Keys) ~= "string" or #Held.Keys == 0
-		local Undecided = Held.Status ~= Marker.COMMITTED
-		if not Settled and not (Blind and Undecided) and not Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0)) then
+		if not Settled and not Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0)) then
+			if type(Held.Keys) ~= "string" or #Held.Keys == 0 then
+				Say.Warn(
+					`Ledger: transaction '{Txid}' names no keys, so nothing can prove its legs are finished and it stays on the datastore for good, costing a read on every pass. take it off by hand once every key it touched has forgotten it`
+				)
+			end
 			return false, false
 		end
 	end

@@ -20,9 +20,13 @@ local Entries = Suite.Entries
 
 type Case = Suite.Case
 
+local Horizons = Suite.Horizons
+
 local DAY = 86400
 local PRUNE_HORIZON = 30 * DAY
 local PAST_PRUNE = 31 * DAY
+local ONCE_MARGIN = Horizons.ONCE_MARGIN
+local ONCE_FLOOR = Horizons.ONCE_FLOOR
 
 local Cases = Suite.File("Once")
 
@@ -329,7 +333,7 @@ Cases.Case("a forged OnceAt on a hand built op cannot erase delivery evidence", 
 	T:Is("gold after the same delivery arrives again", Bank:Amount("b"), 42)
 end)
 
-Cases.Case("a backdated OnceAt on a hand built op is refused", function(T: Case)
+Cases.Case("a backdated OnceAt past the floor is refused", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 0 })
 
@@ -339,19 +343,19 @@ Cases.Case("a backdated OnceAt on a hand built op is refused", function(T: Case)
 		Kind = "Fund",
 		Amount = 1,
 		Once = "gift",
-		OnceAt = T:Now() - (PRUNE_HORIZON + DAY),
+		OnceAt = T:Now() - (ONCE_FLOOR + 60),
 	} :: any):Wait()
 
 	Bank.Store:Edit("a", "Fund", { Amount = 5, Once = "fresh" }):Wait()
 
-	T:Is("a commit stamped further back than a name is kept", Took, false)
+	T:Is("a commit stamped a minute past the floor", Took, false)
 	T:Is("the reason", Why, "Invalid")
 	T:Is("the name it would have been written under", Bank:Knows("a", Entries.ONCE, "gift"), false)
 	T:Is("gold, so nothing was granted under it", Bank:Amount("a"), 5)
-	T:Warns("it said the stamp was outside the window", "further back than the", 1)
+	T:Warns("it said the stamp was too far back", "further back than the", 1)
 end)
 
-Cases.Case("a backdated OnceAt inside the window still pays once", function(T: Case)
+Cases.Case("a name stamped at the floor still turns a retry away a margin later", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 0 })
 
@@ -361,13 +365,14 @@ Cases.Case("a backdated OnceAt inside the window still pays once", function(T: C
 		Kind = "Fund",
 		Amount = 1,
 		Once = "gift",
-		OnceAt = T:Now() - (PRUNE_HORIZON - DAY),
+		OnceAt = T:Now() - ONCE_FLOOR,
 	} :: any):Wait()
 
+	T:Advance(ONCE_MARGIN - DAY)
 	Bank.Store:Edit("a", "Fund", { Amount = 5, Once = "fresh" }):Wait()
 
-	T:Is("a commit stamped inside the window", Took, true)
-	T:Is("the name after a later write carried one of its own", Bank:Knows("a", Entries.ONCE, "gift"), true)
+	T:Is("a commit stamped at the oldest the floor allows", Took, true)
+	T:Is("the name once a later write carried one of its own", Bank:Knows("a", Entries.ONCE, "gift"), true)
 	T:Is("the same name offered again", (Bank.Store:Edit("a", "Fund", { Amount = 1, Once = "gift" }):Wait()), false)
 	T:Is("gold, granted one time", Bank:Amount("a"), 6)
 end)
