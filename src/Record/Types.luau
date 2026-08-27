@@ -12,7 +12,7 @@
 		type Log = Types.Log
 --]=]
 
-local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local DataStoreWrapper = require("../Util/Engine/DataStoreWrapper")
 local Contract = require("../Contract/Op")
 
 type Op = Contract.Op

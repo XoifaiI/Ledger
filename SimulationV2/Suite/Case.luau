@@ -26,7 +26,7 @@ local Reducers = require("./Reducers")
 
 local Ledger = Lib.Ledger
 local Limits = require("../../src/Contract/Limits")
-local Say = require("../../src/Util/Say")
+local Say = require("../../src/Util/Tools/Say")
 
 type Spec0 = Fault.Spec
 type Entry = Say.Entry

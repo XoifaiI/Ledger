@@ -16,9 +16,9 @@
 
 local DataStoreService = game:GetService("DataStoreService")
 
-local NoYield = require("./NoYield")
-local ThreadQueue = require("./ThreadQueue")
-local KeyedRetryQueue = require("./KeyedRetryQueue")
+local NoYield = require("../Work/NoYield")
+local ThreadQueue = require("../Work/ThreadQueue")
+local KeyedRetryQueue = require("../Work/KeyedRetryQueue")
 
 type ThreadQueue = ThreadQueue.ThreadQueue
 type Handler = KeyedRetryQueue.Handler

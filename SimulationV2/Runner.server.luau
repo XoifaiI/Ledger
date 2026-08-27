@@ -24,7 +24,7 @@ local Dev = ServerStorage:WaitForChild("LedgerDev")
 local Root = Dev:WaitForChild("SimulationV2")
 
 local Simulator = require(Root:WaitForChild("Simulator")) :: any
-local Say = require(Dev:WaitForChild("src"):WaitForChild("Util"):WaitForChild("Say")) :: any
+local Say = require(Dev:WaitForChild("src"):WaitForChild("Util"):WaitForChild("Tools"):WaitForChild("Say")) :: any
 local Catalogue = require(Root:WaitForChild("Catalogue")) :: any
 local Marks = require(Root:WaitForChild("Marks")) :: any
 local Seeds = require(Root:WaitForChild("Seeds")) :: any

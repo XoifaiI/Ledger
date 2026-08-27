@@ -16,11 +16,11 @@
 		local Layered = Escrow.Layered("Gold")
 --]=]
 
-local TableUtil = require("../Util/TableUtil")
+local TableUtil = require("../Util/Tools/TableUtil")
 local Fault = require("../Contract/Fault")
-local Arg = require("../Kernel/Arg")
-local Entries = require("../Kernel/Entries")
-local Layer = require("../Kernel/Layer")
+local Arg = require("../Contract/Arg")
+local Entries = require("../Contract/Entries")
+local Layer = require("./Layer")
 local Contract = require("../Contract/Op")
 
 type Op = Contract.Op

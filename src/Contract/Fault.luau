@@ -15,9 +15,9 @@
 		error(Fault.New(Reasons.Busy, "the key has a leg on it"))
 --]=]
 
-local Say = require("../Util/Say")
-local Carried = require("../Util/Carried")
-local ThreadQueue = require("../Util/ThreadQueue")
+local Say = require("../Util/Tools/Say")
+local Carried = require("../Util/Tools/Carried")
+local ThreadQueue = require("../Util/Work/ThreadQueue")
 local Reasons = require("./Reason")
 
 type Reason = Reasons.Reason

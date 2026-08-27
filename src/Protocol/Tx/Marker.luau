@@ -16,10 +16,10 @@
 		local Status = Marker.StatusOf(TxStore, "order1", 30)
 --]=]
 
-local Say = require("../../Util/Say")
-local TableUtil = require("../../Util/TableUtil")
-local Clock = require("../../Util/Clock")
-local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Say = require("../../Util/Tools/Say")
+local TableUtil = require("../../Util/Tools/TableUtil")
+local Clock = require("../../Util/Engine/Clock")
+local DataStoreWrapper = require("../../Util/Engine/DataStoreWrapper")
 local Fault = require("../../Contract/Fault")
 local Ident = require("../../Encode/Ident")
 local Mark = require("../../Encode/Mark")

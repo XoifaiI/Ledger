@@ -13,7 +13,7 @@
 		local State = Fold(Base, Record.Ops, Reducer)
 --]=]
 
-local TableUtil = require("../Util/TableUtil")
+local TableUtil = require("../Util/Tools/TableUtil")
 local Step = require("./Step")
 local Contract = require("../Contract/Op")
 

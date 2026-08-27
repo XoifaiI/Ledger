@@ -20,12 +20,12 @@
 		local Shop = Ledger.NewTyped<<Profile, { Buy: { Item: string } }>>(Options)
 --]=]
 
-local Future = require("@self/Util/Future")
-local Observer = require("@self/Util/Observer")
-local Say = require("@self/Util/Say")
-local DataStoreWrapper = require("@self/Util/DataStoreWrapper")
-local Async = require("@self/Util/Async")
-local Clock = require("@self/Util/Clock")
+local Future = require("@self/Util/Work/Future")
+local Observer = require("@self/Util/Tools/Observer")
+local Say = require("@self/Util/Tools/Say")
+local DataStoreWrapper = require("@self/Util/Engine/DataStoreWrapper")
+local Async = require("@self/Util/Engine/Async")
+local Clock = require("@self/Util/Engine/Clock")
 local Contract = require("@self/Contract/Op")
 local Public = require("@self/Contract/Public")
 local Reasons = require("@self/Contract/Reason")

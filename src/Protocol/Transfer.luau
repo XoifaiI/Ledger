@@ -18,14 +18,14 @@
 		local Ok, Why = Transfer.Drive(Books, Format, "a", "b", 30, "tip1")
 --]=]
 
-local Say = require("../Util/Say")
-local Clock = require("../Util/Clock")
+local Say = require("../Util/Tools/Say")
+local Clock = require("../Util/Engine/Clock")
 local Fault = require("../Contract/Fault")
 local Horizons = require("../Contract/Horizons")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")
-local Arg = require("../Kernel/Arg")
-local Entries = require("../Kernel/Entries")
+local Arg = require("../Contract/Arg")
+local Entries = require("../Contract/Entries")
 local Fingerprint = require("../Encode/Fingerprint")
 local Ident = require("../Encode/Ident")
 local Log = require("../Record/Log")
@@ -33,7 +33,7 @@ local LogTypes = require("../Record/Types")
 local Stamp = require("../Record/Stamp")
 local Step = require("../Record/Step")
 local Shape = require("../Record/Shape")
-local Escrow = require("../Feature/Escrow")
+local Escrow = require("../Layers/Escrow")
 
 type Op = Contract.Op
 type Record = Contract.Record<any>

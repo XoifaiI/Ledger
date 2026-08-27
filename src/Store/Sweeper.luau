@@ -17,8 +17,8 @@
 		local Sweep = Sweeper.New(Stores)
 --]=]
 
-local Say = require("../Util/Say")
-local SetInterval = require("../Util/SetInterval")
+local Say = require("../Util/Tools/Say")
+local SetInterval = require("../Util/Work/SetInterval")
 local Fault = require("../Contract/Fault")
 local Types = require("./Types")
 

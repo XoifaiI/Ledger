@@ -16,7 +16,7 @@
 
 local Fault = require("../Contract/Fault")
 local Contract = require("../Contract/Op")
-local Entries = require("../Kernel/Entries")
+local Entries = require("../Contract/Entries")
 local IsStorable = require("../Encode/Storable")
 
 type Op = Contract.Op

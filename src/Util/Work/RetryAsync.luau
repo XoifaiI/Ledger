@@ -13,8 +13,8 @@
 		local Ok, Value = RetryAsync(Call, { Attempts = 3 })
 --]=]
 
-local Say = require("./Say")
-local Carried = require("./Carried")
+local Say = require("../Tools/Say")
+local Carried = require("../Tools/Carried")
 
 type Handler = (() -> ...any) -> (boolean, ...any)
 

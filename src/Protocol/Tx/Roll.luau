@@ -21,9 +21,9 @@
 		Roll.Add(TxStore, "trade1")
 --]=]
 
-local Say = require("../../Util/Say")
-local Clock = require("../../Util/Clock")
-local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Say = require("../../Util/Tools/Say")
+local Clock = require("../../Util/Engine/Clock")
+local DataStoreWrapper = require("../../Util/Engine/DataStoreWrapper")
 local Fingerprint = require("../../Encode/Fingerprint")
 local Ident = require("../../Encode/Ident")
 local Mark = require("../../Encode/Mark")

@@ -17,14 +17,14 @@
 		local State = self:Peek(1):Wait()
 --]=]
 
-local Future = require("../Util/Future")
-local TableUtil = require("../Util/TableUtil")
-local Contract = require("../Contract/Op")
-local Reasons = require("../Contract/Reason")
-local Entries = require("../Kernel/Entries")
+local Future = require("../../Util/Work/Future")
+local TableUtil = require("../../Util/Tools/TableUtil")
+local Contract = require("../../Contract/Op")
+local Reasons = require("../../Contract/Reason")
+local Entries = require("../../Contract/Entries")
 local Write = require("./Write")
-local Store = require("./Class")
-local Types = require("./Types")
+local Store = require("../Class")
+local Types = require("../Types")
 
 type Future<T...> = Future.Future<T...>
 type Record = Contract.Record<any>

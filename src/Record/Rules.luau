@@ -19,20 +19,20 @@
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
 --]=]
 
-local Say = require("../Util/Say")
-local Clock = require("../Util/Clock")
+local Say = require("../Util/Tools/Say")
+local Clock = require("../Util/Engine/Clock")
 local Contract = require("../Contract/Op")
 local Fault = require("../Contract/Fault")
 local Reasons = require("../Contract/Reason")
 local Limits = require("../Contract/Limits")
 local Measure = require("../Encode/Measure")
 local Horizons = require("../Contract/Horizons")
-local Rule = require("../Kernel/Rule")
+local Passes = require("./Pass")
 
 type Op = Contract.Op
 type Record = Contract.Record<any>
-type Pass = Rule.Pass
-type Rule = Rule.Rule
+type Pass = Passes.Pass
+type Rule = Passes.Rule
 
 export type Sift = (Record: Record) -> (Op: Op) -> boolean
 
@@ -69,7 +69,7 @@ local function Allowed(Guard: ((Record) -> boolean)?): Rule
 		Name = "allowed",
 		Check = function(Record: Record, Pass: Pass): Reasons.Reason?
 			if Guard ~= nil and not Guard(Record) then
-				Rule.Quiet(Pass)
+				Passes.Quiet(Pass)
 			end
 			return nil
 		end,

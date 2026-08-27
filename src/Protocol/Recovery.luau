@@ -17,15 +17,15 @@
 		local Clean, Moved = Recovery.Transfers(Books, Format, "a", Held)
 --]=]
 
-local Say = require("../Util/Say")
-local Clock = require("../Util/Clock")
+local Say = require("../Util/Tools/Say")
+local Clock = require("../Util/Engine/Clock")
 local Fault = require("../Contract/Fault")
 local Horizons = require("../Contract/Horizons")
 local Contract = require("../Contract/Op")
-local Entries = require("../Kernel/Entries")
+local Entries = require("../Contract/Entries")
 local LogTypes = require("../Record/Types")
-local Booking = require("../Feature/Booking")
-local Escrow = require("../Feature/Escrow")
+local Booking = require("../Layers/Booking")
+local Escrow = require("../Layers/Escrow")
 local Transfer = require("./Transfer")
 
 type Op = Contract.Op

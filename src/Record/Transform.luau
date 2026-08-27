@@ -17,12 +17,12 @@
 local Contract = require("../Contract/Op")
 local Fault = require("../Contract/Fault")
 local Reasons = require("../Contract/Reason")
-local Rule = require("./Rule")
+local Passes = require("./Pass")
 
 type Record = Contract.Record<any>
 type Reason = Reasons.Reason
-type Pass = Rule.Pass
-type Rule = Rule.Rule
+type Pass = Passes.Pass
+type Rule = Passes.Rule
 
 export type Outcome = {
 	Before: Record,
@@ -35,10 +35,10 @@ export type Outcome = {
 export type Update = (Key: string, Apply: (Record) -> Record?) -> { Before: Record, After: Record, Changed: boolean }
 
 local function Run(Update: Update, Key: string, Rules: { Rule }): Outcome
-	local Pass: Pass = Rule.New()
+	local Pass: Pass = Passes.New()
 
 	local Result = Update(Key, function(Record: Record): Record?
-		Rule.Reset(Pass)
+		Passes.Reset(Pass)
 
 		local Next: Record = Record
 		for _, Held in Rules do

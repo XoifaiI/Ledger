@@ -16,7 +16,7 @@
 		if Entries.Has(Names, Entries.ONCE, "gift") then return end
 --]=]
 
-local Horizons = require("../Contract/Horizons")
+local Horizons = require("./Horizons")
 
 local TRANSFER = "t:"
 local TX = "x:"

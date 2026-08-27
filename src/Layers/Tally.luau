@@ -19,8 +19,8 @@
 
 local Fingerprint = require("../Encode/Fingerprint")
 local Ident = require("../Encode/Ident")
-local Arg = require("../Kernel/Arg")
-local Layer = require("../Kernel/Layer")
+local Arg = require("../Contract/Arg")
+local Layer = require("./Layer")
 local Contract = require("../Contract/Op")
 
 type Op = Contract.Op

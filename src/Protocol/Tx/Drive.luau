@@ -18,10 +18,10 @@
 		local Ok, Why = Drive.Drive(TxStore, Legs, "trade1")
 --]=]
 
-local Say = require("../../Util/Say")
-local Clock = require("../../Util/Clock")
-local TableUtil = require("../../Util/TableUtil")
-local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Say = require("../../Util/Tools/Say")
+local Clock = require("../../Util/Engine/Clock")
+local TableUtil = require("../../Util/Tools/TableUtil")
+local DataStoreWrapper = require("../../Util/Engine/DataStoreWrapper")
 local Fault = require("../../Contract/Fault")
 local Reasons = require("../../Contract/Reason")
 local Contract = require("../../Contract/Op")

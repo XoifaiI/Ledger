@@ -21,9 +21,9 @@
 		local Count, Next = Reap.Reap(TxStore, Lookup)
 --]=]
 
-local Say = require("../../Util/Say")
-local Clock = require("../../Util/Clock")
-local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Say = require("../../Util/Tools/Say")
+local Clock = require("../../Util/Engine/Clock")
+local DataStoreWrapper = require("../../Util/Engine/DataStoreWrapper")
 local Contract = require("../../Contract/Op")
 local Horizons = require("../../Contract/Horizons")
 local Mark = require("../../Encode/Mark")

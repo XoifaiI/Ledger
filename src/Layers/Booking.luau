@@ -19,14 +19,14 @@
 		local Op = Booking.Book("order1", "Stock", 1)
 --]=]
 
-local TableUtil = require("../Util/TableUtil")
-local Clock = require("../Util/Clock")
+local TableUtil = require("../Util/Tools/TableUtil")
+local Clock = require("../Util/Engine/Clock")
 local Fault = require("../Contract/Fault")
 local Horizons = require("../Contract/Horizons")
 local Fingerprint = require("../Encode/Fingerprint")
-local Arg = require("../Kernel/Arg")
-local Entries = require("../Kernel/Entries")
-local Layer = require("../Kernel/Layer")
+local Arg = require("../Contract/Arg")
+local Entries = require("../Contract/Entries")
+local Layer = require("./Layer")
 local Contract = require("../Contract/Op")
 
 type Op = Contract.Op

@@ -17,10 +17,10 @@
 		Stream:Push(1)
 --]=]
 
-local Async = require("./Async")
+local Async = require("../Engine/Async")
 local Say = require("./Say")
 
-local NoYield = require("./NoYield")
+local NoYield = require("../Work/NoYield")
 
 export type Connection = {
 	Connected: boolean,

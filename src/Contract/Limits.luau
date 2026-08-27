@@ -16,7 +16,7 @@
 
 	Return type: A table of the caps, with Set and Reset.
 	Example usage:
-		local Limits = require("../Contract/Limits")
+		local Limits = require("./Limits")
 		if Bytes > Limits.State then Refuse() end
 --]=]
 

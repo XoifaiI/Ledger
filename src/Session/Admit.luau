@@ -17,8 +17,8 @@
 		local Ruling = Admit.Admit(Active, Op, Bytes)
 --]=]
 
-local Say = require("../Util/Say")
-local NoYield = require("../Util/NoYield")
+local Say = require("../Util/Tools/Say")
+local NoYield = require("../Util/Work/NoYield")
 local Limits = require("../Contract/Limits")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")

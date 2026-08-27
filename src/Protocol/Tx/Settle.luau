@@ -15,7 +15,7 @@
 
 local Contract = require("../../Contract/Op")
 local Fault = require("../../Contract/Fault")
-local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local DataStoreWrapper = require("../../Util/Engine/DataStoreWrapper")
 local LogTypes = require("../../Record/Types")
 local Stamp = require("../../Record/Stamp")
 local Marker = require("./Marker")

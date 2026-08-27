@@ -19,14 +19,14 @@
 		if Compact.Overgrown(Record) then Fold() end
 --]=]
 
-local Say = require("../Util/Say")
-local TableUtil = require("../Util/TableUtil")
+local Say = require("../Util/Tools/Say")
+local TableUtil = require("../Util/Tools/TableUtil")
 local Limits = require("../Contract/Limits")
 local Measure = require("../Encode/Measure")
 local IsStorable = require("../Encode/Storable")
 local Fault = require("../Contract/Fault")
 local Contract = require("../Contract/Op")
-local Entries = require("../Kernel/Entries")
+local Entries = require("../Contract/Entries")
 local Shape = require("./Shape")
 local Stamp = require("./Stamp")
 local Step = require("./Step")

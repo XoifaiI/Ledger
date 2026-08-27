@@ -2,7 +2,7 @@
 --!optimize 2
 
 --[=[
-	Rule: The parts that one record transform is built from.
+	Pass: The state one record transform carries, and the parts a rule is built from.
 
 	A rule has a check, a change and a test that must hold after the write. Each part is optional.
 	A rule that refuses with no reason is quiet. The caller asked, and the answer is no,
@@ -13,8 +13,8 @@
 
 	Return type: A table with New, Reset and Quiet.
 	Example usage:
-		local Rule = require("./Rule")
-		Rule.Quiet(Pass)
+		local Passes = require("./Pass")
+		Passes.Quiet(Pass)
 --]=]
 
 local Contract = require("../Contract/Op")

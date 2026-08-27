@@ -16,7 +16,7 @@
 --]=]
 
 local Contract = require("../Contract/Op")
-local Tally = require("../Feature/Tally")
+local Tally = require("../Layers/Tally")
 local Mark = require("../Encode/Mark")
 local Log = require("../Record/Log")
 local Shape = require("../Record/Shape")

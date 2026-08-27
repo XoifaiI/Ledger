@@ -16,8 +16,8 @@
 		local Value = Queue:SubmitAsync(Work)
 --]=]
 
-local Async = require("./Async")
-local Say = require("./Say")
+local Async = require("../Engine/Async")
+local Say = require("../Tools/Say")
 
 type Entry = {
 	Callback: () -> ...any,

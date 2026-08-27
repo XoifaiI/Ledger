@@ -17,7 +17,7 @@
 		local Value = NoYield.Run(Callback, 1, 2)
 --]=]
 
-local Carried = require("./Carried")
+local Carried = require("../Tools/Carried")
 
 local YIELDED = "the callback must complete without yielding"
 

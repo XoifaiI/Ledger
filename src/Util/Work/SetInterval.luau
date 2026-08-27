@@ -15,7 +15,7 @@
 		task.cancel(Ticker)
 --]=]
 
-local Say = require("./Say")
+local Say = require("../Tools/Say")
 
 local function SetInterval(Seconds: number, Callback: (Count: number) -> (), Offset: number?): thread
 	return task.spawn(function()

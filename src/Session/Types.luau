@@ -14,9 +14,9 @@
 		type Session<S> = Types.Session<S>
 --]=]
 
-local Future = require("../Util/Future")
-local Observer = require("../Util/Observer")
-local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Future = require("../Util/Work/Future")
+local Observer = require("../Util/Tools/Observer")
+local DataStoreWrapper = require("../Util/Engine/DataStoreWrapper")
 local Contract = require("../Contract/Op")
 local Reasons = require("../Contract/Reason")
 local LogTypes = require("../Record/Types")

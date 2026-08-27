@@ -12,7 +12,7 @@
 
 	Return type: A table of the windows in seconds, the longest hold a game may ask for, and the caps on one pass.
 	Example usage:
-		local Horizons = require("../Contract/Horizons")
+		local Horizons = require("./Horizons")
 		if Now - At > Horizons.PRUNE then Drop() end
 --]=]
 

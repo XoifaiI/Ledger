@@ -17,7 +17,7 @@
 		local At = Clock.Now()
 --]=]
 
-local Say = require("./Say")
+local Say = require("../Tools/Say")
 
 local CENTURY = 100 * 31556952
 

@@ -15,8 +15,8 @@
 		local Format = Shape.New(Reducer, Initial, Steps)
 --]=]
 
-local NoYield = require("../Util/NoYield")
-local TableUtil = require("../Util/TableUtil")
+local NoYield = require("../Util/Work/NoYield")
+local TableUtil = require("../Util/Tools/TableUtil")
 local Fault = require("../Contract/Fault")
 local Reasons = require("../Contract/Reason")
 local Contract = require("../Contract/Op")

@@ -24,7 +24,7 @@ local Invariants = require("./Invariants")
 local Limits = require("../src/Contract/Limits")
 
 local Lib = require("./Lib")
-local Say = require("../src/Util/Say")
+local Say = require("../src/Util/Tools/Say")
 local Liveness = require("./Liveness")
 local Model = require("./Model")
 local Scheduler = require("./Scheduler")

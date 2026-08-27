@@ -16,8 +16,8 @@
 		local Books = Store.New("Players", "global", Service)
 --]=]
 
-local NoYield = require("../Util/NoYield")
-local Clock = require("../Util/Clock")
+local NoYield = require("../Util/Work/NoYield")
+local Clock = require("../Util/Engine/Clock")
 local Codec = require("./Codec")
 local Pages = require("./Pages")
 local Types = require("./Types")

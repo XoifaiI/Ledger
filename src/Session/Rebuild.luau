@@ -20,8 +20,8 @@
 		local Stored, Whole = Rebuild.Push(Active)
 --]=]
 
-local Say = require("../Util/Say")
-local TableUtil = require("../Util/TableUtil")
+local Say = require("../Util/Tools/Say")
+local TableUtil = require("../Util/Tools/TableUtil")
 local Fault = require("../Contract/Fault")
 local Contract = require("../Contract/Op")
 local Limits = require("../Contract/Limits")

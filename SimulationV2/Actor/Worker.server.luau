@@ -20,7 +20,7 @@ local Root = ServerStorage:WaitForChild("LedgerDev"):WaitForChild("SimulationV2"
 local Simulator = require(Root:WaitForChild("Simulator")) :: any
 local Marks = require(Root:WaitForChild("Marks")) :: any
 local Seeds = require(Root:WaitForChild("Seeds")) :: any
-local Say = require(Root.Parent:WaitForChild("src"):WaitForChild("Util"):WaitForChild("Say")) :: any
+local Say = require(Root.Parent:WaitForChild("src"):WaitForChild("Util"):WaitForChild("Tools"):WaitForChild("Say")) :: any
 
 Say.Quiet(true)
 

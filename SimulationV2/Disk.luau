@@ -17,7 +17,7 @@
 local EncodingService = game:GetService("EncodingService")
 local HttpService = game:GetService("HttpService")
 
-local NoYield = require("../src/Util/NoYield")
+local NoYield = require("../src/Util/Work/NoYield")
 local Scheduler = require("./Scheduler")
 local Time = require("./Time")
 

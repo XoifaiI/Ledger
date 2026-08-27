@@ -18,9 +18,9 @@
 		local Op = MakeOp.New("Add", { Amount = 5 })
 --]=]
 
-local Say = require("../Util/Say")
-local TableUtil = require("../Util/TableUtil")
-local Clock = require("../Util/Clock")
+local Say = require("../Util/Tools/Say")
+local TableUtil = require("../Util/Tools/TableUtil")
+local Clock = require("../Util/Engine/Clock")
 local Ident = require("../Encode/Ident")
 local IsStorable = require("../Encode/Storable")
 local Contract = require("../Contract/Op")

@@ -14,8 +14,8 @@
 		local Value = Job:Wait()
 --]=]
 
-local Async = require("./Async")
-local Say = require("./Say")
+local Async = require("../Engine/Async")
+local Say = require("../Tools/Say")
 
 local Threads = require("./Threads")
 

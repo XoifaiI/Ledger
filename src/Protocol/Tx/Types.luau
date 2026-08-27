@@ -12,7 +12,7 @@
 		type Leg = Types.Leg
 --]=]
 
-local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local DataStoreWrapper = require("../../Util/Engine/DataStoreWrapper")
 local Reasons = require("../../Contract/Reason")
 local LogTypes = require("../../Record/Types")
 

@@ -12,7 +12,7 @@
 		local Next = Step(Reducer, State, Op)
 --]=]
 
-local NoYield = require("../Util/NoYield")
+local NoYield = require("../Util/Work/NoYield")
 local Contract = require("../Contract/Op")
 
 type Op = Contract.Op

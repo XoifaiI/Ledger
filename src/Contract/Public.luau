@@ -20,8 +20,8 @@
 		type Store<D> = Public.Store<D>
 --]=]
 
-local Future = require("../Util/Future")
-local Observer = require("../Util/Observer")
+local Future = require("../Util/Work/Future")
+local Observer = require("../Util/Tools/Observer")
 local Contract = require("./Op")
 local Reasons = require("./Reason")
 local Typed = require("./Typed")
