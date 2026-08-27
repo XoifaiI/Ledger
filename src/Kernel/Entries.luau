@@ -6,8 +6,9 @@
 
 	A tag goes in front of each name, so a transfer, a transaction, a Once name and a grant
 	cannot collide. An entry holds the time of the write and a mark of what the name meant.
-	A write drops each name that is older than the horizon. The set is therefore bounded by the
-	window, and not by the age of the key.
+	A write drops each name that is older than the horizon, and one whose time cannot be read has
+	run out rather than lasting forever. The set is therefore bounded by the window, and never by
+	the age of the key.
 
 	Return type: A table with the five tags, the three recalls, Key, Entry, At, Meant, Find, Has, Recall, Tagged, Remember, Prune and PRUNE_HORIZON.
 	Example usage:
@@ -39,10 +40,7 @@ local function Key(Tag: string, Id: string): string
 	return `{Tag}{Id}`
 end
 
-local function Entry(At: any, Meant: string?): any
-	if type(At) ~= "number" then
-		return true
-	end
+local function Entry(At: number, Meant: string?): any
 	if Meant == nil then
 		return At
 	end
@@ -75,8 +73,7 @@ local function Find(Received: any, Tag: string, Id: string): any
 		return nil
 	end
 
-	local Tagged = Received[Key(Tag, Id)]
-	return if Tagged ~= nil then Tagged else Received[Id]
+	return Received[Key(Tag, Id)]
 end
 
 local function Has(Received: any, Tag: string, Id: string): boolean
@@ -103,22 +100,22 @@ end
 local function AnyOlderThan(Received: { [string]: any }, Floor: number): boolean
 	for _, Stamp in Received do
 		local When = At(Stamp)
-		if When ~= nil and When < Floor then
+		if When == nil or When < Floor then
 			return true
 		end
 	end
 	return false
 end
 
-local function Remember(Received: any, Id: string, Stamped: any, Print: string?): { [string]: any }
+local function Remember(Received: any, Id: string, Stamped: number, Print: string?): { [string]: any }
 	local Mark = Entry(Stamped, Print)
 	if type(Received) ~= "table" then
 		return { [Id] = Mark }
 	end
 
-	local Floor = if type(Stamped) == "number" then Stamped - PRUNE_HORIZON else nil
+	local Floor = Stamped - PRUNE_HORIZON
 
-	if Floor == nil or not AnyOlderThan(Received, Floor) then
+	if not AnyOlderThan(Received, Floor) then
 		local Kept: { [string]: any } = table.clone(Received)
 		Kept[Id] = Mark
 		return Kept
@@ -127,7 +124,7 @@ local function Remember(Received: any, Id: string, Stamped: any, Print: string?)
 	local Next: { [string]: any } = {}
 	for Name, Stamp in Received do
 		local When = At(Stamp)
-		if When == nil or When >= (Floor :: number) then
+		if When ~= nil and When >= Floor then
 			Next[Name] = Stamp
 		end
 	end
@@ -145,7 +142,7 @@ local function Prune(Received: any, Stamped: any): { [string]: any }?
 	local Dropped = false
 	for Name, Stamp in Received do
 		local When = At(Stamp)
-		if When == nil or When >= Floor then
+		if When ~= nil and When >= Floor then
 			Kept[Name] = Stamp
 		else
 			Dropped = true

@@ -527,7 +527,7 @@ Cases.Case("a refusal while a transaction is parked is still written", function(
 	local Bank = T:Bank()
 	Bank:Seed("parked", { Gold = 0 })
 
-	Bank:Marker("hold1", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("hold1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("parked", { Id = "tx:hold1:1", Kind = "Fund", Amount = 500, Tx = "hold1" })
 
 	local Ok, Why = Bank.Store:Edit("parked", "Give", { Amount = -100 }):Wait()
@@ -548,7 +548,7 @@ Cases.Case("an apply that only holds if the parked leg commits leaves it open", 
 	local Bank = T:Bank()
 	Bank:Seed("parkedlive", { Gold = 0 })
 
-	Bank:Marker("hold3", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("hold3", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("parkedlive", { Id = "tx:hold3:1", Kind = "Fund", Amount = 500, Tx = "hold3" })
 
 	local Active: any = Bank:Session("parkedlive")

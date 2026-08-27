@@ -57,7 +57,7 @@ end
 local function CraftSwap(Shop: Fixture, A: string, B: string, Status: string, Price: number): string
 	local Txid = `swap{A}`
 
-	Shop:Marker(Txid, { Status = Status, Total = 2, Adopted = {} })
+	Shop:Marker(Txid, { Status = Status, Total = 2, Gen = "one", Adopted = {} })
 	Shop:Park(A, { Id = `tx:{Txid}:1`, Kind = "Delta", Gold = Price, Drop = "Sword", Tx = Txid })
 	Shop:Park(B, { Id = `tx:{Txid}:2`, Kind = "Delta", Gold = -Price, Gain = "Sword", Tx = Txid })
 	return Txid
@@ -72,7 +72,7 @@ local function Craft(Bank: Fixture, Key: string, Status: string, MarkerGen: stri
 		Gen = MarkerGen,
 		At = Born,
 		Adopted = {},
-		Keys = `{Bank.Data}\0{Key}`,
+		Keys = Mark.Pack({ Mark.Of(Bank.Data, Key) }),
 	})
 	Bank:Park(Key, {
 		Id = `tx:{Txid}:1`,
@@ -172,7 +172,7 @@ Cases.Case("an edit whose verdict hangs on a stuck leg is unresolved", function(
 	local Bank = T:Bank()
 
 	Bank:Seed("hungA", { Gold = 50 })
-	Bank:Marker("hung1", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("hung1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("hungA", { Id = "tx:hung1:1", Kind = "Give", Amount = -40, Tx = "hung1" })
 
 	local Ok, Why = Bank.Store:Edit("hungA", "Give", { Amount = -50 }):Wait()
@@ -191,7 +191,7 @@ Cases.Case("an edit the leg cannot overturn stays answered", function(T: Case)
 	local Bank = T:Bank()
 
 	Bank:Seed("sureA", { Gold = 50 })
-	Bank:Marker("sure1", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("sure1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("sureA", { Id = "tx:sure1:1", Kind = "Give", Amount = -40, Tx = "sure1" })
 
 	local Ok, Why = Bank.Store:Edit("sureA", "Fund", { Amount = 5 }):Wait()
@@ -730,7 +730,7 @@ Cases.Case("a marker is never reaped against its own live leg", function(T: Case
 	T:Is("gold once its own leg settles", Bank:Amount("ownleg"), 125)
 end)
 
-Cases.Case("a marker with no keys is never reaped while a leg lives", function(T: Case)
+Cases.Case("a marker with no keys is not reaped while a leg lives", function(T: Case)
 	local Bank = T:Bank()
 	local Born = T:Now()
 
@@ -886,7 +886,7 @@ Cases.Case("an aborted husk heals in one call", function(T: Case)
 	local Shop = T:Market()
 	Wares(Shop, "huskA", 100, true)
 	Wares(Shop, "huskB", 100, false)
-	Shop:Marker("husk1", { Status = "Aborted", Total = 2, Adopted = {} })
+	Shop:Marker("husk1", { Status = "Aborted", Total = 2, Gen = "one", Adopted = {} })
 
 	local Ok, Why = Swap(Shop, "huskA", "huskB", 25, "husk1")
 
@@ -918,7 +918,7 @@ Cases.Case("a zero total husk also heals", function(T: Case)
 	local Shop = T:Market()
 	Wares(Shop, "zeroA", 100, true)
 	Wares(Shop, "zeroB", 100, false)
-	Shop:Marker("zero1", { Status = "Aborted", Total = 0, Adopted = {} })
+	Shop:Marker("zero1", { Status = "Aborted", Total = 0, Gen = "one", Adopted = {} })
 
 	local Ok = Swap(Shop, "zeroA", "zeroB", 25, "zero1")
 
@@ -932,7 +932,7 @@ Cases.Case("a name reused for other keys is refused", function(T: Case)
 	local Shop = T:Market()
 	Wares(Shop, "namedA", 100, true)
 	Wares(Shop, "namedB", 100, false)
-	Shop:Marker("named1", { Status = "Pending", Total = 2, Adopted = {}, Keys = "another\0set\1of\0keys" })
+	Shop:Marker("named1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {}, Keys = "another\0set\1of\0keys" })
 
 	local Ok, Why = Swap(Shop, "namedA", "namedB", 25, "named1")
 
@@ -948,7 +948,7 @@ Cases.Case("a committed marker beats an abort", function(T: Case)
 	local Shop = T:Market()
 	Wares(Shop, "beatA", 100, true)
 	Wares(Shop, "beatB", 100, false)
-	Shop:Marker("beat1", { Status = "Committed", Total = 2, Adopted = {} })
+	Shop:Marker("beat1", { Status = "Committed", Total = 2, Gen = "one", Adopted = {} })
 
 	-- an op with a leg shaped id and no transaction stamp on it, which is what a settled leg looks like
 	Shop:Append("beatA", { { Id = "tx:beat1:1", Kind = "Delta", Gold = 25, Drop = "Sword" } :: any })
@@ -1157,7 +1157,7 @@ Cases.Case("a marker without terms still runs", function(T: Case)
 	local Shop = T:Market()
 	Wares(Shop, "oldA", 100, true)
 	Wares(Shop, "oldB", 100, false)
-	Shop:Marker("old1", { Status = "Pending", Total = 2, Adopted = {} })
+	Shop:Marker("old1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 
 	local Ok = Swap(Shop, "oldA", "oldB", 25, "old1")
 
@@ -1661,7 +1661,7 @@ Cases.Case("a session loads even when it cannot settle", function(T: Case)
 	local Bank = T:Bank()
 
 	Bank:Seed("unsettled", { Gold = 0 })
-	Bank:Marker("unsettled1", { Status = "Committed", Total = 1, Adopted = {} })
+	Bank:Marker("unsettled1", { Status = "Committed", Total = 1, Gen = "one", Adopted = {} })
 	Bank:Park("unsettled", { Id = "tx:unsettled1:1", Kind = "Give", Amount = 25, Tx = "unsettled1" })
 
 	Bank:Fault(Fault.Updates())
@@ -1684,7 +1684,7 @@ Cases.Case("a leg settles against a marker in another store", function(T: Case)
 	Wares(Shop, "homeA", 100, false)
 	Vault:Seed("homeB", { Coins = 0 })
 
-	Shop:Marker("home1", { Status = "Committed", Total = 2, Adopted = {} })
+	Shop:Marker("home1", { Status = "Committed", Total = 2, Gen = "one", Adopted = {} })
 	Shop:Park("homeA", { Id = "tx:home1:1", Kind = "Delta", Gold = -25, Tx = "home1" })
 	Vault:Park("homeB", { Id = "tx:home1:2", Kind = "Vault", Coins = 25, Tx = "home1", TxHome = Shop.Marked })
 
@@ -1773,7 +1773,7 @@ Cases.Case("a marker naming a delimiter key is still reaped", function(T: Case)
 	T:Is("the leftover marker once a reap runs", Bank:Mark("delim1"), nil)
 end)
 
-Cases.Case("a marker with unprefixed keys is still reaped", function(T: Case)
+Cases.Case("a marker whose keys cannot be read waits for the horizon rather than staying for good", function(T: Case)
 	local Bank = T:Bank()
 
 	Bank:Seed("unprefixed", { Gold = 100 })
@@ -1788,9 +1788,15 @@ Cases.Case("a marker with unprefixed keys is still reaped", function(T: Case)
 
 	T:Advance(Tx.REAP_HORIZON + 1)
 	Bank.Store:ReapMarkers()
+	local Early = Bank:Mark("unpref1")
 
-	T:Is("a marker whose keys were packed without length prefixes", Bank:Mark("unpref1"), nil)
-	T:Is("gold is untouched", Bank:Amount("unprefixed"), 100)
+	T:Advance(Suite.Horizons.PRUNE)
+	Bank.Store:ReapMarkers()
+
+	T:Is("a marker whose keys carry no length in front, while it is still young", type(Early), "table")
+	T:Is("the same marker once nothing has touched it for the horizon", Bank:Mark("unpref1"), nil)
+	T:Is("gold is untouched either way", Bank:Amount("unprefixed"), 100)
+	T:Warns("it said the keys could not be read", "names no keys Ledger can read", 2)
 end)
 
 Cases.Case("a session settles a leg homed in another store", function(T: Case)
@@ -1798,7 +1804,7 @@ Cases.Case("a session settles a leg homed in another store", function(T: Case)
 	local Away = T:Store({ Default = Suite.Reducers.MONEY, Reducer = Suite.Reducers.Banker, Balance = "Gold", Data = "CaseAway" })
 
 	Bank:Seed("foreign", { Gold = 0 })
-	Away:Marker("foreign1", { Status = "Committed", Total = 1, Adopted = {} })
+	Away:Marker("foreign1", { Status = "Committed", Total = 1, Gen = "one", Adopted = {} })
 	Bank:Park("foreign", { Id = "tx:foreign1:1", Kind = "Give", Amount = 25, Tx = "foreign1", TxHome = Away.Marked })
 
 	local Active: any = Bank:Session("foreign")
@@ -1818,7 +1824,7 @@ Cases.Case("a key held by another coordinator is busy", function(T: Case)
 	Wares(Shop, "coordA", 100, false)
 	Vault:Seed("coordB", { Coins = 50 })
 
-	Shop:Marker("held1", { Status = "Pending", Total = 2, Adopted = {} })
+	Shop:Marker("held1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Shop:Park("coordA", { Id = "tx:held1:1", Kind = "Delta", Gold = 5, Tx = "held1" })
 
 	local Ok, Why = Vault.Store
@@ -1915,6 +1921,23 @@ Cases.Case("a marker naming no generation stays while its key still holds the le
 	T:Is("the marker while a leg it cannot attribute is still parked", type(Bank:Mark("heldgen1")), "table")
 end)
 
+Cases.Case("a marker naming no keys is taken off once nothing has touched it for the horizon", function(T: Case)
+	local Bank = T:Bank()
+
+	Bank:Marker("stuckblind1", { Status = "Committed", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
+	T:Advance(Tx.REAP_HORIZON + 60)
+	Bank.Store:ReapMarkers()
+	local Early = Bank:Mark("stuckblind1")
+
+	T:Advance(Suite.Horizons.PRUNE)
+	Bank.Store:ReapMarkers()
+
+	T:Is("it is kept while it is young enough to be worth reading again", type(Early), "table")
+	T:Is("it is taken off once nothing has touched it for the horizon", Bank:Mark("stuckblind1"), nil)
+	T:Is("its name on the cleanup list", Bank:Rolled()["stuckblind1"], nil)
+	T:Warns("it said the marker was written off", "can read and nothing has touched it", 1)
+end)
+
 Cases.Case("a stale marker naming no keys says so rather than sitting there quietly", function(T: Case)
 	local Bank = T:Bank()
 
@@ -1926,7 +1949,7 @@ Cases.Case("a stale marker naming no keys says so rather than sitting there quie
 
 	T:Is("the undecided one, which nothing can prove is finished", type(Bank:Mark("blind1")), "table")
 	T:Is("the one that says it committed, whose keys nothing else knows", type(Bank:Mark("blind2")), "table")
-	T:Warns("it named the ones only a person can clear", "names no keys, so nothing can prove", 2)
+	T:Warns("it named the ones only a person can clear", "names no keys Ledger can read, so nothing", 2)
 end)
 
 return Cases

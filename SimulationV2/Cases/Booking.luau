@@ -536,76 +536,7 @@ Cases.Case("a compacted tally reads the same on a build that changed the Default
 	T:Is("a tally that build has never been bumped", Read.Store:Total("other", "Gold"):Wait(), 0)
 end)
 
-Cases.Case("a tally an older build wrote carries its total across the next bump", function(T: Case)
-	local Shelf = T:Store({ Default = { Gold = 0 }, Reducer = Reducers.Keep, Data = "CaseTallyOld" })
-	local Shard = Tally.Shard("pot", Tally.Mine())
-
-	Shelf:Write(Shard, { Snapshot = { Gold = 30 }, Ops = {}, Seen = {} })
-	local Inherited = Shelf.Store:Total("pot", "Gold"):Wait()
-
-	Shelf.Store:Bump("pot", "Gold", 5):Wait()
-
-	local Carried = (Shelf:Stored(Shard) :: any)._Tally[Tally.CARRIED]
-
-	T:Is("the tally an older build left in the game's field", Inherited, 30)
-	T:Is("the tally once a bump moved it across", Shelf.Store:Total("pot", "Gold"):Wait(), 35)
-	T:Is("where the total is kept afterwards", (Shelf:Stored(Shard) :: any)._Tally.Gold, 35)
-	T:Is("what the move absorbed", Carried.Gold.Absorbed, 30)
-	T:Is("the Default the move took away", Carried.Gold.Assumed, 0)
-	T:Warns("it said the total was read against this build's Default, on both sides of the move", "still has shard(s) an older build wrote", 2)
-end)
-
-Cases.Case("a tally an older build folded after the move is still counted whole", function(T: Case)
-	local Shelf = T:Store({ Default = { Gold = 0 }, Reducer = Reducers.Keep, Data = "CaseTallyFolded" })
-	local Shard = Tally.Shard("pot", Tally.Mine())
-
-	for _ = 1, 38 do
-		Shelf.Store:Bump("pot", "Gold", 1):Wait()
-	end
-	Shelf:Log():Compact(Shard, Shelf:Format())
-
-	local Snapshot: any = Shelf:Record(Shard).Snapshot
-	T:Is("the game's field once the total moved across", Snapshot.Gold, 0)
-
-	Shelf:Write(Shard, { Snapshot = { Gold = 7, _Tally = Snapshot._Tally }, Ops = {}, Seen = {} })
-
-	T:Is("a total an older build folded into the game's field beside it", Shelf.Store:Total("pot", "Gold"):Wait(), 45)
-
-	Shelf.Store:Bump("pot", "Gold", 5):Wait()
-
-	T:Is("the total once a newer bump moved that across too", Shelf.Store:Total("pot", "Gold"):Wait(), 50)
-	T:Is("the game's field afterwards", (Shelf:Stored(Shard) :: any).Gold, 0)
-end)
-
-Cases.Case("a shard an older build left below this build's Default is not counted backwards", function(T: Case)
-	local Shelf = T:Store({ Default = { Gold = 100 }, Reducer = Reducers.Keep, Data = "CaseTallyUnder" })
-	local Shard = Tally.Shard("pot", Tally.Mine())
-
-	Shelf:Write(Shard, { Snapshot = { Gold = 0 }, Ops = {}, Seen = {} })
-
-	T:Is("a shard holding less than the Default this build carries", Shelf.Store:Total("pot", "Gold"):Wait(), 0)
-	T:Warns("it said the total was read against this build's Default", "still has shard(s) an older build wrote", 1)
-end)
-
-Cases.Case("a bump does not silence a tally an older build wrote", function(T: Case)
-	local Shelf = T:Store({ Default = { Gold = 100 }, Reducer = Reducers.Keep, Data = "CaseTallyGuessed" })
-	local Shard = Tally.Shard("pot", Tally.Mine())
-
-	Shelf:Write(Shard, { Snapshot = { Gold = 500 }, Ops = {}, Seen = {} })
-	local Before = Shelf.Store:Total("pot", "Gold"):Wait()
-
-	Shelf.Store:Bump("pot", "Gold", 1):Wait()
-	local After = Shelf.Store:Total("pot", "Gold"):Wait()
-	local Carried = (Shelf:Stored(Shard) :: any)._Tally[Tally.CARRIED]
-
-	T:Is("the total before the bump moved the shard across", Before, 400)
-	T:Is("the total after it, still against this build's Default", After, 401)
-	T:Is("what the move absorbed", Carried.Gold.Absorbed, 500)
-	T:Is("the Default the move took away", Carried.Gold.Assumed, 100)
-	T:Warns("it still said the total was guessed at once the move had happened", "still has shard(s) an older build wrote", 2)
-end)
-
-Cases.Case("a bump an older build wrote is counted whichever side of the move it lands", function(T: Case)
+Cases.Case("a bump that carries no Default is counted like any other", function(T: Case)
 	local Shelf = T:Store({ Default = { Gold = 0 }, Reducer = Reducers.Keep, Data = "CaseTallyMixed" })
 	local Shard = Tally.Shard("pot", Tally.Mine())
 
@@ -617,9 +548,23 @@ Cases.Case("a bump an older build wrote is counted whichever side of the move it
 
 	Shelf:Append(Shard, { { Id = "old:2", Kind = "__Bump", Field = "Gold", Amount = 7 } :: any })
 
-	T:Is("a bump with no Default on it, read on its own", Alone, 10)
-	T:Is("the tally once a newer bump moved it across", Moved, 15)
-	T:Is("a bump from the older build landing after the move", Shelf.Store:Total("pot", "Gold"):Wait(), 22)
+	T:Is("a bump that names no Default, read on its own", Alone, 10)
+	T:Is("the tally once another bump lands on it", Moved, 15)
+	T:Is("a third bump landing after those two", Shelf.Store:Total("pot", "Gold"):Wait(), 22)
+end)
+
+Cases.Case("a reset says which reservations it destroyed", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf.Store:Reserve("shelf", "Stock", 3, "cart1"):Wait()
+	local Before = Shelf:Booked("shelf")
+	local Reset = Shelf.Store:Reset("shelf"):Wait()
+
+	T:Is("the reservation before the reset", Before, 1)
+	T:Is("the reset, which a plain reservation does not stand in the way of", Reset, true)
+	T:Is("what is set aside afterwards", Shelf:Booked("shelf"), 0)
+	T:Is("releasing the id the caller is still holding", (Shelf.Store:Release("shelf", "cart1"):Wait()), false)
+	T:Warns("it said the reservations went with it", "Confirm and Release on those ids are refused", 1)
 end)
 
 Cases.Case("a reset is refused while units are set aside for another key", function(T: Case)

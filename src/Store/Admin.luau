@@ -52,6 +52,23 @@ local BEHIND = Reasons.Behind
 
 local Failed = Write.Failed
 
+local function Aside(Booked: any): (number, { [string]: number })
+	local Fields: { [string]: number } = {}
+	local Count = 0
+	if type(Booked) ~= "table" then
+		return Count, Fields
+	end
+
+	for Rid in Booked do
+		local Entry = Booking.Entry(Booked, Rid)
+		if Entry ~= nil then
+			Fields[Entry.Field] = (Fields[Entry.Field] or 0) + Entry.Amount
+			Count += 1
+		end
+	end
+	return Count, Fields
+end
+
 function Store.Freed(self: Store, Key: string, State: any): boolean
 	return Recovery.Bookings(self:Records(), self:Format(), Key, State, function(To: string): any
 		return self:Fold(self:ReadRecord(To))
@@ -117,20 +134,9 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return
 	end
 
-	local Booked = (State :: any)._Booked
-	if type(Booked) == "table" then
-		local Held: { [string]: number } = {}
-		local Count = 0
-		for Rid in Booked do
-			local Entry = Booking.Entry(Booked, Rid)
-			if Entry ~= nil then
-				Held[Entry.Field] = (Held[Entry.Field] or 0) + Entry.Amount
-				Count += 1
-			end
-		end
-		for Named, Amount in Held do
-			Say.Warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
-		end
+	local Count, Fields = Aside((State :: any)._Booked)
+	for Named, Amount in Fields do
+		Say.Warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
 	end
 
 	local Field = self.Options.Balance
@@ -244,16 +250,33 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	local Op = MakeOp.New(RESET_KIND, { State = self.Initial, Version = Known, Floor = Shape.FloorOf(Steps) })
 
 	return Future.New(function(): (boolean, Reason?)
-		return self:Written(Resolved, Op, "reset", function(Record: Record): boolean
+		local Dropping: any = nil
+
+		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
 			if Stamp.HasPending(Record) then
 				error(Fault.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
 			end
 
-			if Booking.Owed((self:Fold(Record) :: any)._Booked) then
+			local Booked = (self:Fold(Record) :: any)._Booked
+			if Booking.Owed(Booked) then
 				error(Fault.New(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`))
+			end
+
+			if TableUtil.Occupied(Booked) then
+				Dropping = Booked
 			end
 			return (Record.Version or 0) <= Known
 		end, BEHIND)
+
+		if Ok then
+			local Count, Fields = Aside(Dropping)
+			for Named, Amount in Fields do
+				Say.Warn(
+					`Ledger: resetting '{Resolved}' destroyed {Count} reservation(s) holding {Amount} {Named}. Confirm and Release on those ids are refused from here on, so tell whoever is holding them`
+				)
+			end
+		end
+		return Ok, Why
 	end)
 end
 

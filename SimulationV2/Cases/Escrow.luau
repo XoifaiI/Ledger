@@ -181,7 +181,7 @@ Cases.Case("the record an append hands back sees the hold", function(T: Case)
 		{ Id = `res:{Tid}`, Kind = "__TransferReserve", To = "raceB", Amount = 30, Tid = Tid, At = T:Now() } :: any,
 	})
 	Deliver(Bank, "raceB", Tid, 30, T:Now())
-	Bank:Append("raceA", { { Id = `set:{Tid}`, Kind = "__TransferSettle", Tid = Tid } :: any })
+	Bank:Append("raceA", { { Id = `set:{Tid}`, Kind = "__TransferSettle", Tid = Tid, At = T:Now() } :: any })
 
 	local Reread: any = Bank:Stored("raceA")
 	local Snapshot: any = Bank:Format():Fold(Handed)
@@ -481,7 +481,7 @@ Cases.Case("a retry after both sides forget moves nothing twice", function(T: Ca
 		{ Id = "res:both1", Kind = "__TransferReserve", To = "bothB", Amount = 40, Tid = "both1", At = T:Now() } :: any,
 	})
 	Deliver(Bank, "bothB", "both1", 40, T:Now())
-	Bank:Append("bothA", { { Id = "set:both1", Kind = "__TransferSettle", Tid = "both1" } :: any })
+	Bank:Append("bothA", { { Id = "set:both1", Kind = "__TransferSettle", Tid = "both1", At = T:Now() } :: any })
 
 	T:Advance(PAST_PRUNE)
 	Deliver(Bank, "bothB", "fresher", 0, T:Now())
@@ -513,7 +513,7 @@ end)
 Cases.Case("a key a transaction is holding refuses a transfer", function(T: Case)
 	local Bank = Funded(T, { busyA = 100, busyB = 0 })
 
-	Bank:Marker("busytx1", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("busytx1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("busyA", { Id = "tx:busytx1:1", Kind = "Give", Amount = 0, Tx = "busytx1" })
 
 	local Ok, Why = Bank.Store:Transfer("busyA", "busyB", 40):Wait()
@@ -711,7 +711,7 @@ end)
 Cases.Case("erasing a key is refused while a transaction is parked on it", function(T: Case)
 	local Bank = Funded(T, { parkErase = 100 })
 
-	Bank:Marker("parked1", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("parked1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("parkErase", { Id = "tx:parked1:1", Kind = "Fund", Amount = 25, Tx = "parked1" })
 
 	local Ok, Why = Bank.Store:Erase("parkErase"):Wait()
@@ -730,7 +730,7 @@ end)
 Cases.Case("resetting a key is refused while a transaction is parked on it", function(T: Case)
 	local Bank = Funded(T, { parkReset = 100 })
 
-	Bank:Marker("parked2", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("parked2", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("parkReset", { Id = "tx:parked2:1", Kind = "Fund", Amount = 25, Tx = "parked2" })
 
 	local Ok, Why = Bank.Store:Reset("parkReset"):Wait()
@@ -995,62 +995,6 @@ Cases.Case("a redelivery through a compacted receiver still finishes", function(
 	T:Is("sending the same transfer again", Again, true)
 	T:Is("what the receiver holds after it", Bank:Amount("againC"), 100)
 	T:Is("money is conserved", Bank:Amount("againA") + Bank:Amount("againC") + Bank:Aside("againA"), 1000)
-end)
-
-Cases.Case("a delivery named before senders counted cannot settle another hold", function(T: Case)
-	local Bank = Funded(T, { oldA = 1000, oldB = 1000 })
-
-	Transfer.Reserve(Bank:Log(), Bank:Format(), "oldA", "oldC", 300, "order")
-	Transfer.Reserve(Bank:Log(), Bank:Format(), "oldB", "oldC", 300, "order")
-
-	local Now = T:Now()
-	local Was = Transfer.Older("oldC", 300)
-	Bank:Append("oldC", {
-		{ Id = "del:order", Kind = "__TransferDeliver", From = "oldA", Amount = 300, Tid = "order", At = Now, Print = Was } :: any,
-	})
-	Bank:Append("oldA", {
-		{ Id = "set:order", Kind = "__TransferSettle", Tid = "order", At = Now, Print = Was } :: any,
-	})
-
-	pcall(Transfer.Post, Bank:Log(), Bank:Format(), "oldB", "order", "oldC", 300)
-
-	local Total = Bank:Amount("oldA") + Bank:Amount("oldB") + Bank:Amount("oldC") + Bank:Aside("oldA") + Bank:Aside("oldB") + Bank:Aside("oldC")
-
-	T:Is("money is conserved across the older name", Total, 2000)
-	T:Is("the sender whose money never arrived", Bank:Amount("oldB") + Bank:Aside("oldB"), 1000)
-end)
-
-Cases.Case("a sender's own delivery named before senders counted still settles", function(T: Case)
-	local Bank = Funded(T, { ownA = 1000 })
-
-	Transfer.Reserve(Bank:Log(), Bank:Format(), "ownA", "ownC", 300, "order")
-
-	local Was = Transfer.Older("ownC", 300)
-	Bank:Append("ownC", {
-		{ Id = "del:order", Kind = "__TransferDeliver", From = "ownA", Amount = 300, Tid = "order", At = T:Now(), Print = Was } :: any,
-	})
-
-	local Sent = pcall(Transfer.Post, Bank:Log(), Bank:Format(), "ownA", "order", "ownC", 300)
-
-	T:Is("the sender settling against its own older delivery", Sent, true)
-	T:Is("nothing left set aside", Bank:Aside("ownA"), 0)
-	T:Is("money is conserved", Bank:Amount("ownA") + Bank:Amount("ownC") + Bank:Aside("ownA"), 1000)
-end)
-
-Cases.Case("an older compacted delivery still finishes its own sender's retry", function(T: Case)
-	local Bank = Funded(T, { ageA = 1000, ageC = 0 })
-
-	local Was = Transfer.Older("ageC", 300)
-	Bank:Append("ageC", {
-		{ Id = "del:order", Kind = "__TransferDeliver", From = "ageA", Amount = 300, Tid = "order", At = T:Now(), Print = Was } :: any,
-	})
-	Bank:Log():Compact("ageC", Bank:Format())
-
-	local Again: any = Transfer.Reserve(Bank:Log(), Bank:Format(), "ageA", "ageC", 300, "order")
-
-	T:Is("the sender's own retry against an older folded delivery", Again.Outcome, "Finished")
-	T:Is("gold on the receiver, paid one time", Bank:Amount("ageC"), 300)
-	T:Is("anything the retry set aside", Bank:Aside("ageA"), 0)
 end)
 
 Cases.Case("recovery cannot settle a hold against a compacted delivery", function(T: Case)

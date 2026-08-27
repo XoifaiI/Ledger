@@ -85,7 +85,7 @@ Cases.Case("an apply whose verdict hangs on a stuck leg is refused", function(T:
 	local Bank = T:Bank()
 
 	Bank:Seed("hungApply", { Gold = 100 })
-	Bank:Marker("hungapply1", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("hungapply1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("hungApply", { Id = "tx:hungapply1:1", Kind = "Give", Amount = -30, Tx = "hungapply1" })
 
 	local Active = Bank:Session("hungApply")
@@ -103,7 +103,7 @@ Cases.Case("an apply the leg cannot overturn stays accepted", function(T: Case)
 	local Bank = T:Bank()
 
 	Bank:Seed("sureApply", { Gold = 100 })
-	Bank:Marker("sureapply1", { Status = "Pending", Total = 2, Adopted = {} })
+	Bank:Marker("sureapply1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Bank:Park("sureApply", { Id = "tx:sureapply1:1", Kind = "Give", Amount = -30, Tx = "sureapply1" })
 
 	local Active = Bank:Session("sureApply")
@@ -902,7 +902,7 @@ Cases.Case("loading onto a parked leg enlists the key for recovery", function(T:
 	local Fake = T:Player(94)
 	local Key = tostring(Fake.UserId)
 
-	Store:Marker("join1", { Status = "Pending", Total = 2, Adopted = {} })
+	Store:Marker("join1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Store:Park(Key, { Id = "tx:join1:1", Kind = "Fund", Amount = 5, Tx = "join1" })
 
 	local Before = Registry.Sweep.Count

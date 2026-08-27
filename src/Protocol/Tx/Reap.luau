@@ -39,6 +39,7 @@ type Lookup = Types.Lookup
 
 local REAP_HORIZON = Horizons.REAP
 local REAP_GRACE = Horizons.REAP_GRACE
+local STUCK_HORIZON = Horizons.PRUNE
 local REAP_LIMIT = 64
 local REAP_LOOKS = 16
 local REAP_PAGE = 64
@@ -79,15 +80,20 @@ local function Anywhere(Lookup: Lookup, Name: string): LogTypes.Log
 	return Log.New(Marker.Elsewhere(Name))
 end
 
-local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born: number): boolean
+local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born: number): (boolean, boolean)
 	if type(Keys) ~= "string" or #Keys == 0 then
-		return false
+		return false, false
 	end
 
-	for _, Held in Mark.Unpack(Keys) do
+	local Named = Mark.Unpack(Keys)
+	if #Named == 0 then
+		return false, false
+	end
+
+	for _, Held in Named do
 		local Store, Key = Mark.Split(Held)
 		if Store == nil or Key == nil then
-			return false
+			return false, false
 		end
 
 		local Records = Anywhere(Lookup, Store)
@@ -95,11 +101,11 @@ local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born
 			return Records:Read(Key :: string)
 		end)
 		if not Read or not Spent(Record, Txid, Gen, Born) then
-			return false
+			return false, true
 		end
 	end
 
-	return true
+	return true, true
 end
 
 local function Gone(TxStore: DataStoreWrapper, Txid: string, Lookup: Lookup, Now: number, Older: number, Grace: number): (boolean, boolean)
@@ -119,13 +125,24 @@ local function Gone(TxStore: DataStoreWrapper, Txid: string, Lookup: Lookup, Now
 			return false, false
 		end
 
-		if not Settled and not Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0)) then
-			if type(Held.Keys) ~= "string" or #Held.Keys == 0 then
+		if not Settled then
+			local Hushed, Readable = Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0))
+			if not Hushed and Readable then
+				return false, false
+			end
+
+			if not Hushed and Now - Updated <= STUCK_HORIZON then
 				Say.Warn(
-					`Ledger: transaction '{Txid}' names no keys, so nothing can prove its legs are finished and it stays on the datastore for good, costing a read on every pass. take it off by hand once every key it touched has forgotten it`
+					`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove its legs are finished and it is read again on every pass until it is {STUCK_HORIZON // 86400} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
+				)
+				return false, false
+			end
+
+			if not Hushed then
+				Say.Warn(
+					`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {STUCK_HORIZON // 86400} days, so nothing can ever prove its legs are finished and it is taken off rather than read for good. a leg of it still parked somewhere settles as cancelled now, so check the audit log`
 				)
 			end
-			return false, false
 		end
 	end
 
@@ -238,6 +255,7 @@ return table.freeze({
 	Anywhere = Anywhere,
 	REAP_HORIZON = REAP_HORIZON,
 	REAP_GRACE = REAP_GRACE,
+	STUCK_HORIZON = STUCK_HORIZON,
 	REAP_LIMIT = REAP_LIMIT,
 	REAP_LOOKS = REAP_LOOKS,
 	REAP_PAGE = REAP_PAGE,

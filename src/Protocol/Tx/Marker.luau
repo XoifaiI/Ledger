@@ -74,7 +74,7 @@ end
 
 local function Ours(Current: any, Gen: string?): boolean
 	local Held = GenOf(Current)
-	return type(Held) ~= "string" or type(Gen) ~= "string" or Held == Gen
+	return type(Held) == "string" and Held == Gen
 end
 
 local function MarkOf(Wrapper: DataStoreWrapper, Key: string): string

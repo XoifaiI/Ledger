@@ -221,6 +221,10 @@ local function Giving(Data: Data, Op: Op): Data?
 		return nil
 	end
 
+	if type(Op.At) ~= "number" then
+		return nil
+	end
+
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Received = (Data._Received or {}) :: { [string]: any }
 	if Entries.Has(Received, Entries.GRANT, Rid) then

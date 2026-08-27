@@ -269,7 +269,7 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 	)
 
 	local Key = Tally.Shard(Name, Tally.Mine())
-	local Op = Tally.Bump(Field, Amount, (self.Initial :: any)[Field] or 0)
+	local Op = Tally.Bump(Field, Amount)
 
 	return Future.New(function(): (boolean, Reason?)
 		return self:Written(Key, Op, `add {Amount} to '{Name}'`)
@@ -279,11 +279,8 @@ end
 function Store.Total(self: Store, Name: string, Field: string): Future<number?, Reason?>
 	self:TallyName(Name, Field, "Total")
 
-	local Base = (self.Initial :: any)[Field] or 0
-
 	return Future.New(function(): (number?, Reason?)
 		local Sum = 0
-		local Older = false
 		for _, Key in Tally.Shards(Name) do
 			local Ok, State = pcall(function(): any
 				return self:Fold(self:ReadRecord(Key))
@@ -292,15 +289,7 @@ function Store.Total(self: Store, Name: string, Field: string): Future<number?, 
 				return nil, Failed(`read a shard of '{Name}' for`, Key, State)
 			end
 
-			local Held, Legacy = Tally.Counted(State, Field, Base)
-			Sum += Held
-			Older = Older or Legacy
-		end
-
-		if Older then
-			Say.Warn(
-				`Ledger: '{Name}' still has shard(s) an older build wrote, so its total is counted against the Default this build carries. if '{Field}' had a different Default when those shards were written, the number is off by that difference on each of them. a bump does not correct it, and the Default they grew under is not stored anywhere, so read the {Tally.FIELD}.{Tally.CARRIED} on each shard and work it back out by hand if the total has to be exact`
-			)
+			Sum += Tally.Counted(State, Field)
 		end
 		return Sum, nil
 	end)

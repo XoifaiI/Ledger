@@ -5,7 +5,7 @@
 	Mark: Puts a store name and a key into one string.
 
 	Each part has its length in front of it. A delimiter byte inside a part therefore cannot break the read.
-	Marks from an older build have no length in front, and this reads them.
+	A part that does not carry its own length is not a mark, and reads back as nothing.
 
 	Lengths up to 255 have their prefix and delimiter already joined in a table, so writing one is a
 	lookup and a concat rather than a tostring. Reading walks the digits by byte, which is why nothing
@@ -48,43 +48,29 @@ end
 
 local function Split(Mark: string): (string?, string?)
 	local First = string.byte(Mark, 1)
-	if First ~= nil and First >= ZERO and First <= NINE then
-		local Length = #Mark
-		local Index = 2
-		local Count = First - ZERO
-
-		while Index <= Length do
-			local Byte = string.byte(Mark, Index) :: number
-			if Byte < ZERO or Byte > NINE then
-				break
-			end
-
-			Count = Count * 10 + Byte - ZERO
-			Index += 1
-		end
-
-		if string.byte(Mark, Index) == 0 then
-			if Index + Count <= Length then
-				return string.sub(Mark, Index + 1, Index + Count), string.sub(Mark, Index + Count + 1)
-			end
-
-			return string.sub(Mark, 1, Index - 1), string.sub(Mark, Index + 1)
-		end
-
-		local Found = string.find(Mark, FIELD, Index, true)
-		if Found == nil then
-			return nil, nil
-		end
-
-		return string.sub(Mark, 1, Found - 1), string.sub(Mark, Found + 1)
-	end
-
-	local At = string.find(Mark, FIELD, 1, true)
-	if At == nil then
+	if First == nil or First < ZERO or First > NINE then
 		return nil, nil
 	end
 
-	return string.sub(Mark, 1, At - 1), string.sub(Mark, At + 1)
+	local Length = #Mark
+	local Index = 2
+	local Count = First - ZERO
+
+	while Index <= Length do
+		local Byte = string.byte(Mark, Index) :: number
+		if Byte < ZERO or Byte > NINE then
+			break
+		end
+
+		Count = Count * 10 + Byte - ZERO
+		Index += 1
+	end
+
+	if string.byte(Mark, Index) ~= 0 or Index + Count > Length then
+		return nil, nil
+	end
+
+	return string.sub(Mark, Index + 1, Index + Count), string.sub(Mark, Index + Count + 1)
 end
 
 local function Pack(Parts: { string }): string
@@ -130,7 +116,7 @@ local function Unpack(Packed: string): { string }
 		end
 
 		if Index == At or string.byte(Packed, Index) ~= 1 or Index + Count > Length then
-			return string.split(Packed, LIST)
+			return {}
 		end
 
 		local Part = string.sub(Packed, Index + 1, Index + Count)

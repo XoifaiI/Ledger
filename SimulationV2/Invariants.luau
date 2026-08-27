@@ -330,7 +330,6 @@ end
 
 local function Tallies(Board: Disk, Name: string, Named: { string }, Format: any, Store: any, Field: string): { string }
 	local Broken: { string } = {}
-	local Base = if type(Store.Initial[Field]) == "number" then Store.Initial[Field] else 0
 
 	for _, Tally in Named do
 		local Front = `{Tally}#`
@@ -344,20 +343,13 @@ local function Tallies(Board: Disk, Name: string, Named: { string }, Format: any
 
 			local State: any = Format:Fold(Record(Disk.Peek(Board, Name, Key)))
 			local Held: any = State[TALLY]
-			local Raw = if type(State[Field]) == "number" then State[Field] else 0
 
-			local Share: number? = nil
 			if type(Held) == "table" and type(Held[Field]) == "number" then
-				Share = Held[Field] + Raw
-			elseif type(State[Field]) == "number" then
-				Share = Raw - Base
-			end
-
-			if Share ~= nil then
-				if (Share :: number) < 0 then
-					table.insert(Broken, `shard '{Key}' of '{Tally}' holds {Share} of '{Field}', and a tally only ever goes up`)
+				local Share = Held[Field]
+				if Share < 0 then
+					table.insert(Broken, `shard '{Key}' of '{Tally}' holds {Share} of '{Field}', and a total only ever goes up`)
 				end
-				Total += math.max(Share :: number, 0)
+				Total += math.max(Share, 0)
 			end
 			Shards += 1
 		end

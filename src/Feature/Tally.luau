@@ -7,11 +7,11 @@
 	Each server writes its own key, and does not wait behind the others.
 	A tally can only go up. No key can see the others, so no key knows the total,
 	and a limit cannot hold across them.
-	The total lives in a field of Ledger's own. The game's field on a shard is left at nothing once a
-	bump has moved the total across, so a build that still writes the old way adds to a field that is
-	counted alongside the total rather than hidden behind it.
+	The total lives in a field of Ledger's own, and the game's own field on a shard is never touched.
+	A shard therefore says what it holds on its own, without the Default it was built from having to
+	be known.
 
-	Return type: A table with Layered, Bump, Counted, Mine, Shard, Shards, SHARDS, PART, FIELD and CARRIED.
+	Return type: A table with Layered, Bump, Counted, Mine, Shard, Shards, SHARDS, PART and FIELD.
 	Example usage:
 		local Tally = require("./Tally")
 		local Key = Tally.Shard(Name, Tally.Mine())
@@ -30,28 +30,20 @@ local BUMP = "__Bump"
 local SHARDS = 16
 local PART = "#"
 local FIELD = "_Tally"
-local CARRIED = "_Carried"
 
 local LastNode = ""
 local LastShard = 0
 
-local function Counted(State: any, Field: string, Base: number): (number, boolean)
+local function Counted(State: any, Field: string): number
 	if type(State) ~= "table" then
-		return 0, false
+		return 0
 	end
 
 	local Sums = State[FIELD]
-	local Value = State[Field]
-	if type(Sums) == "table" and type(Sums[Field]) == "number" then
-		local Carried = Sums[CARRIED]
-		local Held = Sums[Field] + (if type(Value) == "number" then Value else 0)
-		return math.max(Held, 0), type(Carried) == "table" and Carried[Field] ~= nil
+	if type(Sums) ~= "table" or type(Sums[Field]) ~= "number" then
+		return 0
 	end
-
-	if type(Value) ~= "number" then
-		return 0, false
-	end
-	return math.max(Value - Base, 0), Value ~= Base
+	return math.max(Sums[Field], 0)
 end
 
 local function Bumping(Data: Data, Op: Op): Data?
@@ -64,30 +56,13 @@ local function Bumping(Data: Data, Op: Op): Data?
 	end
 
 	local Sums = Data[FIELD]
-	local Moved = if type(Sums) == "table" then Sums[Field] else nil
-	local Base = Op.Base
+	local Held = if type(Sums) == "table" then Sums :: Data else nil
+	local Running = if Held ~= nil and type(Held[Field]) == "number" then Held[Field] else 0
 
-	if type(Moved) ~= "number" and type(Base) ~= "number" then
-		local Stale = table.clone(Data)
-		Stale[Field] += Op.Amount
-		return Stale
-	end
-
-	local Raw = Data[Field]
-	local Guessed = type(Moved) ~= "number" and Raw ~= Base
-	local Sum = if type(Moved) == "number" then Moved + Raw else math.max(Raw - (Base :: number), 0)
-
-	local Kept: Data = if type(Sums) == "table" then table.clone(Sums :: Data) else {}
-	Kept[Field] = Sum + Op.Amount
-	if Guessed then
-		local Held = Kept[CARRIED]
-		local Marked: Data = if type(Held) == "table" then table.clone(Held :: Data) else {}
-		Marked[Field] = { Absorbed = Raw, Assumed = Base }
-		Kept[CARRIED] = Marked
-	end
+	local Kept: Data = if Held ~= nil then table.clone(Held) else {}
+	Kept[Field] = Running + Op.Amount
 
 	local Next = table.clone(Data)
-	Next[Field] = 0
 	Next[FIELD] = Kept
 	return Next
 end
@@ -113,8 +88,8 @@ local function Shards(Name: string): { string }
 	return Keys
 end
 
-local function Bump(Field: string, Amount: number, Base: number): Op
-	return { Id = Ident.Fresh(), Kind = BUMP, Field = Field, Amount = Amount, Base = Base } :: any
+local function Bump(Field: string, Amount: number): Op
+	return { Id = Ident.Fresh(), Kind = BUMP, Field = Field, Amount = Amount } :: any
 end
 
 local Held: Layer.Layer = {
@@ -141,5 +116,4 @@ return table.freeze({
 	SHARDS = SHARDS,
 	PART = PART,
 	FIELD = FIELD,
-	CARRIED = CARRIED,
 })

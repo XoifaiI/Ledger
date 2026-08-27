@@ -83,6 +83,10 @@ local function Delivering(Data: Data, Op: Op, Field: string): Data?
 		return nil
 	end
 
+	if type(Op.At) ~= "number" then
+		return nil
+	end
+
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Received = (Data._Received or {}) :: { [string]: any }
 	if Entries.Has(Received, Entries.TRANSFER, Tid) then
@@ -140,6 +144,9 @@ local function Settling(Data: Data, Op: Op): Data?
 		return nil
 	end
 	if not (Data._Held and Data._Held[Tid]) then
+		return nil
+	end
+	if type(Op.At) ~= "number" then
 		return nil
 	end
 

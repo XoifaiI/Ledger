@@ -111,7 +111,6 @@ local Transfer = table.freeze({
 	Settle = Moves.Settle,
 	Drive = Moves.Drive,
 	Terms = Moves.Terms,
-	Older = Moves.Older,
 	LandedOn = Moves.LandedOn,
 	Prune = Moves.Prune,
 

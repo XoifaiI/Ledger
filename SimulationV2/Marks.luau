@@ -60,7 +60,6 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "NearValueCap", Says = "saves will start failing if it keeps growing" },
 	{ Name = "NearStateCap", Says = "take out what the game no longer reads" },
 	{ Name = "NearStateCapOwned", Says = "Ledger's own bookkeeping and your game cannot take it out" },
-	{ Name = "TallyOlderShard", Says = "still has shard(s) an older build wrote" },
 
 	{ Name = "TransferSpent", Says = "already went through for a different amount" },
 	{ Name = "TransferAmountChanged", Says = "so that is what it pays out" },
@@ -87,12 +86,14 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "TxUnanswered", Says = "has no answer yet and might still go through" },
 	{ Name = "TxLegFull", Says = "cannot put a leg on" },
 	{ Name = "TxHomesFull", Says = "transaction homes" },
-	{ Name = "TxMarkerKeyless", Says = "names no keys, so nothing can prove" },
+	{ Name = "TxMarkerKeyless", Says = "names no keys Ledger can read, so nothing" },
+	{ Name = "TxMarkerWrittenOff", Says = "can read and nothing has touched it" },
 
 	{ Name = "Behind", Says = "finish the deploy" },
 	{ Name = "SessionBehind", Says = "now needs a newer build than this server has" },
 	{ Name = "ErasedWhileLive", Says = "was erased and something wrote to it anyway" },
 	{ Name = "ErasedInServer", Says = "while they are still in this server" },
+	{ Name = "ResetReservations", Says = "Confirm and Release on those ids are refused" },
 	{ Name = "ErasedBalance", Says = "destroyed" },
 	{ Name = "ErasedInFlight", Says = "had not finished, so that money is gone for good" },
 	{ Name = "SessionErased", Says = "was erased while this session was live" },

@@ -87,7 +87,7 @@ Cases.Case("a jammed log blames the parked transaction not the datastore", funct
 	local Store = Stashing(T, "CaseJam")
 	local Text = string.rep("x", 900000)
 
-	Store:Marker("jam1", { Status = "Pending", Total = 2, Adopted = {} })
+	Store:Marker("jam1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Store:Write("jam", {
 		Envelope = 1,
 		Seen = {},
@@ -111,7 +111,7 @@ Cases.Case("an edit too big for the log says Full rather than Unresolved", funct
 	local Store = Stashing(T, "CaseFull")
 	local Text = string.rep("x", 900000)
 
-	Store:Marker("brim1", { Status = "Pending", Total = 2, Adopted = {} })
+	Store:Marker("brim1", { Status = "Pending", Total = 2, Gen = "one", Adopted = {} })
 	Store:Park("brim", { Id = "tx:brim1:1", Kind = "Stash", Text = "", Tx = "brim1" })
 
 	local Landed, Why = 0, nil
@@ -250,7 +250,7 @@ Cases.Case("reaping is capped per pass and finishes over several", function(T: C
 	local Store = Stashing(T, "CaseReapCap")
 
 	for Index = 1, REAP_LIMIT + 20 do
-		Store:Marker(`husk{Index}`, { Status = "Aborted", Total = 1, Adopted = {} })
+		Store:Marker(`husk{Index}`, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
 	end
 	T:Advance(Tx.REAP_HORIZON + 60)
 

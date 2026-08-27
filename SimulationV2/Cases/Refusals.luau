@@ -337,7 +337,7 @@ end)
 Cases.Case("a write settles a pending leg on the way through", function(T: Case)
 	local Store = Plain(T, "String", Adder)
 
-	Store:Marker("guardsettle", { Status = "Committed", Total = 1, Adopted = {} })
+	Store:Marker("guardsettle", { Status = "Committed", Total = 1, Gen = "one", Adopted = {} })
 	Store:Park("clan", { Id = "tx:guardsettle:1", Kind = "Add", Amount = 25, Tx = "guardsettle" })
 
 	local Before = Store:Amount("clan")
@@ -588,7 +588,7 @@ Cases.Case("the reap works its way round every store when it cannot afford them 
 	for Index = 1, 4 do
 		local Store = Plain(T, "String", Adder, `CaseRound{Index}`)
 		for _, Named in Names do
-			Store:Marker(Named, { Status = "Aborted", Total = 1, Adopted = {} })
+			Store:Marker(Named, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
 		end
 		Store:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
 			if Kind ~= Enum.DataStoreRequestType.ListAsync then
@@ -632,7 +632,7 @@ end)
 Cases.Case("the sweep settles a leg nobody else will", function(T: Case)
 	local Store = Plain(T, "String", Adder, "CaseSweep")
 
-	Store:Marker("sweeptx", { Status = "Committed", Total = 1, Adopted = {} })
+	Store:Marker("sweeptx", { Status = "Committed", Total = 1, Gen = "one", Adopted = {} })
 	Store:Park("swept", { Id = "tx:sweeptx:1", Kind = "Add", Amount = 40, Tx = "sweeptx" })
 
 	local Stale = Store:Amount("swept")

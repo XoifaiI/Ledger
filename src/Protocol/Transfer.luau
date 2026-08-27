@@ -12,7 +12,7 @@
 	Post reads the applied name back out of the state, because an op sits in the log whether or not
 	the reducer took it.
 
-	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms, Older and LandedOn.
+	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms and LandedOn.
 	Example usage:
 		local Transfer = require("./Transfer")
 		local Ok, Why = Transfer.Drive(Books, Format, "a", "b", 30, "tip1")
@@ -52,18 +52,14 @@ local function Terms(From: number | string, To: number | string, Amount: number)
 	return Fingerprint.Of(Fingerprint.Canon({ From = tostring(From), To = tostring(To), Amount = Amount }))
 end
 
-local function Older(To: number | string, Amount: number): string
-	return Fingerprint.Of(Fingerprint.Canon({ To = tostring(To), Amount = Amount }))
-end
-
-local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, Before: string?, From: (number | string)?): Entries.Recalled
+local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, From: (number | string)?): Entries.Recalled
 	local Held, Meant, Sender = Stamp.Written(Record, `{Escrow.DELIVER_ID}:{Tid}`)
 	if Held and Print ~= nil and Sender ~= nil and From ~= nil and tostring(Sender) ~= tostring(From) then
 		return Entries.OTHER
 	end
 
 	if Held and Meant ~= nil and Print ~= nil then
-		return if Meant == Print or Meant == Before then Entries.SAME else Entries.OTHER
+		return if Meant == Print then Entries.SAME else Entries.OTHER
 	end
 
 	if Held and Print == nil then
@@ -71,15 +67,11 @@ local function LandedOn(Format: Format, Record: Record, Tid: string, Print: stri
 	end
 
 	local State: any = Format:Fold(Record)
-	local Recalled = Entries.Recall(State._Received, Entries.TRANSFER, Tid, Print)
-	if Recalled == Entries.OTHER and Before ~= nil then
-		return Entries.Recall(State._Received, Entries.TRANSFER, Tid, Before)
-	end
-	return Recalled
+	return Entries.Recall(State._Received, Entries.TRANSFER, Tid, Print)
 end
 
-local function Delivered(Records: Log, Format: Format, To: number | string, Tid: string, Print: string?, Before: string?, From: (number | string)?): Entries.Recalled
-	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print, Before, From)
+local function Delivered(Records: Log, Format: Format, To: number | string, Tid: string, Print: string?, From: (number | string)?): Entries.Recalled
+	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print, From)
 end
 
 local function Reserve(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): Reserved
@@ -89,10 +81,9 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 	local Tid = Id or Ident.Fresh()
 	local Print = Terms(From, To, Amount)
-	local Before = Older(To, Amount)
 
 	if Id ~= nil then
-		local Already = Delivered(Records, Format, To, Tid, Print, Before, From)
+		local Already = Delivered(Records, Format, To, Tid, Print, From)
 		if Already == Entries.SAME then
 			return { Outcome = "Finished" }
 		end
@@ -132,9 +123,6 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 	local Spend = Entries.Recall((State :: any)._Received, Entries.SENT, Tid, Print)
 	if Spend == Entries.OTHER then
-		Spend = Entries.Recall((State :: any)._Received, Entries.SENT, Tid, Before)
-	end
-	if Spend == Entries.OTHER then
 		Say.Warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
 		return { Outcome = "Stopped", Why = SPENT }
 	end
@@ -167,7 +155,7 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 		error(Fault.New(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`))
 	end
 
-	local Landing = LandedOn(Format, Landed, Tid, DeliverOp.Print, Older(To, Amount), From)
+	local Landing = LandedOn(Format, Landed, Tid, DeliverOp.Print, From)
 	if Landing == Entries.OTHER then
 		error(
 			Fault.New(
@@ -236,6 +224,5 @@ return table.freeze({
 	Prune = Prune,
 	Drive = Drive,
 	Terms = Terms,
-	Older = Older,
 	LandedOn = LandedOn,
 })

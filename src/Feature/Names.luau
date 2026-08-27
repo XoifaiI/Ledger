@@ -51,6 +51,9 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 
 		local Stamp, At, Print = StampOf(Op)
 		if Stamp ~= nil then
+			if type(At) ~= "number" then
+				return nil
+			end
 			local Marked = table.clone(Plain)
 			Marked._Received = Entries.Remember(Data._Received, Stamp, At, Print)
 
