@@ -5,8 +5,9 @@
 	MakeOp: Builds an op that has a new unique id.
 
 	The id is what makes an append that runs two times apply one time.
-	A caller can put its own OnceAt on an op, but only in the past. A time in the future would hold
-	the name past its own horizon.
+	A caller can put its own OnceAt on an op, but only inside the window a name is kept for. A time
+	in the future would hold the name past its own horizon. A time further back than the window is
+	already past it, so the next write that carries a name drops it and the op could apply again.
 
 	Return type: A table with New and Stamp.
 	Example usage:
@@ -19,8 +20,11 @@ local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
 local Ident = require("../Encode/Ident")
 local Contract = require("../Contract/Op")
+local Horizons = require("../Contract/Horizons")
 
 type Op = Contract.Op
+
+local PRUNE_HORIZON = Horizons.PRUNE
 
 local function Stamp(Op: Op): (boolean, string?)
 	local Loose: { [any]: any } = Op :: any
@@ -33,7 +37,11 @@ local function Stamp(Op: Op): (boolean, string?)
 	end
 
 	local Now = Clock.Now()
-	if type(Loose.OnceAt) ~= "number" or not (Loose.OnceAt <= Now) then
+	local At = Loose.OnceAt
+	if type(At) == "number" and At < Now - PRUNE_HORIZON then
+		return false, `OnceAt is further back than the {PRUNE_HORIZON // 86400} days a name is kept for, so the name would be dropped by the next write that carries one and this op could apply again`
+	end
+	if type(At) ~= "number" or not (At <= Now) then
 		Loose.OnceAt = Now
 	end
 	return true, nil

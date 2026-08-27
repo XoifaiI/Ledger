@@ -545,10 +545,14 @@ Cases.Case("a tally an older build wrote carries its total across the next bump"
 
 	Shelf.Store:Bump("pot", "Gold", 5):Wait()
 
+	local Carried = (Shelf:Stored(Shard) :: any)._Tally[Tally.CARRIED]
+
 	T:Is("the tally an older build left in the game's field", Inherited, 30)
 	T:Is("the tally once a bump moved it across", Shelf.Store:Total("pot", "Gold"):Wait(), 35)
 	T:Is("where the total is kept afterwards", (Shelf:Stored(Shard) :: any)._Tally.Gold, 35)
-	T:Warns("it said the total was read against this build's Default", "still has shard(s) an older build wrote", 1)
+	T:Is("what the move absorbed", Carried.Gold.Absorbed, 30)
+	T:Is("the Default the move took away", Carried.Gold.Assumed, 0)
+	T:Warns("it said the total was read against this build's Default, on both sides of the move", "still has shard(s) an older build wrote", 2)
 end)
 
 Cases.Case("a tally an older build folded after the move is still counted whole", function(T: Case)
@@ -571,6 +575,34 @@ Cases.Case("a tally an older build folded after the move is still counted whole"
 
 	T:Is("the total once a newer bump moved that across too", Shelf.Store:Total("pot", "Gold"):Wait(), 50)
 	T:Is("the game's field afterwards", (Shelf:Stored(Shard) :: any).Gold, 0)
+end)
+
+Cases.Case("a shard an older build left below this build's Default is not counted backwards", function(T: Case)
+	local Shelf = T:Store({ Default = { Gold = 100 }, Reducer = Reducers.Keep, Data = "CaseTallyUnder" })
+	local Shard = Tally.Shard("pot", Tally.Mine())
+
+	Shelf:Write(Shard, { Snapshot = { Gold = 0 }, Ops = {}, Seen = {} })
+
+	T:Is("a shard holding less than the Default this build carries", Shelf.Store:Total("pot", "Gold"):Wait(), 0)
+	T:Warns("it said the total was read against this build's Default", "still has shard(s) an older build wrote", 1)
+end)
+
+Cases.Case("a bump does not silence a tally an older build wrote", function(T: Case)
+	local Shelf = T:Store({ Default = { Gold = 100 }, Reducer = Reducers.Keep, Data = "CaseTallyGuessed" })
+	local Shard = Tally.Shard("pot", Tally.Mine())
+
+	Shelf:Write(Shard, { Snapshot = { Gold = 500 }, Ops = {}, Seen = {} })
+	local Before = Shelf.Store:Total("pot", "Gold"):Wait()
+
+	Shelf.Store:Bump("pot", "Gold", 1):Wait()
+	local After = Shelf.Store:Total("pot", "Gold"):Wait()
+	local Carried = (Shelf:Stored(Shard) :: any)._Tally[Tally.CARRIED]
+
+	T:Is("the total before the bump moved the shard across", Before, 400)
+	T:Is("the total after it, still against this build's Default", After, 401)
+	T:Is("what the move absorbed", Carried.Gold.Absorbed, 500)
+	T:Is("the Default the move took away", Carried.Gold.Assumed, 100)
+	T:Warns("it still said the total was guessed at once the move had happened", "still has shard(s) an older build wrote", 2)
 end)
 
 Cases.Case("a bump an older build wrote is counted whichever side of the move it lands", function(T: Case)

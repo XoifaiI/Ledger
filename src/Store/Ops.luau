@@ -299,7 +299,7 @@ function Store.Total(self: Store, Name: string, Field: string): Future<number?, 
 
 		if Older then
 			Say.Warn(
-				`Ledger: '{Name}' still has shard(s) an older build wrote, so its total is counted against the Default this build carries. if that Default has changed since, the number is off by the difference. bump '{Name}' once to move each shard across`
+				`Ledger: '{Name}' still has shard(s) an older build wrote, so its total is counted against the Default this build carries. if '{Field}' had a different Default when those shards were written, the number is off by that difference on each of them. a bump does not correct it, and the Default they grew under is not stored anywhere, so read the {Tally.FIELD}.{Tally.CARRIED} on each shard and work it back out by hand if the total has to be exact`
 			)
 		end
 		return Sum, nil

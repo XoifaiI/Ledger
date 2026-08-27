@@ -10,6 +10,7 @@
 	counts as still holding one. One already finished goes on a shorter window than one still being
 	decided. A delete names no generation, so it can land on a marker opened under the same name
 	after this pass read it, which costs that transaction a retry and never a leg.
+
 	A pass reads a fixed number of names per shard, stops at a cap or when either store runs short of
 	budget, and gives back the shard it stopped on so the next one starts there. A name it could not
 	reach goes to the front of the next key.
@@ -50,13 +51,12 @@ export type Reaping = {
 }
 
 local function Spent(Record: Record, Txid: string, Gen: string?, Born: number): boolean
-	if type(Gen) ~= "string" then
-		return false
-	end
-
 	for _, Op in Record.Ops do
 		if Op.Tx ~= Txid then
 			continue
+		end
+		if type(Gen) ~= "string" then
+			return false
 		end
 
 		local Mine = Op.TxGen
@@ -117,7 +117,10 @@ local function Gone(TxStore: DataStoreWrapper, Txid: string, Lookup: Lookup, Now
 		if Now - Updated < (if Settled then Grace else Older) then
 			return false, false
 		end
-		if not Settled and not Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0)) then
+
+		local Blind = type(Held.Keys) ~= "string" or #Held.Keys == 0
+		local Undecided = Held.Status ~= Marker.COMMITTED
+		if not Settled and not (Blind and Undecided) and not Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0)) then
 			return false, false
 		end
 	end

@@ -1876,4 +1876,56 @@ Cases.Case("a marker naming a store this server never built is still reaped", fu
 	T:Is("coins in the vault", Vault:State("farB").Coins, 25)
 end)
 
+Cases.Case("a marker naming no generation goes once the key it named holds no leg", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("nogen", { Gold = 100 })
+
+	Bank:Marker("nogen1", {
+		Status = "Pending",
+		Total = 1,
+		At = T:Now(),
+		Adopted = {},
+		Keys = Mark.Pack({ Mark.Of(Bank.Data, "nogen") }),
+	})
+	T:Advance(Tx.REAP_HORIZON + 60)
+
+	local Reaped = Bank.Store:ReapMarkers()
+
+	T:Is("markers reaped", Reaped, 1)
+	T:Is("the marker whose key holds nothing of its own", Bank:Mark("nogen1"), nil)
+	T:Is("its name on the cleanup list", Bank:Rolled()["nogen1"], nil)
+end)
+
+Cases.Case("a marker naming no generation stays while its key still holds the leg", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("heldgen", { Gold = 100 })
+
+	Bank:Marker("heldgen1", {
+		Status = "Pending",
+		Total = 1,
+		At = T:Now(),
+		Adopted = {},
+		Keys = Mark.Pack({ Mark.Of(Bank.Data, "heldgen") }),
+	})
+	Bank:Park("heldgen", { Id = "tx:heldgen1:1", Kind = "Give", Amount = 25, Tx = "heldgen1", TxGen = "one" })
+	T:Advance(Tx.REAP_HORIZON + 60)
+
+	Bank.Store:ReapMarkers()
+
+	T:Is("the marker while a leg it cannot attribute is still parked", type(Bank:Mark("heldgen1")), "table")
+end)
+
+Cases.Case("a stale marker naming no keys goes undecided and stays committed", function(T: Case)
+	local Bank = T:Bank()
+
+	Bank:Marker("blind1", { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
+	Bank:Marker("blind2", { Status = "Committed", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
+	T:Advance(Tx.REAP_HORIZON + 60)
+
+	Bank.Store:ReapMarkers()
+
+	T:Is("the one still undecided, which already reads as aborted wherever its legs are", Bank:Mark("blind1"), nil)
+	T:Is("the one that says it committed, whose keys nothing else knows", type(Bank:Mark("blind2")), "table")
+end)
+
 return Cases

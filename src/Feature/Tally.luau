@@ -11,7 +11,7 @@
 	bump has moved the total across, so a build that still writes the old way adds to a field that is
 	counted alongside the total rather than hidden behind it.
 
-	Return type: A table with Layered, Bump, Counted, Mine, Shard, Shards, SHARDS, PART and FIELD.
+	Return type: A table with Layered, Bump, Counted, Mine, Shard, Shards, SHARDS, PART, FIELD and CARRIED.
 	Example usage:
 		local Tally = require("./Tally")
 		local Key = Tally.Shard(Name, Tally.Mine())
@@ -30,6 +30,7 @@ local BUMP = "__Bump"
 local SHARDS = 16
 local PART = "#"
 local FIELD = "_Tally"
+local CARRIED = "_Carried"
 
 local LastNode = ""
 local LastShard = 0
@@ -42,13 +43,15 @@ local function Counted(State: any, Field: string, Base: number): (number, boolea
 	local Sums = State[FIELD]
 	local Value = State[Field]
 	if type(Sums) == "table" and type(Sums[Field]) == "number" then
-		return Sums[Field] + (if type(Value) == "number" then Value else 0), false
+		local Carried = Sums[CARRIED]
+		local Held = Sums[Field] + (if type(Value) == "number" then Value else 0)
+		return math.max(Held, 0), type(Carried) == "table" and Carried[Field] ~= nil
 	end
 
 	if type(Value) ~= "number" then
 		return 0, false
 	end
-	return Value - Base, Value ~= Base
+	return math.max(Value - Base, 0), Value ~= Base
 end
 
 local function Bumping(Data: Data, Op: Op): Data?
@@ -71,10 +74,17 @@ local function Bumping(Data: Data, Op: Op): Data?
 	end
 
 	local Raw = Data[Field]
-	local Sum = if type(Moved) == "number" then Moved + Raw else Raw - (Base :: number)
+	local Guessed = type(Moved) ~= "number" and Raw ~= Base
+	local Sum = if type(Moved) == "number" then Moved + Raw else math.max(Raw - (Base :: number), 0)
 
 	local Kept: Data = if type(Sums) == "table" then table.clone(Sums :: Data) else {}
 	Kept[Field] = Sum + Op.Amount
+	if Guessed then
+		local Held = Kept[CARRIED]
+		local Marked: Data = if type(Held) == "table" then table.clone(Held :: Data) else {}
+		Marked[Field] = { Absorbed = Raw, Assumed = Base }
+		Kept[CARRIED] = Marked
+	end
 
 	local Next = table.clone(Data)
 	Next[Field] = 0
@@ -131,4 +141,5 @@ return table.freeze({
 	SHARDS = SHARDS,
 	PART = PART,
 	FIELD = FIELD,
+	CARRIED = CARRIED,
 })

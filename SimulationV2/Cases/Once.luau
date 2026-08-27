@@ -329,6 +329,49 @@ Cases.Case("a forged OnceAt on a hand built op cannot erase delivery evidence", 
 	T:Is("gold after the same delivery arrives again", Bank:Amount("b"), 42)
 end)
 
+Cases.Case("a backdated OnceAt on a hand built op is refused", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 0 })
+
+	local Active = Bank:Session("a")
+	local Took, Why = Active:CommitOp({
+		Id = "back1",
+		Kind = "Fund",
+		Amount = 1,
+		Once = "gift",
+		OnceAt = T:Now() - (PRUNE_HORIZON + DAY),
+	} :: any):Wait()
+
+	Bank.Store:Edit("a", "Fund", { Amount = 5, Once = "fresh" }):Wait()
+
+	T:Is("a commit stamped further back than a name is kept", Took, false)
+	T:Is("the reason", Why, "Invalid")
+	T:Is("the name it would have been written under", Bank:Knows("a", Entries.ONCE, "gift"), false)
+	T:Is("gold, so nothing was granted under it", Bank:Amount("a"), 5)
+	T:Warns("it said the stamp was outside the window", "further back than the", 1)
+end)
+
+Cases.Case("a backdated OnceAt inside the window still pays once", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 0 })
+
+	local Active = Bank:Session("a")
+	local Took = Active:CommitOp({
+		Id = "back2",
+		Kind = "Fund",
+		Amount = 1,
+		Once = "gift",
+		OnceAt = T:Now() - (PRUNE_HORIZON - DAY),
+	} :: any):Wait()
+
+	Bank.Store:Edit("a", "Fund", { Amount = 5, Once = "fresh" }):Wait()
+
+	T:Is("a commit stamped inside the window", Took, true)
+	T:Is("the name after a later write carried one of its own", Bank:Knows("a", Entries.ONCE, "gift"), true)
+	T:Is("the same name offered again", (Bank.Store:Edit("a", "Fund", { Amount = 1, Once = "gift" }):Wait()), false)
+	T:Is("gold, granted one time", Bank:Amount("a"), 6)
+end)
+
 Cases.Case("a backdated OnceAt cannot age out the name", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 0 })

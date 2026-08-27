@@ -346,9 +346,9 @@ local function Tallies(Board: Disk, Name: string, Named: { string }, Format: any
 			local Held: any = State[TALLY]
 			local Raw = if type(State[Field]) == "number" then State[Field] else 0
 			if type(Held) == "table" and type(Held[Field]) == "number" then
-				Total += Held[Field] + Raw
+				Total += math.max(Held[Field] + Raw, 0)
 			elseif type(State[Field]) == "number" then
-				Total += Raw - Base
+				Total += math.max(Raw - Base, 0)
 			end
 			Shards += 1
 		end
