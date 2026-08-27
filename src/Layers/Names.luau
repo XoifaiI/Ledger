@@ -14,6 +14,7 @@
 		local Reducer = Names.Wrap(Inner)
 --]=]
 
+local TableUtil = require("../Util/Tools/TableUtil")
 local Fault = require("../Contract/Fault")
 local Contract = require("../Contract/Op")
 local Entries = require("../Contract/Entries")
@@ -65,7 +66,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 			return Next
 		end
 
-		if Plain._Received ~= nil then
+		if Plain._Received ~= nil and not TableUtil.DeepEqual(Plain._Received, Data._Received) then
 			Fault.Broke(`your reducer wrote its own _Received on op '{tostring(Op.Kind)}', so Ledger put the applied names back`)
 		end
 

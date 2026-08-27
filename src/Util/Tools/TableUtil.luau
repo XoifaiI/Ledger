@@ -6,8 +6,10 @@
 
 	FreezeDelta remembers each table that it froze, so it does not walk the same table two times.
 	The cost of a freeze is therefore equal to the part of the state that changed.
+	DeepEqual is only worth asking once two tables are known to be different tables, which on the fold
+	means one side is a copy, so its walk costs no more than the copy that made it necessary.
 
-	Return type: A table with Occupied, Count, Some, DeepCopy, DeepFreeze and FreezeDelta.
+	Return type: A table with Occupied, Count, Some, DeepEqual, DeepCopy, DeepFreeze and FreezeDelta.
 	Example usage:
 		local TableUtil = require("./TableUtil")
 		local Copy = TableUtil.DeepCopy(State)
@@ -34,6 +36,24 @@ local function Some<T>(Entries: T): T?
 		return nil
 	end
 	return if next(Entries :: any) == nil then nil else Entries
+end
+
+local function DeepEqual(Left: any, Right: any): boolean
+	if Left == Right then
+		return true
+	end
+	if type(Left) ~= "table" or type(Right) ~= "table" then
+		return type(Left) == "buffer" and type(Right) == "buffer" and buffer.tostring(Left) == buffer.tostring(Right)
+	end
+
+	local Held = 0
+	for Key, Value in Left do
+		if not DeepEqual(Value, Right[Key]) then
+			return false
+		end
+		Held += 1
+	end
+	return Held == Count(Right)
 end
 
 local function DeepCopy<T>(Value: T, Seen: { [any]: any }?): T
@@ -104,6 +124,7 @@ return table.freeze({
 	Occupied = Occupied,
 	Count = Count,
 	Some = Some,
+	DeepEqual = DeepEqual,
 	DeepCopy = DeepCopy,
 	DeepFreeze = DeepFreeze,
 	FreezeDelta = FreezeDelta,

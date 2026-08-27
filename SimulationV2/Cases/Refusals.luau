@@ -1189,4 +1189,49 @@ Cases.Case("a reducer cannot plant applied names on a key that has none", functi
 	T:Is("gold after both writes", Store:Amount("k"), 2)
 end)
 
+Cases.Case("a reducer that deep copies the state is not accused of writing bookkeeping", function(T: Case)
+	local Store = T:Store({
+		Default = Reducers.PLAIN,
+		Balance = "Gold",
+		Data = "CaseCopyState",
+		Reducer = function(State: any, Op: any): any?
+			local Next = Insides.TableUtil.DeepCopy(State)
+			Next.Gold = (Next.Gold or 0) + 1
+			return Next
+		end,
+	})
+
+	Store.Store:Edit("k", "Add", { Once = "one" }):Wait()
+	Store.Store:Reserve("k", "Gold", 1, "book1"):Wait()
+	Store.Store:Edit("k", "Add"):Wait()
+
+	T:Is("the applied names it copied are still there", Store.Store:DidApply("k", "one"):Wait(), true)
+	T:Is("the units it copied are still set aside", Store:Booked("k"), 1)
+	T:Silent("copying a field is not writing it", "wrote its own")
+end)
+
+Cases.Case("a reducer that empties a copied field is still caught", function(T: Case)
+	local Store = T:Store({
+		Default = Reducers.PLAIN,
+		Balance = "Gold",
+		Data = "CaseCopyWipe",
+		Reducer = function(State: any, Op: any): any?
+			local Next = Insides.TableUtil.DeepCopy(State)
+			Next.Gold = (Next.Gold or 0) + 1
+			if Op.Kind == "Wipe" then
+				Next._Booked = {}
+			end
+			return Next
+		end,
+	})
+
+	Store.Store:Edit("k", "Add"):Wait()
+	T:Is("the reservation it is about to try to drop", Store.Store:Reserve("k", "Gold", 1, "book2"):Wait(), true)
+	Store.Store:Edit("k", "Wipe"):Wait()
+
+	T:Accuses("it named itself for a mistake the reducer made", "your reducer wrote its own _Booked")
+	T:Is("the units it tried to drop are still set aside", Store:Booked("k"), 1)
+	T:Is("the booking can still be released", Store.Store:Release("k", "book2"):Wait(), true)
+end)
+
 return Cases
