@@ -11,6 +11,9 @@
 	the minute, and the oldest work sorts to the front.
 	A name the reaper cannot clear yet moves to a key of the minute it was read in, so an old key is
 	always emptied and taken away.
+	A key holding something that is not a list of names is left alone rather than written over, and
+	the name being added goes on the next key of the minute. Writing nothing back is how one key is
+	stepped over, and never how an add gives up.
 
 	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add, Carry, RESERVED, SHARDS, ROLL_LIMIT and PARTS.
 	Example usage:
@@ -18,6 +21,7 @@
 		Roll.Add(TxStore, "trade1")
 --]=]
 
+local Say = require("../../Util/Say")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Fingerprint = require("../../Encode/Fingerprint")
@@ -99,11 +103,13 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 		local Placed = 0
 		local Ok = TxStore:UpdateAsync(Named(Slot, When, Part), function(Current: any): string?
 			Placed = 0
-			if type(Current) == "string" and #Current > 0 and #Mark.Unpack(Current) == 0 then
+			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
+			if type(Current) == "string" and #Current > 0 and #Held == 0 then
+				Say.Warn(
+					`Ledger: the cleanup list key '{Named(Slot, When, Part)}' holds something that is not a list of names, so it is left alone rather than written over and this transaction goes on the next key of the minute. whatever was on it cannot be read back`
+				)
 				return nil
 			end
-
-			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
 			local Known: { [string]: boolean } = {}
 			for _, Txid in Held do
 				Known[Txid] = true

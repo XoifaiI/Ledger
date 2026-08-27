@@ -86,6 +86,7 @@ local FRAGMENTS: { { Name: string, Says: string } } = {
 	{ Name = "TxUnanswered", Says = "has no answer yet and might still go through" },
 	{ Name = "TxLegFull", Says = "cannot put a leg on" },
 	{ Name = "TxHomesFull", Says = "transaction homes" },
+	{ Name = "RollUnreadable", Says = "is not a list of names" },
 	{ Name = "TxMarkerKeyless", Says = "names no keys Ledger can read, so nothing" },
 	{ Name = "TxMarkerWrittenOff", Says = "can read and nothing has touched it" },
 

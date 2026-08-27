@@ -1921,6 +1921,25 @@ Cases.Case("a marker naming no generation stays while its key still holds the le
 	T:Is("the marker while a leg it cannot attribute is still parked", type(Bank:Mark("heldgen1")), "table")
 end)
 
+Cases.Case("a cleanup list key nobody can read is stepped over rather than written over", function(T: Case)
+	local Bank = T:Bank()
+
+	T:Advance(60)
+	local Bad = Tx.Roll.Key("bentroll", T:Now())
+
+	Bank.DirectMarks:UpdateAsync(Bad, function(): any
+		return "this is not a packed list"
+	end)
+
+	local Added = Tx.Roll.Add(Bank.Store.TxWrapper, "bentroll")
+	local Held = Bank:Rolled()
+
+	T:Is("the transaction was still enrolled", Added, true)
+	T:Is("the key that could not be read, left as it was", Bank:Mark(Bad), "this is not a packed list")
+	T:Is("the name, which went on a later key of the minute", Held["bentroll"], true)
+	T:Warns("it said a cleanup list key could not be read", "is not a list of names", 1)
+end)
+
 Cases.Case("a marker naming no keys is taken off once nothing has touched it for the horizon", function(T: Case)
 	local Bank = T:Bank()
 
