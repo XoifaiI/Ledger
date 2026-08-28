@@ -399,6 +399,7 @@ local function Run(Seed: number, Options: Options?): Report
 	local Count = Rng:NextInteger(KEYS_LEAST, KEYS_MOST)
 
 	Say.Reset()
+	Lib.Threads.Reset()
 	Limits.Set(Held.Limits or SIM_LIMITS)
 
 	Time.Restart()
@@ -665,6 +666,7 @@ local function Run(Seed: number, Options: Options?): Report
 	Steps += Closing.Steps
 	Plate.Turn = nil
 	Time.Bind(nil)
+	Disk.Shut(Plate)
 
 	Ledger.UseClock(nil, nil)
 	Limits.Reset()

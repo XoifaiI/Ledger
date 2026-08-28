@@ -50,20 +50,25 @@ local function Apart(First: string, Second: string): string
 	local Left = string.split(First, " ")
 	local Right = string.split(Second, " ")
 
+	local Apart: { string } = {}
 	for Index, Held in Left do
 		local Other = Right[Index]
 		if Other == nil then
-			return `the second run stopped after '{Held}'`
+			table.insert(Apart, `the second run stopped after '{Held}'`)
+			break
 		end
 		if Held ~= Other then
-			return `'{Held}' the first time and '{Other}' the second`
+			table.insert(Apart, `'{Held}' then '{Other}'`)
 		end
 	end
 
 	if #Right > #Left then
-		return `the second run had '{Right[#Left + 1]}' and the first had nothing there`
+		table.insert(Apart, `the second run had '{Right[#Left + 1]}' and the first had nothing there`)
 	end
-	return "they agree, which should not have reached here"
+	if #Apart == 0 then
+		return "they agree, which should not have reached here"
+	end
+	return table.concat(Apart, ", ")
 end
 
 local function Check(Seed: number, Options: any?): Report

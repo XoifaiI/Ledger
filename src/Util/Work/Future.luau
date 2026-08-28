@@ -124,7 +124,7 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: 
 	Finish(Private, Unpack(Private))
 end
 
-local Idle: { thread } = {}
+local Idle = Threads.Pool()
 
 local function Runner(...)
 	FutureTask(...)

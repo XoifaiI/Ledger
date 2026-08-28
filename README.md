@@ -59,8 +59,8 @@ server. Changes are ops with names, and a reducer validates them.
 **Wally**
 
 ```toml
-[server-dependencies]
-Ledger = "xoifaii/ledger@4.3.0"
+[dependencies]
+Ledger = "xoifaii/ledger@4.3.1"
 ```
 
 **Model file**: insert the [Ledger](https://github.com/XoifaiI/Ledger/releases) module anywhere server side.

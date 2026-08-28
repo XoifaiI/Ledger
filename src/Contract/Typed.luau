@@ -10,17 +10,32 @@
 	Overloads builds plain function types on purpose. A method carrying a generic cannot be compared
 	against a separate copy of itself, so a store whose writes were generic could be built and then
 	never named in a type.
+	An arm reads its fields and does not write them, so a reducer that assigns to the op it was handed
+	fails the build. OpOf clears the same way through ReadOnly, since a type function cannot call the
+	one beside it. The open op an untyped store hands out stays as it was.
 	A map that is not a table gives back the open op, which is what lets these be asked about a store
 	held as any. SameKeys holds the two views of a store against each other, since one is built
 	through a cast.
 
-	Return type: An empty table. The types are OpOf, OpUnion, Overloads, NumberKeys and SameKeys.
+	Return type: An empty table. The types are OpOf, ReadOnly, OpUnion, Overloads, NumberKeys and SameKeys.
 	Example usage:
 		local Typed = require("./Typed")
 		type Ops = Typed.OpUnion<{ Buy: { Item: string } }>
 --]=]
 
-export type OpOf<O, K> = { Id: string, Kind: K } & index<O, K>
+export type function ReadOnly(Shape: type): type
+	if not Shape:is("table") then
+		return Shape
+	end
+
+	local Held = types.copy(Shape)
+	for Name in Shape:properties() do
+		Held:setwriteproperty(Name, nil)
+	end
+	return Held
+end
+
+export type OpOf<O, K> = { read Id: string, read Kind: K } & ReadOnly<index<O, K>>
 
 export type function OpUnion(Map: type): type
 	if not Map:is("table") then
@@ -42,8 +57,11 @@ export type function OpUnion(Map: type): type
 		end
 
 		local Arm = types.copy(Fields)
-		Arm:setproperty(types.singleton("Kind"), Kind)
-		Arm:setproperty(types.singleton("Id"), types.string)
+		for Name in Fields:properties() do
+			Arm:setwriteproperty(Name, nil)
+		end
+		Arm:setreadproperty(types.singleton("Kind"), Kind)
+		Arm:setreadproperty(types.singleton("Id"), types.string)
 		table.insert(Arms, Arm)
 	end
 

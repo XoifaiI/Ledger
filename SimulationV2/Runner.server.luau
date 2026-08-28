@@ -34,12 +34,12 @@ local Prove = require(Root:WaitForChild("Prove")) :: any
 local Suite = require(Root:WaitForChild("Suite")) :: any
 
 local CASES = true
-local SWEEP = false
+local SWEEP = true
 
 local MATCH = ""
 
 local FROM = 1
-local TO = 100_000
+local TO = 10_000
 local RANDOM = true
 local ENTROPY = ""
 local SEEDS: { number } = {}

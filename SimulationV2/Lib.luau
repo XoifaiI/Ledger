@@ -17,6 +17,7 @@ local Mock = require("../src/Mock")
 local Session = require("../src/Session/Session")
 local DataStoreWrapper = require("../src/Util/Engine/DataStoreWrapper")
 local Say = require("../src/Util/Tools/Say")
+local Threads = require("../src/Util/Work/Threads")
 local Registry = require("../src/Store/Registry")
 local Horizons = require("../src/Contract/Horizons")
 local Reasons = require("../src/Contract/Reason")
@@ -38,6 +39,7 @@ return table.freeze({
 	Mock = Mock,
 	Wrapper = DataStoreWrapper,
 	Say = Say,
+	Threads = Threads,
 	Reasons = Reasons,
 	Horizons = Horizons,
 

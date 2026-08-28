@@ -18,11 +18,12 @@
 --]=]
 
 local Carried = require("../Tools/Carried")
+local Threads = require("./Threads")
 
 local YIELDED = "the callback must complete without yielding"
 
 local DONE = newproxy(false)
-local Idle: { thread } = {}
+local Idle = Threads.Pool()
 
 local function Serve(Callback: (...any) -> ...any, First: any, Second: any): ...any
 	return coroutine.yield(DONE, Callback(First, Second))

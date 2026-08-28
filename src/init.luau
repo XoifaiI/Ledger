@@ -20,6 +20,10 @@
 		local Shop = Ledger.NewTyped<<Profile, { Buy: { Item: string } }>>(Options)
 --]=]
 
+local RunService = game:GetService("RunService")
+
+assert(RunService:IsServer(),"Ledger runs on the server, only the server can reach a datastore")
+
 local Future = require("@self/Util/Work/Future")
 local Observer = require("@self/Util/Tools/Observer")
 local Say = require("@self/Util/Tools/Say")

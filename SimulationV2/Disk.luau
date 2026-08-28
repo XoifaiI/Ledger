@@ -7,8 +7,10 @@
 	It copies what a real datastore does. One key is one atomic unit, a transform sees what is there
 	now, and a value must survive one trip through json. It gives up its turn through the seeded
 	scheduler and counts its budget in simulated seconds, so a run can replay.
+	A run ends while work it started is still in flight. Shut parks that work where it next gives up
+	its turn, so it cannot carry on against the next run's clock and answer for the wrong seed.
 
-	Return type: A table with New, Open, Peek, Stamp, Keys, Pause and the caps.
+	Return type: A table with New, Open, Peek, Stamp, Keys, Pause, Shut and the caps.
 	Example usage:
 		local Plate = Disk.New()
 		local Store = Disk.Open(Plate, "Players")
@@ -57,6 +59,7 @@ export type Disk = {
 	Throttled: boolean,
 	Blobbed: boolean,
 	MaxValue: number,
+	Closed: boolean,
 }
 
 local MAX_KEY = 50
@@ -100,16 +103,27 @@ local function New(): Disk
 		Throttled = false,
 		Blobbed = false,
 		MaxValue = MAX_VALUE,
+		Closed = false,
 	}
 end
 
 local function Pause(self: Disk)
+	if self.Closed then
+		coroutine.yield()
+		return
+	end
+
 	local Turn = self.Turn
 	if Turn ~= nil then
 		Turn:Wait()
 		return
 	end
 	task.wait()
+end
+
+local function Shut(self: Disk)
+	self.Closed = true
+	self.Turn = nil
 end
 
 local function Checked(Key: string)
@@ -483,6 +497,7 @@ return table.freeze({
 	Stamp = Stamp,
 	Keys = Keys,
 	Pause = Pause,
+	Shut = Shut,
 	MAX_KEY = MAX_KEY,
 	MAX_VALUE = MAX_VALUE,
 	KEEP_VERSIONS = KEEP_VERSIONS,
