@@ -126,10 +126,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 	if Extra.To ~= nil then
 		To = self:Resolve(Extra.To, "Reserve To")
 		assert(To ~= Resolved, `Reserve needs To to be a different key, both resolved to '{Resolved}'`)
-		assert(
-			Hold == nil or Hold <= Booking.HOLD_CAP,
-			`Reserve Hold must be {Booking.HOLD_CAP} seconds or less when you give a To, got {Hold}. a longer hold is written off instead of given back`
-		)
+		assert(Hold == nil or Hold <= Booking.HOLD_CAP, `Reserve Hold must be {Booking.HOLD_CAP} seconds or less when you give a To, got {Hold}. a longer hold is written off instead of given back`)
 	end
 
 	local Op = Booking.Book(Rid, Field, Amount, Hold, To)

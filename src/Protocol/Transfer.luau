@@ -198,10 +198,7 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 	end
 
 	local Cleared = Settle(Records, From, Tid, Print)
-	Fault.Holds(
-		Entries.Has(Format:Fold(Cleared)._Received, Entries.SENT, Tid),
-		`transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`
-	)
+	Fault.Holds(Entries.Has(Format:Fold(Cleared)._Received, Entries.SENT, Tid), `transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`)
 
 	Records:Trim(tostring(To), Format, Landed)
 	Records:Trim(tostring(From), Format, Cleared)

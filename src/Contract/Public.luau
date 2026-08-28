@@ -138,9 +138,7 @@ export type TypedConfig<D, O> = ConfigCommon<D> & {
 type DriftState = { Gold: number }
 type DriftOps = { Buy: { Item: string } }
 
-local _Drift: Typed.SameKeys<keyof<Store<DriftState>>, keyof<TypedStore<DriftState, DriftOps>>> & Typed.SameKeys<
-	keyof<Live<DriftState>>,
-	keyof<TypedLive<DriftState, DriftOps>>
-> & Typed.SameKeys<keyof<Config<DriftState>>, keyof<TypedConfig<DriftState, DriftOps>>> = true
+local _Drift: Typed.SameKeys<keyof<Store<DriftState>>, keyof<TypedStore<DriftState, DriftOps>>> & Typed.SameKeys<keyof<Live<DriftState>>, keyof<TypedLive<DriftState, DriftOps>>> & Typed.SameKeys<keyof<Config<DriftState>>, keyof<TypedConfig<DriftState, DriftOps>>> =
+	true
 
 return table.freeze({})

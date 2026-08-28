@@ -86,11 +86,7 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	end
 
 	if self.Parked > 1 and not Durable then
-		return Refused(
-			Kind,
-			UNRESOLVED,
-			`more than one transaction is parked on '{Key}' and this op only holds for some of the ways they can settle. ask again once they clear`
-		)
+		return Refused(Kind, UNRESOLVED, `more than one transaction is parked on '{Key}' and this op only holds for some of the ways they can settle. ask again once they clear`)
 	end
 
 	local Also: S? = nil

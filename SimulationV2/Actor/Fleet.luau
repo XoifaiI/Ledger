@@ -153,7 +153,9 @@ local function Sweep(From: number, To: number, Count: number, Misdirect: boolean
 			local Elapsed = os.clock() - Started
 			local Rate = Walked / math.max(Elapsed, 0.001)
 			print(
-				`  sweep {Walked}/{Total} ({string.format("%.1f", 100 * Walked / Total)}%) {Spell(Elapsed)} in, {string.format("%.0f", Rate)} seeds/s, about {Spell((Total - Walked) / math.max(Rate, 0.001))} left`
+				`  sweep {Walked}/{Total} ({string.format("%.1f", 100 * Walked / Total)}%) {Spell(Elapsed)} in, {string.format("%.0f", Rate)} seeds/s, about {Spell(
+					(Total - Walked) / math.max(Rate, 0.001)
+				)} left`
 			)
 			return
 		end

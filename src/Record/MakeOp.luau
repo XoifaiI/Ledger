@@ -44,7 +44,8 @@ local function Stamp(Op: Op): (boolean, string?)
 	local Now = Clock.Now()
 	local At = Loose.OnceAt
 	if type(At) == "number" and At < Now - ONCE_FLOOR then
-		return false, `OnceAt is further back than the {ONCE_FLOOR // 86400} days a name may be stamped in the past, so it would run out inside the {ONCE_MARGIN // 86400} days a retry has to arrive in and this op could apply again`
+		return false,
+			`OnceAt is further back than the {ONCE_FLOOR // 86400} days a name may be stamped in the past, so it would run out inside the {ONCE_MARGIN // 86400} days a retry has to arrive in and this op could apply again`
 	end
 	if type(At) ~= "number" or not (At <= Now) then
 		Loose.OnceAt = Now

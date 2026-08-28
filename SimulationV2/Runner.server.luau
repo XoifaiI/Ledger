@@ -190,9 +190,7 @@ local function RunSweep(CaseSheet: any)
 	local Entropy = Drawn()
 	local Ahead: { string } = {}
 
-	local Repeats: { number } = if Seeded()
-		then { SEEDS[1], SEEDS[#SEEDS // 2 + 1], SEEDS[#SEEDS] }
-		else { Seeds.At(Entropy, FROM), Seeds.At(Entropy, FROM + (TO - FROM) // 2), Seeds.At(Entropy, TO) }
+	local Repeats: { number } = if Seeded() then { SEEDS[1], SEEDS[#SEEDS // 2 + 1], SEEDS[#SEEDS] } else { Seeds.At(Entropy, FROM), Seeds.At(Entropy, FROM + (TO - FROM) // 2), Seeds.At(Entropy, TO) }
 	local Same = true
 	for _, Seed in Repeats do
 		local Held = Replay.Check(Seed)
