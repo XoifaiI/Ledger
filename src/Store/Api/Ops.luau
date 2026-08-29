@@ -16,35 +16,35 @@
 		local Ok, Why = self:Edit(1, "Add", { Amount = 5 }):Wait()
 --]=]
 
-local Say = require("../../Util/Tools/Say")
-local Future = require("../../Util/Work/Future")
-local Clock = require("../../Util/Engine/Clock")
-local Fault = require("../../Contract/Fault")
-local Reasons = require("../../Contract/Reason")
-local Contract = require("../../Contract/Op")
-local Public = require("../../Contract/Public")
-local IsStorable = require("../../Encode/Storable")
-local Entries = require("../../Contract/Entries")
+local Warnings = require("../../Util/Warnings")
+local Future = require("../../Util/Future")
+local Clock = require("../../Util/Clock")
+local Errors = require("../../Core/Errors")
+local Windows = require("../../Core/Constants/Windows")
+local Reasons = require("../../Core/Reasons")
+local Shapes = require("../../Core/Shapes")
+local Api = require("../../Core/Api")
+local Storable = require("../../Encode/Storable")
+local Applied = require("../../Core/Applied")
 local Log = require("../../Record/Log")
-local MakeOp = require("../../Record/MakeOp")
-local Stamp = require("../../Record/Stamp")
+local NewOp = require("../../Record/NewOp")
+local TxStamp = require("../../Record/TxStamp")
 local Booking = require("../../Layers/Booking")
 local Tally = require("../../Layers/Tally")
 local Transfer = require("../../Protocol/Transfer")
 local Tx = require("../../Protocol/Tx")
-local Arg = require("../../Contract/Arg")
-local Core = require("../Core")
-local Registry = require("../Registry")
+local Validate = require("../../Core/Validate")
+local Shared = require("../Shared")
 local Write = require("./Write")
 local Store = require("../Class")
 local Types = require("../Types")
 
 type Future<T...> = Future.Future<T...>
-type Op = Contract.Op
-type Record = Contract.Record<any>
-type KeyLike = Contract.KeyLike
-type TxLeg = Public.TxLeg
-type HoldOptions = Public.HoldOptions
+type Op = Shapes.Op
+type Record = Shapes.Record<any>
+type KeyLike = Shapes.KeyLike
+type TxLeg = Api.TxLeg
+type HoldOptions = Api.HoldOptions
 type Reason = Reasons.Reason
 type Store = Types.Store<any>
 type LegTarget = { Store: Store, Key: string }
@@ -69,11 +69,11 @@ end
 function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Edit")
 
-	local Op = MakeOp.New(Kind, Fields)
+	local Op = NewOp.New(Kind, Fields)
 
-	local Fine, Wrong = MakeOp.Vet(Op)
+	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
-		Say.Warn(`Ledger: Edit rejected op '{Kind}', {Wrong}`)
+		Warnings.Warn(`Ledger: Edit rejected op '{Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -87,20 +87,20 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 	local FromKey = self:Resolve(From, "Transfer")
 	local ToKey = self:Resolve(To, "Transfer")
 	assert(FromKey ~= ToKey, `Transfer needs two different keys, both resolved to '{FromKey}'`)
-	Arg.Amount(Amount, "Transfer")
-	Arg.Maybe(Id, MAX_TRANSFER_ID, "Transfer Id")
+	Validate.Amount(Amount, "Transfer")
+	Validate.Maybe(Id, MAX_TRANSFER_ID, "Transfer Id")
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Moved, Why, Escrowed = pcall(function(): (boolean, Reason?, boolean?)
 			return Transfer.Drive(self:Records(), self:Format(), FromKey, ToKey, Amount, Id)
 		end)
 		if not Ok then
-			Say.Warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
+			Warnings.Warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
 			return false, UNRESOLVED
 		end
 
 		if Why == BUSY or Why == HELD or Escrowed then
-			Registry.Sweep():Add(self, FromKey)
+			self.Sweep:Add(self:Swept(), FromKey)
 		end
 		if Moved then
 			self:Went(FromKey)
@@ -112,9 +112,9 @@ end
 
 function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number, Id: string, Options: HoldOptions?): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Reserve")
-	Arg.Field(self.Initial, Field, "Reserve")
-	Arg.Amount(Amount, "Reserve")
-	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Reserve")
+	Validate.Field(self.Initial, Field, "Reserve")
+	Validate.Amount(Amount, "Reserve")
+	local Rid = Validate.Name(Id, MAX_BOOKING_ID, "Reserve")
 
 	local Extra: HoldOptions = Options or {}
 	assert(type(Extra) == "table", "Reserve takes an options table after the Id when you pass one")
@@ -126,7 +126,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 	if Extra.To ~= nil then
 		To = self:Resolve(Extra.To, "Reserve To")
 		assert(To ~= Resolved, `Reserve needs To to be a different key, both resolved to '{Resolved}'`)
-		assert(Hold == nil or Hold <= Booking.HOLD_CAP, `Reserve Hold must be {Booking.HOLD_CAP} seconds or less when you give a To, got {Hold}. a longer hold is written off instead of given back`)
+		assert(Hold == nil or Hold <= Windows.HOLD_CAP, `Reserve Hold must be {Windows.HOLD_CAP} seconds or less when you give a To, got {Hold}. a longer hold is written off instead of given back`)
 	end
 
 	local Op = Booking.Book(Rid, Field, Amount, Hold, To)
@@ -138,7 +138,7 @@ end
 
 local function Standing(self: Store, Key: KeyLike, Id: string, What: string, Make: (string) -> Op, Wanted: string): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, What)
-	local Rid = Arg.Name(Id, MAX_BOOKING_ID, What)
+	local Rid = Validate.Name(Id, MAX_BOOKING_ID, What)
 	local Doing = string.lower(What)
 	local Op = Make(Rid)
 
@@ -149,7 +149,7 @@ local function Standing(self: Store, Key: KeyLike, Id: string, What: string, Mak
 		end, HELD)
 
 		if Why == HELD then
-			Say.Warn(
+			Warnings.Warn(
 				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to {Wanted}. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
 			)
 		end
@@ -165,7 +165,7 @@ function Store.Release(self: Store, Key: KeyLike, Id: string): Future<boolean, R
 	return Standing(self, Key, Id, "Release", Booking.Free, "give back")
 end
 
-function Store.Handed(self: Store, Key: string, Rid: string, Held: Contract.Booked): boolean
+function Store.Handed(self: Store, Key: string, Rid: string, Held: Shapes.Booked): boolean
 	local To = Held.To
 	if type(To) ~= "string" then
 		return false
@@ -189,21 +189,21 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: Contract.Book
 	end)
 
 	local Ruling = Booking.Granted(self:Fold(Landed), Rid, Print)
-	if Ruling == Entries.OTHER then
+	if Ruling == Applied.OTHER then
 		error(
-			Fault.New(
+			Errors.New(
 				SPENT,
 				`'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`
 			)
 		)
 	end
-	if Ruling ~= Entries.SAME then
-		error(Fault.New(HELD, `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`))
+	if Ruling ~= Applied.SAME then
+		error(Errors.New(HELD, `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`))
 	end
 
 	local Cleared = Records:Append(Key, { Booking.Sent(Rid) })
-	local Gave = Stamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`) or Stamp.Carries(Cleared, `{Booking.UNHAND_ID}:{Rid}`)
-	Fault.Holds(not Gave, `booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`)
+	local Gave = TxStamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`) or TxStamp.Carries(Cleared, `{Booking.UNHAND_ID}:{Rid}`)
+	Errors.Holds(not Gave, `booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`)
 
 	self:Went(Key)
 	self:Went(To)
@@ -212,7 +212,7 @@ end
 
 function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Grant")
-	local Rid = Arg.Name(Id, MAX_BOOKING_ID, "Grant")
+	local Rid = Validate.Name(Id, MAX_BOOKING_ID, "Grant")
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Gave = pcall(function(): boolean
@@ -221,13 +221,13 @@ function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Rea
 				return false
 			end
 			if Booking.Late(Held, Clock.Now()) then
-				error(Fault.New(SPENT, `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`))
+				error(Errors.New(SPENT, `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`))
 			end
 			assert(type(Held.To) == "string", `booking '{Rid}' was not reserved with a To, so there is nowhere to hand it to`)
 			return self:Handed(Resolved, Rid, Held)
 		end)
 		if not Ok then
-			Registry.Sweep():Add(self, Resolved)
+			self.Sweep:Add(self:Swept(), Resolved)
 			return false, Failed(`hand over booking '{Rid}' on`, Resolved, Gave)
 		end
 		return Gave, if Gave then nil else REFUSED
@@ -238,10 +238,10 @@ function Store.TallyName(self: Store, Name: any, Field: any, What: string): stri
 	self:Live(What)
 	assert(self.Keys == "String", `{What} is for string keyed stores, '{self.Options.Name}' uses player keys`)
 	assert(
-		type(Name) == "string" and #Name > 0 and #Name + #Tally.PART + 2 <= Core.MAX_KEY and utf8.len(Name) ~= nil,
-		`{What} needs a Name short enough to carry a shard number, up to {Core.MAX_KEY - #Tally.PART - 2} characters`
+		type(Name) == "string" and #Name > 0 and #Name + #Tally.PART + 2 <= Shared.MAX_KEY and utf8.len(Name) ~= nil,
+		`{What} needs a Name short enough to carry a shard number, up to {Shared.MAX_KEY - #Tally.PART - 2} characters`
 	)
-	Arg.Field(self.Initial, Field, What)
+	Validate.Field(self.Initial, Field, What)
 	return Name
 end
 
@@ -252,7 +252,7 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 		`Bump needs a positive finite Amount. a tally is spread over keys that cannot see each other, so nothing can be taken back out of one`
 	)
 
-	local Key = Tally.Shard(Name, Tally.Mine())
+	local Key = Tally.Shard(Name, Tally.Mine(self.Node))
 	local Op = Tally.Bump(Field, Amount)
 
 	return Future.New(function(): (boolean, Reason?)
@@ -293,7 +293,7 @@ local function LegStorable(Leg: TxLeg): (boolean, string?)
 	Probe.Id = "probe"
 	Probe.Kind = Leg.Kind
 
-	return IsStorable.Op(Probe)
+	return Storable.Op(Probe)
 end
 
 local function MapLeg(Coordinator: Store, Index: number, Leg: TxLeg, Touched: { [string]: boolean }): (Tx.Leg, LegTarget)
@@ -323,7 +323,7 @@ end
 
 local function Follow(Targets: { LegTarget })
 	for _, Target in Targets do
-		Registry.Sweep():Add(Target.Store, Target.Key)
+		Target.Store.Sweep:Add(Target.Store:Swept(), Target.Key)
 	end
 end
 
@@ -344,14 +344,14 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 	for Index, Leg in Legs do
 		Mapped[Index], Targets[Index] = MapLeg(self, Index, Leg, Touched)
 
-		local Storable, Unstorable = LegStorable(Leg)
-		if not Storable then
-			Say.Warn(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
+		local Fits, Unstorable = LegStorable(Leg)
+		if not Fits then
+			Warnings.Warn(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
 			return Rejected(INVALID)
 		end
 	end
 
-	Fault.Holds(#Mapped == #Legs and #Targets == #Legs, "a transaction ended up with a different number of legs than it was given")
+	Errors.Holds(#Mapped == #Legs and #Targets == #Legs, "a transaction ended up with a different number of legs than it was given")
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Committed, Why, Parked = pcall(function(): (boolean, Reason?, boolean)
@@ -359,7 +359,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 		end)
 
 		if not Ok then
-			Say.Warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
+			Warnings.Warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
 			Follow(Targets)
 			return false, UNRESOLVED
 		end

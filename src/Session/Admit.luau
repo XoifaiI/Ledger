@@ -17,16 +17,16 @@
 		local Ruling = Admit.Admit(Active, Op, Bytes)
 --]=]
 
-local Say = require("../Util/Tools/Say")
-local NoYield = require("../Util/Work/NoYield")
-local Limits = require("../Contract/Limits")
-local Reasons = require("../Contract/Reason")
-local Contract = require("../Contract/Op")
+local Warnings = require("../Util/Warnings")
+local NoYield = require("../Util/NoYield")
+local Sizes = require("../Core/Constants/Sizes")
+local Reasons = require("../Core/Reasons")
+local Shapes = require("../Core/Shapes")
 local Measure = require("../Encode/Measure")
-local Step = require("../Record/Step")
+local Apply = require("../Record/Apply")
 local Types = require("./Types")
 
-type Op = Contract.Op
+type Op = Shapes.Op
 type Reason = Reasons.Reason
 type Session<S> = Types.Session<S>
 type Admitted<S> = Types.Admitted<S>
@@ -41,12 +41,12 @@ local UNRESOLVED = Reasons.Unresolved
 local REJECTED: Admitted<any> = table.freeze({ Outcome = "Rejected" }) :: any
 
 local function Refused(Kind: string, Why: Reason, Says: string): Admitted<any>
-	Say.Warn(`Ledger: rejected op '{Kind}', {Says}`, 1)
+	Warnings.Warn(`Ledger: rejected op '{Kind}', {Says}`, 1)
 	return { Outcome = "Refused", Why = Why }
 end
 
 local function Rejected(Kind: string, Says: string): Admitted<any>
-	Say.Warn(`Ledger: rejected op '{Kind}', {Says}`, 1)
+	Warnings.Warn(`Ledger: rejected op '{Kind}', {Says}`, 1)
 	return REJECTED
 end
 
@@ -58,11 +58,11 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		return Refused(Kind, CLOSED, `that session closed when the player left`)
 	end
 
-	if self.LogBytes + OpBytes > Limits.Log then
+	if self.LogBytes + OpBytes > Sizes.Log then
 		if self.Parked > 0 then
-			return Refused(Kind, BUSY, `'{Key}' has hit the {Limits.Log} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
+			return Refused(Kind, BUSY, `'{Key}' has hit the {Sizes.Log} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
 		end
-		return Refused(Kind, BACKLOG, `unsaved ops have hit the {Limits.Log} byte cap. saves are not going through, check the datastore`)
+		return Refused(Kind, BACKLOG, `unsaved ops have hit the {Sizes.Log} byte cap. saves are not going through, check the datastore`)
 	end
 
 	local Fine, Next = pcall(NoYield.Run, self.Shape.Reducer, self.State, Op)
@@ -79,7 +79,7 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 
 	if Next == nil then
 		local Waiting = self.Landed
-		if Waiting ~= nil and not Durable and Step(self.Shape.Reducer, Waiting, Op) ~= nil then
+		if Waiting ~= nil and not Durable and Apply(self.Shape.Reducer, Waiting, Op) ~= nil then
 			return Refused(Kind, UNRESOLVED, `a transaction is parked on '{Key}' and this op only holds if that transaction goes through. ask again once it settles`)
 		end
 		return REJECTED
@@ -92,19 +92,19 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 	local Also: S? = nil
 	local Parked = self.Landed
 	if Parked ~= nil and not Durable then
-		Also = Step(self.Shape.Reducer, Parked, Op)
+		Also = Apply(self.Shape.Reducer, Parked, Op)
 		if Also == nil then
 			return Refused(Kind, UNRESOLVED, `a transaction is parked on '{Key}' and this op only holds if that transaction does not go through. ask again once it settles`)
 		end
 	end
 
-	if self.StateBytes + OpBytes > Limits.StateFloor then
+	if self.StateBytes + OpBytes > Sizes.StateFloor then
 		local Counted, Bytes = pcall(Measure, Next)
 		if not Counted then
 			return Refused(Kind, INVALID, `your reducer built state a datastore cannot hold: {tostring(Bytes)}`)
 		end
-		if Bytes > Limits.State and Bytes > Measure(self.State) then
-			return Refused(Kind, FULL, `this profile is already at the {Limits.State} byte cap and the op would make it bigger`)
+		if Bytes > Sizes.State and Bytes > Measure(self.State) then
+			return Refused(Kind, FULL, `this profile is already at the {Sizes.State} byte cap and the op would make it bigger`)
 		end
 		return { Outcome = "Accepted", Next = Next, Bytes = Bytes, Also = Also }
 	end

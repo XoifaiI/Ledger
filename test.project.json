@@ -8,8 +8,8 @@
 				"src": {
 					"$path": "src"
 				},
-				"SimulationV2": {
-					"$path": "SimulationV2"
+				"tests": {
+					"$path": "tests"
 				},
 				"examples": {
 					"$path": "examples"
@@ -17,8 +17,8 @@
 			}
 		},
 		"ServerScriptService": {
-			"V2Runner": {
-				"$path": "SimulationV2/Runner.server.luau"
+			"Cases": {
+				"$path": "tests/Runner.server.luau"
 			}
 		}
 	}

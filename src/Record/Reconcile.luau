@@ -12,7 +12,7 @@
 		local Ready = Reconcile(Default, Stored)
 --]=]
 
-local TableUtil = require("../Util/Tools/TableUtil")
+local TableUtil = require("../Util/TableUtil")
 
 local function Reconcile(Defaults: any, Stored: any): any
 	if type(Defaults) ~= "table" or type(Stored) ~= "table" then

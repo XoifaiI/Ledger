@@ -10,37 +10,35 @@
 	Write also holds the key to the state cap, and adds a key to the sweep when that key holds money
 	in the middle of a move.
 
-	Return type: A table with Failed, Watch, WatchHeld, Stale, Went, Append, Maintain, Applies, Written, Swelling, Starved and AUTOSAVE_INTERVAL.
+	Return type: A table with Failed, Watch, WatchHeld, Stale, Went, Append, Maintain, Applies, Written, Swelling and Starved.
 	Example usage:
 		local Write = require("./Write")
 		local Ok, Why = self:Written("1", Op, "edit")
 --]=]
 
-local Say = require("../../Util/Tools/Say")
-local TableUtil = require("../../Util/Tools/TableUtil")
-local Clock = require("../../Util/Engine/Clock")
-local Observer = require("../../Util/Tools/Observer")
-local Fault = require("../../Contract/Fault")
-local Limits = require("../../Contract/Limits")
-local Reasons = require("../../Contract/Reason")
-local Contract = require("../../Contract/Op")
+local Warnings = require("../../Util/Warnings")
+local TableUtil = require("../../Util/TableUtil")
+local Clock = require("../../Util/Clock")
+local Observer = require("../../Util/Observer")
+local Errors = require("../../Core/Errors")
+local Windows = require("../../Core/Constants/Windows")
+local Sizes = require("../../Core/Constants/Sizes")
+local Reasons = require("../../Core/Reasons")
+local Shapes = require("../../Core/Shapes")
 local Measure = require("../../Encode/Measure")
 local Compact = require("../../Record/Compact")
-local Shape = require("../../Record/Shape")
-local Stamp = require("../../Record/Stamp")
-local Step = require("../../Record/Step")
+local Schema = require("../../Record/Schema")
+local TxStamp = require("../../Record/TxStamp")
+local Apply = require("../../Record/Apply")
 local Tx = require("../../Protocol/Tx")
-local Registry = require("../Registry")
 local Store = require("../Class")
 local Types = require("../Types")
 
-type Op = Contract.Op
-type Record = Contract.Record<any>
+type Op = Shapes.Op
+type Record = Shapes.Record<any>
 type Reason = Reasons.Reason
 type Store = Types.Store<any>
 type Allow = Types.Allow
-
-local AUTOSAVE_INTERVAL = 30
 
 local REFUSED = Reasons.Refused
 local UNRESOLVED = Reasons.Unresolved
@@ -50,17 +48,17 @@ local BEHIND = Reasons.Behind
 local FULL = Reasons.Full
 
 local function Failed(What: string, Key: string, Err: any): Reason
-	local Why = Fault.Named(Err)
+	local Why = Errors.Named(Err)
 	if Why == CLOSED then
 		return Why
 	end
 
 	if Why == BEHIND then
-		Say.Warn(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
+		Warnings.Warn(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
 		return Why
 	end
 
-	Say.Warn(`Ledger: could not {What} '{Key}': {Err}`)
+	Warnings.Warn(`Ledger: could not {What} '{Key}': {Err}`)
 	return Why
 end
 
@@ -73,8 +71,8 @@ function Store.Went(self: Store, Key: string)
 end
 
 function Store.Watch(self: Store, Key: string, Record: Record)
-	if Stamp.HasPending(Record) then
-		Registry.Sweep():Add(self, Key)
+	if TxStamp.HasPending(Record) then
+		self.Sweep:Add(self:Swept(), Key)
 	end
 end
 
@@ -84,7 +82,7 @@ function Store.WatchHeld(self: Store, Key: string, State: any)
 	end
 
 	if TableUtil.Occupied(State._Held) or TableUtil.Occupied(State._Booked) then
-		Registry.Sweep():Add(self, Key)
+		self.Sweep:Add(self:Swept(), Key)
 	end
 end
 
@@ -97,17 +95,17 @@ function Store.Swelling(self: Store, Key: string, Record: Record)
 	Meter.Swollen += 1
 
 	local Now = Clock.Now()
-	if Now - Meter.Said < AUTOSAVE_INTERVAL then
+	if Now - Meter.Said < Windows.AUTOSAVE then
 		return
 	end
 
 	local Blocking = "a transaction"
-	for Txid in Stamp.PendingTx(Record) do
+	for Txid in TxStamp.PendingTx(Record) do
 		Blocking = `transaction '{Txid}'`
 		break
 	end
 
-	Say.Warn(
+	Warnings.Warn(
 		`Ledger: '{Key}' is carrying {#Record.Ops} ops it cannot compact away because {Blocking} is still parked on it, so the record keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`
 	)
 
@@ -120,14 +118,14 @@ function Store.Starved(self: Store, Pool: Enum.DataStoreRequestType)
 	Meter.Skipped += 1
 
 	local Now = Clock.Now()
-	if Now - Meter.At < AUTOSAVE_INTERVAL then
+	if Now - Meter.At < Windows.AUTOSAVE then
 		return
 	end
 
 	local Records = self.Wrapper.Spent - Meter.Records
 	local Markers = self.TxWrapper.Spent - Meter.Markers
 
-	Say.Warn(
+	Warnings.Warn(
 		`Ledger: {Meter.Skipped} autosave(s) skipped on '{self.Options.Name}' with {Pool.Name} budget at {self.Wrapper:Budget(Pool)}, so unsaved ops are piling up. this server spent {Records} request(s) on records and {Markers} on transaction markers since the last of these`
 	)
 
@@ -139,42 +137,42 @@ end
 
 function Store.Maintain(self: Store, Key: string, Record: Record): Record
 	local Settled = Record
-	if Stamp.HasPending(Record) then
+	if TxStamp.HasPending(Record) then
 		local Ok, Resolution = pcall(function(): Record
 			return Tx.Settle(self:Records(), self.TxWrapper, Key, Record)
 		end)
 		if Ok then
 			Settled = Resolution
 		else
-			Say.Warn(`Ledger: could not settle a pending transaction leg on '{Key}' during a write, so it stays pending: {Resolution}`)
+			Warnings.Warn(`Ledger: could not settle a pending transaction leg on '{Key}' during a write, so it stays pending: {Resolution}`)
 		end
 	end
 
 	self:Watch(Key, Settled)
 	local Trimmed = self:Records():Trim(Key, self:Format(), Settled)
-	if Stamp.HasPending(Trimmed) and Compact.Overgrown(Trimmed) then
+	if TxStamp.HasPending(Trimmed) and Compact.Overgrown(Trimmed) then
 		self:Swelling(Key, Trimmed)
 	end
 	return Settled
 end
 
 function Store.Applies(self: Store, Op: Op, Record: Record): (boolean, boolean)
-	if Stamp.Carries(Record, Op.Id) then
+	if TxStamp.Carries(Record, Op.Id) then
 		return true, false
 	end
 
 	local Read, Holds, Only = pcall(function(): (boolean, boolean)
 		local Format = self:Format()
-		if Step(Format.Reducer, Format:Fold(Shape.Detached(Record)), Op) ~= nil then
+		if Apply(Format.Reducer, Format:Fold(Schema.Detached(Record)), Op) ~= nil then
 			return true, false
 		end
-		if not Stamp.HasPending(Record) then
+		if not TxStamp.HasPending(Record) then
 			return false, false
 		end
 
-		local Committed = Shape.Detached(Record)
-		Committed.Ops = Stamp.Landed(Record.Ops, nil)
-		return Step(Format.Reducer, Format:Fold(Committed), Op) ~= nil, true
+		local Committed = Schema.Detached(Record)
+		Committed.Ops = TxStamp.Landed(Record.Ops, nil)
+		return Apply(Format.Reducer, Format:Fold(Committed), Op) ~= nil, true
 	end)
 	if not Read then
 		return true, false
@@ -183,20 +181,20 @@ function Store.Applies(self: Store, Op: Op, Record: Record): (boolean, boolean)
 end
 
 function Store.Swollen(self: Store, Op: Op, Record: Record): boolean
-	if Compact.Bulk(Record) + Measure(Record.Ops) + Measure(Op) <= Limits.StateFloor then
+	if Compact.Bulk(Record) + Measure(Record.Ops) + Measure(Op) <= Sizes.StateFloor then
 		return false
 	end
 
 	local Read, Over = pcall(function(): boolean
 		local Format = self:Format()
-		local Folded = Format:Fold(Shape.Detached(Record))
-		local Next = Step(Format.Reducer, Folded, Op)
+		local Folded = Format:Fold(Schema.Detached(Record))
+		local Next = Apply(Format.Reducer, Folded, Op)
 		if Next == nil then
 			return false
 		end
 
 		local Bytes = Measure(Next)
-		return Bytes > Limits.State and Bytes > Measure(Folded)
+		return Bytes > Sizes.State and Bytes > Measure(Folded)
 	end)
 	return Read and Over
 end
@@ -226,23 +224,23 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	end)
 
 	if not Landed then
-		local Named = Fault.Named(Result)
+		local Named = Errors.Named(Result)
 		if Named == CLOSED then
 			return false, CLOSED
 		end
 		if Named == BEHIND then
-			Say.Warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
+			Warnings.Warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
 			return false, BEHIND
 		end
 		if Named == FULL then
-			Say.Warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
+			Warnings.Warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
 			return false, FULL
 		end
 		if Named == BUSY then
 			return false, BUSY
 		end
 
-		Say.Warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
+		Warnings.Warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
 		return false, UNRESOLVED
 	end
 
@@ -251,7 +249,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return false, Denied or REFUSED
 	end
 	if Swollen then
-		Say.Warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {Limits.State} byte state cap and this would make it bigger`)
+		Warnings.Warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {Sizes.State} byte state cap and this would make it bigger`)
 		return false, FULL
 	end
 	if not Applied then
@@ -260,12 +258,12 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 
 	local Ok, Why = pcall(function(): Reason?
 		local Settled = self:Maintain(Key, Stored)
-		if not Stamp.Holds(Settled, Op.Id) then
+		if not TxStamp.Holds(Settled, Op.Id) then
 			return UNRESOLVED
 		end
 
 		local Took, Sure = self:Format():Certain(Settled, Op.Id)
-		Fault.Holds(Sure or Stamp.HasPending(Settled), `the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`)
+		Errors.Holds(Sure or TxStamp.HasPending(Settled), `the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`)
 		if not Sure then
 			return UNRESOLVED
 		end
@@ -273,7 +271,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	end)
 
 	if not Ok then
-		Say.Warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
+		Warnings.Warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
 		return false, UNRESOLVED
 	end
 
@@ -285,5 +283,4 @@ end
 
 return table.freeze({
 	Failed = Failed,
-	AUTOSAVE_INTERVAL = AUTOSAVE_INTERVAL,
 })

@@ -20,17 +20,18 @@
 		local Ok, Why = self:Erase(1):Wait()
 --]=]
 
-local Say = require("../../Util/Tools/Say")
-local Future = require("../../Util/Work/Future")
-local TableUtil = require("../../Util/Tools/TableUtil")
-local Clock = require("../../Util/Engine/Clock")
-local Fault = require("../../Contract/Fault")
-local Reasons = require("../../Contract/Reason")
-local Contract = require("../../Contract/Op")
+local Warnings = require("../../Util/Warnings")
+local Future = require("../../Util/Future")
+local TableUtil = require("../../Util/TableUtil")
+local Clock = require("../../Util/Clock")
+local Errors = require("../../Core/Errors")
+local Windows = require("../../Core/Constants/Windows")
+local Reasons = require("../../Core/Reasons")
+local Shapes = require("../../Core/Shapes")
 local Log = require("../../Record/Log")
-local MakeOp = require("../../Record/MakeOp")
-local Shape = require("../../Record/Shape")
-local Stamp = require("../../Record/Stamp")
+local NewOp = require("../../Record/NewOp")
+local Schema = require("../../Record/Schema")
+local TxStamp = require("../../Record/TxStamp")
 local Booking = require("../../Layers/Booking")
 local Recovery = require("../../Protocol/Recovery")
 local Transfer = require("../../Protocol/Transfer")
@@ -41,8 +42,8 @@ local Store = require("../Class")
 local Types = require("../Types")
 
 type Future<T...> = Future.Future<T...>
-type Record = Contract.Record<any>
-type KeyLike = Contract.KeyLike
+type Record = Shapes.Record<any>
+type KeyLike = Shapes.KeyLike
 type Reason = Reasons.Reason
 type Store = Types.Store<any>
 
@@ -80,7 +81,7 @@ end
 
 function Store.Repair(self: Store, Key: string): (boolean, boolean)
 	local Record = Tx.Settle(self:Records(), self.TxWrapper, Key, self:ReadRecord(Key))
-	if Stamp.HasPending(Record) then
+	if TxStamp.HasPending(Record) then
 		return false, false
 	end
 
@@ -110,6 +111,7 @@ function Store.ReapMarkers(self: Store): number
 			end
 			return nil
 		end, {
+			Node = self.Node,
 			From = self.Resume,
 			Afford = function(): boolean
 				return self:TxAffords(Reads, Tx.REAP_FLOOR) and self:Affords(Reads, Tx.REAP_FLOOR)
@@ -121,16 +123,16 @@ function Store.ReapMarkers(self: Store): number
 		return Reaped
 	end
 
-	Say.Warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
+	Warnings.Warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
 	return 0
 end
 
 function Store.Buried(self: Store, Key: string, Replaced: Record)
 	local Ok, State = pcall(function(): any
-		return self:Fold(Shape.Detached(Replaced))
+		return self:Fold(Schema.Detached(Replaced))
 	end)
 	if not Ok then
-		Say.Warn(`Ledger: erased '{Key}' but could not read back what was on it, so this cannot say what went with it: {State}`)
+		Warnings.Warn(`Ledger: erased '{Key}' but could not read back what was on it, so this cannot say what went with it: {State}`)
 		return
 	end
 	if type(State) ~= "table" then
@@ -139,7 +141,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 
 	local Count, Fields = Aside(State._Booked)
 	for Named, Amount in Fields do
-		Say.Warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
+		Warnings.Warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
 	end
 
 	local Field = self.Options.Balance
@@ -152,7 +154,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return
 	end
 
-	Say.Warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Log.TOMB_HORIZON // 86400} days is turned away and given back to whoever sent it`)
+	Warnings.Warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Windows.TOMB // 86400} days is turned away and given back to whoever sent it`)
 end
 
 function Store.HeldOn(self: Store, Key: string): (boolean, any)
@@ -179,7 +181,7 @@ end
 function Store.HandOver(self: Store, Key: string): (number, number)
 	local Read, Held = self:HeldOn(Key)
 	if not Read then
-		Say.Warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
+		Warnings.Warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
 		return 0, 0
 	end
 	if not TableUtil.Occupied(Held) then
@@ -190,12 +192,12 @@ function Store.HandOver(self: Store, Key: string): (number, number)
 		Recovery.Transfers(self:Records(), self:Format(), Key, Held, true)
 	end)
 	if not Sent then
-		Say.Warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)
+		Warnings.Warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)
 	end
 
 	local Again, Left = self:HeldOn(Key)
 	if not Again then
-		Say.Warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
+		Warnings.Warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
 		return 0, 0
 	end
 	return CountHeld(Left)
@@ -206,7 +208,7 @@ function Store.HandBooked(self: Store, Key: string)
 		return self:Fold(self:ReadRecord(Key))
 	end)
 	if not Read or type(State) ~= "table" then
-		Say.Warn(`Ledger: could not check '{Key}' for units set aside for another key before erasing it, so any that were owed go with it: {State}`)
+		Warnings.Warn(`Ledger: could not check '{Key}' for units set aside for another key before erasing it, so any that were owed go with it: {State}`)
 		return
 	end
 
@@ -229,7 +231,7 @@ function Store.HandBooked(self: Store, Key: string)
 		end
 
 		local Says = if Gave then "the booking could not be marked as leaving" else tostring(Moved)
-		Say.Warn(`Ledger: could not hand booking '{Rid}' on '{Key}' over to '{Held.To}' before erasing it, so its {Held.Amount} {Held.Field} goes with the key: {Says}`)
+		Warnings.Warn(`Ledger: could not hand booking '{Rid}' on '{Key}' over to '{Held.To}' before erasing it, so its {Held.Amount} {Held.Field} goes with the key: {Says}`)
 	end
 end
 
@@ -283,7 +285,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 	local Steps = self.Migrations
 	local Known = #Steps
-	local Op = MakeOp.New(RESET_KIND, { State = self.Initial, Version = Known, Floor = Shape.FloorOf(Steps) })
+	local Op = NewOp.New(RESET_KIND, { State = self.Initial, Version = Known, Floor = Schema.FloorOf(Steps) })
 
 	return Future.New(function(): (boolean, Reason?)
 		local Looked, Before = pcall(function(): any
@@ -292,12 +294,12 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		local Dropping: any = if Looked and type(Before) == "table" then Before._Booked else nil
 
 		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
-			if Stamp.HasPending(Record) then
-				error(Fault.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
+			if TxStamp.HasPending(Record) then
+				error(Errors.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
 			end
 
 			if Booking.Owed(self:Fold(Record)._Booked) then
-				error(Fault.New(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`))
+				error(Errors.New(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`))
 			end
 			return (Record.Version or 0) <= Known
 		end, BEHIND)
@@ -305,7 +307,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		if Ok then
 			local Count, Fields = Aside(Dropping)
 			for Named, Amount in Fields do
-				Say.Warn(
+				Warnings.Warn(
 					`Ledger: resetting '{Resolved}' destroyed {Count} reservation(s) holding {Amount} {Named}. Confirm and Release on those ids are refused from here on, so tell whoever is holding them`
 				)
 			end
@@ -318,7 +320,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Erase")
 
 	if self.Keys == "Player" and Players:GetPlayerByUserId(tonumber(Resolved) or 0) ~= nil then
-		Say.Warn(`Ledger: erasing {Resolved} while they are still in this server, so their session writes part of the record back`)
+		Warnings.Warn(`Ledger: erasing {Resolved} while they are still in this server, so their session writes part of the record back`)
 	end
 
 	return Future.New(function(): (boolean, Reason?)
@@ -347,7 +349,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 					Seen = {},
 					Snapshot = Fresh,
 					Version = #Steps,
-					Floor = Shape.FloorOf(Steps),
+					Floor = Schema.FloorOf(Steps),
 				}
 			end)
 		end)
@@ -357,7 +359,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		end
 
 		if Holds > 0 then
-			Say.Warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} had not finished, so that money is gone for good. check the audit log and pay the receivers back by hand`)
+			Warnings.Warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} had not finished, so that money is gone for good. check the audit log and pay the receivers back by hand`)
 		end
 
 		local Before = Replaced :: Record

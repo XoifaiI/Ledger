@@ -10,10 +10,10 @@
 	and a queue of retries would spend all of them on one key.
 	New takes any kind with any fields. NewTyped takes a map of the kinds a game writes and what each
 	carries, so every write is checked and a reducer reads its fields with no cast. Both build the
-	same store. NewTyped casts, since neither view is a subtype of the other, and Contract/Public
+	same store. NewTyped casts, since neither view is a subtype of the other, and Shapes/Api
 	holds their method names against each other so that cast cannot hide drift.
 
-	Return type: A table with Reason, New, NewTyped, UseMock, UseReal, UseClock, UseAsync, Sweep and CloseAll.
+	Return type: A table with Reason, New, NewTyped, Use, UseMock, Sweep and CloseAll.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
 		local Bank = Ledger.New({ Name = "Bank", Default = { Gold = 0 }, Reducer = Reducer })
@@ -24,41 +24,39 @@ local RunService = game:GetService("RunService")
 
 assert(RunService:IsServer(), "Ledger runs on the server, only the server can reach a datastore")
 
-local Future = require("@self/Util/Work/Future")
-local Observer = require("@self/Util/Tools/Observer")
-local Say = require("@self/Util/Tools/Say")
-local DataStoreWrapper = require("@self/Util/Engine/DataStoreWrapper")
-local Async = require("@self/Util/Engine/Async")
-local Clock = require("@self/Util/Engine/Clock")
-local Contract = require("@self/Contract/Op")
-local Public = require("@self/Contract/Public")
-local Reasons = require("@self/Contract/Reason")
-local Typed = require("@self/Contract/Typed")
+local Future = require("@self/Util/Future")
+local Observer = require("@self/Util/Observer")
+local Shapes = require("@self/Core/Shapes")
+local Api = require("@self/Core/Api")
+local Reasons = require("@self/Core/Reasons")
+local TypeFunctions = require("@self/Core/TypeFunctions")
+local Engine = require("@self/Util/Engine")
+local Memory = require("@self/Hooks/Memory")
 local Mock = require("@self/Mock")
 local Tx = require("@self/Protocol/Tx")
 local Registry = require("@self/Store/Registry")
 local Store = require("@self/Store/Store")
-local Vet = require("@self/Store/Vet")
+local Validate = require("@self/Store/Validate")
 
-export type Store<D> = Public.Store<D>
-export type TypedStore<D, O> = Public.TypedStore<D, O>
-export type Session<S> = Public.Live<S>
-export type TypedSession<S, O> = Public.TypedLive<S, O>
-export type Config<D> = Public.Config<D>
-export type TypedConfig<D, O> = Public.TypedConfig<D, O>
-export type OpMap = Public.OpMap
-export type TxLeg = Public.TxLeg
-export type HoldOptions = Public.HoldOptions
-export type Op<O = any> = Typed.OpUnion<O>
-export type OpOf<O, K> = Typed.OpOf<O, K>
-export type Reducer<S, O = any> = (State: S, Op: Typed.OpUnion<O>) -> S?
-export type Record<D> = Contract.Record<D>
+export type Store<D> = Api.Store<D>
+export type TypedStore<D, O> = Api.TypedStore<D, O>
+export type Session<S> = Api.Live<S>
+export type TypedSession<S, O> = Api.TypedLive<S, O>
+export type Config<D> = Api.Config<D>
+export type TypedConfig<D, O> = Api.TypedConfig<D, O>
+export type OpMap = Api.OpMap
+export type TxLeg = Api.TxLeg
+export type HoldOptions = Api.HoldOptions
+export type Op<O = any> = TypeFunctions.OpUnion<O>
+export type OpOf<O, K> = TypeFunctions.OpOf<O, K>
+export type Reducer<S, O = any> = (State: S, Op: TypeFunctions.OpUnion<O>) -> S?
+export type Record<D> = Shapes.Record<D>
 export type Future<T...> = Future.Future<T...>
 export type Observer<T> = Observer.Observer<T>
-export type KeyLike = Contract.KeyLike
-export type KeysMode = Contract.KeysMode
-export type Migration = Contract.Migration
-export type HistoryEntry = Contract.HistoryEntry
+export type KeyLike = Shapes.KeyLike
+export type KeysMode = Shapes.KeysMode
+export type Migration = Shapes.Migration
+export type HistoryEntry = Shapes.HistoryEntry
 export type Reason = Reasons.Reason
 
 export type Export = {
@@ -66,10 +64,8 @@ export type Export = {
 
 	read New: <D>(Options: Config<D>) -> Store<D>,
 	read NewTyped: <D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>,
-	read UseMock: (Options: Mock.Options?) -> Mock.Service,
-	read UseReal: () -> (),
-	read UseClock: (Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?) -> (),
-	read UseAsync: (Defer: Async.Defers?, Delay: Async.Delays?, Cancel: Async.Cancels?) -> (),
+	read Use: (Scheduler: Engine.Scheduler?, Hook: Engine.Hook?) -> (),
+	read UseMock: (Options: Mock.Options?) -> Memory.Memory,
 	read Sweep: () -> (),
 	read CloseAll: () -> (),
 }
@@ -77,7 +73,7 @@ export type Export = {
 local SHUTDOWN_ATTEMPTS = 2
 
 local function New<D>(Options: Config<D>): Store<D>
-	Vet(Options)
+	Validate(Options)
 	return Store.New(Options)
 end
 
@@ -85,38 +81,35 @@ local function NewTyped<D, O>(Options: TypedConfig<D, O>): TypedStore<D, O>
 	return New(Options :: any) :: any
 end
 
-local function UseMock(Options: Mock.Options?): Mock.Service
-	if DataStoreWrapper.Swapped() and #Registry.Stores > 0 then
-		Say.Warn(
-			`Ledger: UseMock was called again while {#Registry.Stores} store(s) were live, so they are all on a fresh empty datastore now and nothing they wrote before this reads back. call it one time, before you build your stores`
-		)
+local function Use(Scheduler: Engine.Scheduler?, Hook: Engine.Hook?)
+	Registry.Use(Scheduler, Hook)
+end
+
+local function UseMock(Options: Mock.Options?): Memory.Memory
+	local Held = Registry.Defaults.Scheduler
+	local Hook = Memory.New(Held, Options)
+	Registry.Use(Held, Hook)
+	return Hook
+end
+
+local function Sweeps(Visit: (Registry.Sweeper) -> ())
+	local Shared = Registry.Sweep()
+	local Seen: { [Registry.Sweeper]: boolean } = { [Shared] = true }
+	Visit(Shared)
+
+	for _, Held in Registry.Stores do
+		if Seen[Held.Sweep] then
+			continue
+		end
+		Seen[Held.Sweep] = true
+		Visit(Held.Sweep)
 	end
-
-	local Service = Mock.New(Options)
-
-	DataStoreWrapper.Use(function(Name: string): any
-		return Service:GetDataStore(Name)
-	end, function(Kind: Enum.DataStoreRequestType): number
-		return Service:GetRequestBudgetForRequestType(Kind)
-	end)
-
-	return Service
-end
-
-local function UseReal()
-	DataStoreWrapper.Use(nil, nil)
-end
-
-local function UseClock(Reads: (() -> number)?, Sleeps: ((Seconds: number) -> ())?)
-	Clock.Set(Reads, Sleeps)
-end
-
-local function UseAsync(Defer: Async.Defers?, Delay: Async.Delays?, Cancel: Async.Cancels?)
-	Async.Set(Defer, Delay, Cancel)
 end
 
 local function Sweep()
-	Registry.Sweep():Pass()
+	Sweeps(function(Held: Registry.Sweeper)
+		Held:Pass()
+	end)
 end
 
 local function Hurry()
@@ -133,7 +126,7 @@ local function Release()
 	for _, Held in Registry.Stores do
 		for UserId, Entry in Held.Loaded do
 			Held.Loaded[UserId] = nil
-			task.cancel(Entry.Ticker)
+			Held.Wrapper.Scheduler.Cancel(Entry.Ticker)
 			Held:Save(Entry.Active)
 		end
 	end
@@ -154,7 +147,9 @@ end
 
 local function CloseAll()
 	Registry.Shutting.Now = true
-	Registry.Sweep():Stop()
+	Sweeps(function(Held: Registry.Sweeper)
+		Held:Stop()
+	end)
 	Hurry()
 	Release()
 	Settle()
@@ -166,10 +161,8 @@ return table.freeze({
 
 	New = New,
 	NewTyped = NewTyped,
+	Use = Use,
 	UseMock = UseMock,
-	UseReal = UseReal,
-	UseClock = UseClock,
-	UseAsync = UseAsync,
 	Sweep = Sweep,
 	CloseAll = CloseAll,
 }) :: Export

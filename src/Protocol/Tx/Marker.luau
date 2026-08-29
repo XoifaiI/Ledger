@@ -10,17 +10,18 @@
 	server may decide it. The time is counted per leg, because the legs are prepared one at a time.
 	Ledger keeps a handle to each other store that holds a marker.
 
-	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes, the four openings, the three statuses, and the caps.
+	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes, the four openings, the three statuses, and the caps on legs and homes.
 	Example usage:
 		local Marker = require("./Marker")
 		local Status = Marker.StatusOf(TxStore, "order1", 30)
 --]=]
 
-local Say = require("../../Util/Tools/Say")
-local TableUtil = require("../../Util/Tools/TableUtil")
-local Clock = require("../../Util/Engine/Clock")
-local DataStoreWrapper = require("../../Util/Engine/DataStoreWrapper")
-local Fault = require("../../Contract/Fault")
+local Warnings = require("../../Util/Warnings")
+local TableUtil = require("../../Util/TableUtil")
+local Clock = require("../../Util/Clock")
+local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Engine = require("../../Util/Engine")
+local Errors = require("../../Core/Errors")
 local Ident = require("../../Encode/Ident")
 local Mark = require("../../Encode/Mark")
 local Types = require("./Types")
@@ -30,7 +31,6 @@ type Marker = Types.Marker
 type Status = Types.Status
 type Opened = Types.Opened
 
-local LEG_TIMEOUT = 30
 local MAX_LEGS = 4
 local MAX_HOMES = 64
 
@@ -43,7 +43,7 @@ local PENDING = "Pending" :: "Pending"
 local COMMITTED = "Committed" :: "Committed"
 local ABORTED = "Aborted" :: "Aborted"
 
-local Homes: { [string]: DataStoreWrapper } = {}
+local Homes: { [Engine.Hook]: { [string]: DataStoreWrapper } } = {}
 local Kept = 0
 local Said = false
 
@@ -81,22 +81,28 @@ local function MarkOf(Wrapper: DataStoreWrapper, Key: string): string
 	return Mark.Of(Wrapper.Name, Key)
 end
 
-local function Elsewhere(Name: string): DataStoreWrapper
-	local Cached = Homes[Name]
+local function Elsewhere(Name: string, From: DataStoreWrapper): DataStoreWrapper
+	local Mine = Homes[From.Hook]
+	if Mine == nil then
+		Mine = {}
+		Homes[From.Hook] = Mine
+	end
+
+	local Cached = Mine[Name]
 	if Cached ~= nil then
 		return Cached
 	end
 
-	local Fresh = DataStoreWrapper.New(Name)
+	local Fresh = DataStoreWrapper.New(Name, From.Scheduler, From.Hook)
 	if Kept < MAX_HOMES then
-		Homes[Name] = Fresh
+		Mine[Name] = Fresh
 		Kept += 1
 		return Fresh
 	end
 
 	if not Said then
 		Said = true
-		Say.Warn(
+		Warnings.Warn(
 			`Ledger: this server holds {MAX_HOMES} transaction homes, so '{Name}' gets a new handle each time. its writes no longer queue, and a shutdown cannot stop its retries. use fewer stores in your transactions`
 		)
 	end
@@ -108,11 +114,11 @@ local function HomeOf(TxStore: DataStoreWrapper, Home: string | true): DataStore
 		return TxStore
 	end
 
-	return Elsewhere(Home)
+	return Elsewhere(Home, TxStore)
 end
 
 local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Keys: string, Terms: string): (Opened, string?, number, boolean)
-	Fault.Holds(Total > 0, "a transaction marker is being opened for no legs at all")
+	Errors.Holds(Total > 0, "a transaction marker is being opened for no legs at all")
 
 	local Clash = false
 	local Minted = false
@@ -157,7 +163,7 @@ local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Ke
 end
 
 local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrink: number?, Gen: string?): Status?
-	Fault.Holds(To ~= PENDING, "a transaction is being decided back to pending, which would let it start over")
+	Errors.Holds(To ~= PENDING, "a transaction is being decided back to pending, which would let it start over")
 
 	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
 		if type(Current) ~= "table" or not Ours(Current, Gen) then
@@ -181,7 +187,7 @@ local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrin
 		return nil
 	end
 	local Decided = Value :: Marker
-	Fault.Holds(Decided.Status ~= PENDING, `transaction '{Txid}' was decided but its marker is still pending, so another server could decide it the other way`)
+	Errors.Holds(Decided.Status ~= PENDING, `transaction '{Txid}' was decided but its marker is still pending, so another server could decide it the other way`)
 
 	return Decided.Status
 end
@@ -237,14 +243,16 @@ local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string },
 
 	local Marker = Value :: Marker
 	if Finished(Marker) then
-		Fault.Holds(Marker.Status ~= PENDING, `transaction '{Txid}' is finished but its marker is still undecided, so a retry would run it again`)
+		Errors.Holds(Marker.Status ~= PENDING, `transaction '{Txid}' is finished but its marker is still undecided, so a retry would run it again`)
 	end
 end
 
 local function ShutdownHomes(Attempts: number)
-	for _, Wrapper in Homes do
-		Wrapper:SkipAllQueuesToLastEnqueued()
-		Wrapper.Attempts = Attempts
+	for _, Mine in Homes do
+		for _, Wrapper in Mine do
+			Wrapper:SkipAllQueuesToLastEnqueued()
+			Wrapper.Attempts = Attempts
+		end
 	end
 end
 
@@ -269,7 +277,6 @@ return table.freeze({
 	COMMITTED = COMMITTED,
 	ABORTED = ABORTED,
 
-	LEG_TIMEOUT = LEG_TIMEOUT,
 	MAX_LEGS = MAX_LEGS,
 	MAX_HOMES = MAX_HOMES,
 })

@@ -13,14 +13,14 @@
 		local State = Fold(Base, Record.Ops, Reducer)
 --]=]
 
-local TableUtil = require("../Util/Tools/TableUtil")
-local Step = require("./Step")
-local Contract = require("../Contract/Op")
+local TableUtil = require("../Util/TableUtil")
+local Apply = require("./Apply")
+local Shapes = require("../Core/Shapes")
 
 local FreezeDelta = TableUtil.FreezeDelta
 
-type Op = Contract.Op
-type Reducer<S> = Contract.Reducer<S>
+type Op = Shapes.Op
+type Reducer<S> = Shapes.Reducer<S>
 
 local function Fold<S>(Base: S, Ops: { Op }, Reducer: Reducer<S>, Mark: string?): (S, boolean)
 	local State = FreezeDelta(Base)
@@ -30,7 +30,7 @@ local function Fold<S>(Base: S, Ops: { Op }, Reducer: Reducer<S>, Mark: string?)
 		if Op.Tx ~= nil then
 			continue
 		end
-		local Next = Step(Reducer, State, Op)
+		local Next = Apply(Reducer, State, Op)
 		if Next ~= nil then
 			State = FreezeDelta(Next)
 			if Op.Id == Mark then

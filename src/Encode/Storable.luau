@@ -9,14 +9,14 @@
 
 	Return type: A table with Op, Value, Structure, Reserved and Bookkeeping.
 	Example usage:
-		local IsStorable = require("./Storable")
-		local Ok, Where = IsStorable.Op(Op)
+		local Storable = require("./Storable")
+		local Ok, Where = Storable.Op(Op)
 --]=]
 
-local Limits = require("../Contract/Limits")
+local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("./Measure")
 
-local MAX_DEPTH = Limits.Depth
+local MAX_DEPTH = Sizes.Depth
 
 local RESERVED = "__"
 local BOOKKEEPING = "_"
@@ -109,13 +109,13 @@ function Check(Value: any, Path: string, Seen: { [any]: boolean }, Depth: number
 end
 
 local function Fits(Value: any, What: string): (boolean, string?)
-	if Measure(Value) > Limits.Op then
-		return false, `{What} is larger than the {Limits.Op} byte per op limit`
+	if Measure(Value) > Sizes.Op then
+		return false, `{What} is larger than the {Sizes.Op} byte per op limit`
 	end
 	return true, nil
 end
 
-local function IsStorable(Op: any): (boolean, string?)
+local function Storable(Op: any): (boolean, string?)
 	if type(Op) == "table" then
 		if type(Op.Kind) == "string" and IsReservedKind(Op.Kind) then
 			return false, `kind '{Op.Kind}' uses the {RESERVED} prefix reserved for Ledger's internal ops`
@@ -154,7 +154,7 @@ local function IsValueStorable(Value: any): (boolean, string?)
 end
 
 return table.freeze({
-	Op = IsStorable,
+	Op = Storable,
 	Value = IsValueStorable,
 	Structure = IsStructureStorable,
 	Reserved = IsReservedKind,

@@ -5,12 +5,17 @@
 	Service: The service half of the fake datastore.
 
 	It hands out stores, and it holds the request budget of this server.
+	The budget refills against the scheduler's clock and not the wall, or a run that owns its clock
+	would wait on tokens that never come back.
 
 	Return type: A table with New and MAX_NAME.
 	Example usage:
 		local Service = require("./Service")
 		local Fake = Service.New({ Players = 20 })
 --]=]
+
+local Engine = require("../Util/Engine")
+local Roblox = require("../Schedulers/Roblox")
 
 local Budget = require("./Budget")
 local Store = require("./Store")
@@ -35,10 +40,11 @@ end
 local Service = {} :: Types.ServiceImpl
 Service.__index = Service
 
-function Service.New(Options: Options?): Service
+function Service.New(Options: Options?, Scheduler: Engine.Scheduler?): Service
 	local Config: Options = Options or {}
 	local Players = Config.Players or 0
 	return setmetatable({
+		Scheduler = Scheduler or Roblox.New(),
 		Stores = {},
 		Tokens = {},
 		Filled = {},
@@ -62,7 +68,7 @@ function Service.LanesFor(self: Service, Kind: Enum.DataStoreRequestType): { Lan
 end
 
 function Service.Refill(self: Service, Id: string, Cap: number): number
-	local Now = os.clock()
+	local Now = self.Scheduler.Now()
 	local Held = math.min(Cap, self.Tokens[Id] or Cap)
 	local Since = Now - (self.Filled[Id] or Now)
 
@@ -100,7 +106,7 @@ function Service.Await(self: Service, Lanes: { Lane }, Cost: number)
 
 	self.Queued += 1
 	while not self:Ready(Lanes, Cost) do
-		task.wait(Budget.QUEUE_STEP)
+		self.Scheduler.Wait(Budget.QUEUE_STEP)
 	end
 	self.Queued -= 1
 	assert(self.Queued >= 0, "the mock let more requests off its queue than it ever put on")

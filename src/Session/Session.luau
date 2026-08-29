@@ -16,27 +16,28 @@
 		local Active = Session.Load(Books, Format, "1", TxStore):Wait()
 --]=]
 
-local Say = require("../Util/Tools/Say")
-local Clock = require("../Util/Engine/Clock")
-local Future = require("../Util/Work/Future")
-local Observer = require("../Util/Tools/Observer")
-local TableUtil = require("../Util/Tools/TableUtil")
-local DataStoreWrapper = require("../Util/Engine/DataStoreWrapper")
-local Fault = require("../Contract/Fault")
-local Reasons = require("../Contract/Reason")
-local Contract = require("../Contract/Op")
-local Entries = require("../Contract/Entries")
+local Warnings = require("../Util/Warnings")
+local Clock = require("../Util/Clock")
+local Future = require("../Util/Future")
+local Observer = require("../Util/Observer")
+local TableUtil = require("../Util/TableUtil")
+local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Errors = require("../Core/Errors")
+local Reasons = require("../Core/Reasons")
+local Shapes = require("../Core/Shapes")
+local Applied = require("../Core/Applied")
+local Windows = require("../Core/Constants/Windows")
 local Measure = require("../Encode/Measure")
 local LogTypes = require("../Record/Types")
-local MakeOp = require("../Record/MakeOp")
-local Stamp = require("../Record/Stamp")
+local NewOp = require("../Record/NewOp")
+local TxStamp = require("../Record/TxStamp")
 local Tx = require("../Protocol/Tx")
 local Admit = require("./Admit")
 local Rebuild = require("./Rebuild")
 local Types = require("./Types")
 
-type Op = Contract.Op
-type Record = Contract.Record<any>
+type Op = Shapes.Op
+type Record = Shapes.Record<any>
 type Reason = Reasons.Reason
 type Future<T...> = Future.Future<T...>
 type Observer<T> = Observer.Observer<T>
@@ -45,7 +46,6 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 export type Session<S> = Types.Session<S>
 
 local MAX_PENDING = 4096
-local PENDING_POLL = 5
 
 local REFUSED = Reasons.Refused
 local BACKLOG = Reasons.Backlog
@@ -62,7 +62,7 @@ Session.__index = Session
 
 local function SettlePending<S>(self: Session<S>, Stored: Record): Record
 	local TxStore = self.TxStore
-	if TxStore and Stamp.HasPending(Stored) then
+	if TxStore and TxStamp.HasPending(Stored) then
 		return Tx.Settle(self.Log, TxStore, self.Key, Stored)
 	end
 	return Stored
@@ -95,8 +95,8 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 			Rebuild.Rebuild(Active, Stored)
 		end)
 		if not Ok then
-			Say.Warn(`Ledger: could not load '{Key}': {Reason}`)
-			return nil, Fault.Named(Reason)
+			Warnings.Warn(`Ledger: could not load '{Key}': {Reason}`)
+			return nil, Errors.Named(Reason)
 		end
 
 		return Active, nil
@@ -110,7 +110,7 @@ function Session.Settled<S>(self: Session<S>, Stored: Record): Record
 	if Ok then
 		return Resolved
 	end
-	Say.Warn(`Ledger: could not settle a pending transaction leg on '{self.Key}', so this fold leaves it out for now: {Resolved}`)
+	Warnings.Warn(`Ledger: could not settle a pending transaction leg on '{self.Key}', so this fold leaves it out for now: {Resolved}`)
 	return Stored
 end
 
@@ -128,20 +128,20 @@ end
 
 function Session.DidApply<S>(self: Session<S>, Id: string): boolean
 	assert(type(Id) == "string" and #Id > 0, "DidApply needs the same Once name the op was written under")
-	return Entries.Has((self.State :: any)._Received, Entries.ONCE, Id)
+	return Applied.Has((self.State :: any)._Received, Applied.ONCE, Id)
 end
 
 function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }?): (boolean, Reason?)
 	if #self.Pending >= MAX_PENDING then
-		Say.Warn(`Ledger: rejected op '{Kind}', {MAX_PENDING} ops are already pending. saves are not going through, check the datastore`)
+		Warnings.Warn(`Ledger: rejected op '{Kind}', {MAX_PENDING} ops are already pending. saves are not going through, check the datastore`)
 		return false, BACKLOG
 	end
 
-	local Op = MakeOp.New(Kind, Fields)
+	local Op = NewOp.New(Kind, Fields)
 
-	local Fine, Wrong = MakeOp.Vet(Op)
+	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
-		Say.Warn(`Ledger: rejected op '{Kind}', {Wrong}`)
+		Warnings.Warn(`Ledger: rejected op '{Kind}', {Wrong}`)
 		return false, INVALID
 	end
 
@@ -154,7 +154,7 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 		return false, REFUSED
 	end
 
-	Fault.Holds(not self.Applied[Op.Id], "an op id was accepted twice on one session, so the same change would apply again")
+	Errors.Holds(not self.Applied[Op.Id], "an op id was accepted twice on one session, so the same change would apply again")
 
 	self.State = TableUtil.FreezeDelta(Ruling.Next)
 	self.Landed = if Ruling.Also ~= nil then TableUtil.FreezeDelta(Ruling.Also) else nil
@@ -164,19 +164,19 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 	self.LogBytes += OpBytes
 	self:Notify()
 
-	Fault.Holds(#self.Pending <= MAX_PENDING, "more ops are queued than the cap allows, so the backlog guard let one through")
+	Errors.Holds(#self.Pending <= MAX_PENDING, "more ops are queued than the cap allows, so the backlog guard let one through")
 	return true, nil
 end
 
 function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
-		Say.Warn("Ledger: rejected commit, an op needs a string Id and a string Kind")
+		Warnings.Warn("Ledger: rejected commit, an op needs a string Id and a string Kind")
 		return Rejected(INVALID)
 	end
 
-	local Fine, Wrong = MakeOp.Vet(Op)
+	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
-		Say.Warn(`Ledger: rejected commit '{Op.Kind}', {Wrong}`)
+		Warnings.Warn(`Ledger: rejected commit '{Op.Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -190,15 +190,15 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 			Rebuild.Push(self)
 
 			local Stored = self:Settled((Rebuild.Append(self, { Op })))
-			local Deadline = Clock.Now() + Tx.TIMEOUT + PENDING_POLL
-			while Stamp.HasPending(Stored) and Clock.Now() < Deadline do
-				Clock.Wait(PENDING_POLL)
+			local Deadline = Clock.Now() + Windows.TX + Windows.POLL
+			while TxStamp.HasPending(Stored) and Clock.Now() < Deadline do
+				Clock.Wait(Windows.POLL)
 				Stored = self:Settled(self.Log:Read(self.Key))
 			end
 
-			local Blocked = Stamp.HasPending(Stored)
+			local Blocked = TxStamp.HasPending(Stored)
 			if Blocked then
-				Say.Warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on the record, so this answer can change once that clears`)
+				Warnings.Warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on the record, so this answer can change once that clears`)
 			end
 
 			local _, Took = Rebuild.Rebuild(self, Stored, Op.Id)
@@ -207,7 +207,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		end)
 
 		if not Ok then
-			Say.Warn(`Ledger: commit '{Op.Kind}' could not be written, though it might still have gone through: {Accepted}`)
+			Warnings.Warn(`Ledger: commit '{Op.Kind}' could not be written, though it might still have gone through: {Accepted}`)
 			return false, UNRESOLVED
 		end
 		if Accepted then
@@ -219,7 +219,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 end
 
 function Session.Commit<S>(self: Session<S>, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
-	return Session.CommitOp(self, MakeOp.New(Kind, Fields))
+	return Session.CommitOp(self, NewOp.New(Kind, Fields))
 end
 
 function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
@@ -239,14 +239,14 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 			return true, nil
 		end
 
-		local Why = Fault.Named(Err)
+		local Why = Errors.Named(Err)
 		if Why == BEHIND then
 			self.Released = true
-			Say.Warn(`Ledger: '{self.Key}' now needs a newer build than this server has, so this session is closed and its {#self.Pending} unsaved op(s) are not written. the player has to rejoin`)
+			Warnings.Warn(`Ledger: '{self.Key}' now needs a newer build than this server has, so this session is closed and its {#self.Pending} unsaved op(s) are not written. the player has to rejoin`)
 			return false, Why
 		end
 
-		Say.Warn(`Ledger: flush for '{self.Key}' failed. its ops stay pending and the next flush picks them up: {Err}`)
+		Warnings.Warn(`Ledger: flush for '{self.Key}' failed. its ops stay pending and the next flush picks them up: {Err}`)
 		return false, Why
 	end)
 end
@@ -277,8 +277,8 @@ function Session.Compact<S>(self: Session<S>): Future<boolean, Reason?>
 			return true, nil
 		end
 
-		Say.Warn(`Ledger: compaction for '{self.Key}' failed, so its log just stays long for now: {Err}`)
-		return false, Fault.Named(Err)
+		Warnings.Warn(`Ledger: compaction for '{self.Key}' failed, so its log just stays long for now: {Err}`)
+		return false, Errors.Named(Err)
 	end)
 end
 
@@ -293,14 +293,14 @@ function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 		end)
 		if Ok then
 			if not Whole then
-				Say.Warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+				Warnings.Warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
 				return false, REFUSED
 			end
 			return true, nil
 		end
 
-		Say.Warn(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
-		return false, Fault.Named(Err)
+		Warnings.Warn(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
+		return false, Errors.Named(Err)
 	end)
 end
 

@@ -16,16 +16,16 @@
 		local Layered = Escrow.Layered("Gold")
 --]=]
 
-local TableUtil = require("../Util/Tools/TableUtil")
-local Fault = require("../Contract/Fault")
-local Arg = require("../Contract/Arg")
-local Entries = require("../Contract/Entries")
+local TableUtil = require("../Util/TableUtil")
+local Errors = require("../Core/Errors")
+local Validate = require("../Core/Validate")
+local Applied = require("../Core/Applied")
 local Layer = require("./Layer")
-local Contract = require("../Contract/Op")
+local Shapes = require("../Core/Shapes")
 
-type Op = Contract.Op
-type Data = Contract.Folded
-type Held = Contract.Held
+type Op = Shapes.Op
+type Data = Shapes.Folded
+type Held = Shapes.Held
 
 local RESERVE = "__TransferReserve"
 local DELIVER = "__TransferDeliver"
@@ -58,7 +58,7 @@ end
 
 local function Reserving(Data: Data, Op: Op, Field: string): Data?
 	local Tid = Op.Tid
-	local Amount = Arg.Number(Op.Amount)
+	local Amount = Validate.Number(Op.Amount)
 	if type(Tid) ~= "string" or Amount == nil then
 		return nil
 	end
@@ -66,7 +66,7 @@ local function Reserving(Data: Data, Op: Op, Field: string): Data?
 	if Data._Held and Data._Held[Tid] ~= nil then
 		return nil
 	end
-	if Entries.Has(Data._Received, Entries.SENT, Tid) then
+	if Applied.Has(Data._Received, Applied.SENT, Tid) then
 		return nil
 	end
 	if Amount > (Data[Field] or 0) then
@@ -102,13 +102,13 @@ local function Delivering(Data: Data, Op: Op, Field: string): Data?
 
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Received = (Data._Received or {}) :: { [string]: any }
-	if Entries.Has(Received, Entries.TRANSFER, Tid) then
+	if Applied.Has(Received, Applied.TRANSFER, Tid) then
 		return nil
 	end
 
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) + Amount
-	Next._Received = Entries.Remember(Received, Entries.Key(Entries.TRANSFER, Tid), Op.At, Print)
+	Next._Received = Applied.Remember(Received, Applied.Key(Applied.TRANSFER, Tid), Op.At, Print)
 
 	return Next
 end
@@ -133,7 +133,7 @@ local function Expiring(Data: Data, Op: Op, Field: string): Data?
 	Next._Held = TableUtil.Some(Rest)
 
 	if Next[Field] < (Data[Field] or 0) then
-		Fault.Broke(`giving transfer {Tid} back left the sender with less than they started with`)
+		Errors.Broke(`giving transfer {Tid} back left the sender with less than they started with`)
 		return nil
 	end
 	return Next
@@ -158,13 +158,13 @@ local function Settling(Data: Data, Op: Op): Data?
 
 	local Next = table.clone(Data)
 	Next._Held = TableUtil.Some(Held)
-	Next._Received = Entries.Remember(Data._Received, Entries.Key(Entries.SENT, Tid), Op.At, Print)
+	Next._Received = Applied.Remember(Data._Received, Applied.Key(Applied.SENT, Tid), Op.At, Print)
 
 	return Next
 end
 
 local function Pruning(Data: Data, Op: Op): Data?
-	local Kept = Entries.Prune(Data._Received, Op.At)
+	local Kept = Applied.Prune(Data._Received, Op.At)
 	if Kept == nil then
 		return nil
 	end

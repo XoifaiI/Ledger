@@ -1,0 +1,94 @@
+--!strict
+
+--[=[
+	Cases: Runs the case suite outside Roblox and prints the verdict.
+
+	The same suite the Studio runner runs, found on disk rather than in a data model. A case file is
+	every module under tests/Cases, so there is no list to forget here either.
+	The engine goes in before anything under src is required, because a module reads its services at
+	the top rather than at the call.
+
+	Return type: Nothing. It prints, and sets the exit code.
+	Example usage:
+		zune run zune/Cases.luau
+--]=]
+
+require("./Engine").Install()
+
+local Suite = require("../tests/Suite")
+local Warnings = require("../src/Util/Warnings")
+
+local MATCH = zune.process.args[2] or ""
+local QUIET = true
+
+local SHOW_BROKEN = 40
+local SHOW_ACCUSED = 20
+
+Warnings.Quiet(QUIET)
+
+local function Row(Title: string, Count: number)
+	print(`  {Title} {string.rep(".", math.max(1, 34 - #Title))} {if Count == 0 then "none" else tostring(Count)}`)
+end
+
+local function Some(Title: string, Held: { string }, Most: number)
+	if #Held == 0 then
+		return
+	end
+
+	print(`\n  {Title}:`)
+	for Index, Line in Held do
+		if Index > Most then
+			print(`    and {#Held - Most} more`)
+			break
+		end
+		print(`    {Line}`)
+	end
+end
+
+local Named: { string } = {}
+for _, Entry in zune.fs.entries("./tests/Cases") do
+	local Held = Entry.name
+	if string.sub(Held, -5) == ".luau" then
+		table.insert(Named, string.sub(Held, 1, -6))
+	end
+end
+table.sort(Named)
+
+local Files: { any } = {}
+for _, Held in Named do
+	table.insert(Files, require(`../tests/Cases/{Held}`) :: any)
+end
+
+local Counted = 0
+for _, File in Files do
+	Counted += #File.Cases
+end
+
+local Out = Suite.Run(Files, { Match = MATCH })
+
+print("\n~~~~~~~~~~~~ Ledger cases, on Zune ~~~~~~~~~~~~")
+print(`  {Out.Ran} of {Counted} case(s) in {#Files} file(s), {string.format("%.2f", Out.Seconds)}s`)
+print("")
+print(`  warnings    {Out.Warnings} total`)
+print("")
+
+Row("cases failed", Out.Failed)
+Row("checks broken", #Out.Broken)
+Row("Ledger accused itself", #Out.Accused)
+
+local Broken: { string } = {}
+for _, Held in Out.Broken do
+	table.insert(Broken, `{Held.File}: {Held.Name}: {Held.Says}`)
+end
+
+Some("broken", Broken, SHOW_BROKEN)
+Some("Ledger accused itself", Out.Accused, SHOW_ACCUSED)
+
+print("")
+if Out.Ok then
+	print("~~~~~~~~~~~~ CASES PASSED ~~~~~~~~~~~~")
+	return
+end
+
+print("~~~~~~~~~~~~ CASES FAILED ~~~~~~~~~~~~")
+zune.process.exit(1)

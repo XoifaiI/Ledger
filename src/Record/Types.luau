@@ -12,13 +12,13 @@
 		type Log = Types.Log
 --]=]
 
-local DataStoreWrapper = require("../Util/Engine/DataStoreWrapper")
-local Contract = require("../Contract/Op")
+local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Shapes = require("../Core/Shapes")
 
-type Op = Contract.Op
-type Record<S> = Contract.Record<S>
-type Reducer<S> = Contract.Reducer<S>
-type Migration = Contract.Migration
+type Op = Shapes.Op
+type Record<S> = Shapes.Record<S>
+type Reducer<S> = Shapes.Reducer<S>
+type Migration = Shapes.Migration
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 
 export type Outcome = { Before: Record<any>, After: Record<any>, Changed: boolean }

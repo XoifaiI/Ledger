@@ -11,38 +11,38 @@
 	Materialize does not trust a field that it reads, because another build can write a record.
 	A datastore hides an error that a transform throws. Update keeps that error and raises it again.
 
-	Return type: A table with New, Verdict, TOMB_HORIZON, Entombed, NotEntombed and Known.
+	Return type: A table with New, Verdict, Entombed, NotEntombed and Known.
 	Example usage:
 		local Log = require("./Log")
 		local Books = Log.New(Wrapper, 0)
 		local Record = Books:Read("1")
 --]=]
 
-local Say = require("../Util/Tools/Say")
-local DataStoreWrapper = require("../Util/Engine/DataStoreWrapper")
-local Fault = require("../Contract/Fault")
-local Limits = require("../Contract/Limits")
-local Reasons = require("../Contract/Reason")
-local Contract = require("../Contract/Op")
-local Entries = require("../Contract/Entries")
+local Warnings = require("../Util/Warnings")
+local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Errors = require("../Core/Errors")
+local Sizes = require("../Core/Constants/Sizes")
+local Reasons = require("../Core/Reasons")
+local Shapes = require("../Core/Shapes")
+local Applied = require("../Core/Applied")
 local Measure = require("../Encode/Measure")
-local IsStorable = require("../Encode/Storable")
+local Storable = require("../Encode/Storable")
 local Transform = require("./Transform")
 local Compact = require("./Compact")
-local Shape = require("./Shape")
+local Schema = require("./Schema")
 local Rules = require("./Rules")
-local Stamp = require("./Stamp")
-local Step = require("./Step")
+local TxStamp = require("./TxStamp")
+local Apply = require("./Apply")
 local Types = require("./Types")
 
-type Op = Contract.Op
-type Record = Contract.Record<any>
+type Op = Shapes.Op
+type Record = Shapes.Record<any>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 
 type Allow = (Record) -> boolean
 type Transform = (Record) -> Record?
 
-export type Shape<S> = Types.Shape<S>
+export type Schema<S> = Types.Shape<S>
 export type Log = Types.Log
 export type Outcome = Types.Outcome
 export type Resolution = Types.Resolution
@@ -50,9 +50,7 @@ export type Verdict = Types.Verdict
 export type Prepared = Types.Prepared
 export type Fated = Types.Fated
 
-local ENVELOPE = Contract.ENVELOPE
-
-local TOMB_HORIZON = Rules.TOMB_HORIZON
+local ENVELOPE = Shapes.ENVELOPE
 
 local OWNED = "Owned" :: "Owned"
 local DEAD = "Dead" :: "Dead"
@@ -72,7 +70,7 @@ local function Materialize(Value: any): Record
 	end
 
 	if type(Value.Envelope) == "number" and Value.Envelope > ENVELOPE then
-		error(Fault.New(Reasons.Behind, `the record envelope is format {Value.Envelope} but this server only knows {ENVELOPE}, a newer framework wrote it`))
+		error(Errors.New(Reasons.Behind, `the record envelope is format {Value.Envelope} but this server only knows {ENVELOPE}, a newer framework wrote it`))
 	end
 
 	local Ops: { Op } = {}
@@ -132,16 +130,16 @@ local function Meant(Held: any, Wanted: any): boolean
 	return type(Held) ~= "string" or type(Wanted) ~= "string" or Held == Wanted
 end
 
-local function Held(Record: Record, Format: Shape<any>, Hold: { any }): any
+local function Held(Record: Record, Format: Schema<any>, Hold: { any }): any
 	local Folded = Hold[1]
 	if Folded == nil then
-		Folded = Format:Fold(Shape.Detached(Record))
+		Folded = Format:Fold(Schema.Detached(Record))
 		Hold[1] = Folded
 	end
 	return Folded
 end
 
-local function Known(Record: Record, Op: Op, Format: Shape<any>, Hold: { any }?): Prepared?
+local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?): Prepared?
 	local Folded: { any } = Hold or {}
 	for _, Existing in Record.Ops do
 		if Existing.Id == Op.Id then
@@ -153,11 +151,11 @@ local function Known(Record: Record, Op: Op, Format: Shape<any>, Hold: { any }?)
 	end
 
 	if type(Op.Tx) == "string" and type(Op.TxTerms) == "string" then
-		local Recalled = Entries.Recall(Held(Record, Format, Folded)._Received, Entries.TX, Op.Tx, Op.TxTerms)
-		if Recalled == Entries.OTHER then
+		local Recalled = Applied.Recall(Held(Record, Format, Folded)._Received, Applied.TX, Op.Tx, Op.TxTerms)
+		if Recalled == Applied.OTHER then
 			return VERDICT.Spent
 		end
-		if Recalled == Entries.SAME then
+		if Recalled == Applied.SAME then
 			return VERDICT.Settled
 		end
 	end
@@ -172,7 +170,7 @@ local function Known(Record: Record, Op: Op, Format: Shape<any>, Hold: { any }?)
 		return nil
 	end
 
-	if Entries.Has(Held(Record, Format, Folded)._Received, Entries.TX, Op.Tx) then
+	if Applied.Has(Held(Record, Format, Folded)._Received, Applied.TX, Op.Tx) then
 		return VERDICT.Settled
 	end
 	return nil
@@ -206,7 +204,7 @@ function Log.Legible(self: Log, Key: string, Record: Record)
 	Rules.Readable(Key, self.Known, Record)
 end
 
-function Log.Update(self: Log, Key: string, Apply: Transform): Outcome
+function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 	local Before: Record = nil :: any
 	local Wrote = false
 	local Raised: any = nil
@@ -217,7 +215,7 @@ function Log.Update(self: Log, Key: string, Apply: Transform): Outcome
 
 		local Fine, Next = pcall(function(): Record?
 			Before = Materialize(Current)
-			return Apply(Before)
+			return Change(Before)
 		end)
 		if not Fine then
 			Raised = Next
@@ -235,8 +233,8 @@ function Log.Update(self: Log, Key: string, Apply: Transform): Outcome
 		error(Value)
 	end
 
-	Fault.Holds(Before ~= nil, `the write to '{Key}' reported success without ever running its transform`)
-	Fault.Holds(Wrote == (Value ~= nil), `the write to '{Key}' disagreed with the datastore about whether it happened`)
+	Errors.Holds(Before ~= nil, `the write to '{Key}' reported success without ever running its transform`)
+	Errors.Holds(Wrote == (Value ~= nil), `the write to '{Key}' disagreed with the datastore about whether it happened`)
 
 	if Value == nil then
 		return { Before = Before, After = Before, Changed = false }
@@ -263,15 +261,15 @@ end
 function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string })
 	local Owned = false
 	for _, Op in Ops do
-		Fault.Holds(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
-		if not IsStorable.Reserved(Op.Kind) then
+		Errors.Holds(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
+		if not Storable.Reserved(Op.Kind) then
 			Owned = true
 		end
 	end
 
 	local Outcome = Transform.Run(
-		function(Named: string, Apply: (Record) -> Record?)
-			return self:Update(Named, Apply)
+		function(Named: string, Change: (Record) -> Record?)
+			return self:Update(Named, Change)
 		end,
 		Key,
 		{
@@ -291,8 +289,8 @@ end
 function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record
 	return self:Update(Key, function(Record: Record): Record?
 		self:Legible(Key, Record)
-		if Stamp.HasPending(Record) then
-			error(Fault.New(Reasons.Busy, `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`))
+		if TxStamp.HasPending(Record) then
+			error(Errors.New(Reasons.Busy, `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`))
 		end
 
 		local Body: Record = if Bury ~= nil then Bury(Record) else { Ops = {}, Seen = {} }
@@ -305,11 +303,11 @@ function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Recor
 end
 
 function Log.AppendUnlessPending(self: Log, Key: string, Ops: { Op }): Record
-	return (self:Append(Key, Ops, Stamp.NotPending))
+	return (self:Append(Key, Ops, TxStamp.NotPending))
 end
 
-function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepared
-	Fault.Holds(type(Op.Tx) == "string", "a transaction leg is being prepared without the transaction it belongs to")
+function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepared
+	Errors.Holds(type(Op.Tx) == "string", "a transaction leg is being prepared without the transaction it belongs to")
 
 	local Verdict: Prepared = VERDICT.Rejected
 	local Outcome = self:Update(Key, function(Record: Record): Record?
@@ -322,13 +320,13 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 			return nil
 		end
 
-		if Stamp.HasPending(Record) then
+		if TxStamp.HasPending(Record) then
 			Verdict = VERDICT.Busy
 			return nil
 		end
 
 		local State = Held(Record, Format, Folded)
-		local Next = Step(Format.Reducer, State, Stamp.Unstamped(Op))
+		local Next = Apply(Format.Reducer, State, TxStamp.Unstamped(Op))
 		if Next == nil then
 			Verdict = VERDICT.Rejected
 			return nil
@@ -336,9 +334,9 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 
 		local LogBytes = Measure(Record.Ops)
 		local OpBytes = Measure(Op)
-		if Compact.Bulk(Record) + LogBytes + OpBytes > Limits.StateFloor then
+		if Compact.Bulk(Record) + LogBytes + OpBytes > Sizes.StateFloor then
 			local Bytes = Measure(Next)
-			if Bytes > Limits.State and Bytes > Measure(State) then
+			if Bytes > Sizes.State and Bytes > Measure(State) then
 				Verdict = VERDICT.Full
 				return nil
 			end
@@ -346,7 +344,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 
 		local Separator = if #Record.Ops > 0 then 1 else 0
 		table.insert(Record.Ops, Op)
-		if LogBytes + OpBytes + Separator > Limits.Log then
+		if LogBytes + OpBytes + Separator > Sizes.Log then
 			Verdict = VERDICT.Full
 			return nil
 		end
@@ -360,7 +358,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Shape<any>): Prepar
 	end)
 
 	if Verdict == VERDICT.Prepared then
-		Fault.Holds(Stamp.Holds(Outcome.After, Op.Id), `leg {Op.Id} reported as prepared but is not on '{Key}', so the transaction would wait on nothing`)
+		Errors.Holds(TxStamp.Holds(Outcome.After, Op.Id), `leg {Op.Id} reported as prepared but is not on '{Key}', so the transaction would wait on nothing`)
 	end
 	return Verdict
 end
@@ -399,14 +397,14 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 				continue
 			end
 
-			table.insert(Kept, Stamp.Unstamped(Existing))
+			table.insert(Kept, TxStamp.Unstamped(Existing))
 		end
 
 		if next(Counts) == nil and Retired == 0 then
 			return nil
 		end
 
-		Fault.Holds(#Kept <= #Record.Ops, "resolving a transaction leg left more ops on the key than it started with")
+		Errors.Holds(#Kept <= #Record.Ops, "resolving a transaction leg left more ops on the key than it started with")
 		Record.Ops = Kept
 		Record.Envelope = ENVELOPE
 		return Record
@@ -414,14 +412,14 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 
 	for Txid in Counts do
 		for _, Op in Result.After.Ops do
-			Fault.Holds(Op.Tx ~= Txid, `transaction '{Txid}' was resolved on '{Key}' but a leg is still stamped with it, so the key stays busy forever`)
+			Errors.Holds(Op.Tx ~= Txid, `transaction '{Txid}' was resolved on '{Key}' but a leg is still stamped with it, so the key stays busy forever`)
 		end
 	end
 
 	return { Record = Result.After, Counts = Counts }
 end
 
-function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
+function Log.Compact(self: Log, Key: string, Format: Schema<any>): Record
 	local Result = self:Update(Key, function(Record: Record): Record?
 		self:Legible(Key, Record)
 		return Compact.Packed(Key, Record, Format)
@@ -431,28 +429,28 @@ function Log.Compact(self: Log, Key: string, Format: Shape<any>): Record
 		return Result.After
 	end
 
-	Fault.Holds(
+	Errors.Holds(
 		#Result.After.Ops == 0 or #Result.After.Ops < #Result.Before.Ops,
 		`compacting '{Key}' left {#Result.After.Ops} op(s) behind, which is no fewer than the {#Result.Before.Ops} it started with`
 	)
 
 	local Bytes = Measure(Result.After)
-	if Bytes > Limits.ValueWarn then
-		Say.Warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {Limits.Value}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
+	if Bytes > Sizes.ValueWarn then
+		Warnings.Warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {Sizes.Value}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
 	end
 
 	local State = Result.After.Bytes
-	if type(State) == "number" and State > Limits.StateWarn then
+	if type(State) == "number" and State > Sizes.StateWarn then
 		local Said, Ours = Compact.Hint(Result.After.Snapshot)
 		local Fix = if Ours
 			then "that field is Ledger's own bookkeeping and your game cannot take it out. it grows with the transfers, transactions and reservations this key takes, so spread that work over more keys"
 			else "take out what the game no longer reads, or spread it over more keys"
-		Say.Warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Limits.State}{Said}. {Fix}`)
+		Warnings.Warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Sizes.State}{Said}. {Fix}`)
 	end
 	return Result.After
 end
 
-function Log.Trim(self: Log, Key: string, Format: Shape<any>, Record: Record): Record
+function Log.Trim(self: Log, Key: string, Format: Schema<any>, Record: Record): Record
 	if not Compact.Overgrown(Record) then
 		return Record
 	end
@@ -462,7 +460,7 @@ function Log.Trim(self: Log, Key: string, Format: Shape<any>, Record: Record): R
 		return Packed
 	end
 
-	Say.Warn(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
+	Warnings.Warn(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
 	return Record
 end
 
@@ -471,7 +469,6 @@ table.freeze(Log)
 return table.freeze({
 	New = Log.New,
 	Verdict = VERDICT,
-	TOMB_HORIZON = TOMB_HORIZON,
 	Entombed = Entombed,
 	NotEntombed = NotEntombed,
 	Known = Known,

@@ -1,0 +1,103 @@
+--!strict
+--!optimize 2
+
+--[=[
+	Sizes: Every cap Ledger holds itself to, in one place a test can move.
+
+	The defaults are the real ones. A datastore value stops at 4 MB, and the rest are cut from that
+	so a record always has room for the op that is about to go on it.
+	A margin is a share of the cap it guards rather than a fixed number of bytes, so a smaller cap
+	brings its margin down with it and the order they fire in never changes.
+	This is the one table in Ledger that is not frozen. A harness that shrinks these reaches the same
+	refusals with a hundredth of the data, which is the only reason it can be written to at all. Set
+	takes whole numbers and Reset puts the real ones back. Booked counts reservations on one key and
+	Depth counts levels, and Depth is the one cap here that neither of them moves, because a value
+	that nests that far is cyclic whatever size the rest of the caps are cut to.
+
+	Return type: A table of the caps, with Set and Reset.
+	Example usage:
+		local Sizes = require("./Sizes")
+		if Bytes > Sizes.State then Refuse() end
+--]=]
+
+export type Sizes = {
+	read Value: number?,
+	read State: number?,
+	read Op: number?,
+	read Log: number?,
+	read Compact: number?,
+	read Booked: number?,
+}
+
+local DEFAULTS: { [string]: number } = {
+	Value = 4 * 1024 * 1024,
+	State = 2 * 1024 * 1024,
+	Op = 1024 * 1024,
+	Log = 1536 * 1024,
+	Compact = 1024 * 1024,
+	Booked = 256,
+}
+
+local DEPTH = 64
+
+local VALUE_MARGIN = 8
+local STATE_MARGIN = 4
+local HELD_MARGIN = 6
+
+local Sizes = {
+	Value = DEFAULTS.Value,
+	State = DEFAULTS.State,
+	Op = DEFAULTS.Op,
+	Log = DEFAULTS.Log,
+	Compact = DEFAULTS.Compact,
+	Booked = DEFAULTS.Booked,
+	Depth = DEPTH,
+
+	Held = 0,
+	StateFloor = 0,
+	ValueWarn = 0,
+	StateWarn = 0,
+}
+
+local Loose = Sizes :: { [string]: any }
+
+local function Derive()
+	Sizes.Held = Sizes.Log + Sizes.Log // HELD_MARGIN
+	Sizes.StateFloor = Sizes.State - Sizes.Op
+	Sizes.ValueWarn = Sizes.Value - Sizes.Value // VALUE_MARGIN
+	Sizes.StateWarn = Sizes.State - Sizes.State // STATE_MARGIN
+end
+
+local function Set(Given: Sizes)
+	assert(type(Given) == "table", "Sizes.Set takes a table of byte counts")
+
+	local Asked = Given :: { [string]: any }
+	for Named in DEFAULTS do
+		local Held = Asked[Named]
+		if Held == nil then
+			continue
+		end
+
+		assert(type(Held) == "number" and Held == Held // 1 and Held > 0, `Sizes.{Named} has to be a whole number above zero`)
+		Loose[Named] = Held
+	end
+
+	assert(Sizes.Op < Sizes.State, "an op has to be smaller than the state it goes into, or nothing could ever be written")
+	assert(Sizes.State <= Sizes.Value, "a state cannot be larger than the value it is stored in")
+	assert(Sizes.Log < Sizes.Value, "a log cannot be larger than the value it is stored in")
+	Derive()
+end
+
+local function Reset()
+	for Named, Held in DEFAULTS do
+		Loose[Named] = Held
+	end
+	Derive()
+end
+
+Derive()
+
+Sizes.Set = Set
+Sizes.Reset = Reset
+
+return Sizes

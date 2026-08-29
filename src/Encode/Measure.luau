@@ -21,11 +21,11 @@
 		local Bytes = Measure(State)
 --]=]
 
-local Limits = require("../Contract/Limits")
+local Sizes = require("../Core/Constants/Sizes")
 
 local MAX_EXACT = 2 ^ 53
 local BUFFER_WRAP = 35
-local MAX_DEPTH = Limits.Depth
+local MAX_DEPTH = Sizes.Depth
 local FRACTION_MARGIN = 3
 
 local TOO_DEEP = "Measure went deeper than a storable value can nest, so the value is cyclic"

@@ -14,15 +14,15 @@
 		local Outcome = Transform.Run(Update, Key, Rules)
 --]=]
 
-local Contract = require("../Contract/Op")
-local Fault = require("../Contract/Fault")
-local Reasons = require("../Contract/Reason")
-local Passes = require("./Pass")
+local Shapes = require("../Core/Shapes")
+local Errors = require("../Core/Errors")
+local Reasons = require("../Core/Reasons")
+local Rules = require("./Rules")
 
-type Record = Contract.Record<any>
+type Record = Shapes.Record<any>
 type Reason = Reasons.Reason
-type Pass = Passes.Pass
-type Rule = Passes.Rule
+type Pass = Rules.Pass
+type Rule = Rules.Rule
 
 export type Outcome = {
 	Before: Record,
@@ -34,14 +34,14 @@ export type Outcome = {
 
 export type Update = (Key: string, Apply: (Record) -> Record?) -> { Before: Record, After: Record, Changed: boolean }
 
-local function Run(Update: Update, Key: string, Rules: { Rule }): Outcome
-	local Pass: Pass = Passes.New()
+local function Run(Update: Update, Key: string, List: { Rule }): Outcome
+	local Pass: Pass = Rules.New()
 
 	local Result = Update(Key, function(Record: Record): Record?
-		Passes.Reset(Pass)
+		Rules.Reset(Pass)
 
 		local Next: Record = Record
-		for _, Held in Rules do
+		for _, Held in List do
 			local Check = Held.Check
 			if Check ~= nil then
 				local Why = Check(Next, Pass)
@@ -68,13 +68,13 @@ local function Run(Update: Update, Key: string, Rules: { Rule }): Outcome
 	end)
 
 	if Result.Changed then
-		for _, Held in Rules do
+		for _, Held in List do
 			local After = Held.After
 			if After == nil then
 				continue
 			end
 			local Broke = After(Result.Before, Result.After, Pass)
-			Fault.Holds(Broke == nil, `the '{Held.Name}' rule on '{Key}' did not hold after the write: {tostring(Broke)}`)
+			Errors.Holds(Broke == nil, `the '{Held.Name}' rule on '{Key}' did not hold after the write: {tostring(Broke)}`)
 		end
 	end
 

@@ -5,8 +5,11 @@
 	Pages: A page walker that finishes the way that a real one finishes.
 
 	It also refuses to move past the end, which a real one does.
-	Cursor names the last row of the page that you hold. A later call that carries it starts after
-	that row. A walker of keys therefore continues where the last one stopped.
+	A page size of zero is the caller asking for the usual one rather than for no rows, which is what
+	a real datastore reads it as, so it falls back the same way a missing one does.
+	Cursor is a place in the listing and never a row of it, which is what a real one hands back, and
+	the last page carries no cursor at all. A later call that carries one starts at that place, so a
+	walker of keys continues where the last one stopped without naming what it stopped on.
 
 	Return type: A table with New and PAGE_LIMIT.
 	Example usage:
@@ -23,13 +26,14 @@ local PAGE_LIMIT = 100
 local Pages = {} :: Types.PagesImpl
 Pages.__index = Pages
 
-function Pages.New(Rows: { any }, PageSize: number?, Fallback: number, Field: string?, Spend: (() -> ())?): Pages
-	local Size = math.clamp(PageSize or Fallback, 1, PAGE_LIMIT)
+function Pages.New(Rows: { any }, PageSize: number?, Fallback: number, Mark: ((At: number) -> string)?, Spend: (() -> ())?): Pages
+	local Asked = if PageSize ~= nil and PageSize > 0 then PageSize else Fallback
+	local Size = math.clamp(Asked, 1, PAGE_LIMIT)
 	local Book: Pages = setmetatable({
 		Rows = Rows,
 		At = 1,
 		Size = Size,
-		Field = Field,
+		Mark = Mark,
 		Spend = Spend,
 		Cursor = "",
 		IsFinished = true,
@@ -42,15 +46,12 @@ end
 function Pages.Edge(self: Pages)
 	self.IsFinished = self.At + self.Size > #self.Rows
 
-	local Field = self.Field
-	if Field == nil then
+	local Mark = self.Mark
+	if Mark == nil or self.IsFinished then
 		self.Cursor = ""
 		return
 	end
-
-	local Row = self.Rows[math.min(self.At + self.Size - 1, #self.Rows)]
-	local Mark = if type(Row) == "table" then (Row :: { [string]: any })[Field] else nil
-	self.Cursor = if type(Mark) == "string" then Mark else ""
+	self.Cursor = Mark(self.At + self.Size)
 end
 
 function Pages.GetCurrentPage(self: Pages): { any }

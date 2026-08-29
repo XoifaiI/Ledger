@@ -17,19 +17,19 @@
 		local State = self:Peek(1):Wait()
 --]=]
 
-local Future = require("../../Util/Work/Future")
-local TableUtil = require("../../Util/Tools/TableUtil")
-local Contract = require("../../Contract/Op")
-local Reasons = require("../../Contract/Reason")
-local Entries = require("../../Contract/Entries")
+local Future = require("../../Util/Future")
+local TableUtil = require("../../Util/TableUtil")
+local Shapes = require("../../Core/Shapes")
+local Reasons = require("../../Core/Reasons")
+local Applied = require("../../Core/Applied")
 local Write = require("./Write")
 local Store = require("../Class")
 local Types = require("../Types")
 
 type Future<T...> = Future.Future<T...>
-type Record = Contract.Record<any>
-type KeyLike = Contract.KeyLike
-type HistoryEntry = Contract.HistoryEntry
+type Record = Shapes.Record<any>
+type KeyLike = Shapes.KeyLike
+type HistoryEntry = Shapes.HistoryEntry
 type Reason = Reasons.Reason
 type Store = Types.Store<any>
 
@@ -67,7 +67,7 @@ function Store.DidApply(self: Store, Key: KeyLike, Id: string): Future<boolean?,
 	assert(type(Id) == "string" and #Id > 0, "DidApply needs the same Once name the op was written under")
 
 	return Reading("check what has been applied to", Resolved, function(): boolean
-		return Entries.Has(Followed(self, Resolved)._Received, Entries.ONCE, Id)
+		return Applied.Has(Followed(self, Resolved)._Received, Applied.ONCE, Id)
 	end)
 end
 

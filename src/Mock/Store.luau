@@ -9,6 +9,10 @@
 	a change means another write came between. The transform then runs again, as a real one does.
 	A transform that yields raises. A transform that throws for another reason cancels the write and
 	tells the caller nothing, which is what a real datastore does.
+	A listing hands keys back in no order a caller can predict, measured against a real datastore, so
+	this orders them by a hash of the key and never by the key itself. Sorting them would let code
+	lean on an order that is not there. The cursor is a place in that order rather than a key, and a
+	read of a key nobody wrote leaves nothing behind for a listing to find.
 
 	Return type: A table with New, MAX_KEY and KEEP_VERSIONS.
 	Example usage:
@@ -16,8 +20,8 @@
 		local Books = Store.New("Players", "global", Service)
 --]=]
 
-local NoYield = require("../Util/Work/NoYield")
-local Clock = require("../Util/Engine/Clock")
+local NoYield = require("../Util/NoYield")
+local Clock = require("../Util/Clock")
 local Codec = require("./Codec")
 local Pages = require("./Pages")
 local Types = require("./Types")
@@ -32,6 +36,13 @@ local MAX_KEY = 50
 local KEEP_VERSIONS = 30
 local CONFLICT_LIMIT = 32
 local YIELDED = "must complete without yielding"
+
+local HASH_SEED = 5381
+local HASH_STEP = 33
+local HASH_WRAP = 2 ^ 32
+
+local CURSOR = "c%08x"
+local CURSOR_PATTERN = "^c(%x+)$"
 
 local function NoIds(_self: KeyInfo): { number }
 	return {}
@@ -60,8 +71,50 @@ local function CheckKey(Key: string)
 	end
 end
 
-local function Newest(Slot: Slot): Entry?
+local function Newest(Slot: Slot?): Entry?
+	if Slot == nil then
+		return nil
+	end
 	return Slot.Entries[#Slot.Entries]
+end
+
+local function Hashed(Key: string): number
+	local Held = HASH_SEED
+	for Index = 1, #Key do
+		Held = (Held * HASH_STEP + string.byte(Key, Index)) % HASH_WRAP
+	end
+	return Held
+end
+
+local function Ordered(Left: string, Right: string): boolean
+	local Mine, Theirs = Hashed(Left), Hashed(Right)
+	if Mine ~= Theirs then
+		return Mine < Theirs
+	end
+	return Left < Right
+end
+
+local function Spot(Names: { string }, Key: string): number
+	local Low, High = 1, #Names + 1
+	while Low < High do
+		local Mid = (Low + High) // 2
+		if Names[Mid] < Key then
+			Low = Mid + 1
+		else
+			High = Mid
+		end
+	end
+	return Low
+end
+
+local function Resume(Cursor: string?): number
+	if type(Cursor) ~= "string" then
+		return 1
+	end
+
+	local Digits = string.match(Cursor, CURSOR_PATTERN)
+	local Held = if Digits == nil then nil else tonumber(Digits, 16)
+	return if Held == nil or Held < 1 then 1 else Held
 end
 
 local Store = {} :: Types.StoreImpl
@@ -73,13 +126,14 @@ function Store.New(Name: string, Scope: string, Service: Types.Service): Store
 		Scope = Scope,
 		Service = Service,
 		Slots = {},
+		Names = {},
 		Ticket = 0,
 	}, Store)
 end
 
 function Store.Reach(self: Store, Kind: Enum.DataStoreRequestType)
 	self.Service:Spend(Kind)
-	task.wait()
+	self.Service.Scheduler.Wait(0)
 end
 
 function Store.Held(self: Store, Key: string): Slot
@@ -90,7 +144,12 @@ function Store.Held(self: Store, Key: string): Slot
 
 	local Fresh: Slot = { Live = nil, Entries = {} }
 	self.Slots[Key] = Fresh
+	table.insert(self.Names, Spot(self.Names, Key), Key)
 	return Fresh
+end
+
+function Store.Look(self: Store, Key: string): Slot?
+	return self.Slots[Key]
 end
 
 function Store.Commit(self: Store, Key: string, Text: string?, Deleted: boolean): Entry
@@ -117,9 +176,9 @@ function Store.Commit(self: Store, Key: string, Text: string?, Deleted: boolean)
 end
 
 function Store.Current(self: Store, Key: string): (any, KeyInfo?)
-	local Slot = self:Held(Key)
+	local Slot = self:Look(Key)
 	local Mark = Newest(Slot)
-	local Text = Slot.Live
+	local Text = if Slot == nil then nil else Slot.Live
 	if Text == nil or Mark == nil then
 		return nil, nil
 	end
@@ -145,7 +204,7 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 	self:Reach(Enum.DataStoreRequestType.UpdateAsync)
 
 	for _ = 1, CONFLICT_LIMIT do
-		local Latest = Newest(self:Held(Key))
+		local Latest = Newest(self:Look(Key))
 		local Before = if Latest then Latest.Label else nil
 
 		local Was, Info = self:Current(Key)
@@ -160,7 +219,7 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 			return nil, nil
 		end
 
-		local Moved = Newest(self:Held(Key))
+		local Moved = Newest(self:Look(Key))
 		if (if Moved then Moved.Label else nil) ~= Before then
 			continue
 		end
@@ -197,7 +256,8 @@ function Store.GetVersionAsync(self: Store, Key: string, Version: string): (any,
 	CheckKey(Key)
 	self:Reach(Enum.DataStoreRequestType.GetVersionAsync)
 
-	for _, Mark in self:Held(Key).Entries do
+	local Slot = self:Look(Key)
+	for _, Mark in if Slot == nil then {} else Slot.Entries do
 		if Mark.Label == Version then
 			return Codec.Decode(Mark.Text), MakeInfo(Mark.Label, Mark.Written)
 		end
@@ -210,8 +270,9 @@ function Store.ListVersionsAsync(self: Store, Key: string, Direction: Enum.SortD
 	CheckKey(Key)
 	self:Reach(Enum.DataStoreRequestType.ListAsync)
 
+	local Slot = self:Look(Key)
 	local Rows: { any } = {}
-	for _, Mark in self:Held(Key).Entries do
+	for _, Mark in if Slot == nil then {} else Slot.Entries do
 		local Stamp = Mark.Written * 1000
 		if MinDate ~= nil and Stamp < MinDate then
 			continue
@@ -242,28 +303,31 @@ function Store.ListKeysAsync(self: Store, Prefix: string?, PageSize: number?, Cu
 
 	local Wanted = Prefix or ""
 	local Hiding = ExcludeDeleted == true
-	local After = if type(Cursor) == "string" then Cursor else ""
-	local Names: { string } = {}
-	for Key, Slot in self.Slots do
-		if Slot.Live == nil and Hiding then
-			continue
-		end
+	local Names = self.Names
+
+	local Found: { string } = {}
+	for Index = Spot(Names, Wanted), #Names do
+		local Key = Names[Index]
 		if Wanted ~= "" and string.sub(Key, 1, #Wanted) ~= Wanted then
-			continue
+			break
 		end
-		if After ~= "" and Key <= After then
-			continue
-		end
-		table.insert(Names, Key)
-	end
-	table.sort(Names)
 
+		local Slot = self.Slots[Key]
+		if Slot ~= nil and (Slot.Live ~= nil or not Hiding) then
+			table.insert(Found, Key)
+		end
+	end
+	table.sort(Found, Ordered)
+
+	local From = Resume(Cursor)
 	local Rows: { any } = {}
-	for _, Key in Names do
-		table.insert(Rows, { KeyName = Key })
+	for Index = From, #Found do
+		table.insert(Rows, { KeyName = Found[Index] })
 	end
 
-	return Pages.New(Rows, PageSize, 50, "KeyName", function()
+	return Pages.New(Rows, PageSize, 50, function(At: number): string
+		return string.format(CURSOR, From + At - 1)
+	end, function()
 		self:Reach(Enum.DataStoreRequestType.ListAsync)
 	end)
 end

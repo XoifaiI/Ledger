@@ -4,85 +4,82 @@
 --[=[
 	Sweeper: Retries each key that a failed write left unfinished.
 
-	It also removes transaction markers on each tenth pass.
-	It stops following a key after a few tries, and warns about a key it cannot repair. A pass that
-	moved something counts as progress and does not spend a try.
-	The walk starts where the last walk stopped, so a store that runs out of budget does not starve
-	the stores after it.
-	Stop ends the pass that runs now. A later pass is not affected.
+	It also removes transaction markers on each tenth pass. It stops following a key after a few tries,
+	and warns about one it cannot repair. A pass that moved something does not spend a try.
+	The walk starts where the last one stopped, so a store out of budget does not starve the rest.
+	A store is handed one when it is built and adopts itself into it, so the stores of one server share
+	a sweep the way they share a server. Give a store its own and its background work follows how long
+	that store has been up. It holds each as five plain functions and never as a store, which keeps
+	Store, Fields and Sweeper out of a ring.
+	Choosing a scheduler moves its timer rather than replacing it, since a sweep thrown away strands
+	every reference already taken to it.
 
-	Return type: A table with New.
+	Return type: A table with New. The type is Sweeper.
 	Example usage:
-		local Sweeper = require("./Sweeper")
-		local Sweep = Sweeper.New(Stores)
+		local Sweep = Sweeper.New()
 --]=]
 
-local Say = require("../Util/Tools/Say")
-local SetInterval = require("../Util/Work/SetInterval")
-local Fault = require("../Contract/Fault")
+local Warnings = require("../Util/Warnings")
+local Clock = require("../Util/Clock")
+local Windows = require("../Core/Constants/Windows")
+local SetInterval = require("../Util/SetInterval")
+local Errors = require("../Core/Errors")
 local Types = require("./Types")
 
-type Store = Types.Store<any>
-type Stranded = { Store: Store, Key: string, Tries: number }
+type Swept = Types.Swept
+type SweeperImpl = Types.SweeperImpl
 
-type SweeperImpl = {
-	__index: SweeperImpl,
+export type Sweeper = Types.Sweeper
 
-	New: (Stores: { Store }) -> Sweeper,
-	Add: (self: Sweeper, Store: Store, Key: string) -> (),
-	Drop: (self: Sweeper, Mark: string) -> (),
-	Forget: (self: Sweeper, Store: Store) -> (),
-	Reap: (self: Sweeper, Mine: number?) -> (),
-	Pass: (self: Sweeper) -> (),
-	Stop: (self: Sweeper) -> (),
-}
-
-export type Sweeper = setmetatable<{
-	Entries: { [string]: Stranded },
-	Stores: { Store },
-	Count: number,
-	Passes: number,
-	Resume: number,
-	Epoch: number,
-	Ticker: thread,
-}, SweeperImpl>
-
-local SWEEP_INTERVAL = 60
 local SWEEP_LIMIT = 256
 local SWEEP_TRIES = 5
 local MIN_SWEEP_BUDGET = 8
 local MIN_LIST_BUDGET = 2
 local REAP_EVERY = 10
 
-local function Affordable(Store: Store): boolean
-	return Store:Affords(Enum.DataStoreRequestType.GetAsync, MIN_SWEEP_BUDGET) and Store:Affords(Enum.DataStoreRequestType.UpdateAsync, MIN_SWEEP_BUDGET)
+local function Affordable(Held: Swept): boolean
+	return Held.Affords(Enum.DataStoreRequestType.GetAsync, MIN_SWEEP_BUDGET) and Held.Affords(Enum.DataStoreRequestType.UpdateAsync, MIN_SWEEP_BUDGET)
 end
 
-local function Listable(Store: Store): boolean
-	return Store:TxAffords(Enum.DataStoreRequestType.ListAsync, MIN_LIST_BUDGET)
+local function Listable(Held: Swept): boolean
+	return Held.TxAffords(Enum.DataStoreRequestType.ListAsync, MIN_LIST_BUDGET)
 end
 
 local Sweeper = {} :: SweeperImpl
 Sweeper.__index = Sweeper
 
-function Sweeper.New(Stores: { Store }): Sweeper
-	local Built: Sweeper = setmetatable({ Entries = {}, Stores = Stores, Count = 0, Passes = 0, Resume = 1, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
-	Built.Ticker = SetInterval(SWEEP_INTERVAL, function()
+function Sweeper.New(): Sweeper
+	local Built: Sweeper = setmetatable({ Entries = {}, Stores = {}, Count = 0, Passes = 0, Resume = 1, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
+	Built.Ticker = SetInterval(Clock.Held(), Windows.SWEEP, function()
 		Built:Pass()
 	end)
 	return Built
 end
 
-function Sweeper.Add(self: Sweeper, Store: Store, Key: string)
-	local Mark = Store:Mark(Key)
+function Sweeper.Retime(self: Sweeper)
+	Clock.Cancel(self.Ticker)
+	self.Ticker = SetInterval(Clock.Held(), Windows.SWEEP, function()
+		self:Pass()
+	end)
+end
+
+function Sweeper.Adopt(self: Sweeper, Held: Swept)
+	if table.find(self.Stores, Held) ~= nil then
+		return
+	end
+	table.insert(self.Stores, Held)
+end
+
+function Sweeper.Add(self: Sweeper, Held: Swept, Key: string)
+	local Mark = Held.Mark(Key)
 	if self.Entries[Mark] ~= nil then
 		return
 	end
 	if self.Count >= SWEEP_LIMIT then
-		Say.Warn(`Ledger: the recovery sweep is already following {SWEEP_LIMIT} keys, so nothing retries '{Key}' on its own. call Resettle on it yourself`)
+		Warnings.Warn(`Ledger: the recovery sweep is already following {SWEEP_LIMIT} keys, so nothing retries '{Key}' on its own. call Resettle on it yourself`)
 		return
 	end
-	self.Entries[Mark] = { Store = Store, Key = Key, Tries = 0 }
+	self.Entries[Mark] = { Store = Held, Key = Key, Tries = 0 }
 	self.Count += 1
 end
 
@@ -90,16 +87,21 @@ function Sweeper.Drop(self: Sweeper, Mark: string)
 	if self.Entries[Mark] == nil then
 		return
 	end
-	Fault.Holds(self.Count > 0, "the sweep is dropping a key it is following while its count says it follows none")
+	Errors.Holds(self.Count > 0, "the sweep is dropping a key it is following while its count says it follows none")
 	self.Entries[Mark] = nil
 	self.Count -= 1
 end
 
-function Sweeper.Forget(self: Sweeper, Store: Store)
+function Sweeper.Forget(self: Sweeper, Held: Swept)
 	for Mark, Entry in self.Entries do
-		if Entry.Store == Store then
+		if Entry.Store == Held then
 			self:Drop(Mark)
 		end
+	end
+
+	local Listed = table.find(self.Stores, Held)
+	if Listed ~= nil then
+		table.remove(self.Stores, Listed)
 	end
 end
 
@@ -124,12 +126,12 @@ function Sweeper.Reap(self: Sweeper, Mine: number?)
 			return
 		end
 
-		local Store = self.Stores[At]
-		if not Affordable(Store) or not Listable(Store) then
+		local Held = self.Stores[At]
+		if not Affordable(Held) or not Listable(Held) then
 			self.Resume = At
 			return
 		end
-		Store:ReapMarkers()
+		Held.ReapMarkers()
 	end
 end
 
@@ -156,7 +158,7 @@ function Sweeper.Pass(self: Sweeper)
 		end
 
 		local Ok, Clean, Moved = pcall(function(): (boolean, boolean)
-			return Entry.Store:Repair(Entry.Key)
+			return Entry.Store.Repair(Entry.Key)
 		end)
 		if Ok and Clean then
 			self:Drop(Mark)
@@ -168,7 +170,7 @@ function Sweeper.Pass(self: Sweeper)
 			continue
 		end
 
-		Say.Warn(
+		Warnings.Warn(
 			`Ledger: gave up retrying '{Entry.Key}' after {SWEEP_TRIES} goes, so whatever is unfinished on it waits for the next write. call Resettle on it yourself: {if Ok
 				then "it still had something pending"
 				else tostring(Clean)}`
@@ -179,7 +181,7 @@ end
 
 function Sweeper.Stop(self: Sweeper)
 	self.Epoch += 1
-	task.cancel(self.Ticker)
+	Clock.Cancel(self.Ticker)
 	table.clear(self.Entries)
 	self.Count = 0
 end

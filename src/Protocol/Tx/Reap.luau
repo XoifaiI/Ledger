@@ -4,48 +4,43 @@
 --[=[
 	Reap: Removes the markers of transactions that are over.
 
-	Every transaction writes its name on the roll before it opens a marker, so a pass reads the roll
-	and never searches the store.
+	Every transaction writes its name on the roll before it opens a marker, so a pass reads the roll and
+	never searches the store.
 	A marker goes only once every key it named has forgotten its leg, and a key that cannot be read
-	counts as still holding one. One already finished goes on a shorter window than one still being
-	decided. A delete names no generation, so it can land on a marker opened under the same name
-	after this pass read it, which costs that transaction a retry and never a leg.
+	counts as still holding one. One already finished goes on a shorter window than one being decided.
+	A delete names no generation, so it can land on a marker opened under the same name after this pass
+	read it, which costs that transaction a retry and never a leg.
+	A pass reads a fixed number of names per shard and gives back where it stopped. A listing has no
+	order, so a key too new to look at is stepped over and never read as the end of the shard.
 
-	A pass reads a fixed number of names per shard, stops at a cap or when either store runs short of
-	budget, and gives back the shard it stopped on so the next one starts there. A name it could not
-	reach goes to the front of the next key.
-
-	Return type: A table with Reap, Spent, Quiet, Anywhere, REAP_HORIZON, REAP_GRACE, REAP_LIMIT, REAP_LOOKS, REAP_PAGE and REAP_FLOOR. The type is Reaping.
+	Return type: A table with Reap, Spent, Quiet, Anywhere and the caps. The type is Reaping.
 	Example usage:
-		local Reap = require("./Reap")
 		local Count, Next = Reap.Reap(TxStore, Lookup)
 --]=]
 
-local Say = require("../../Util/Tools/Say")
-local Clock = require("../../Util/Engine/Clock")
-local DataStoreWrapper = require("../../Util/Engine/DataStoreWrapper")
-local Contract = require("../../Contract/Op")
-local Horizons = require("../../Contract/Horizons")
+local Warnings = require("../../Util/Warnings")
+local Clock = require("../../Util/Clock")
+local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Shapes = require("../../Core/Shapes")
+local Windows = require("../../Core/Constants/Windows")
 local Mark = require("../../Encode/Mark")
 local Log = require("../../Record/Log")
 local LogTypes = require("../../Record/Types")
 local Marker = require("./Marker")
-local Roll = require("./Roll")
+local Cleanup = require("./Cleanup")
 local Types = require("./Types")
 
-type Record = Contract.Record<any>
+type Record = Shapes.Record<any>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type Lookup = Types.Lookup
 
-local REAP_HORIZON = Horizons.REAP
-local REAP_GRACE = Horizons.REAP_GRACE
-local STUCK_HORIZON = Horizons.STUCK
 local REAP_LIMIT = 64
 local REAP_LOOKS = 16
 local REAP_PAGE = 64
 local REAP_FLOOR = REAP_LOOKS + 2
 
 export type Reaping = {
+	Node: string?,
 	From: number?,
 	Horizon: number?,
 	Limit: number?,
@@ -72,15 +67,15 @@ local function Spent(Record: Record, Txid: string, Gen: string?, Born: number): 
 	return true
 end
 
-local function Anywhere(Lookup: Lookup, Name: string): LogTypes.Log
+local function Anywhere(TxStore: DataStoreWrapper, Lookup: Lookup, Name: string): LogTypes.Log
 	local Known = Lookup(Name)
 	if Known ~= nil then
 		return Known
 	end
-	return Log.New(Marker.Elsewhere(Name))
+	return Log.New(Marker.Elsewhere(Name, TxStore))
 end
 
-local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born: number): (boolean, boolean)
+local function Quiet(TxStore: DataStoreWrapper, Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born: number): (boolean, boolean)
 	if type(Keys) ~= "string" or #Keys == 0 then
 		return false, false
 	end
@@ -97,7 +92,7 @@ local function Quiet(Txid: string, Keys: any, Lookup: Lookup, Gen: string?, Born
 		end
 
 		local Read, Record = pcall(function(): Record
-			return Anywhere(Lookup, Store):Read(Key :: string)
+			return Anywhere(TxStore, Lookup, Store):Read(Key :: string)
 		end)
 		if not Read or not Spent(Record, Txid, Gen, Born) then
 			return false, true
@@ -125,21 +120,21 @@ local function Gone(TxStore: DataStoreWrapper, Txid: string, Lookup: Lookup, Now
 		end
 
 		if not Settled then
-			local Hushed, Readable = Quiet(Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0))
+			local Hushed, Readable = Quiet(TxStore, Txid, Held.Keys, Lookup, Marker.GenOf(Value), Marker.BornAt(Value, 0))
 			if not Hushed and Readable then
 				return false, false
 			end
 
-			if not Hushed and Now - Updated <= STUCK_HORIZON then
-				Say.Warn(
-					`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove its legs are finished and it is read again on every pass until it is {STUCK_HORIZON // 86400} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
+			if not Hushed and Now - Updated <= Windows.STUCK then
+				Warnings.Warn(
+					`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove its legs are finished and it is read again on every pass until it is {Windows.STUCK // 86400} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
 				)
 				return false, false
 			end
 
 			if not Hushed then
-				Say.Warn(
-					`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {STUCK_HORIZON // 86400} days, so nothing can ever prove its legs are finished and it is taken off rather than read for good. a leg of it still parked somewhere settles as cancelled now, so check the audit log`
+				Warnings.Warn(
+					`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {Windows.STUCK // 86400} days, so nothing can ever prove its legs are finished and it is taken off rather than read for good. a leg of it still parked somewhere settles as cancelled now, so check the audit log`
 				)
 			end
 		end
@@ -188,7 +183,7 @@ local function Sweep(TxStore: DataStoreWrapper, Lookup: Lookup, Named: string, N
 		TxStore:RemoveAsync(Named)
 		return Reaped, Looked
 	end
-	if Roll.Carry(TxStore, Later) then
+	if Cleanup.Carry(TxStore, Later) then
 		TxStore:RemoveAsync(Named)
 	end
 	return Reaped, Looked
@@ -196,21 +191,21 @@ end
 
 local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): (number, number)
 	local Asked: Reaping = Held or {}
-	local Older = Asked.Horizon or REAP_HORIZON
-	local Grace = math.min(Older, REAP_GRACE)
+	local Older = Asked.Horizon or Windows.REAP
+	local Grace = math.min(Older, Windows.REAP_GRACE)
 	local Room = Asked.Limit or REAP_LIMIT
 	local Afford = Asked.Afford
 	local Now = Clock.Now()
-	local Base = if type(Asked.From) == "number" then Asked.From % Roll.SHARDS else Roll.Mine()
+	local Base = if type(Asked.From) == "number" then Asked.From % Cleanup.SHARDS else Cleanup.Mine(Asked.Node)
 
 	local Reaped = 0
 	local Step = 0
-	while Step < Roll.SHARDS do
+	while Step < Cleanup.SHARDS do
 		if Reaped >= Room or (Afford ~= nil and not Afford()) then
 			break
 		end
 
-		local Ok, Pages = TxStore:ListKeysAsync(Roll.Prefix((Base + Step) % Roll.SHARDS), REAP_PAGE, nil)
+		local Ok, Pages = TxStore:ListKeysAsync(Cleanup.Prefix((Base + Step) % Cleanup.SHARDS), REAP_PAGE, nil)
 		if Ok then
 			local Looks = REAP_LOOKS
 			local Book = Pages :: DataStoreKeyPages
@@ -218,13 +213,16 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 				local Stop = false
 				for _, Entry in Book:GetCurrentPage() do
 					local Named = (Entry :: any).KeyName
-					local At = Roll.At(Named)
+					local At = Cleanup.At(Named)
 					if At == nil then
 						continue
 					end
-					if Now - At < Grace or Reaped >= Room or Looks <= 0 then
+					if Reaped >= Room or Looks <= 0 then
 						Stop = true
 						break
+					end
+					if Now - At < Grace then
+						continue
 					end
 
 					local Took, Looked = Sweep(TxStore, Lookup, Named, Now, Older, Grace, Room - Reaped, Looks)
@@ -244,7 +242,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Step += 1
 	end
 
-	return Reaped, (Base + Step) % Roll.SHARDS
+	return Reaped, (Base + Step) % Cleanup.SHARDS
 end
 
 return table.freeze({
@@ -252,9 +250,6 @@ return table.freeze({
 	Spent = Spent,
 	Quiet = Quiet,
 	Anywhere = Anywhere,
-	REAP_HORIZON = REAP_HORIZON,
-	REAP_GRACE = REAP_GRACE,
-	STUCK_HORIZON = STUCK_HORIZON,
 	REAP_LIMIT = REAP_LIMIT,
 	REAP_LOOKS = REAP_LOOKS,
 	REAP_PAGE = REAP_PAGE,

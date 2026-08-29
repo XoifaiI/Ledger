@@ -20,21 +20,21 @@
 		local Stored, Whole = Rebuild.Push(Active)
 --]=]
 
-local Say = require("../Util/Tools/Say")
-local TableUtil = require("../Util/Tools/TableUtil")
-local Fault = require("../Contract/Fault")
-local Contract = require("../Contract/Op")
-local Limits = require("../Contract/Limits")
+local Warnings = require("../Util/Warnings")
+local TableUtil = require("../Util/TableUtil")
+local Errors = require("../Core/Errors")
+local Shapes = require("../Core/Shapes")
+local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
 local Compact = require("../Record/Compact")
 local Fold = require("../Record/Fold")
-local Shape = require("../Record/Shape")
-local Stamp = require("../Record/Stamp")
-local Step = require("../Record/Step")
+local Schema = require("../Record/Schema")
+local TxStamp = require("../Record/TxStamp")
+local Apply = require("../Record/Apply")
 local Types = require("./Types")
 
-type Op = Contract.Op
-type Record = Contract.Record<any>
+type Op = Shapes.Op
+type Record = Shapes.Record<any>
 type Session<S> = Types.Session<S>
 
 local AUDITING = game:GetService("RunService"):IsStudio()
@@ -53,7 +53,7 @@ local function ApplyPending<S>(self: Session<S>, State: S, Applied: { [string]: 
 			continue
 		end
 		Applied[Op.Id] = true
-		local Next = Step(self.Shape.Reducer, State, Op)
+		local Next = Apply(self.Shape.Reducer, State, Op)
 		if Next ~= nil then
 			State = Next
 		end
@@ -65,9 +65,9 @@ local function Sifted<S>(self: Session<S>): (Record) -> (Op) -> boolean
 	local Format = self.Shape
 
 	return function(Record: Record)
-		local State = Format:Fold(Shape.Detached(Record))
+		local State = Format:Fold(Schema.Detached(Record))
 		return function(Op: Op): boolean
-			local Next = Step(Format.Reducer, State, Op)
+			local Next = Apply(Format.Reducer, State, Op)
 			if Next == nil then
 				return false
 			end
@@ -120,11 +120,11 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 			Missed += 1
 		end
 	end
-	Fault.Holds(Missed <= Count, "a push lost more ops than it was given, so one was counted twice")
+	Errors.Holds(Missed <= Count, "a push lost more ops than it was given, so one was counted twice")
 
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= self.Fence then
 		self.Released = true
-		Say.Warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
+		Warnings.Warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
 	end
 
 	self.LogSize = #Stored.Ops
@@ -167,7 +167,7 @@ local function CheckPurity<S>(self: Session<S>, Stored: Record, Base: S, Folded:
 		return
 	end
 
-	Say.Warn(
+	Warnings.Warn(
 		`Ledger: the reducer for '{self.Key}' is not deterministic, so two servers would fold this log differently. replaying the same ops changed {Where}. read only the two arguments, and pass os.time or math.random in on the op instead`
 	)
 end
@@ -195,16 +195,16 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 
 	self.State = TableUtil.FreezeDelta(State)
 	self.Parked = Parked
-	self.Landed = if Parked == 1 then TableUtil.FreezeDelta(ApplyPending(self, Fold(Base, Stamp.Landed(Stored.Ops, next(Waiting) :: string), self.Shape.Reducer), {})) else nil
+	self.Landed = if Parked == 1 then TableUtil.FreezeDelta(ApplyPending(self, Fold(Base, TxStamp.Landed(Stored.Ops, next(Waiting) :: string), self.Shape.Reducer), {})) else nil
 	self.Applied = Applied
 	self.LogSize = #Stored.Ops
 	self.LogBytes = SumBytes(Stored.Ops) + SumBytes(self.Pending)
 
 	local Reach = Compact.Bulk(Stored) + self.LogBytes
-	self.StateBytes = if Reach > Limits.StateFloor then Measure(State) else Reach
+	self.StateBytes = if Reach > Sizes.StateFloor then Measure(State) else Reach
 
 	for _, Op in self.Pending do
-		Fault.Holds(not Written[Op.Id], `op {Op.Id} is queued and already in the log for '{self.Key}', so it would be counted and folded twice`)
+		Errors.Holds(not Written[Op.Id], `op {Op.Id} is queued and already in the log for '{self.Key}', so it would be counted and folded twice`)
 	end
 
 	return State, Accepted

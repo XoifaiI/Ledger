@@ -14,12 +14,12 @@
 		local Reducer = Layer.Stack({ Escrow, Booking }, Game)
 --]=]
 
-local TableUtil = require("../Util/Tools/TableUtil")
-local Fault = require("../Contract/Fault")
-local Contract = require("../Contract/Op")
+local TableUtil = require("../Util/TableUtil")
+local Errors = require("../Core/Errors")
+local Shapes = require("../Core/Shapes")
 
-type Op = Contract.Op
-type Reducer<S> = Contract.Reducer<S>
+type Op = Shapes.Op
+type Reducer<S> = Shapes.Reducer<S>
 
 type Data = { [any]: any }
 
@@ -57,7 +57,7 @@ local function Carried(Next: any, Data: Data, Owns: { Owned }): any
 		local Ours = Data[Owned.Field]
 		local Theirs = Plain[Owned.Field]
 		if Theirs ~= nil and Theirs ~= Ours and not TableUtil.DeepEqual(Theirs, Ours) then
-			Fault.Broke(`your reducer wrote its own {Owned.Field}, so Ledger put {Owned.Says} back`)
+			Errors.Broke(`your reducer wrote its own {Owned.Field}, so Ledger put {Owned.Says} back`)
 		end
 		Merged[Owned.Field] = Ours
 	end

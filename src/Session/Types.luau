@@ -14,19 +14,19 @@
 		type Session<S> = Types.Session<S>
 --]=]
 
-local Future = require("../Util/Work/Future")
-local Observer = require("../Util/Tools/Observer")
-local DataStoreWrapper = require("../Util/Engine/DataStoreWrapper")
-local Contract = require("../Contract/Op")
-local Reasons = require("../Contract/Reason")
+local Future = require("../Util/Future")
+local Observer = require("../Util/Observer")
+local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Shapes = require("../Core/Shapes")
+local Reasons = require("../Core/Reasons")
 local LogTypes = require("../Record/Types")
 
 type Future<T...> = Future.Future<T...>
 type Observer<T> = Observer.Observer<T>
 type Subject<T> = Observer.Subject<T>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
-type Op = Contract.Op
-type Record<S> = Contract.Record<S>
+type Op = Shapes.Op
+type Record<S> = Shapes.Record<S>
 type Reason = Reasons.Reason
 
 export type Admitted<S> = { read Outcome: "Refused", read Why: Reason } | { read Outcome: "Rejected" } | { read Outcome: "Accepted", read Next: S, read Bytes: number?, read Also: S? }

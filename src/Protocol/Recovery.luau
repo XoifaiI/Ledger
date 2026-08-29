@@ -11,7 +11,7 @@
 	Each pass has a limit, so a key with many stranded takes several passes and not one long one.
 	A transfer past the prune horizon is written off and not refunded, because the receiver has
 	forgotten the delivery id and a refund could pay twice. Ledger writes a warning, and a person
-	decides. The windows and the cap are in Contract/Horizons.
+	decides. The windows and the cap are in Shapes/Windows.
 
 	Return type: A table with Transfers, Bookings and PASS_LIMIT.
 	Example usage:
@@ -19,42 +19,38 @@
 		local Clean, Moved = Recovery.Transfers(Books, Format, "a", Held)
 --]=]
 
-local Say = require("../Util/Tools/Say")
-local Clock = require("../Util/Engine/Clock")
-local Fault = require("../Contract/Fault")
-local Horizons = require("../Contract/Horizons")
-local Contract = require("../Contract/Op")
-local Entries = require("../Contract/Entries")
+local Warnings = require("../Util/Warnings")
+local Clock = require("../Util/Clock")
+local Errors = require("../Core/Errors")
+local Windows = require("../Core/Constants/Windows")
+local Shapes = require("../Core/Shapes")
+local Applied = require("../Core/Applied")
 local LogTypes = require("../Record/Types")
 local Booking = require("../Layers/Booking")
 local Escrow = require("../Layers/Escrow")
 local Transfer = require("./Transfer")
 
-type Op = Contract.Op
+type Op = Shapes.Op
 type Log = LogTypes.Log
 type Format = LogTypes.Shape<any>
 
-local REDRIVE_HORIZON = Horizons.REDRIVE
-local EXPIRE_MARGIN = Horizons.EXPIRE_MARGIN
-local PRUNE_HORIZON = Horizons.PRUNE
-
-local PASS_LIMIT = Horizons.PASS_LIMIT
+local PASS_LIMIT = Windows.PASS_LIMIT
 
 local function Expire(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any, Age: number?)
 	local Print = Transfer.Terms(From, Entry.To, Entry.Amount)
-	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, From) == Entries.SAME then
+	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, From) == Applied.SAME then
 		Transfer.Settle(Records, From, Tid, Print)
 		return
 	end
 
-	if Age == nil or Age <= PRUNE_HORIZON then
+	if Age == nil or Age <= Windows.PRUNE then
 		local ExpireOp: Op = { Id = `{Escrow.EXPIRE_ID}:{Tid}`, Kind = Escrow.EXPIRE, Tid = Tid }
 		Records:Append(tostring(From), { ExpireOp })
 		return
 	end
 
-	Say.Warn(
-		`Ledger: transfer {Tid} from {From} has been stuck over {PRUNE_HORIZON // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
+	Warnings.Warn(
+		`Ledger: transfer {Tid} from {From} has been stuck over {Windows.PRUNE // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
 	)
 	Transfer.Settle(Records, From, Tid, Print)
 end
@@ -64,7 +60,7 @@ local function Redeliver(Records: Log, Format: Format, From: number | string, Ti
 		Transfer.Post(Records, Format, From, Tid, Entry.To, Entry.Amount, Entry.At)
 	end)
 	if not Ok then
-		Say.Warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
+		Warnings.Warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
 	end
 	return Ok
 end
@@ -74,7 +70,7 @@ local function GiveBack(Records: Log, Format: Format, From: number | string, Tid
 		Expire(Records, Format, From, Tid, Entry, Age)
 	end)
 	if not Ok then
-		Say.Warn(`Ledger: could not give back transfer {Tid} from {From}. the money stays set aside and the next recovery has another go: {Reason}`)
+		Warnings.Warn(`Ledger: could not give back transfer {Tid} from {From}. the money stays set aside and the next recovery has another go: {Reason}`)
 	end
 	return Ok
 end
@@ -93,9 +89,9 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 		end
 
 		local Age = if type(Entry.At) == "number" then Now - Entry.At else nil
-		local Overdue = Age == nil or Age > REDRIVE_HORIZON + EXPIRE_MARGIN
-		local Fresh = if Going then not Overdue else Age ~= nil and Age <= REDRIVE_HORIZON
-		Fault.Holds(not (Fresh and Overdue), `transfer {Tid} counts as both still worth sending and long overdue, so recovery cannot tell whether to deliver it or give it back`)
+		local Overdue = Age == nil or Age > Windows.REDRIVE + Windows.EXPIRE_MARGIN
+		local Fresh = if Going then not Overdue else Age ~= nil and Age <= Windows.REDRIVE
+		Errors.Holds(not (Fresh and Overdue), `transfer {Tid} counts as both still worth sending and long overdue, so recovery cannot tell whether to deliver it or give it back`)
 
 		if not Fresh and not Overdue then
 			Resting += 1
@@ -117,11 +113,11 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 	end
 
 	if Waiting > 0 then
-		Say.Warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
+		Warnings.Warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
 	end
 
-	Fault.Holds(Handled <= PASS_LIMIT, "one recovery pass took on more holds than its own limit allows")
-	Fault.Holds(Moved + Failures == Handled, "a recovery pass neither finished nor failed one of the holds it took on")
+	Errors.Holds(Handled <= PASS_LIMIT, "one recovery pass took on more holds than its own limit allows")
+	Errors.Holds(Moved + Failures == Handled, "a recovery pass neither finished nor failed one of the holds it took on")
 	return Failures == 0 and Waiting == 0 and Resting == 0, Moved > 0 or Resting > 0
 end
 
@@ -134,7 +130,7 @@ local function Unreadable(Booked: any, Key: string)
 		if Booking.Entry(Booked, Rid) ~= nil then
 			continue
 		end
-		Say.Warn(
+		Warnings.Warn(
 			`Ledger: '{Key}' holds a reservation named '{tostring(Rid)}' that Ledger cannot read. nothing will ever settle it and its units stay out of circulation. check the audit log and put them back by hand`
 		)
 	end
@@ -152,7 +148,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 	local Ops: { Op } = {}
 	for _, Rid in Late do
 		if #Ops >= PASS_LIMIT then
-			Say.Warn(`Ledger: '{Key}' has more than {PASS_LIMIT} overdue reservations, so the rest wait for the next pass`)
+			Warnings.Warn(`Ledger: '{Key}' has more than {PASS_LIMIT} overdue reservations, so the rest wait for the next pass`)
 			break
 		end
 
@@ -164,27 +160,27 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 			continue
 		end
 
-		local Fine, Ruling = pcall(function(): Entries.Recalled
+		local Fine, Ruling = pcall(function(): Applied.Recalled
 			return Booking.Granted(Read(To :: string), Rid, Booking.Terms(Key, Rid, Held :: any))
 		end)
 		if not Fine then
-			Say.Warn(`Ledger: could not check '{To}' before giving back booking {Rid}, so it waits for the next pass`)
+			Warnings.Warn(`Ledger: could not check '{To}' before giving back booking {Rid}, so it waits for the next pass`)
 			continue
 		end
-		if Ruling == Entries.SAME then
+		if Ruling == Applied.SAME then
 			table.insert(Ops, Booking.Take(Rid))
 			continue
 		end
-		if Ruling == Entries.OTHER then
-			Say.Warn(`Ledger: '{To}' holds a booking named {Rid} that came from somewhere else, so this one never arrived. its units go back to '{Key}'`)
+		if Ruling == Applied.OTHER then
+			Warnings.Warn(`Ledger: '{To}' holds a booking named {Rid} that came from somewhere else, so this one never arrived. its units go back to '{Key}'`)
 			table.insert(Ops, Booking.Undo(Rid))
 			continue
 		end
 
 		local At = if Held ~= nil then Held.At else nil
-		if Held ~= nil and Held.Handing == true and type(At) == "number" and Now - At > PRUNE_HORIZON then
-			Say.Warn(
-				`Ledger: booking {Rid} on '{Key}' has been open over {PRUNE_HORIZON // 86400} days and '{To}' has no record of it. giving it back could pay twice, so it is written off. check the audit log and give the {Held.Amount} of '{Held.Field}' back by hand if it never arrived`
+		if Held ~= nil and Held.Handing == true and type(At) == "number" and Now - At > Windows.PRUNE then
+			Warnings.Warn(
+				`Ledger: booking {Rid} on '{Key}' has been open over {Windows.PRUNE // 86400} days and '{To}' has no record of it. giving it back could pay twice, so it is written off. check the audit log and give the {Held.Amount} of '{Held.Field}' back by hand if it never arrived`
 			)
 			table.insert(Ops, Booking.Take(Rid))
 			continue
@@ -200,7 +196,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 		Records:Append(Key, Ops)
 	end)
 	if not Gave then
-		Say.Warn(`Ledger: could not settle {#Ops} overdue reservation(s) on '{Key}', so they wait for the next pass`)
+		Warnings.Warn(`Ledger: could not settle {#Ops} overdue reservation(s) on '{Key}', so they wait for the next pass`)
 	end
 	return Gave
 end

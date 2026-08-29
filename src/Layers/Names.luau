@@ -14,25 +14,25 @@
 		local Reducer = Names.Wrap(Inner)
 --]=]
 
-local TableUtil = require("../Util/Tools/TableUtil")
-local Fault = require("../Contract/Fault")
-local Contract = require("../Contract/Op")
-local Entries = require("../Contract/Entries")
-local IsStorable = require("../Encode/Storable")
+local TableUtil = require("../Util/TableUtil")
+local Errors = require("../Core/Errors")
+local Shapes = require("../Core/Shapes")
+local Applied = require("../Core/Applied")
+local Storable = require("../Encode/Storable")
 
-type Op = Contract.Op
-type Reducer<S> = Contract.Reducer<S>
+type Op = Shapes.Op
+type Reducer<S> = Shapes.Reducer<S>
 
 local function StampOf(Op: Op): (string?, any, string?)
 	local Sticky = Op.TxSticky
 	if type(Sticky) == "string" then
 		local Print = if type(Op.TxTerms) == "string" then Op.TxTerms else nil
-		return Entries.Key(Entries.TX, Sticky), Op.TxAt, Print
+		return Applied.Key(Applied.TX, Sticky), Op.TxAt, Print
 	end
 
 	local Once = Op.Once
 	if type(Once) == "string" then
-		return Entries.Key(Entries.ONCE, Once), Op.OnceAt, nil
+		return Applied.Key(Applied.ONCE, Once), Op.OnceAt, nil
 	end
 	return nil, nil, nil
 end
@@ -40,7 +40,7 @@ end
 local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 	local function Combined(State: S, Op: Op): S?
 		local Data: any = State
-		if type(Op.Once) == "string" and Entries.Has(Data._Received, Entries.ONCE, Op.Once) then
+		if type(Op.Once) == "string" and Applied.Has(Data._Received, Applied.ONCE, Op.Once) then
 			return nil
 		end
 
@@ -53,21 +53,21 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		local Stamp, At, Print = StampOf(Op)
 		if Stamp ~= nil then
 			if type(At) ~= "number" then
-				Fault.Broke(`op '{tostring(Op.Kind)}' carries a name with no time on it, so the name could never be aged out`)
+				Errors.Broke(`op '{tostring(Op.Kind)}' carries a name with no time on it, so the name could never be aged out`)
 				return nil
 			end
 			local Marked = table.clone(Plain)
-			Marked._Received = Entries.Remember(Data._Received, Stamp, At, Print)
+			Marked._Received = Applied.Remember(Data._Received, Stamp, At, Print)
 			return Marked :: any
 		end
 
-		local Touched = Plain._Received ~= Data._Received and not IsStorable.Reserved(Op.Kind)
+		local Touched = Plain._Received ~= Data._Received and not Storable.Reserved(Op.Kind)
 		if not Touched then
 			return Next
 		end
 
 		if Plain._Received ~= nil and not TableUtil.DeepEqual(Plain._Received, Data._Received) then
-			Fault.Broke(`your reducer wrote its own _Received on op '{tostring(Op.Kind)}', so Ledger put the applied names back`)
+			Errors.Broke(`your reducer wrote its own _Received on op '{tostring(Op.Kind)}', so Ledger put the applied names back`)
 		end
 
 		local Kept = table.clone(Plain)

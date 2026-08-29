@@ -8,11 +8,16 @@
 	A service hands out stores, and each store spends from its service. Both shapes are therefore
 	named here, and not in either of those files.
 
+	It takes the scheduler it should wait on, because a budget queue that waits on the engine cannot
+	be driven by a test that owns its own clock.
+
 	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, Store and Service.
 	Example usage:
 		local Types = require("./Types")
 		type Service = Types.Service
 --]=]
+
+local Engine = require("../Util/Engine")
 
 export type Options = {
 	Players: number?,
@@ -59,7 +64,7 @@ export type Lane = {
 
 export type PagesImpl = {
 	__index: PagesImpl,
-	New: (Rows: { any }, PageSize: number?, Fallback: number, Field: string?, Spend: (() -> ())?) -> Pages,
+	New: (Rows: { any }, PageSize: number?, Fallback: number, Mark: ((At: number) -> string)?, Spend: (() -> ())?) -> Pages,
 	Edge: (self: Pages) -> (),
 	GetCurrentPage: (self: Pages) -> { any },
 	AdvanceToNextPageAsync: (self: Pages) -> (),
@@ -69,7 +74,7 @@ export type Pages = setmetatable<{
 	Rows: { any },
 	At: number,
 	Size: number,
-	Field: string?,
+	Mark: ((At: number) -> string)?,
 	Spend: (() -> ())?,
 	Cursor: string,
 	IsFinished: boolean,
@@ -80,6 +85,7 @@ export type StoreImpl = {
 	New: (Name: string, Scope: string, Service: Service) -> Store,
 	Reach: (self: Store, Kind: Enum.DataStoreRequestType) -> (),
 	Held: (self: Store, Key: string) -> Slot,
+	Look: (self: Store, Key: string) -> Slot?,
 	Commit: (self: Store, Key: string, Text: string?, Deleted: boolean) -> Entry,
 	Current: (self: Store, Key: string) -> (any, KeyInfo?),
 	Put: (self: Store, Key: string, Value: any) -> Entry,
@@ -97,12 +103,13 @@ export type Store = setmetatable<{
 	Scope: string,
 	Service: Service,
 	Slots: { [string]: Slot },
+	Names: { string },
 	Ticket: number,
 }, StoreImpl>
 
 export type ServiceImpl = {
 	__index: ServiceImpl,
-	New: (Options: Options?) -> Service,
+	New: (Options: Options?, Scheduler: Engine.Scheduler?) -> Service,
 	ServerCap: (self: Service, Kind: Enum.DataStoreRequestType) -> number,
 	LanesFor: (self: Service, Kind: Enum.DataStoreRequestType) -> { Lane },
 	Refill: (self: Service, Id: string, Cap: number) -> number,
@@ -117,6 +124,7 @@ export type ServiceImpl = {
 }
 
 export type Service = setmetatable<{
+	Scheduler: Engine.Scheduler,
 	Stores: { [string]: Store },
 	Tokens: { [string]: number },
 	Filled: { [string]: number },

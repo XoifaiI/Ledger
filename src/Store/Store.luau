@@ -16,20 +16,23 @@
 		local Bank = Store.New(Options)
 --]=]
 
-local Say = require("../Util/Tools/Say")
-local Future = require("../Util/Work/Future")
-local Observer = require("../Util/Tools/Observer")
-local SetInterval = require("../Util/Work/SetInterval")
-local TableUtil = require("../Util/Tools/TableUtil")
-local Threads = require("../Util/Work/Threads")
-local DataStoreWrapper = require("../Util/Engine/DataStoreWrapper")
-local Fault = require("../Contract/Fault")
-local Reasons = require("../Contract/Reason")
-local Contract = require("../Contract/Op")
-local Public = require("../Contract/Public")
+local Warnings = require("../Util/Warnings")
+local Future = require("../Util/Future")
+local Observer = require("../Util/Observer")
+local SetInterval = require("../Util/SetInterval")
+local TableUtil = require("../Util/TableUtil")
+local Threads = require("../Util/Threads")
+local Roblox = require("../Hooks/Roblox")
+local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Errors = require("../Core/Errors")
+local Ident = require("../Encode/Ident")
+local Windows = require("../Core/Constants/Windows")
+local Reasons = require("../Core/Reasons")
+local Shapes = require("../Core/Shapes")
+local Api = require("../Core/Api")
 local Compact = require("../Record/Compact")
 local Reconcile = require("../Record/Reconcile")
-local Shape = require("../Record/Shape")
+local Schema = require("../Record/Schema")
 local Layer = require("../Layers/Layer")
 local Booking = require("../Layers/Booking")
 local Escrow = require("../Layers/Escrow")
@@ -42,23 +45,23 @@ local Store = require("./Class")
 local Types = require("./Types")
 local Write = require("./Api/Write")
 
-require("./Core")
+require("./Shared")
 require("./Api/Read")
 require("./Api/Admin")
 require("./Api/Ops")
 
 type Future<T...> = Future.Future<T...>
-type Op = Contract.Op
+type Op = Shapes.Op
 type Reason = Reasons.Reason
-type Migration = Contract.Migration
-type Config<D> = Public.Config<D>
-type TxLeg = Public.TxLeg
+type Migration = Shapes.Migration
+type Config<D> = Api.Config<D>
+type TxLeg = Api.TxLeg
 type Store = Types.Store<any>
 
 local Players = game:GetService("Players")
 
-local AUTOSAVE_INTERVAL = Write.AUTOSAVE_INTERVAL
 local IDLE_EVERY = 4
+local STAGGER = 97
 local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
@@ -72,7 +75,7 @@ local function MakeInitial(Default: any): any
 	return TableUtil.DeepFreeze(TableUtil.DeepCopy(Default))
 end
 
-local function WrapSystem(GameReducer: Contract.Reducer<any>, Initial: any, Steps: { Migration }): Contract.Reducer<any>
+local function WrapSystem(GameReducer: Shapes.Reducer<any>, Initial: any, Steps: { Migration }): Shapes.Reducer<any>
 	local Known = #Steps
 
 	local function Combined(State: any, Op: Op): any?
@@ -91,7 +94,7 @@ local function WrapSystem(GameReducer: Contract.Reducer<any>, Initial: any, Step
 			return nil
 		end
 
-		local Migrated = Shape.Migrate(Steps, TableUtil.DeepCopy(Snapshot), Version)
+		local Migrated = Schema.Migrate(Steps, TableUtil.DeepCopy(Snapshot), Version)
 		if Migrated == nil then
 			return nil
 		end
@@ -105,14 +108,16 @@ local function WrapSystem(GameReducer: Contract.Reducer<any>, Initial: any, Step
 	return Combined
 end
 
-local function New<D>(Config: Config<D>): Public.Store<D>
+local function New<D>(Config: Config<D>): Api.Store<D>
 	local Marked = `{Config.Name}{TX_SUFFIX}`
 	assert(not Registry.Claimed[Config.Name] and not Registry.Claimed[Marked], `a store named '{Config.Name}' already exists in this server`)
 	Registry.Claimed[Config.Name] = true
 	Registry.Claimed[Marked] = true
 
-	if DataStoreWrapper.Swapped() then
-		Say.Warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server. Ledger.UseReal() puts it back`)
+	local Turn = Config.Scheduler or Registry.Defaults.Scheduler
+	local Hook = Config.Hook or Registry.Defaults.Hook
+	if Hook ~= Roblox.New() then
+		Warnings.Warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end
 
 	local Layers: { Layer.Layer } = {}
@@ -132,18 +137,21 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 	local Body: Types.Fields<D> = {
 		Options = Config :: any,
 		Reducer = WrapSystem(Base, Initial, Steps),
-		Wrapper = DataStoreWrapper.New(Config.Name),
-		TxWrapper = DataStoreWrapper.New(Marked),
+		Wrapper = DataStoreWrapper.New(Config.Name, Turn, Hook),
+		TxWrapper = DataStoreWrapper.New(Marked, Turn, Hook),
 		Initial = Initial,
 		Migrations = Steps,
 		Handles = Handled,
 		Books = nil,
 		Shaped = nil,
-		Keys = (Config.Keys or "Player") :: Contract.KeysMode,
+		Keys = (Config.Keys or "Player") :: Shapes.KeysMode,
 		Loaded = {},
 		Waiters = {},
 		Loads = {},
 		Saving = {},
+		Node = Ident.Home(),
+		Sweep = Registry.Sweep(),
+		Sweeping = nil,
 		Staleness = Observer.New(true) :: Observer.Subject<string>,
 		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
 		Resume = nil,
@@ -152,7 +160,7 @@ local function New<D>(Config: Config<D>): Public.Store<D>
 	local Built = setmetatable(Body, Store)
 
 	table.insert(Registry.Stores, Built)
-	Registry.Sweep()
+	Built.Sweep:Adopt(Built:Swept())
 	return Built
 end
 
@@ -175,7 +183,7 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 
 	local Ok, Took = pcall(Answer, Player, Why)
 	if not Ok then
-		Say.Warn(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
+		Warnings.Warn(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
 		return false
 	end
 	if Took ~= true then
@@ -183,7 +191,7 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 	end
 
 	if Player.Parent ~= nil and Players:GetPlayerByUserId(Player.UserId) ~= nil then
-		Say.Warn(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
+		Warnings.Warn(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
 	end
 	return true
 end
@@ -217,12 +225,12 @@ function Store.Autosave(self: Store, UserId: number)
 	if Ok then
 		return
 	end
-	Say.Warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
+	Warnings.Warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
 end
 
 function Store.Save(self: Store, Active: any): Future<boolean, Reason?>
 	for UserId, Entry in self.Loaded do
-		Fault.Holds((Entry.Active :: any) ~= (Active :: any), `the session for {UserId} is being saved on the way out while the store still lists it as live`)
+		Errors.Holds((Entry.Active :: any) ~= (Active :: any), `the session for {UserId} is being saved on the way out while the store still lists it as live`)
 	end
 
 	local Job = Active:Release()
@@ -236,7 +244,7 @@ end
 
 function Store.PickUp(self: Store, Active: any, UserId: number)
 	if Active.Landed ~= nil then
-		Registry.Sweep():Add(self, tostring(UserId))
+		self.Sweep:Add(self:Swept(), tostring(UserId))
 	end
 
 	local Held = Active:Get()._Held
@@ -258,15 +266,15 @@ function Store.Load(self: Store, Player: Player)
 	local UserId = Player.UserId
 
 	if self.Loaded[UserId] ~= nil then
-		Say.Warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
+		Warnings.Warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
 		return
 	end
 	if self.Loads[UserId] == "Loading" then
-		Say.Warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
+		Warnings.Warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
 		return
 	end
 
-	Fault.Holds(self.Loaded[UserId] == nil, `{Player.Name} is starting a load while they already have a live session, so two sessions would write the same key`)
+	Errors.Holds(self.Loaded[UserId] == nil, `{Player.Name} is starting a load while they already have a live session, so two sessions would write the same key`)
 	self.Loads[UserId] = "Loading"
 
 	local Job = Session.Load(self:Records(), self:Format(), tostring(UserId), self.TxWrapper)
@@ -284,7 +292,7 @@ function Store.Load(self: Store, Player: Player)
 	end
 
 	if self.Loaded[UserId] ~= nil then
-		Say.Warn(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
+		Warnings.Warn(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
 		Active:Release()
 		return
 	end
@@ -299,14 +307,14 @@ function Store.Load(self: Store, Player: Player)
 		return
 	end
 
-	Fault.Holds(self.Loads[UserId] == nil, "a load finished while this player was still marked as loading")
+	Errors.Holds(self.Loads[UserId] == nil, "a load finished while this player was still marked as loading")
 
 	self.Loaded[UserId] = {
 		Active = Active,
 		Ticks = 0,
-		Ticker = SetInterval(AUTOSAVE_INTERVAL, function()
+		Ticker = SetInterval(self.Wrapper.Scheduler, Windows.AUTOSAVE, function()
 			self:Autosave(UserId)
-		end, math.random() * AUTOSAVE_INTERVAL),
+		end, UserId % STAGGER / STAGGER * Windows.AUTOSAVE),
 	}
 	self:Wake(UserId, Active)
 	self:PickUp(Active, UserId)
@@ -326,7 +334,7 @@ function Store.Unload(self: Store, Player: Player)
 	end
 
 	self.Loaded[UserId] = nil
-	task.cancel(Entry.Ticker)
+	self.Wrapper.Scheduler.Cancel(Entry.Ticker)
 
 	local Job = self:Save(Entry.Active)
 	Job:Wait()
@@ -387,13 +395,13 @@ function Store.Destroy(self: Store)
 	end
 	Registry.Claimed[self.Options.Name] = nil
 	Registry.Claimed[`{self.Options.Name}{TX_SUFFIX}`] = nil
-	Registry.Sweep():Forget(self)
+	self.Sweep:Forget(self:Swept())
 	self.Staleness:Destroy()
 
 	local Jobs: { Future<boolean, Reason?> } = {}
 	for UserId, Entry in self.Loaded do
 		self.Loaded[UserId] = nil
-		task.cancel(Entry.Ticker)
+		self.Wrapper.Scheduler.Cancel(Entry.Ticker)
 		table.insert(Jobs, self:Save(Entry.Active))
 	end
 

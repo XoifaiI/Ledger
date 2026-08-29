@@ -19,22 +19,22 @@
 		if Compact.Overgrown(Record) then Fold() end
 --]=]
 
-local Say = require("../Util/Tools/Say")
-local TableUtil = require("../Util/Tools/TableUtil")
-local Limits = require("../Contract/Limits")
+local Warnings = require("../Util/Warnings")
+local TableUtil = require("../Util/TableUtil")
+local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
-local IsStorable = require("../Encode/Storable")
-local Fault = require("../Contract/Fault")
-local Contract = require("../Contract/Op")
-local Entries = require("../Contract/Entries")
-local Shape = require("./Shape")
-local Stamp = require("./Stamp")
-local Step = require("./Step")
+local Storable = require("../Encode/Storable")
+local Errors = require("../Core/Errors")
+local Shapes = require("../Core/Shapes")
+local Applied = require("../Core/Applied")
+local Schema = require("./Schema")
+local TxStamp = require("./TxStamp")
+local Apply = require("./Apply")
 local Types = require("./Types")
 
-type Op = Contract.Op
-type Record = Contract.Record<any>
-type Shape<S> = Types.Shape<S>
+type Op = Shapes.Op
+type Record = Shapes.Record<any>
+type Schema<S> = Types.Shape<S>
 
 local SEEN_LIMIT = 2048
 
@@ -43,7 +43,7 @@ local COMPACT_CEILING = 512
 local COMPACT_SHARE = 0.2
 
 local function Worthwhile(Ops: number, Bytes: number, State: number): boolean
-	if Ops >= COMPACT_CEILING or Bytes >= Limits.Compact then
+	if Ops >= COMPACT_CEILING or Bytes >= Sizes.Compact then
 		return true
 	end
 	if Ops < COMPACT_OPS then
@@ -67,15 +67,15 @@ local function Overgrown(Record: Record): boolean
 	local Count = #Record.Ops
 	local Bytes = Measure(Record.Ops)
 	if Count < COMPACT_OPS then
-		return Bytes >= Limits.Compact
+		return Bytes >= Sizes.Compact
 	end
 
 	return Worthwhile(Count, Bytes, Bulk(Record))
 end
 
-local function Accounted(State: any, Op: Op, Format: Shape<any>): boolean
+local function Accounted(State: any, Op: Op, Format: Schema<any>): boolean
 	local Handles = Format.Handles
-	if if Handles ~= nil then Handles[Op.Kind] == true else IsStorable.Reserved(Op.Kind) then
+	if if Handles ~= nil then Handles[Op.Kind] == true else Storable.Reserved(Op.Kind) then
 		return true
 	end
 
@@ -84,20 +84,20 @@ local function Accounted(State: any, Op: Op, Format: Shape<any>): boolean
 	end
 
 	local Data: any = State
-	if type(Op.Once) == "string" and Entries.Has(Data._Received, Entries.ONCE, Op.Once) then
+	if type(Op.Once) == "string" and Applied.Has(Data._Received, Applied.ONCE, Op.Once) then
 		return true
 	end
-	return type(Op.TxSticky) == "string" and Entries.Has(Data._Received, Entries.TX, Op.TxSticky)
+	return type(Op.TxSticky) == "string" and Applied.Has(Data._Received, Applied.TX, Op.TxSticky)
 end
 
-local function Absorbable(Record: Record, Format: Shape<any>): (any, number, string?)
+local function Absorbable(Record: Record, Format: Schema<any>): (any, number, string?)
 	local FreezeDelta = TableUtil.FreezeDelta
 	local Reducer = Format.Reducer
 	local State = FreezeDelta(Format:Rehydrate(Record))
 	local Taken = 0
 
 	for _, Op in Record.Ops do
-		local Next = Step(Reducer, State, Op)
+		local Next = Apply(Reducer, State, Op)
 		if Next ~= nil then
 			State = FreezeDelta(Next)
 			Taken += 1
@@ -129,23 +129,23 @@ local function Hint(Snapshot: any): (string, boolean)
 	if Name == nil then
 		return "", false
 	end
-	return ` (largest field '{tostring(Name)}' at {Best} bytes)`, IsStorable.Bookkeeping(tostring(Name))
+	return ` (largest field '{tostring(Name)}' at {Best} bytes)`, Storable.Bookkeeping(tostring(Name))
 end
 
-local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
-	if Stamp.HasPending(Record) then
+local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
+	if TxStamp.HasPending(Record) then
 		return nil
 	end
 
 	local Snapshot, Taken, Blocking = Absorbable(Record, Format)
 	if Taken == 0 and #Record.Ops > 0 then
-		Say.Warn(`Ledger: key '{Key}' cannot be compacted, its oldest op is a '{Blocking}' this build does not apply. a build that does apply it compacts the key`)
+		Warnings.Warn(`Ledger: key '{Key}' cannot be compacted, its oldest op is a '{Blocking}' this build does not apply. a build that does apply it compacts the key`)
 		return nil
 	end
 
-	local Storable, Where = IsStorable.Structure(Snapshot)
-	if not Storable then
-		Say.Warn(
+	local Fits, Where = Storable.Structure(Snapshot)
+	if not Fits then
+		Warnings.Warn(
 			`Ledger: key '{Key}' cannot be compacted, your reducer built state a datastore cannot hold, {Where}. the log is left alone rather than lose that field. no gaps in arrays, no mixing array and string keys, no nan`
 		)
 		return nil
@@ -153,7 +153,7 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 
 	local Held: { Op } = table.move(Record.Ops, Taken + 1, #Record.Ops, 1, {})
 	if Blocking ~= nil then
-		Say.Warn(`Ledger: key '{Key}' kept {#Held} op(s) through compaction, from a '{Blocking}' this build does not apply. they wait for a build that does rather than being dropped`)
+		Warnings.Warn(`Ledger: key '{Key}' kept {#Held} op(s) through compaction, from a '{Blocking}' this build does not apply. they wait for a build that does rather than being dropped`)
 	end
 
 	local Seen = table.clone(Record.Seen)
@@ -171,17 +171,17 @@ local function Packed(Key: string, Record: Record, Format: Shape<any>): Record?
 	local Ahead = Stored > #Steps
 
 	local Fresh: Record = {
-		Envelope = Contract.ENVELOPE,
+		Envelope = Shapes.ENVELOPE,
 		Snapshot = Snapshot,
 		Bytes = Measure(Snapshot),
 		Ops = Held,
 		Seen = Seen,
 		Erased = Record.Erased,
 		Version = if Ahead then Stored else #Steps,
-		Floor = if Ahead then Record.Floor or Stored else Shape.FloorOf(Steps),
+		Floor = if Ahead then Record.Floor or Stored else Schema.FloorOf(Steps),
 	}
 
-	Fault.Holds((Fresh.Floor :: number) >= (Record.Floor or 0), `compacting '{Key}' lowered the version floor, so a server that cannot read it would think it can`)
+	Errors.Holds((Fresh.Floor :: number) >= (Record.Floor or 0), `compacting '{Key}' lowered the version floor, so a server that cannot read it would think it can`)
 
 	return Fresh
 end

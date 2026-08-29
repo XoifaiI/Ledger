@@ -13,26 +13,26 @@
 	Every op carries the time it was built. Only a booking and a grant read it back, and the rest
 	carry it so a person reading the log can see when each step happened.
 
-	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Expired, Overdue, Owed, Granted, Delivered, the four ids, BOOK_HORIZON, BOOK_MARGIN and HOLD_CAP.
+	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Expired, Overdue, Owed, Granted, Delivered, the four ids and the four ids.
 	Example usage:
 		local Booking = require("./Booking")
 		local Op = Booking.Book("order1", "Stock", 1)
 --]=]
 
-local TableUtil = require("../Util/Tools/TableUtil")
-local Clock = require("../Util/Engine/Clock")
-local Fault = require("../Contract/Fault")
-local Horizons = require("../Contract/Horizons")
-local Limits = require("../Contract/Limits")
+local TableUtil = require("../Util/TableUtil")
+local Clock = require("../Util/Clock")
+local Errors = require("../Core/Errors")
+local Windows = require("../Core/Constants/Windows")
+local Sizes = require("../Core/Constants/Sizes")
 local Fingerprint = require("../Encode/Fingerprint")
-local Arg = require("../Contract/Arg")
-local Entries = require("../Contract/Entries")
+local Validate = require("../Core/Validate")
+local Applied = require("../Core/Applied")
 local Layer = require("./Layer")
-local Contract = require("../Contract/Op")
+local Shapes = require("../Core/Shapes")
 
-type Op = Contract.Op
-type Data = Contract.Folded
-type Kept = { [string]: Contract.Booked }
+type Op = Shapes.Op
+type Data = Shapes.Folded
+type Kept = { [string]: Shapes.Booked }
 
 local BOOK = "__Book"
 local TAKE = "__Take"
@@ -50,11 +50,7 @@ local GIVEN_ID = "gv"
 local HAND_ID = "hd"
 local UNHAND_ID = "uh"
 
-local BOOK_HORIZON = Horizons.BOOK
-local BOOK_MARGIN = Horizons.BOOK_MARGIN
-local HOLD_CAP = Horizons.HOLD_CAP
-
-local function Entry(Booked: any, Rid: any): Contract.Booked?
+local function Entry(Booked: any, Rid: any): Shapes.Booked?
 	if type(Booked) ~= "table" or type(Rid) ~= "string" then
 		return nil
 	end
@@ -66,23 +62,23 @@ local function Entry(Booked: any, Rid: any): Contract.Booked?
 	return if type(Found.At) == "number" then Found else nil
 end
 
-local function Ends(Held: Contract.Booked): number?
+local function Ends(Held: Shapes.Booked): number?
 	if type(Held.At) ~= "number" then
 		return nil
 	end
 
-	local Hold = if type(Held.Hold) == "number" and Held.Hold > 0 then Held.Hold else BOOK_HORIZON
+	local Hold = if type(Held.Hold) == "number" and Held.Hold > 0 then Held.Hold else Windows.BOOK
 	return Held.At + Hold
 end
 
-local function Late(Held: Contract.Booked, Now: number): boolean
+local function Late(Held: Shapes.Booked, Now: number): boolean
 	local Runs = Ends(Held)
 	return Runs ~= nil and Runs < Now
 end
 
-local function Expired(Held: Contract.Booked, Now: number): boolean
+local function Expired(Held: Shapes.Booked, Now: number): boolean
 	local Runs = Ends(Held)
-	return Runs ~= nil and Runs + BOOK_MARGIN < Now
+	return Runs ~= nil and Runs + Windows.BOOK_MARGIN < Now
 end
 
 local function Stale(Data: Data, Booked: Kept, Now: number): (Kept, { [string]: number })
@@ -106,7 +102,7 @@ local function Booking(Data: Data, Op: Op): Data?
 	if type(Field) ~= "string" or type(Data[Field]) ~= "number" then
 		return nil
 	end
-	local Amount = Arg.Number(Op.Amount)
+	local Amount = Validate.Number(Op.Amount)
 	local At = Op.At
 	if Amount == nil then
 		return nil
@@ -134,7 +130,7 @@ local function Booking(Data: Data, Op: Op): Data?
 	end
 
 	local Kept, Back = Stale(Data, Booked, At)
-	if TableUtil.Count(Kept) >= Limits.Booked then
+	if TableUtil.Count(Kept) >= Sizes.Booked then
 		return nil
 	end
 
@@ -206,7 +202,7 @@ local function Refund(Data: Data, Op: Op): Data?
 	Next._Booked = TableUtil.Some(Kept)
 
 	if Next[Held.Field] < Data[Held.Field] then
-		Fault.Broke(`giving booking {tostring(Op.Rid)} back left less of '{Held.Field}' than it started with`)
+		Errors.Broke(`giving booking {tostring(Op.Rid)} back left less of '{Held.Field}' than it started with`)
 		return nil
 	end
 	return Next
@@ -229,7 +225,7 @@ local function Giving(Data: Data, Op: Op): Data?
 	if type(Field) ~= "string" or type(Data[Field]) ~= "number" then
 		return nil
 	end
-	if not Arg.Positive(Op.Amount) then
+	if not Validate.Positive(Op.Amount) then
 		return nil
 	end
 
@@ -244,13 +240,13 @@ local function Giving(Data: Data, Op: Op): Data?
 
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Received = (Data._Received or {}) :: { [string]: any }
-	if Entries.Has(Received, Entries.GRANT, Rid) then
+	if Applied.Has(Received, Applied.GRANT, Rid) then
 		return nil
 	end
 
 	local Next = table.clone(Data)
 	Next[Field] = Data[Field] + Op.Amount
-	Next._Received = Entries.Remember(Received, Entries.Key(Entries.GRANT, Rid), Op.At, Print)
+	Next._Received = Applied.Remember(Received, Applied.Key(Applied.GRANT, Rid), Op.At, Print)
 
 	return Next
 end
@@ -296,7 +292,7 @@ local function Give(Rid: string, Field: string, Amount: number, Print: string?):
 	return { Id = `{GIVEN_ID}:{Rid}`, Kind = GIVEN, Rid = Rid, Field = Field, Amount = Amount, At = Clock.Now(), Print = Print } :: any
 end
 
-local function Terms(From: string, Rid: string, Held: Contract.Booked): string
+local function Terms(From: string, Rid: string, Held: Shapes.Booked): string
 	return Fingerprint.Of(Fingerprint.Canon({
 		From = From,
 		Rid = Rid,
@@ -306,12 +302,12 @@ local function Terms(From: string, Rid: string, Held: Contract.Booked): string
 	}))
 end
 
-local function Granted(State: any, Rid: string, Print: string?): Entries.Recalled
-	return Entries.Recall(State._Received, Entries.GRANT, Rid, Print)
+local function Granted(State: any, Rid: string, Print: string?): Applied.Recalled
+	return Applied.Recall(State._Received, Applied.GRANT, Rid, Print)
 end
 
 local function Delivered(State: any, Rid: string): boolean
-	return Entries.Has(State._Received, Entries.GRANT, Rid)
+	return Applied.Has(State._Received, Applied.GRANT, Rid)
 end
 
 local function Overdue(Data: Data, Now: number): { string }
@@ -384,7 +380,4 @@ return table.freeze({
 	SENT_ID = SENT_ID,
 	HAND_ID = HAND_ID,
 	UNHAND_ID = UNHAND_ID,
-	BOOK_HORIZON = BOOK_HORIZON,
-	BOOK_MARGIN = BOOK_MARGIN,
-	HOLD_CAP = HOLD_CAP,
 })

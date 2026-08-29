@@ -19,12 +19,12 @@
 
 local Fingerprint = require("../Encode/Fingerprint")
 local Ident = require("../Encode/Ident")
-local Arg = require("../Contract/Arg")
+local Validate = require("../Core/Validate")
 local Layer = require("./Layer")
-local Contract = require("../Contract/Op")
+local Shapes = require("../Core/Shapes")
 
-type Op = Contract.Op
-type Data = Contract.Folded
+type Op = Shapes.Op
+type Data = Shapes.Folded
 
 local BUMP = "__Bump"
 local SHARDS = 16
@@ -48,7 +48,7 @@ end
 
 local function Bumping(Data: Data, Op: Op): Data?
 	local Field = Op.Field
-	local Amount = Arg.Number(Op.Amount)
+	local Amount = Validate.Number(Op.Amount)
 	if type(Field) ~= "string" or type(Data[Field]) ~= "number" then
 		return nil
 	end
@@ -67,11 +67,11 @@ local function Bumping(Data: Data, Op: Op): Data?
 	return Next
 end
 
-local function Mine(): number
-	local Node = Ident.Home()
-	if Node ~= LastNode then
-		LastNode = Node
-		LastShard = Fingerprint.Bucket(Node, SHARDS)
+local function Mine(Node: string?): number
+	local Home = Node or Ident.Home()
+	if Home ~= LastNode then
+		LastNode = Home
+		LastShard = Fingerprint.Bucket(Home, SHARDS)
 	end
 	return LastShard
 end
