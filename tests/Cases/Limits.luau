@@ -2,16 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Limits: One rule per hardcoded ceiling, driven past its edge.
 
-	A cap is only worth having if the thing it guards refuses cleanly at the edge. Each case drives
-	past that edge and asks what the caller was told, and whether the store still works.
-	The reason matters as much as the refusal, because a caller that cannot tell Full from Unresolved
+	Each case drives past a cap and asks what the caller was told and whether the store still works.
+	The reason matters as much as the refusal, since a caller that cannot tell Full from Unresolved
 	cannot write a retry.
-
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

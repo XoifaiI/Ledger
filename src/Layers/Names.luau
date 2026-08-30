@@ -2,11 +2,12 @@
 --!optimize 2
 
 --[=[
-	Names: Writes down the name that an op ran under.
 
-	The same name cannot then run two times. This sits outside each other layer, because it must see
-	the state after the game reducer has had it.
-	This is not a plain layer. It refuses an op before the reducer runs, and its message names the op.
+	Names: Writes down the name an op ran under, so the same name cannot run twice.
+
+	It wraps the other layers rather than sitting beside them, since it has to see the state after the
+	game reducer has had it. It also refuses an op whose name is already written down, before the
+	reducer runs at all.
 
 	Return type: A table with Wrap.
 	Example usage:

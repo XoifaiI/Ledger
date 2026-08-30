@@ -2,12 +2,12 @@
 --!optimize 2
 
 --[=[
-	Tagged: Says whether a value that was raised is one of Ledger's own failures.
 
-	A failure of Ledger's carries a tag on it rather than a message that has to be read back, so a
-	module that must tell a settled answer from a thrown one asks here instead of matching text.
-	This is the only place that knows the tag. Fault writes it, and the two places that decide
-	whether to retry or to pass a failure along read it.
+	Tagged: Says whether a raised value is one of Ledger's own failures.
+
+	Ledger's failures carry a tag rather than a message to be read back, so anything telling a settled
+	answer from a thrown one asks here instead of matching text. This is the only place that knows the
+	tag.
 
 	Return type: A table with TAG and Is.
 	Example usage:

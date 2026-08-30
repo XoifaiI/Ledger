@@ -2,6 +2,7 @@
 --!optimize 2
 
 --[=[
+
 	Types: The marker and leg declarations of the transaction protocol.
 
 	These are private to this folder. This file holds declarations, and never logic.

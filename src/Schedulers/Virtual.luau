@@ -2,20 +2,13 @@
 --!optimize 2
 
 --[=[
+
 	Virtual: A scheduler whose clock only moves when nothing is left to run.
 
-	Everything ready runs before the clock moves, and time then jumps straight to the next deadline,
-	so a run costs what its work costs and never what its waits ask for. Done is one condition,
-	nothing ready and nothing sleeping, so it cannot disagree with itself the way a live count beside
-	a queue can.
-	Ready threads sit in a ring that is written over rather than grown, because a queue that leaves
-	holes in a growing array is moved into the hash part and every read after that is a lookup.
-	Sleeping threads sit in a heap of two plain arrays that sift a hole downward, since a swap of two
-	scattered slots is what a heap does and buffers lose at that.
-	Resume runs a thread on the spot and Defer queues it. Keep them apart: code waiting on a queue
-	cannot be woken by a wake that was put in the queue behind it.
-	A thread that throws is kept rather than printed, because a scheduler that warns would put its own
-	words in whatever else is reading them.
+	Everything ready runs first, then time jumps straight to the next deadline, so a run costs what
+	its work costs rather than what its waits ask for. Step takes one turn, Run takes them until
+	nothing is left, and Done says whether anything is ready or sleeping. A thread that throws is kept
+	in Failures rather than printed.
 
 	Return type: A table with New. It answers the Scheduler shape and adds the driving. The type is Virtual.
 	Example usage:

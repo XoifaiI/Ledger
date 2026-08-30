@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Mark: Puts a store name and a key into one string.
 
-	Each part has its length in front of it. A delimiter byte inside a part therefore cannot break the read.
-	A part that does not carry its own length is not a mark, and reads back as nothing.
-
-	Lengths up to 255 have their prefix and delimiter already joined in a table, so writing one is a
-	lookup and a concat rather than a tostring. Reading walks the digits by byte, which is why nothing
-	here cuts a substring just to find out how long the next part is.
+	Each part carries its own length in front of it, so a delimiter byte inside a part cannot break
+	the read. Of and Split are the pair for one mark, Pack and Unpack for a list of them. Anything
+	that does not carry its length reads back as nothing.
 
 	Return type: A table with FIELD, LIST, Of, Split, Pack and Unpack.
 	Example usage:

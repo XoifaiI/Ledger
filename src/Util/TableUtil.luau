@@ -2,12 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	TableUtil: Small helpers for tables.
 
-	FreezeDelta remembers each table that it froze, so it does not walk the same table two times.
-	The cost of a freeze is therefore equal to the part of the state that changed.
-	DeepEqual is only worth asking once two tables are known to be different tables, which on the fold
-	means one side is a copy, so its walk costs no more than the copy that made it necessary.
+	Copying, comparing and freezing, deeply. FreezeDelta remembers what it has already frozen, so it
+	only walks the part of a state that changed.
 
 	Return type: A table with Occupied, Count, Some, DeepEqual, DeepCopy, DeepFreeze and FreezeDelta.
 	Example usage:

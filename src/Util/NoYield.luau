@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	NoYield: Runs a function that must not yield.
 
-	If the function yields, NoYield throws and shows you where. An error that carries a reason goes
-	through unchanged, because the caller reads that reason.
-	NoYield keeps a thread that finished and uses it again. It does not keep a thread that threw or
-	yielded, so it only hands out a thread that can run.
-	Run throws when the callback throws or yields. Try answers with a boolean instead.
-	The callback takes up to two arguments and gives back as many values as it likes.
+	If the function yields it is stopped and the caller is told where. Run throws on a yield or a
+	throw, and Try answers with a boolean instead. Threads that finished cleanly are kept and used
+	again.
 
 	Return type: A table with Run, Try and YIELDED.
 	Example usage:

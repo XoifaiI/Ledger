@@ -16,10 +16,6 @@
 				}
 			}
 		},
-		"ServerScriptService": {
-			"Cases": {
-				"$path": "tests/Runner.server.luau"
-			}
-		}
+		"ServerScriptService": {}
 	}
 }

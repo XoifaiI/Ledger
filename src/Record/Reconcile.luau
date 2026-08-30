@@ -2,9 +2,10 @@
 --!optimize 2
 
 --[=[
-	Reconcile: Adds each default key that the stored data does not have.
 
-	A stored value always wins. A player who comes back therefore keeps what they had.
+	Reconcile: Adds each default key the stored data does not have.
+
+	A stored value always wins, so a player coming back keeps what they had.
 
 	Return type: A function that gives back the stored table.
 	Example usage:

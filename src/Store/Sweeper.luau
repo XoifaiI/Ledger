@@ -2,24 +2,19 @@
 --!optimize 2
 
 --[=[
-	Sweeper: Retries each key that a failed write left unfinished.
 
-	It also removes transaction markers on each tenth pass. It stops following a key after a few tries,
-	and warns about one it cannot repair. A pass that moved something does not spend a try.
-	The walk starts where the last one stopped, so a store out of budget does not starve the rest.
-	A store is handed one when it is built and adopts itself into it, so the stores of one server share
-	a sweep the way they share a server. Give a store its own and its background work follows how long
-	that store has been up. It holds each as five plain functions and never as a store, which keeps
-	Store, Fields and Sweeper out of a ring.
-	Choosing a scheduler moves its timer rather than replacing it, since a sweep thrown away strands
-	every reference already taken to it.
+	Sweeper: Retries each key a failed write left unfinished.
+
+	A pass repairs the keys it is following, drops one once it comes back clean, and gives up on one
+	after a few tries with a warning naming it. Every tenth pass also reaps transaction markers. It
+	checks the request budget before it starts and picks up where the last pass stopped.
 
 	Return type: A table with New. The type is Sweeper.
 	Example usage:
+		local Sweeper = require("./Sweeper")
 		local Sweep = Sweeper.New()
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local Clock = require("../Util/Clock")
 local Windows = require("../Core/Constants/Windows")
 local SetInterval = require("../Util/SetInterval")
@@ -76,7 +71,7 @@ function Sweeper.Add(self: Sweeper, Held: Swept, Key: string)
 		return
 	end
 	if self.Count >= SWEEP_LIMIT then
-		Warnings.Warn(`Ledger: the recovery sweep is already following {SWEEP_LIMIT} keys, so nothing retries '{Key}' on its own. call Resettle on it yourself`)
+		warn(`Ledger: the recovery sweep is already following {SWEEP_LIMIT} keys, so nothing retries '{Key}' on its own. call Resettle on it yourself`)
 		return
 	end
 	self.Entries[Mark] = { Store = Held, Key = Key, Tries = 0 }
@@ -170,7 +165,7 @@ function Sweeper.Pass(self: Sweeper)
 			continue
 		end
 
-		Warnings.Warn(
+		warn(
 			`Ledger: gave up retrying '{Entry.Key}' after {SWEEP_TRIES} goes, so whatever is unfinished on it waits for the next write. call Resettle on it yourself: {if Ok
 				then "it still had something pending"
 				else tostring(Clean)}`

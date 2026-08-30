@@ -2,16 +2,14 @@
 --!optimize 2
 
 --[=[
+
 	Read: The reads of a store.
 
-	A state, a record, a version and its history, and whether a name has been applied.
-	Each read answers a value and a reason. A value of nil therefore always means the read failed,
-	and never means empty.
-	Inspect copies the record and freezes it, so a caller cannot reach what this server folds from.
-	Each read is the same shape: try it, and turn a failure into a reason. Reading holds that shape,
-	so a read here is only the part that is its own.
+	The folded state, the stored record, an old version and its history, and whether a name has been
+	applied. Every read answers a value and a reason, so nil always means the read failed and never
+	means empty. Inspect hands back a frozen copy.
 
-	Return type: A table with Peek, DidApply, History, PeekVersion and Inspect.
+	Return type: An empty table. It writes Peek, DidApply, History, PeekVersion and Inspect onto the class.
 	Example usage:
 		local Read = require("./Read")
 		local State = self:Peek(1):Wait()

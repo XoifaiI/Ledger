@@ -2,16 +2,13 @@
 --!optimize 2
 
 --[=[
+
 	Ledger: Player data as a ledger, and not as a document.
 
-	The state is a pure fold of an append only log of ops. There are no session locks.
-	This file is the whole surface that a game can reach.
-	CloseAll cuts each queue down to its last write and gives it fewer tries. A shutdown has seconds,
-	and a queue of retries would spend all of them on one key.
-	New takes any kind with any fields. NewTyped takes a map of the kinds a game writes and what each
-	carries, so every write is checked and a reducer reads its fields with no cast. Both build the
-	same store. NewTyped casts, since neither view is a subtype of the other, and Shapes/Api
-	holds their method names against each other so that cast cannot hide drift.
+	State is a pure fold of an append only log of ops, and there are no session locks. This file is the
+	whole surface a game can reach: New and NewTyped build a store, Use chooses the scheduler and
+	datastore stores are built with, Sweep runs a recovery pass, and CloseAll saves everything on the
+	way down.
 
 	Return type: A table with Reason, New, NewTyped, Use, UseMock, Sweep and CloseAll.
 	Example usage:

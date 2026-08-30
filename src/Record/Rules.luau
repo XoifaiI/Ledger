@@ -2,20 +2,14 @@
 --!optimize 2
 
 --[=[
-	Rules: What a rule is, and the rules an append is built from, in the order that they run.
+
+	Rules: What a rule is, and the rules an append is built from, in the order they run.
 
 	A rule has a check, a change and a test that must hold after the write, and each part is optional.
-	A rule that refuses with no reason is quiet: the caller asked, and the answer is no, which is not
-	a failure.
-	Each rule answers one question. A rule keeps what it must remember in the pass, because the
-	datastore can run the transform again, so a pass is made once and cleared before each run. New and
-	Reset sit next to each other, so a part added to a pass is cleared as well.
-	A game's op stops at the log cap. One of Ledger's own may pass that cap, because a recovery op
-	must be able to land on a key that is already full. It stops at a higher ceiling of its own.
-	A sift decides op by op whether the record will take one.
-
-	Readable is the one place that says whether this build may write a record at all. Legible is that
-	same question as a rule, and the log asks it directly on the paths that are not an append.
+	A pass is what a rule remembers between those parts, and it is cleared at the start of every run.
+	The rules are: legible refuses a record a newer build wrote, allowed runs the caller's guard, fresh
+	adds only the ops the record lacks, capped refuses once the log is too long, format raises the
+	version floor, and tomb stamps the envelope.
 
 	Return type: A table with New, Reset, Quiet and the seven rules. The types are Pass, Rule and Sift.
 	Example usage:
@@ -23,7 +17,6 @@
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local Clock = require("../Util/Clock")
 local Shapes = require("../Core/Shapes")
 local Errors = require("../Core/Errors")
@@ -193,7 +186,7 @@ local function Tomb(Key: string, Owned: boolean): Rule
 		end,
 		After = function(_: Record, After: Record): string?
 			if Owned and Entombed(After) then
-				Warnings.Warn(
+				warn(
 					`Ledger: '{Key}' was erased and something wrote to it anyway, so a session on another server is still live on that key. it keeps turning away transfers until the tomb runs out. get the player off every server before erasing them`
 				)
 			end

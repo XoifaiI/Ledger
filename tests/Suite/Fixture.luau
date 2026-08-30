@@ -2,14 +2,13 @@
 --!optimize 2
 
 --[=[
+
 	Fixture: One store on the case bench, and everything a case does to it.
 
-	A case spends most of its lines putting a key into a state and reading back what Ledger did.
-	Both of those are here, so a case is left holding only the part that is about Ledger.
-	Setting up writes raw records straight at the mock, because setting up through the store would be
-	broken by the faults the case installed. Reading back goes through Ledger's own reader over an
-	unfaulted handle, so nothing here decides what a record means: a helper that worked that out for
-	itself would be a second copy of a rule, and the copy is where the bug goes.
+	Seed, Write, Park and Marker put a key into a state by writing raw records straight at the mock,
+	so setup is not broken by the faults a case installed. Record, Stored, Amount and the rest read it
+	back through Ledger's own reader over an unfaulted handle, so nothing here works out what a record
+	means for itself.
 
 	Return type: A table with New. The type is Fixture.
 	Example usage:

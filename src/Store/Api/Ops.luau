@@ -2,21 +2,19 @@
 --!optimize 2
 
 --[=[
-	Ops: The writes that a game asks for by name.
 
-	Each one checks its arguments, builds one op, and gives that op to Written. The writes that touch
-	two keys are the exceptions.
-	Grant writes the receiver first and clears the hold second. A server that stops between the two
-	leaves the units on both keys, and recovery settles them.
-	A leg that names another store must carry the class that Ledger.New gives a store.
+	Ops: The writes a game asks for by name.
 
-	Return type: A table with Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, Bump, Total and Tx.
+	Edit, Reserve, Confirm, Release and Bump each check their arguments, build one op and hand it to
+	Written. Transfer, Grant and Tx are the ones that touch more than one key, so they run a protocol
+	instead and add the keys to the sweep if they cannot finish.
+
+	Return type: An empty table. It writes Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, TallyName, Bump, Total and Tx onto the class.
 	Example usage:
 		local Ops = require("./Ops")
 		local Ok, Why = self:Edit(1, "Add", { Amount = 5 }):Wait()
 --]=]
 
-local Warnings = require("../../Util/Warnings")
 local Future = require("../../Util/Future")
 local Clock = require("../../Util/Clock")
 local Errors = require("../../Core/Errors")
@@ -73,7 +71,7 @@ function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: an
 
 	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
-		Warnings.Warn(`Ledger: Edit rejected op '{Kind}', {Wrong}`)
+		warn(`Ledger: Edit rejected op '{Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -95,7 +93,7 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 			return Transfer.Drive(self:Records(), self:Format(), FromKey, ToKey, Amount, Id)
 		end)
 		if not Ok then
-			Warnings.Warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
+			warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
 			return false, UNRESOLVED
 		end
 
@@ -149,7 +147,7 @@ local function Standing(self: Store, Key: KeyLike, Id: string, What: string, Mak
 		end, HELD)
 
 		if Why == HELD then
-			Warnings.Warn(
+			warn(
 				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to {Wanted}. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
 			)
 		end
@@ -346,7 +344,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 
 		local Fits, Unstorable = LegStorable(Leg)
 		if not Fits then
-			Warnings.Warn(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
+			warn(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
 			return Rejected(INVALID)
 		end
 	end
@@ -359,7 +357,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 		end)
 
 		if not Ok then
-			Warnings.Warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
+			warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
 			Follow(Targets)
 			return false, UNRESOLVED
 		end

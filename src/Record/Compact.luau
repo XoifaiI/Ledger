@@ -2,16 +2,13 @@
 --!optimize 2
 
 --[=[
+
 	Compact: Folds the ops on a key into a new snapshot.
 
-	A large profile costs a lot to write again, so Compact waits until the log is a share of it. A
-	small profile is cheap, so Compact folds it on a count.
-	Hint names the field taking the most room, and whether that field is Ledger's own.
-	Compact absorbs only the ops at the front that this build can apply. The first op that this build
-	cannot apply stops the walk, and each op after it waits for a build that can.
-	Compact holds back an op that the reducer refuses. It does not drop the op. The exception is an op
-	this build took in only because a transaction was parked, since a compaction runs on a settled
-	record and that op can never apply now.
+	Overgrown and Worthwhile say whether a key is worth compacting, on a share of the snapshot for a
+	large state and on a count for a small one. Packed does the fold: it absorbs the run of ops at the
+	front this build can apply, keeps the rest, and moves the absorbed ids to Seen. Hint names the
+	field taking the most room.
 
 	Return type: A table with Packed, Worthwhile, Oversized, Overgrown, Bulk, Hint and SEEN_LIMIT.
 	Example usage:
@@ -19,7 +16,6 @@
 		if Compact.Overgrown(Record) then Fold() end
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local TableUtil = require("../Util/TableUtil")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
@@ -139,13 +135,13 @@ local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 
 	local Snapshot, Taken, Blocking = Absorbable(Record, Format)
 	if Taken == 0 and #Record.Ops > 0 then
-		Warnings.Warn(`Ledger: key '{Key}' cannot be compacted, its oldest op is a '{Blocking}' this build does not apply. a build that does apply it compacts the key`)
+		warn(`Ledger: key '{Key}' cannot be compacted, its oldest op is a '{Blocking}' this build does not apply. a build that does apply it compacts the key`)
 		return nil
 	end
 
 	local Fits, Where = Storable.Structure(Snapshot)
 	if not Fits then
-		Warnings.Warn(
+		warn(
 			`Ledger: key '{Key}' cannot be compacted, your reducer built state a datastore cannot hold, {Where}. the log is left alone rather than lose that field. no gaps in arrays, no mixing array and string keys, no nan`
 		)
 		return nil
@@ -153,7 +149,7 @@ local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 
 	local Held: { Op } = table.move(Record.Ops, Taken + 1, #Record.Ops, 1, {})
 	if Blocking ~= nil then
-		Warnings.Warn(`Ledger: key '{Key}' kept {#Held} op(s) through compaction, from a '{Blocking}' this build does not apply. they wait for a build that does rather than being dropped`)
+		warn(`Ledger: key '{Key}' kept {#Held} op(s) through compaction, from a '{Blocking}' this build does not apply. they wait for a build that does rather than being dropped`)
 	end
 
 	local Seen = table.clone(Record.Seen)

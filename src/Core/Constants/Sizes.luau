@@ -2,17 +2,12 @@
 --!optimize 2
 
 --[=[
-	Sizes: Every cap Ledger holds itself to, in one place a test can move.
 
-	The defaults are the real ones. A datastore value stops at 4 MB, and the rest are cut from that
-	so a record always has room for the op that is about to go on it.
-	A margin is a share of the cap it guards rather than a fixed number of bytes, so a smaller cap
-	brings its margin down with it and the order they fire in never changes.
-	This is the one table in Ledger that is not frozen. A harness that shrinks these reaches the same
-	refusals with a hundredth of the data, which is the only reason it can be written to at all. Set
-	takes whole numbers and Reset puts the real ones back. Booked counts reservations on one key and
-	Depth counts levels, and Depth is the one cap here that neither of them moves, because a value
-	that nests that far is cyclic whatever size the rest of the caps are cut to.
+	Sizes: Every byte cap Ledger holds itself to.
+
+	The defaults are the real ones, cut from the 4 MB a datastore value stops at. Set replaces them
+	and Reset puts them back, so a test can reach the same refusals with less data. Each margin is
+	derived from the cap it guards.
 
 	Return type: A table of the caps, with Set and Reset.
 	Example usage:

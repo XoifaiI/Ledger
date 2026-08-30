@@ -2,18 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Booking: Holds units of a number field under a name.
 
-	The units stay set aside until something takes them or gives them back. Limited stock can
-	therefore sit on one key, and does not need a transaction across two keys.
-	The next booking on a key gives back each booking that is older than its hold.
-	A hand over marks the booking before it reaches the receiver. The units are on both keys between
-	the two writes, and only recovery can ask the receiver which way it went.
-	A booking that is late can no longer be handed over.
-	Every op carries the time it was built. Only a booking and a grant read it back, and the rest
-	carry it so a person reading the log can see when each step happened.
+	The units stay set aside until something takes them, gives them back, or hands them to another
+	key. A booking runs out after its hold, and the next booking on that key gives back any that have.
+	A hand over marks the booking before it reaches the receiver, so the units show on both keys
+	between the two writes.
 
-	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Expired, Overdue, Owed, Granted, Delivered, the four ids and the four ids.
+	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Expired, Overdue, Owed, Granted, Delivered and the four ids.
 	Example usage:
 		local Booking = require("./Booking")
 		local Op = Booking.Book("order1", "Stock", 1)

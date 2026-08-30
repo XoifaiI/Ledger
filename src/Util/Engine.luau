@@ -2,18 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Engine: The two things Ledger is handed rather than reaches for.
 
 	A scheduler is everything to do with when code runs, and a hook is everything to do with where
-	data goes. Ledger takes one of each when a store is built and never looks for them anywhere else,
-	so a run outside Roblox is a matter of handing over different ones rather than swapping a global
-	out from under whatever is already live.
-	Neither carries self. An implementation binds its own state at construction and hands back plain
-	functions, because a method whose self is the concrete type cannot stand in for one whose self is
-	the interface, and the checker is right to refuse it. Every field is read only, both because an
-	implementation is frozen and because nothing should be reaching in to replace one of them.
-	Resume runs a thread on the spot and Defer queues it. They are separate because code that waits
-	on a queue deadlocks when the wake it is waiting for is put in the queue behind it.
+	data goes. A store takes one of each when it is built. Neither carries self: an implementation
+	binds its own state and hands back plain functions, and every field is read only.
 
 	Return type: A table of the type names, for requiring the types alone.
 	Example usage:

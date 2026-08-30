@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Types: The store declarations.
 
-	These are private to this folder. This file holds declarations, and never logic.
-	The impl type is the whole surface that the halves of the store call each other through.
-	A game cannot name any of it.
-	Swept is the store as the sweep sees it, five plain functions carrying no self. The sweep holds
-	those and never a store, because a sweeper that held stores would put Store, Fields and Sweeper in
-	a ring that setmetatable cannot close. It is the shape the scheduler and the hook already take.
+	These are private to this folder. This file holds declarations, and never logic. Swept is the store
+	as the sweep sees it: five plain functions carrying no self, the same shape the scheduler and the
+	hook take.
 
 	Return type: An empty table. The types are Allow, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Fields, StoreImpl and Store.
 	Example usage:

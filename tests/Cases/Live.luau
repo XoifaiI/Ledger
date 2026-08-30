@@ -2,17 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Live: One rule per case for a live session.
 
-	Apply is hopeful and answers at once. Commit is durable before it answers. Everything here follows
-	from that split.
-	The fence is the other half: a session that loaded before an erase must not write a dead profile
-	back, and one that loaded after writes normally. The last group is about loading a player, which
-	can fail, be asked for twice, or be cancelled while it runs.
-
+	Apply answering at once against live state, Commit writing before it answers, flushing, compacting
+	and releasing. The fence is the other half: what a session may write once the key it loaded from
+	was erased. The last group is loading and unloading a player.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

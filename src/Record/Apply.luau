@@ -2,6 +2,7 @@
 --!optimize 2
 
 --[=[
+
 	Apply: Puts one op through a reducer, with the guards on.
 
 	A reducer that throws, yields, or gives back something that is not a table has refused the op.

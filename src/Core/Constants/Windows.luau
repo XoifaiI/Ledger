@@ -2,13 +2,12 @@
 --!optimize 2
 
 --[=[
-	Windows: Every window that Ledger keeps something for, in one place.
 
-	Ledger holds nothing without a limit, and the age of a key never bounds what it keeps.
-	The windows must agree with each other. Anything that follows from another is derived below and
-	never written down twice, and the asserts hold the rest, so a reader does not have to find them.
-	A tomb must outlast the last time a transfer is sent again, a reservation must run out before a
-	transfer does, and a cleanup list key must stop being written to before a reaper may judge it.
+	Windows: Every window Ledger keeps something for.
+
+	Windows in seconds, the longest hold a game may ask for, and the cap on one pass of background
+	work. Anything that follows from another window is derived here, and asserts hold the order they
+	have to keep.
 
 	Return type: A table of the windows in seconds, the longest hold a game may ask for, and the cap on one pass.
 	Example usage:

@@ -2,16 +2,14 @@
 --!optimize 2
 
 --[=[
+
 	Logs: One rule per case for the op log itself.
 
-	The record is the whole state. A junk record reads as an empty one, and an op the datastore could
-	not describe is dropped.
-	Compaction is the dangerous half. It rewrites the record from a fold, so it may only absorb a
-	prefix it can account for, or an older build would retract a write that already answered true.
-
+	Reading a record, what a junk one folds to, appending the same op twice, and compaction: which ops
+	it may absorb, which it must keep, and what it leaves behind.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

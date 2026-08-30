@@ -2,7 +2,8 @@
 --!optimize 2
 
 --[=[
-	Types: The log and shape declarations.
+
+	Types: The log and schema declarations.
 
 	These are private to this folder. This file holds declarations, and never logic.
 

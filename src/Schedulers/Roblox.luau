@@ -2,13 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	Roblox: The scheduler Ledger runs on in a live game.
 
-	It is the task library and the wall clock, behind the one shape everything else takes. Nothing
-	here holds state, so New hands back the same set of functions every time and two stores sharing
-	it share nothing but the engine they were already sharing.
-	Cancel checks first, because a thread that has already finished is not the engine's to cancel and
-	saying so is cheaper than the error.
+	The task library and the wall clock, behind the shape everything else takes. It holds no state, so
+	New hands back the same set of functions every time.
 
 	Return type: A table with New. It answers the Scheduler shape.
 	Example usage:

@@ -2,13 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	DataStoreWrapper: Calls a datastore, and calls again when a call fails.
 
-	Each key has its own queue, so the writes to one key stay in order.
-	It is handed the scheduler its retries wait on and the hook its calls go to, and it carries both
-	for everything underneath it. Nothing here reaches for a datastore or a clock of its own, so two
-	stores in one server can sit on different ones and neither can be swapped out from under a store
-	that is already live.
+	Each key has its own queue, so writes to one key stay in order. It is handed the scheduler its
+	retries wait on and the hook its calls go to, and carries both for everything underneath it.
 
 	Return type: A table with New.
 	Example usage:

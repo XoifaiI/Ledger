@@ -2,23 +2,19 @@
 --!optimize 2
 
 --[=[
+
 	Reap: Removes the markers of transactions that are over.
 
-	Every transaction writes its name on the roll before it opens a marker, so a pass reads the roll and
-	never searches the store.
-	A marker goes only once every key it named has forgotten its leg, and a key that cannot be read
-	counts as still holding one. One already finished goes on a shorter window than one being decided.
-	A delete names no generation, so it can land on a marker opened under the same name after this pass
-	read it, which costs that transaction a retry and never a leg.
-	A pass reads a fixed number of names per shard and gives back where it stopped. A listing has no
-	order, so a key too new to look at is stepped over and never read as the end of the shard.
+	A pass reads the cleanup list rather than searching the store. A marker goes only once every key it
+	named has forgotten its leg, and a key that cannot be read counts as still holding one. Each pass
+	reads a fixed number of names per shard and gives back where it stopped.
 
 	Return type: A table with Reap, Spent, Quiet, Anywhere and the caps. The type is Reaping.
 	Example usage:
+		local Reap = require("./Reap")
 		local Count, Next = Reap.Reap(TxStore, Lookup)
 --]=]
 
-local Warnings = require("../../Util/Warnings")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Shapes = require("../../Core/Shapes")
@@ -126,14 +122,14 @@ local function Gone(TxStore: DataStoreWrapper, Txid: string, Lookup: Lookup, Now
 			end
 
 			if not Hushed and Now - Updated <= Windows.STUCK then
-				Warnings.Warn(
+				warn(
 					`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove its legs are finished and it is read again on every pass until it is {Windows.STUCK // 86400} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
 				)
 				return false, false
 			end
 
 			if not Hushed then
-				Warnings.Warn(
+				warn(
 					`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {Windows.STUCK // 86400} days, so nothing can ever prove its legs are finished and it is taken off rather than read for good. a leg of it still parked somewhere settles as cancelled now, so check the audit log`
 				)
 			end

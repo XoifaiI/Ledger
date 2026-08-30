@@ -2,10 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	Future: Holds the result of work that runs on its own thread.
 
-	The work starts immediately. Wait gives you the result.
-	If the work fails, Wait gives you nothing, and Happened tells you that it failed.
+	The work starts immediately. Wait gives back the result, or nothing if the work failed, and
+	Happened says which of those it was. Wait takes a timeout.
 
 	Return type: A table with New, Completed and Errored.
 	Example usage:
@@ -15,7 +16,6 @@
 --]=]
 
 local Clock = require("./Clock")
-local Warnings = require("./Warnings")
 
 local Threads = require("./Threads")
 
@@ -88,7 +88,7 @@ local function Finish<T...>(self: Private<T...>, ...: any)
 	local Waiting = self.Waiting
 	if Waiting ~= nil then
 		for _, WaitingThread in Waiting do
-			Threads.Resume(WaitingThread, ...)
+			Clock.Held().Resume(WaitingThread, ...)
 		end
 		table.clear(Waiting)
 	end
@@ -107,7 +107,7 @@ local function TimeoutTask<T...>(Inst: Future<T...>, Caller: thread)
 	end
 
 	TryRemove(Private.Timeouts, coroutine.running())
-	Threads.Resume(Caller)
+	Clock.Held().Resume(Caller)
 end
 
 local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: Future<Ret...>, ...: Args...)
@@ -118,7 +118,7 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: 
 	Private.Result = Result
 
 	if not Result[1] then
-		Warnings.Warn(`Ledger: Future callback errored: {tostring(Result[2])}`)
+		warn(`Ledger: Future callback errored: {tostring(Result[2])}`)
 	end
 
 	Finish(Private, Unpack(Private))

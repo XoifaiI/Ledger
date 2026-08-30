@@ -2,13 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Marker: The one key that decides a transaction.
 
-	No marker means aborted, so a server that never wrote one leaves nothing behind. A marker goes
-	away only after each leg has reported.
-	A marker that nothing touched for longer than the whole transaction may take is dead, and any
-	server may decide it. The time is counted per leg, because the legs are prepared one at a time.
-	Ledger keeps a handle to each other store that holds a marker.
+	Create opens one, Decide commits or aborts it, StatusOf reads it and abandons one nothing has
+	touched for longer than a transaction may take, and Adopt records that a leg has reported. No
+	marker means aborted. A marker goes away only once every leg has reported.
 
 	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes, the four openings, the three statuses, and the caps on legs and homes.
 	Example usage:
@@ -16,7 +15,6 @@
 		local Status = Marker.StatusOf(TxStore, "order1", 30)
 --]=]
 
-local Warnings = require("../../Util/Warnings")
 local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
@@ -102,7 +100,7 @@ local function Elsewhere(Name: string, From: DataStoreWrapper): DataStoreWrapper
 
 	if not Said then
 		Said = true
-		Warnings.Warn(
+		warn(
 			`Ledger: this server holds {MAX_HOMES} transaction homes, so '{Name}' gets a new handle each time. its writes no longer queue, and a shutdown cannot stop its retries. use fewer stores in your transactions`
 		)
 	end

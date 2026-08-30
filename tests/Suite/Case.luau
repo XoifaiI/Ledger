@@ -2,25 +2,16 @@
 --!optimize 2
 
 --[=[
+
 	Case: One rule, its bench, and everything it is allowed to say.
 
-	A case gets a world of its own: a fresh datastore, a clock that starts at the same second, and no
-	faults until it asks for some. The datastore is the mock src ships and the clock is the scheduler
-	src ships, so a case tests against the same two fakes a game would.
-	The case body runs as a thread on that scheduler and the bench steps it. Nothing waits on a frame:
-	the clock only moves when nothing is left to run, so a case that crosses a thirty day horizon costs
-	what its work costs. Race is that same loop with more than one thread in it, which is why an
-	interleaving replays.
-	A store is built under a name of its own so two fixtures can share one disk, and then its wrappers
-	are pointed at the shared name. Each store gets a hook of its own over the one service, so two
-	stores on one datastore are two servers, and a fault aimed at one leaves the other working. A store
-	name could not say that, because two servers share it.
-	Closing takes down every store this server holds and not only the ones the bench built, because a
-	store a case made by hand and could not take down again would sit in the shared sweep with its own
-	budget and stop every later case reaping.
-	Every check reads its own label, so a failure names the thing that was wrong.
+	A case gets a world of its own: a fresh datastore, a clock starting at the same second, no faults
+	until it asks for some, and a warn that is recorded rather than printed. The datastore is the mock
+	src ships and the clock is the scheduler src ships. The case body runs as a thread on that
+	scheduler and the bench steps it, so a case crossing a thirty day horizon costs what its work
+	costs. Closing takes down every store this server holds.
 
-	Return type: A table with Open, Close and Judge, and the names a bench builds under. The types are Case and Spec.
+	Return type: A table with Open, Close, Judge and Heard, and the names a bench builds under. The types are Case, Spec and Entry.
 	Example usage:
 		local Bank = T:Bank()
 		T:Is("gold after the transfer", Bank:Amount("a"), 50)
@@ -31,7 +22,6 @@ local Reducers = require("./Reducers")
 
 local Ledger = require("../../src") :: any
 local Sizes = require("../../src/Core/Constants/Sizes")
-local Warnings = require("../../src/Util/Warnings")
 local Clock = require("../../src/Util/Clock")
 local Ident = require("../../src/Encode/Ident")
 local Wrapper = require("../../src/Util/DataStoreWrapper")
@@ -40,7 +30,20 @@ local Registry = require("../../src/Store/Registry")
 local Virtual = require("../../src/Schedulers/Virtual")
 local Mock = require("../../src/Mock")
 
-type Entry = Warnings.Entry
+export type Entry = {
+	Says: string,
+	Count: number,
+}
+
+local Spoken: { Entry } = {}
+
+local function Catch(...: any)
+	local Parts: { string } = {}
+	for Index = 1, select("#", ...) do
+		table.insert(Parts, tostring((select(Index, ...))))
+	end
+	table.insert(Spoken, { Says = table.concat(Parts, " "), Count = 1 })
+end
 
 export type Spec = {
 	Keys: string?,
@@ -145,7 +148,7 @@ local function Counted(Records: { Entry }, Fragment: string): number
 end
 
 function Case.Open(Name: string): Case
-	Warnings.Reset()
+	Spoken = {}
 	Ident.Restart(SIM_NODE)
 
 	local Walker = Registry.Sweep()
@@ -164,7 +167,7 @@ function Case.Open(Name: string): Case
 		Service = Service,
 		Hook = Memory.New(Turn, nil, Service),
 		Built = {},
-		Records = Warnings.Records(),
+		Records = Spoken,
 		Expect = {},
 	}, Case) :: any
 end
@@ -487,6 +490,7 @@ table.freeze(Case)
 return table.freeze({
 	Open = Case.Open,
 	Close = Case.Close,
+	Heard = Catch,
 	Drive = Case.Drive,
 	Judge = Case.Judge,
 

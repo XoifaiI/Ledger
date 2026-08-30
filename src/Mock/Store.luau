@@ -2,17 +2,13 @@
 --!optimize 2
 
 --[=[
+
 	Store: One fake datastore.
 
-	It holds its keys, and the versions that it keeps of each key.
-	Two writes on one key can meet. Store reads the version mark before and after the transform, and
-	a change means another write came between. The transform then runs again, as a real one does.
-	A transform that yields raises. A transform that throws for another reason cancels the write and
-	tells the caller nothing, which is what a real datastore does.
-	A listing hands keys back in no order a caller can predict, measured against a real datastore, so
-	this orders them by a hash of the key and never by the key itself. Sorting them would let code
-	lean on an order that is not there. The cursor is a place in that order rather than a key, and a
-	read of a key nobody wrote leaves nothing behind for a listing to find.
+	It holds its keys and the versions it keeps of each. Two writes on one key can meet, so a
+	transform runs again when another write landed between its read and its write. A transform that
+	yields raises, and one that throws cancels the write silently. A listing comes back in a stable
+	order that is not the key order, since a real one gives no order to lean on.
 
 	Return type: A table with New, MAX_KEY and KEEP_VERSIONS.
 	Example usage:

@@ -2,17 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Transactions: One rule per case for the two phase commit and its markers.
 
-	Each leg is parked on its key first, one write to the marker decides the whole set, and every leg
-	is resolved against that decision last. A coordinator that stops leaves a marker, and another
-	server finishes it. The marker decides, and never the server that asked.
-	A generation is what stops one transaction settling another's legs. Reaping a marker means proving
-	every key it named has forgotten it.
-
+	Legs parked on their keys, one write to the marker deciding the set, and every leg resolved against
+	it. What another server does when it meets a parked leg, what a generation stops, and what has to
+	be proven before a marker is reaped.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

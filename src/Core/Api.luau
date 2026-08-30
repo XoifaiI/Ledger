@@ -2,17 +2,12 @@
 --!optimize 2
 
 --[=[
-	Api: The only types that a game can name.
 
-	A leg names a store, and a store takes legs. Both shapes are therefore in one file, because two
-	files would have to require each other.
-	Store.New hands its store back without a cast, so the checker holds these shapes against what a
-	store actually is. That check is only had by leaving self open, since a store's own methods read
-	fields this file does not name.
-	A store comes in two views. Store takes any kind with any fields, and TypedStore carries one call
-	shape per kind a game named. Both take the kind and the fields as two arguments, so a game moves
-	between them without touching a call site. Everything that does not take an op is declared once
-	and shared, and the foot of this file fails the build if the two ever drift apart.
+	Api: The types a game can name.
+
+	A store, a session, the config each is built from, and the shape of a transaction leg. A store
+	comes in two views: Store takes any kind with any fields, and TypedStore carries one call shape
+	per kind a game named. Both are called the same way.
 
 	Return type: An empty table. The types are Store, TypedStore, Live, TypedLive, Config, TypedConfig, OpMap, TxLeg and HoldOptions.
 	Example usage:

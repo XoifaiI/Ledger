@@ -2,11 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Tx: The transaction protocol under one name.
 
 	A caller above this tier does not have to know which half of the protocol owns what.
 
-	Return type: A table with Coordinator, Resolve, Reap, ShutdownHomes, RESERVED, MAX_LEGS, REAP_LOOKS, REAP_PAGE, REAP_FLOOR, SHARDS and Cleanup.
+	Return type: A table with Drive, Settle, Reap, ShutdownHomes, RESERVED, MAX_LEGS, REAP_LOOKS, REAP_PAGE, REAP_FLOOR, SHARDS and Roll.
 	Example usage:
 		local Tx = require("../Protocol/Tx")
 		local Ok, Why = Tx.Drive(TxStore, Legs, "trade1")

@@ -2,20 +2,14 @@
 --!optimize 2
 
 --[=[
+
 	Suite: The case suite. One rule per case, and one bench per case.
 
-	A case is a claim about Ledger written so a person can read it. Cases run in the order they are
-	written, and each one gets a bench of its own, so adding a case cannot change another.
-	Every warning Ledger writes is caught for the case that wrote it, so a case can say what Ledger
-	explained and the run can say that Ledger never accused itself.
+	File collects the cases of one file, and Run gives each a bench of its own, runs it, takes the
+	bench down and collects what broke. A case that breaks several checks reports them all. Cases run
+	in the order they are written, and a filter runs only the ones whose name holds a fragment.
 
-	A case that breaks a check collects them all rather than stopping at the first, so one failing case
-	names everything that was wrong with it.
-	Run drives the cases itself. The runtime ships a test runner and it cannot hold this many: measured
-	on 2026-08-30 against Zune 0.5.8, it overflows the C stack somewhere between 150 and 200 registered
-	tests, on trivial ones carrying no bench at all.
-
-	Return type: A table with File, Run, Fault, Reducers, Entries, Reasons and Horizons.
+	Return type: A table with File, Run, Heard, Fault, Reducers, Entries, Reasons and Horizons.
 	Example usage:
 		local Cases = Suite.File("Once")
 		Cases.Case("a replay under the same name changes nothing", function(T) end)
@@ -145,6 +139,7 @@ end
 return table.freeze({
 	File = File,
 	Run = Run,
+	Heard = Case.Heard,
 
 	Fault = require("../src/Hooks/Memory"),
 	Reducers = Reducers,

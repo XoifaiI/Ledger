@@ -2,11 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	RetryAsync: Calls a function again after a failure.
 
-	The delay increases after each attempt, and it waits on the scheduler in the limits it was given,
-	so a run that owns its clock owns the backoff too.
-	An error that carries a reason has already settled, so the retries stop.
+	The delay grows with each attempt and waits on the scheduler it was given, within the limits it
+	was given. A failure that already carries a reason has settled, so it is not retried.
 
 	Return type: A function that gives back (Ok, Result).
 	Example usage:
@@ -16,7 +16,6 @@
 
 local Engine = require("./Engine")
 
-local Warnings = require("./Warnings")
 local Tagged = require("./Tagged")
 
 type Handler = (() -> ...any) -> (boolean, ...any)
@@ -53,7 +52,7 @@ local function RetryAsync(Scheduler: Engine.Scheduler, Callback: () -> ...any, L
 
 		local Allowed = Bounds.Attempts or DEFAULT_ATTEMPTS
 		if not Result[1] then
-			Warnings.Warn(`Ledger: RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
+			warn(`Ledger: RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
 		end
 
 		if Result[1] or Attempt >= Allowed or Tagged.Is(Result[2]) then

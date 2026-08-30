@@ -2,12 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Observer: Sends each value to each listener.
 
-	A listener runs immediately when you push a value, so a listener must not yield.
-	Map, Filter and Changed each make a new stream from this one.
-	Destroy marks each connection of the stream as gone. To disconnect one after that is therefore
-	nothing, and not a fault.
+	A listener runs the moment a value is pushed, so a listener must not yield. Map, Filter and
+	Changed each make a new stream from this one. Destroy marks every connection gone, and
+	disconnecting after that does nothing.
 
 	Return type: A table with New, which gives you a subject that you can push to.
 	Example usage:
@@ -18,7 +18,6 @@
 --]=]
 
 local Clock = require("./Clock")
-local Warnings = require("./Warnings")
 
 local NoYield = require("./NoYield")
 
@@ -110,7 +109,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 		end
 
 		self.Said = Now
-		Warnings.Warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. it holds a thread for as long as it runs, so one that never returns leaks a thread for every value pushed`)
+		warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. it holds a thread for as long as it runs, so one that never returns leaks a thread for every value pushed`)
 	end)
 
 	local Ok, Err = pcall(Listener, Value)
@@ -118,7 +117,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 	Clock.Cancel(Watch)
 
 	if not Ok then
-		Warnings.Warn(`Ledger: Observer listener errored: {Err}`)
+		warn(`Ledger: Observer listener errored: {Err}`)
 	end
 end
 
@@ -136,7 +135,7 @@ local function Deliver<T>(self: Private<T>, Value: T)
 			else
 				local Ok, Err = NoYield.Try(Node.Listener, Value)
 				if not Ok then
-					Warnings.Warn(`Ledger: Observer listener errored: {Err}`)
+					warn(`Ledger: Observer listener errored: {Err}`)
 				end
 			end
 		end

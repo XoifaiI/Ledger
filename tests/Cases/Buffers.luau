@@ -2,16 +2,14 @@
 --!optimize 2
 
 --[=[
+
 	Buffers: One rule per promise Ledger makes about a buffer in state.
 
-	A game holding packed bytes is ordinary and a datastore takes them natively, so a buffer behaves
-	like any other value. It survives a write and a read byte for byte, it lives through a compaction,
-	and it costs what the datastore charges. It is also copied rather than shared, or one key could
-	write into another's state.
-
+	A buffer survives a write and a read byte for byte, lives through a compaction, costs what the
+	datastore charges for it, and is copied rather than shared between keys.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

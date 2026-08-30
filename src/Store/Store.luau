@@ -2,13 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Store: The store object that Ledger.New gives back.
 
-	One store holds one datastore name. It owns each key under that name, and each session that is
-	live on this server.
-	The five requires with no name on them put the methods on the class. Core, Write, Read, Admin and
-	Ops write onto the table in Class, and this file requires all five before it freezes that table.
-	This file also puts the layers in order, and starts the autosave for each session.
+	One store holds one datastore name, every key under it, and every session live on this server. It
+	builds the reducer stack, loads and unloads players, and runs an autosave for each session. The
+	five requires with no name on them put the rest of the methods onto the class.
 
 	Return type: A table with New.
 	Example usage:
@@ -16,12 +15,10 @@
 		local Bank = Store.New(Options)
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
-local Threads = require("../Util/Threads")
 local Roblox = require("../Hooks/Roblox")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Errors = require("../Core/Errors")
@@ -117,7 +114,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	local Turn = Config.Scheduler or Registry.Defaults.Scheduler
 	local Hook = Config.Hook or Registry.Defaults.Hook
 	if Hook ~= Roblox.New() then
-		Warnings.Warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
+		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end
 
 	local Layers: { Layer.Layer } = {}
@@ -171,7 +168,7 @@ function Store.Wake(self: Store, UserId: number, Active: any?)
 	end
 	self.Waiters[UserId] = nil
 	for _, Thread in List do
-		Threads.Resume(Thread, Active)
+		self.Wrapper.Scheduler.Resume(Thread, Active)
 	end
 end
 
@@ -183,7 +180,7 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 
 	local Ok, Took = pcall(Answer, Player, Why)
 	if not Ok then
-		Warnings.Warn(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
+		warn(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
 		return false
 	end
 	if Took ~= true then
@@ -191,7 +188,7 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 	end
 
 	if Player.Parent ~= nil and Players:GetPlayerByUserId(Player.UserId) ~= nil then
-		Warnings.Warn(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
+		warn(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
 	end
 	return true
 end
@@ -225,7 +222,7 @@ function Store.Autosave(self: Store, UserId: number)
 	if Ok then
 		return
 	end
-	Warnings.Warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
+	warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
 end
 
 function Store.Save(self: Store, Active: any): Future<boolean, Reason?>
@@ -266,11 +263,11 @@ function Store.Load(self: Store, Player: Player)
 	local UserId = Player.UserId
 
 	if self.Loaded[UserId] ~= nil then
-		Warnings.Warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
+		warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
 		return
 	end
 	if self.Loads[UserId] == "Loading" then
-		Warnings.Warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
+		warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
 		return
 	end
 
@@ -292,7 +289,7 @@ function Store.Load(self: Store, Player: Player)
 	end
 
 	if self.Loaded[UserId] ~= nil then
-		Warnings.Warn(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
+		warn(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
 		Active:Release()
 		return
 	end

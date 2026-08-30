@@ -2,21 +2,20 @@
 --!optimize 2
 
 --[=[
-	Write: Puts one op on one key. Reads what the record folds to.
 
-	Every public write ends here. This is the only place that turns a datastore answer into a reason.
-	The steps run in a fixed order: the guard of the caller, Applies, the append, Maintain, then
-	Certain. Each step gives a different answer when it fails.
-	Write also holds the key to the state cap, and adds a key to the sweep when that key holds money
-	in the middle of a move.
+	Write: Puts one op on one key, and reads what the record folds to.
 
-	Return type: A table with Failed, Watch, WatchHeld, Stale, Went, Append, Maintain, Applies, Written, Swelling and Starved.
+	Every public write ends here, and this is the only place that turns a datastore answer into a
+	reason. It runs the caller's guard, asks whether the op still applies, appends, settles and trims
+	the record, then reads back whether the op really took. It also adds a key to the sweep when that
+	key is left holding money mid move.
+
+	Return type: A table with Failed. It writes Stale, Went, Watch, WatchHeld, Append, Swelling, Starved, Maintain, Applies, Swollen and Written onto the class.
 	Example usage:
 		local Write = require("./Write")
 		local Ok, Why = self:Written("1", Op, "edit")
 --]=]
 
-local Warnings = require("../../Util/Warnings")
 local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
 local Observer = require("../../Util/Observer")
@@ -54,11 +53,11 @@ local function Failed(What: string, Key: string, Err: any): Reason
 	end
 
 	if Why == BEHIND then
-		Warnings.Warn(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
+		warn(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
 		return Why
 	end
 
-	Warnings.Warn(`Ledger: could not {What} '{Key}': {Err}`)
+	warn(`Ledger: could not {What} '{Key}': {Err}`)
 	return Why
 end
 
@@ -105,7 +104,7 @@ function Store.Swelling(self: Store, Key: string, Record: Record)
 		break
 	end
 
-	Warnings.Warn(
+	warn(
 		`Ledger: '{Key}' is carrying {#Record.Ops} ops it cannot compact away because {Blocking} is still parked on it, so the record keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`
 	)
 
@@ -125,7 +124,7 @@ function Store.Starved(self: Store, Pool: Enum.DataStoreRequestType)
 	local Records = self.Wrapper.Spent - Meter.Records
 	local Markers = self.TxWrapper.Spent - Meter.Markers
 
-	Warnings.Warn(
+	warn(
 		`Ledger: {Meter.Skipped} autosave(s) skipped on '{self.Options.Name}' with {Pool.Name} budget at {self.Wrapper:Budget(Pool)}, so unsaved ops are piling up. this server spent {Records} request(s) on records and {Markers} on transaction markers since the last of these`
 	)
 
@@ -144,7 +143,7 @@ function Store.Maintain(self: Store, Key: string, Record: Record): Record
 		if Ok then
 			Settled = Resolution
 		else
-			Warnings.Warn(`Ledger: could not settle a pending transaction leg on '{Key}' during a write, so it stays pending: {Resolution}`)
+			warn(`Ledger: could not settle a pending transaction leg on '{Key}' during a write, so it stays pending: {Resolution}`)
 		end
 	end
 
@@ -229,18 +228,18 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 			return false, CLOSED
 		end
 		if Named == BEHIND then
-			Warnings.Warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
+			warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
 			return false, BEHIND
 		end
 		if Named == FULL then
-			Warnings.Warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
+			warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
 			return false, FULL
 		end
 		if Named == BUSY then
 			return false, BUSY
 		end
 
-		Warnings.Warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
+		warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
 		return false, UNRESOLVED
 	end
 
@@ -249,7 +248,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return false, Denied or REFUSED
 	end
 	if Swollen then
-		Warnings.Warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {Sizes.State} byte state cap and this would make it bigger`)
+		warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {Sizes.State} byte state cap and this would make it bigger`)
 		return false, FULL
 	end
 	if not Applied then
@@ -271,7 +270,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	end)
 
 	if not Ok then
-		Warnings.Warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
+		warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
 		return false, UNRESOLVED
 	end
 

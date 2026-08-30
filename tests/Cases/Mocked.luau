@@ -2,17 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Mocked: One rule per promise the shipped mock makes.
 
-	The mock in src is what a game tests against, so it has to behave like the real service. A mock
-	that is more forgiving lets a game ship something that only fails once it is live.
-	A store is handed its datastore when it is built, so choosing one afterwards is refused rather
-	than swapped in under whatever is already holding data.
-	The budget is the subtle one, because a real server spends from two pools and the gauge shows one.
-
+	Key and value caps, kept versions, listings and cursors, a transform that yields or throws, and the
+	two request budget lanes. A mock more forgiving than the real service lets a game ship something
+	that only fails once it is live.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

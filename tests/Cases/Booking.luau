@@ -2,17 +2,15 @@
 --!optimize 2
 
 --[=[
-	Booking: One rule per case for units set aside on a single key.
 
-	A booking holds units of a number field under a name, so limited stock can sit on one key. The
-	units are neither spendable nor lost while held, and they come back if nobody takes them.
-	Handing one to another key is two writes, so a server that stops between them leaves the units on
-	both, and only recovery may decide which way it went.
-	The tally cases are the other half: spread over its own keys, and only ever added to.
+	Booking: One rule per case for units set aside on a single key, and for tallies.
 
+	Reserving units under a name, confirming them, releasing them, letting a hold run out, and handing
+	a booking to another key. The tally cases are the other half: a total spread over its own keys and
+	only ever added to.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

@@ -2,14 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	Fingerprint: Makes a short mark of what a name was used for.
 
-	Two servers that build the same request get the same mark, because the text is put in one order first.
-	A name that is used again for different terms therefore reads as different.
-
-	Bucket spreads a name over a fixed number of slots, so that two servers asked to place the same
-	name land on the same one. It reads four bytes of the hash rather than one, so a slot count that
-	does not divide a single byte still gets an even spread.
+	Canon writes a value out in one fixed order, Of hashes that to a short mark, and Bucket spreads a
+	name evenly over a fixed number of slots. Two servers given the same input get the same answer.
 
 	Return type: A table with Canon, Of, Bucket and BYTES.
 	Example usage:

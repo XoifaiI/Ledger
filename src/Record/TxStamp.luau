@@ -2,11 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	TxStamp: The transaction stamp on an op, and what a record says about it.
 
-	Each fold skips an op that has a stamp. These questions therefore tell you whether a key waits
-	for something.
-	Carries looks in Ops and in Seen, because a compaction moves an id from one to the other.
+	Every fold skips a stamped op, so these questions say whether a key is waiting on a transaction.
+	Unstamped takes the stamp off one, Landed takes it off every op of a transaction, and Carries looks
+	in both Ops and Seen.
 
 	Return type: A table with Unstamped, Landed, HasPending, NotPending, PendingTx, Holds, Carries and Written.
 	Example usage:

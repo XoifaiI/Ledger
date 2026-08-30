@@ -2,16 +2,17 @@
 --!optimize 2
 
 --[=[
+
 	Transform: Runs a list of rules against one key.
 
-	A datastore can run one transform more than one time when two writes arrive together.
-	The runner therefore builds the state of a pass inside the transform, and clears it at the start
-	of each run. Nothing that a rule writes can then survive into the next run.
+	Each rule checks, then changes, then is asked whether it still holds once the write landed. A
+	datastore can run one transform more than once, so the pass is cleared at the start of every run
+	and nothing a rule wrote survives into the next.
 
 	Return type: A table with Run, which gives back the record before, the record after, and the reason.
 	Example usage:
 		local Transform = require("./Transform")
-		local Outcome = Transform.Run(Update, Key, Rules)
+		local Outcome = Transform.Run(Update, Key, List)
 --]=]
 
 local Shapes = require("../Core/Shapes")

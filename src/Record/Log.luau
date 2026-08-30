@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Log: The record on one key.
 
-	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, or fold its log.
-	Every write first asks whether this build may write the record.
-	An append adds only the ops that the record does not have. An append that runs two times
-	therefore applies one time.
-	Materialize does not trust a field that it reads, because another build can write a record.
-	A datastore hides an error that a transform throws. Update keeps that error and raises it again.
+	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, compact it or trim it.
+	An append adds only the ops the record does not already have, so running one twice applies once.
+	Every write first asks whether this build may write the record at all.
 
 	Return type: A table with New, Verdict, Entombed, NotEntombed and Known.
 	Example usage:
@@ -18,7 +16,6 @@
 		local Record = Books:Read("1")
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Errors = require("../Core/Errors")
 local Sizes = require("../Core/Constants/Sizes")
@@ -436,7 +433,7 @@ function Log.Compact(self: Log, Key: string, Format: Schema<any>): Record
 
 	local Bytes = Measure(Result.After)
 	if Bytes > Sizes.ValueWarn then
-		Warnings.Warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {Sizes.Value}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
+		warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {Sizes.Value}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
 	end
 
 	local State = Result.After.Bytes
@@ -445,7 +442,7 @@ function Log.Compact(self: Log, Key: string, Format: Schema<any>): Record
 		local Fix = if Ours
 			then "that field is Ledger's own bookkeeping and your game cannot take it out. it grows with the transfers, transactions and reservations this key takes, so spread that work over more keys"
 			else "take out what the game no longer reads, or spread it over more keys"
-		Warnings.Warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Sizes.State}{Said}. {Fix}`)
+		warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Sizes.State}{Said}. {Fix}`)
 	end
 	return Result.After
 end
@@ -460,7 +457,7 @@ function Log.Trim(self: Log, Key: string, Format: Schema<any>, Record: Record): 
 		return Packed
 	end
 
-	Warnings.Warn(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
+	warn(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
 	return Record
 end
 

@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
-	Shapes: The shapes that a datastore holds.
 
-	Each tier agrees on these shapes. No module above may write them again.
-	The envelope is the format of the record. A record with a higher envelope comes from a newer build.
-	Folded is the state a fold gives back, with Ledger's four fields named and the game's own left
-	open. Held and Booked are one entry of the first two, named here so the layer that writes one and
-	the protocol that reads it cannot drift. A record comes back from a datastore, so Escrow.Entry and
-	Booking.Entry guard one on the way out, and a hold an older build wrote carries no At.
+	Shapes: The shapes a datastore holds.
+
+	An op, the record one key holds, and the state a fold gives back. Folded names Ledger's own four
+	fields and leaves the game's own open. Held and Booked are one entry of the money set aside and
+	the units set aside.
 
 	Return type: A table with ENVELOPE. The types are Op, Record, HistoryEntry, KeyLike, KeysMode, Reducer, Migration, Held, Booked and Folded.
 	Example usage:

@@ -2,17 +2,12 @@
 --!optimize 2
 
 --[=[
-	Validate: The checks on arguments that the public methods share.
 
-	These throw where the call was written. A wrong argument is a fault in the caller,
-	and not a thing that went wrong, so it does not get a reason.
+	Validate: The argument checks the public methods share.
 
-	A reducer cannot throw at a caller, so Positive answers the same question without one. Amount is
-	the throwing half, for an argument a game hands in, and Number is the narrowing half, for a field
-	read off an op.
-
-	Name is for an Id a caller must give, and Maybe is the same check for one they may leave out, so
-	neither hands back something a caller has to narrow before using it.
+	Amount, Field and Name throw where the call was written. Positive and Number answer the same
+	questions without throwing, for a reducer that cannot. Maybe is Name for an argument a caller may
+	leave out.
 
 	Return type: A table with Positive, Number, Amount, Field, Name and Maybe.
 	Example usage:

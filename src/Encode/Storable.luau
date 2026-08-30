@@ -2,10 +2,12 @@
 --!optimize 2
 
 --[=[
-	Storable: Refuses each value that a datastore cannot hold.
 
-	A value must survive one trip to the datastore and back.
-	No gaps in an array, no mix of array keys and string keys, no nan, no loop and no metatable.
+	Storable: Refuses each value a datastore cannot hold.
+
+	A value has to survive one trip to the datastore and back: no gaps in an array, no mixing array
+	keys with string keys, no nan, no cycle and no metatable. Op adds the checks that belong to an op,
+	and Reserved and Bookkeeping name the two prefixes Ledger keeps for itself.
 
 	Return type: A table with Op, Value, Structure, Reserved and Bookkeeping.
 	Example usage:

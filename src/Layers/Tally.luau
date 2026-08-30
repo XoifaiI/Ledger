@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
-	Tally: A total that is spread over a fixed set of keys.
 
-	Each server writes its own key, and does not wait behind the others.
-	A tally can only go up. No key can see the others, so no key knows the total,
-	and a limit cannot hold across them.
-	The total lives in a field of Ledger's own, and the game's own field on a shard is never touched.
-	A shard therefore says what it holds on its own, without the Default it was built from having to
-	be known.
+	Tally: A total spread over a fixed set of keys.
+
+	Each server writes its own shard and never waits behind another, so a total only goes up and no
+	single key knows it. Mine picks this server's shard, Shards names them all, and the running total
+	lives in a field of Ledger's own rather than the game's.
 
 	Return type: A table with Layered, Bump, Counted, Mine, Shard, Shards, SHARDS, PART and FIELD.
 	Example usage:

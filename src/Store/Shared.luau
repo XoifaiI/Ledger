@@ -2,14 +2,14 @@
 --!optimize 2
 
 --[=[
+
 	Shared: What each other half of the store needs first.
 
-	It resolves a key, and it gets the log and the shape that this store folds with.
-	Shared keeps the log handle against the wrapper that built it, so a store that swaps its backend
-	gets a new handle and not one that points at the old datastore.
-	A tally puts its shard number after a mark in the key. A key of a game may not hold that mark.
+	Resolving a key and saying what a key may look like, the log and the schema this store folds with,
+	the request budget, and the five plain functions the sweep sees a store as. The log handle is kept
+	against the wrapper that built it.
 
-	Return type: A table with Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Swept, Records, Format, Fold, ReadRecord, ValidId and MAX_KEY.
+	Return type: A table with ValidId and MAX_KEY. It writes Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Affords, TxAffords, Swept, Records, Format, Fold and ReadRecord onto the class.
 	Example usage:
 		local Shared = require("./Shared")
 		local Key = self:Resolve(1, "Peek")

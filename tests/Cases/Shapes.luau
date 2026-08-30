@@ -2,17 +2,14 @@
 --!optimize 2
 
 --[=[
+
 	Shapes: One rule per case for the shape of a stored record.
 
-	Migrations, resets, reconcile, version history and byte sizing. All of them are about what a
+	Migrations, resets, filling in defaults, version history and byte sizing. All of it is about what a
 	record written by one build means to another.
-	A migration runs on the way out of storage and never on the way in, so a prepare or an append
-	leaves the stored snapshot as it found it. Sizing sits underneath all of it, because every cap is
-	measured in bytes.
-
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local HttpService = game:GetService("HttpService")

@@ -2,16 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Once: One rule per case for a caller named op that lands at most one time.
 
-	A game gives an op a name and Ledger promises the name pays once, however many times the op is
-	offered. That promise holds across a replay, a compaction, a fresh session, two servers at once,
-	and a key that was erased and came back.
-	Every name ages out at the prune horizon, transaction ids included.
-
+	The same name offered again across a replay, a compaction, a fresh session, two servers at once,
+	and a key that was erased and came back. Names age out at the prune window, transaction ids
+	included.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

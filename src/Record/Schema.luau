@@ -2,12 +2,12 @@
 --!optimize 2
 
 --[=[
-	Schema: Turns a stored record into the state that a game reads.
 
-	The migrations run first. The defaults are put in second. The ops fold on top of the snapshot last.
-	Certain tells you whether a parked transaction can still change the answer.
-	Detached copies the snapshot, so a reducer that writes to what it gets cannot reach the
-	stored record.
+	Schema: Turns a stored record into the state a game reads.
+
+	Migrations run first, defaults are filled in second, and the ops fold on top of the snapshot last.
+	Certain says whether a parked transaction can still change the answer. Detached copies the
+	snapshot, so a reducer cannot reach the stored record through it.
 
 	Return type: A table with New, FloorOf, Migrate and Detached.
 	Example usage:

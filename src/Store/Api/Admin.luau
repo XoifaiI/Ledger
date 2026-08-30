@@ -2,25 +2,20 @@
 --!optimize 2
 
 --[=[
+
 	Admin: The operator side of a store.
 
-	It finishes what a dead server left, it resets a key, and it erases one.
-	These are the only paths that throw data away, so each one says what went with it.
-	An erase keeps the applied names in the tombstone and throws the rest away, so a transfer that
-	arrived before the erase cannot pay in again.
-	An erase tells recovery the key is going, so a hold recovery would have rested is sent instead, and
-	it hands over each reservation owed to another key. Neither is kept for a key that will not be
-	there to be given it back.
-	The first erase leaves a tombstone. Only an erase that finds an old tomb removes the key, so a
-	caller that wants the key gone must call Erase two times, 8 days apart.
+	Resettle and RecoverTransfers finish what a stopped server left, ClearDelivered prunes applied
+	names, Reset puts a key back to the default state, and Erase buries it. These are the only paths
+	that throw data away, so each says what went with it. The first erase leaves a tombstone, and only
+	an erase that finds an old one removes the key.
 
-	Return type: A table with Freed, Repair, ReapMarkers, Buried, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase.
+	Return type: A table with Failed. It writes Freed, Repair, ReapMarkers, Buried, HeldOn, HandOver, HandBooked, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:
 		local Admin = require("./Admin")
 		local Ok, Why = self:Erase(1):Wait()
 --]=]
 
-local Warnings = require("../../Util/Warnings")
 local Future = require("../../Util/Future")
 local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
@@ -123,7 +118,7 @@ function Store.ReapMarkers(self: Store): number
 		return Reaped
 	end
 
-	Warnings.Warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
+	warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
 	return 0
 end
 
@@ -132,7 +127,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return self:Fold(Schema.Detached(Replaced))
 	end)
 	if not Ok then
-		Warnings.Warn(`Ledger: erased '{Key}' but could not read back what was on it, so this cannot say what went with it: {State}`)
+		warn(`Ledger: erased '{Key}' but could not read back what was on it, so this cannot say what went with it: {State}`)
 		return
 	end
 	if type(State) ~= "table" then
@@ -141,7 +136,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 
 	local Count, Fields = Aside(State._Booked)
 	for Named, Amount in Fields do
-		Warnings.Warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
+		warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
 	end
 
 	local Field = self.Options.Balance
@@ -154,7 +149,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return
 	end
 
-	Warnings.Warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Windows.TOMB // 86400} days is turned away and given back to whoever sent it`)
+	warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Windows.TOMB // 86400} days is turned away and given back to whoever sent it`)
 end
 
 function Store.HeldOn(self: Store, Key: string): (boolean, any)
@@ -181,7 +176,7 @@ end
 function Store.HandOver(self: Store, Key: string): (number, number)
 	local Read, Held = self:HeldOn(Key)
 	if not Read then
-		Warnings.Warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
+		warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
 		return 0, 0
 	end
 	if not TableUtil.Occupied(Held) then
@@ -192,12 +187,12 @@ function Store.HandOver(self: Store, Key: string): (number, number)
 		Recovery.Transfers(self:Records(), self:Format(), Key, Held, true)
 	end)
 	if not Sent then
-		Warnings.Warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)
+		warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)
 	end
 
 	local Again, Left = self:HeldOn(Key)
 	if not Again then
-		Warnings.Warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
+		warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
 		return 0, 0
 	end
 	return CountHeld(Left)
@@ -208,7 +203,7 @@ function Store.HandBooked(self: Store, Key: string)
 		return self:Fold(self:ReadRecord(Key))
 	end)
 	if not Read or type(State) ~= "table" then
-		Warnings.Warn(`Ledger: could not check '{Key}' for units set aside for another key before erasing it, so any that were owed go with it: {State}`)
+		warn(`Ledger: could not check '{Key}' for units set aside for another key before erasing it, so any that were owed go with it: {State}`)
 		return
 	end
 
@@ -231,7 +226,7 @@ function Store.HandBooked(self: Store, Key: string)
 		end
 
 		local Says = if Gave then "the booking could not be marked as leaving" else tostring(Moved)
-		Warnings.Warn(`Ledger: could not hand booking '{Rid}' on '{Key}' over to '{Held.To}' before erasing it, so its {Held.Amount} {Held.Field} goes with the key: {Says}`)
+		warn(`Ledger: could not hand booking '{Rid}' on '{Key}' over to '{Held.To}' before erasing it, so its {Held.Amount} {Held.Field} goes with the key: {Says}`)
 	end
 end
 
@@ -307,7 +302,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		if Ok then
 			local Count, Fields = Aside(Dropping)
 			for Named, Amount in Fields do
-				Warnings.Warn(
+				warn(
 					`Ledger: resetting '{Resolved}' destroyed {Count} reservation(s) holding {Amount} {Named}. Confirm and Release on those ids are refused from here on, so tell whoever is holding them`
 				)
 			end
@@ -320,7 +315,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Erase")
 
 	if self.Keys == "Player" and Players:GetPlayerByUserId(tonumber(Resolved) or 0) ~= nil then
-		Warnings.Warn(`Ledger: erasing {Resolved} while they are still in this server, so their session writes part of the record back`)
+		warn(`Ledger: erasing {Resolved} while they are still in this server, so their session writes part of the record back`)
 	end
 
 	return Future.New(function(): (boolean, Reason?)
@@ -359,7 +354,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		end
 
 		if Holds > 0 then
-			Warnings.Warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} had not finished, so that money is gone for good. check the audit log and pay the receivers back by hand`)
+			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} had not finished, so that money is gone for good. check the audit log and pay the receivers back by hand`)
 		end
 
 		local Before = Replaced :: Record

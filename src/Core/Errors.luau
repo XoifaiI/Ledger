@@ -2,12 +2,11 @@
 --!optimize 2
 
 --[=[
-	Errors: An error that carries the reason that it becomes.
 
-	A failure names itself where it occurs. The caller does not read the reason out of a message later.
-	Holds writes a warning and throws when a rule of Ledger breaks. That is a fault in Ledger.
-	A fault has no methods, only a way to print itself, so its metatable declares __tostring and no
-	__index. Nothing is inherited, and an instance holds the three fields and nothing else.
+	Errors: An error that carries the reason it becomes.
+
+	New builds one, Of and Named read the reason back out of a raised value, and Holds throws one when
+	a rule of Ledger breaks. Broke warns about the same without throwing.
 
 	Return type: A table with New, Of, Named, Broke and Holds.
 	Example usage:
@@ -15,7 +14,6 @@
 		error(Errors.New(Reasons.Busy, "the key has a leg on it"))
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local Tagged = require("../Util/Tagged")
 local ThreadQueue = require("../Util/ThreadQueue")
 local Reasons = require("./Reasons")
@@ -54,7 +52,7 @@ local function Of(Err: unknown): Reason?
 end
 
 local function Broke(Message: string)
-	Warnings.Warn(`Ledger: {Message}. that is a rule Ledger holds itself to, so this is a bug in Ledger and not in your game. please report it`, 1)
+	warn(`Ledger: {Message}. that is a rule Ledger holds itself to, so this is a bug in Ledger and not in your game. please report it`)
 end
 
 local function Holds(Condition: any, Message: string)

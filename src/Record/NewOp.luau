@@ -2,15 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	NewOp: Builds an op that has a new unique id.
 
-	The id is what makes an append that runs two times apply one time.
-	A caller can put its own OnceAt on an op, but only inside the window a name is kept for. A time
-	in the future would hold the name past its own horizon. A time further back than the window is
-	already past it, so the next write that carries a name drops it and the op could apply again.
-
-	Check is the whole thing an op has to pass before it is offered anywhere: it is stamped, then it is
-	held against what a datastore can store. The three places that take an op from a game share it.
+	The id is what makes an append that runs twice apply once. Stamp puts the time on a caller's Once
+	name and refuses one stamped outside the window a name is kept for. Check is everything an op has
+	to pass before it is offered anywhere: stamped, then held against what a datastore can store.
 
 	Return type: A table with New, Stamp and Check.
 	Example usage:
@@ -18,7 +15,6 @@
 		local Op = NewOp.New("Add", { Amount = 5 })
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
 local Ident = require("../Encode/Ident")
@@ -64,7 +60,7 @@ local function NewOp(Kind: string, Fields: { [any]: any }?): Op
 
 	local Op: { [any]: any } = if Fields then TableUtil.DeepCopy(Fields) else {}
 	if Op.Id ~= nil or Op.Kind ~= nil or Op.OnceAt ~= nil then
-		Warnings.Warn(`Ledger: op '{Kind}' passed Id, Kind or OnceAt in its fields. those belong to Ledger, so they got overwritten`)
+		warn(`Ledger: op '{Kind}' passed Id, Kind or OnceAt in its fields. those belong to Ledger, so they got overwritten`)
 	end
 
 	Op.Id = Ident.Fresh()

@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Admit: Rules on one op against the live state.
 
-	This is the only place that decides whether an op may join the session, and it answers with a
-	reason and not a boolean.
-	Admit measures the state only when the state could be near the cap, because a measure walks the
-	whole profile. An op that makes an oversized profile smaller is still allowed.
-	Admit turns an op away while two or more transactions are parked, because it cannot prove that
-	the op holds for every way they can settle.
+	The only place that decides whether an op may join a session, and it answers with a reason rather
+	than a boolean. It runs the reducer against live state, checks the op against the log and state
+	caps, and turns one away while a parked transaction could settle either way.
 
 	Return type: A table with Admit.
 	Example usage:
@@ -17,7 +15,6 @@
 		local Ruling = Admit.Admit(Active, Op, Bytes)
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local NoYield = require("../Util/NoYield")
 local Sizes = require("../Core/Constants/Sizes")
 local Reasons = require("../Core/Reasons")
@@ -41,12 +38,12 @@ local UNRESOLVED = Reasons.Unresolved
 local REJECTED: Admitted<any> = table.freeze({ Outcome = "Rejected" }) :: any
 
 local function Refused(Kind: string, Why: Reason, Says: string): Admitted<any>
-	Warnings.Warn(`Ledger: rejected op '{Kind}', {Says}`, 1)
+	warn(`Ledger: rejected op '{Kind}', {Says}`)
 	return { Outcome = "Refused", Why = Why }
 end
 
 local function Rejected(Kind: string, Says: string): Admitted<any>
-	Warnings.Warn(`Ledger: rejected op '{Kind}', {Says}`, 1)
+	warn(`Ledger: rejected op '{Kind}', {Says}`)
 	return REJECTED
 end
 

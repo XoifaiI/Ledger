@@ -1,30 +1,29 @@
 --!strict
 
 --[=[
+
 	Cases: Runs the case suite outside Roblox and prints the verdict.
 
-	The same suite the Studio runner runs, found on disk rather than in a data model. A case file is
-	every module under tests/Cases, so there is no list to forget here either.
-	The engine goes in before anything under src is required, because a module reads its services at
-	the top rather than at the call.
+	It puts the Roblox vocabulary in place, points warn at the bench, loads every module under
+	tests/Cases and runs them. A fragment after the file name runs only the cases whose name holds it.
 
 	Return type: Nothing. It prints, and sets the exit code.
 	Example usage:
 		zune run zune/Cases.luau
+		zune run zune/Cases.luau "a transfer"
 --]=]
 
-require("./Engine").Install()
+local Engine = require("./Engine")
+
+Engine.Install()
 
 local Suite = require("../tests/Suite")
-local Warnings = require("../src/Util/Warnings")
+
+Engine.Listen(Suite.Heard)
 
 local MATCH = zune.process.args[2] or ""
-local QUIET = true
-
 local SHOW_BROKEN = 40
 local SHOW_ACCUSED = 20
-
-Warnings.Quiet(QUIET)
 
 local function Row(Title: string, Count: number)
 	print(`  {Title} {string.rep(".", math.max(1, 34 - #Title))} {if Count == 0 then "none" else tostring(Count)}`)

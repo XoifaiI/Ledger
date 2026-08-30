@@ -3,17 +3,12 @@
 --!native
 
 --[=[
+
 	Measure: Counts the bytes a value takes once a datastore has it as json.
 
-	The count is exact rather than an estimate, because every cap in Ledger is decided against it and
-	a write that is refused one byte late is a write that fails at the datastore instead.
-	A string is the expensive part, so its scan reads four bytes at a time and only walks a group
-	byte by byte when a lane in it holds a quote, a backslash or a control character. EXTRA holds how
-	many extra bytes each byte costs once escaped, so a dirty lane costs a lookup rather than a
-	branch. SCRATCH is one buffer the scan reuses, which is safe because nothing here yields and the
-	scan never runs inside itself.
-	A table starts at two bytes for its braces and adds one separator per entry, then gives the last
-	one back, which is what the two at the top and the take away at the bottom are for.
+	The count is exact rather than an estimate, since every cap in Ledger is decided against it. A
+	string is measured with its escapes, a number by its digits, and a table by its braces, its keys
+	and one separator between entries.
 
 	Return type: A function that gives back the number of bytes.
 	Example usage:

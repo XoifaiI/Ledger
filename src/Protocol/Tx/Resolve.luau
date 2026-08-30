@@ -2,10 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Resolve: Turns what a marker says into a resolved record.
 
-	Each marker is then told that its leg has reported.
-	A server that finds a leg on a key that it wants to read runs this.
+	Any server that meets a parked leg on a key it wants to read runs this: it reads the marker for
+	every transaction parked there, resolves the legs against it, and tells the marker its leg has
+	reported.
 
 	Return type: A table with Settle.
 	Example usage:

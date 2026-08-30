@@ -2,22 +2,21 @@
 --!optimize 2
 
 --[=[
+
 	ThreadQueue: Runs tasks one after the other.
 
-	SubmitAsync waits until your task runs, then gives you what the task returned.
-	SkipToLastEnqueued removes all tasks but the last one. Each removed caller gets an error.
-	The queue records the thread that runs a task. If that thread dies before the task ends, the next
-	caller takes the queue. Without this a cancelled thread stops the queue for the life of the server.
+	SubmitAsync waits for its task to run and gives back what the task returned. SkipToLastEnqueued
+	drops everything but the last task and tells each dropped caller. If the thread holding the queue
+	dies, the next caller takes it over.
 
 	Return type: A table with New and the SKIPPED message.
 	Example usage:
 		local ThreadQueue = require("./ThreadQueue")
-		local Queue = ThreadQueue.New()
+		local Queue = ThreadQueue.New(Scheduler)
 		local Value = Queue:SubmitAsync(Work)
 --]=]
 
 local Engine = require("./Engine")
-local Warnings = require("./Warnings")
 
 type Entry = {
 	Callback: () -> ...any,
@@ -81,7 +80,7 @@ end
 function ThreadQueue.SubmitAsync(self: ThreadQueue, Callback: () -> ...any): ...any
 	if not self.Busy or self:Abandoned() then
 		if self.Busy then
-			Warnings.Warn(`Ledger: ThreadQueue took over a queue whose thread was cancelled, {#self.Tasks} task(s) were waiting on it`)
+			warn(`Ledger: ThreadQueue took over a queue whose thread was cancelled, {#self.Tasks} task(s) were waiting on it`)
 		end
 
 		self.Busy = true

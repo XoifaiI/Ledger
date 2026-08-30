@@ -2,11 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	Service: The service half of the fake datastore.
 
-	It hands out stores, and it holds the request budget of this server.
-	The budget refills against the scheduler's clock and not the wall, or a run that owns its clock
-	would wait on tokens that never come back.
+	It hands out stores by name and scope, and holds this server's request budget. The budget refills
+	against the scheduler's clock, so a run that owns its clock owns the refill too.
 
 	Return type: A table with New and MAX_NAME.
 	Example usage:

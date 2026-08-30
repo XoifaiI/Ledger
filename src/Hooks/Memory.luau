@@ -2,21 +2,14 @@
 --!optimize 2
 
 --[=[
+
 	Memory: The datastore Ledger writes to in a test, and the faults a test wants it to have.
 
-	It is the mock behind the shape the real one takes, so a store cannot tell which it was handed,
-	and every wait goes to the scheduler it was given.
-	A fault names the call it watches and what happens to it. A dropped one never reached the
-	datastore. A swallowed one landed and its answer was lost, which a caller cannot tell from one
-	that never happened at all. A stalled one arrives late, so other callers pile up behind it. A
-	meddled one goes through untouched but runs something first, which is how a test puts another
-	server's write in the middle of this one.
-	A fault fires on every call it matches unless it is given an ordinal, so a test can aim at the
-	third write of a protocol and leave the rest alone. That is the difference between a fault a
-	person writes and one a fuzzer rolls.
-	Faults belong to the hook and not to the data, so two hooks over one service are two servers on one
-	datastore and only one of them is broken. That is the only way to say it: a store name cannot,
-	since two servers share it.
+	The mock behind the shape the real one takes, so a store cannot tell which it was handed. A fault
+	names the call it watches and what happens to it: dropped never reached the datastore, swallowed
+	landed and lost its answer, stalled arrives late, and meddled goes through after running something
+	first. An ordinal aims one at the Nth matching call. Two hooks over one service are two servers on
+	one datastore.
 
 	Return type: A table with New, On, the five builders, DOWN and SWALLOWED. The types are Memory, Spec and Effect.
 	Example usage:

@@ -1,24 +1,19 @@
 --!strict
 
 --[=[
-	Engine: The handful of Roblox globals Ledger reads, answered by Zune.
 
-	Ledger already takes its datastore, its scheduler and its clock as arguments, so what is left is
-	not behaviour but vocabulary: a hash, a base64 pair, a json pair, a guid, five request kinds and
-	two sort directions. Each one below is answered by something Zune ships, and nothing here decides
-	anything Ledger would otherwise decide for itself.
-	The hash has to hand back raw bytes rather than hex, because a fingerprint cuts the first six and
-	a shard reads the first four, and hex would halve the entropy of both.
-	Workspace is a userdata and not a table, because a case hands it to Ledger to be refused and a
-	table would be stored quite happily.
-	An enum member is made once and frozen, so two reads of one kind are the same value and code that
-	compares them still works.
-	Install is called before anything under src is required, since a module reads its services at the
-	top rather than at the call.
+	Engine: The Roblox globals Ledger reads, answered by Zune.
 
-	Return type: A table with Install.
+	Ledger takes its datastore, scheduler and clock as arguments, so what is left is vocabulary: a
+	hash, base64, json, a guid, the request kinds, the sort directions, task, workspace, Random and
+	warn. Install puts them in place, and Listen points warn at something other than the screen.
+	The hash hands back raw bytes rather than hex, since a fingerprint cuts the first six and a shard
+	reads the first four.
+
+	Return type: A table with Install and Listen.
 	Example usage:
-		require("./Engine").Install()
+		local Engine = require("./Engine")
+		Engine.Install()
 --]=]
 
 local Serde = zune.serde
@@ -150,11 +145,31 @@ local Game = table.freeze({
 	end,
 })
 
+local Heard: ((Message: string) -> ())? = nil
+
+local function Listen(Held: ((Message: string) -> ())?)
+	Heard = Held
+end
+
 local function Install()
 	local Held: { [string]: any } = _G
 
 	Held.game = Game
 	Held.Enum = Enums
+	Held.warn = function(...: any)
+		local Parts: { string } = {}
+		for Index = 1, select("#", ...) do
+			table.insert(Parts, tostring((select(Index, ...))))
+		end
+
+		local Message = table.concat(Parts, " ")
+		local Sink = Heard
+		if Sink ~= nil then
+			Sink(Message)
+			return
+		end
+		print(Message)
+	end
 	Held.task = zune.task
 	Held.workspace = newproxy(false)
 	Held.Random = table.freeze({ new = NewRandom })
@@ -162,6 +177,7 @@ end
 
 return table.freeze({
 	Install = Install,
+	Listen = Listen,
 
 	Game = Game,
 	Enums = Enums,

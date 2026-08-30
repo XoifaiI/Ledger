@@ -2,23 +2,20 @@
 --!optimize 2
 
 --[=[
+
 	Cleanup: The list of transactions whose markers still have to go.
 
-	A transaction writes its name here before it opens a marker. No marker exists without one.
-	A key holds the names of one shard and one bucket of time up to a limit, and the rest go on the next
-	key of that bucket, so a key costs a bounded read and write however much is waiting. The bucket is
-	narrower than the reaper's grace, so a key stops being written to before anything may judge it, and
-	the key carries its own time because a listing gives no order to read one from.
-	A name the reaper cannot clear yet moves to a key of the bucket it was read in, so an old key is
-	always emptied and taken away.
-	A key holding something that is not a list of names is left alone rather than written over.
+	A transaction writes its name here before it opens a marker, so no marker exists without one. Names
+	are spread over shards and buckets of time, and a key holds up to a limit before the next key of
+	that bucket takes the rest, so any one key costs a bounded read and write. A name the reaper cannot
+	clear yet is carried onto a newer key.
 
 	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add, Carry and the caps.
 	Example usage:
-		Roll.Add(TxStore, "trade1")
+		local Cleanup = require("./Cleanup")
+		Cleanup.Add(TxStore, "trade1")
 --]=]
 
-local Warnings = require("../../Util/Warnings")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Windows = require("../../Core/Constants/Windows")
@@ -102,7 +99,7 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 			Placed = 0
 			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
 			if type(Current) == "string" and #Current > 0 and #Held == 0 then
-				Warnings.Warn(
+				warn(
 					`Ledger: the cleanup list key '{Named(Slot, When, Part)}' holds something that is not a list of names, so it is left alone rather than written over and this transaction goes on the next key of the minute. whatever was on it cannot be read back`
 				)
 				return nil

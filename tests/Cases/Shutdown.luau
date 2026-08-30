@@ -2,16 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Shutdown: One rule per case for CloseAll, the last thing a server runs.
 
-	A shutdown has seconds, so CloseAll cuts every queue down to its last write and lowers the tries.
-	That is safe for a session, because a later push carries every op an earlier one did.
-	An inbound transfer is where it does not hold, since the deliver alone carries the money.
-	A dropped write says Closed and never Unresolved, because it never ran at all.
-
+	Every queue cut to its last write, every session saved and released, retries lowered, and what a
+	write that the shutdown dropped is told. An inbound transfer is the one that cannot be cut, since
+	the deliver alone carries the money.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

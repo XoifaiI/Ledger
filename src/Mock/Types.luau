@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Types: The declarations of the fake datastore.
 
-	These are private to this folder. This file holds declarations, and never logic.
-	A service hands out stores, and each store spends from its service. Both shapes are therefore
-	named here, and not in either of those files.
-
-	It takes the scheduler it should wait on, because a budget queue that waits on the engine cannot
-	be driven by a test that owns its own clock.
+	These are private to this folder. This file holds declarations, and never logic. A service hands
+	out stores and each store spends from its service, so both shapes are named here rather than in
+	either of those files.
 
 	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, Store and Service.
 	Example usage:

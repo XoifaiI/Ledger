@@ -2,11 +2,11 @@
 --!optimize 2
 
 --[=[
-	Budget: The two budget lanes that a real server spends from.
 
-	One lane is this server, and the other is the whole experience. A call must afford both.
-	The gauge that a game can read shows the server lane only, which is what the real one shows.
-	That gauge therefore reads as more generous than the experience allows.
+	Budget: The two budget lanes a real server spends from.
+
+	One lane is this server and the other is the whole experience, and a call has to afford both. The
+	gauge a game can read shows the server lane only, which is what the real one shows.
 
 	Return type: A table with Ceiling, Allowance, the queue limits, READING, WRITING, READ_BYTES and WRITE_BYTES.
 	Example usage:

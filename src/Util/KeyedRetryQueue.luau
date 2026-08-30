@@ -2,10 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	KeyedRetryQueue: Keeps the writes to one key in order.
 
-	Each key has its own queue. A retry therefore cannot move in front of a write that came first.
-	The Direct flag sends the call straight through with no queue.
+	Each key gets its own queue, so a retry cannot move in front of a write that came first. The
+	Direct flag sends a call straight through with no queue at all.
 
 	Return type: A table with Run and SkipAllToLastEnqueued.
 	Example usage:

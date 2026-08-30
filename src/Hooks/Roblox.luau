@@ -2,10 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	Roblox: The datastore Ledger writes to in a live game.
 
-	It is DataStoreService behind the one shape everything else takes, and it holds nothing, so New
-	hands back the same pair every time.
+	DataStoreService behind the shape everything else takes. It holds no state, so New hands back the
+	same pair every time.
 
 	Return type: A table with New. It answers the Hook shape.
 	Example usage:

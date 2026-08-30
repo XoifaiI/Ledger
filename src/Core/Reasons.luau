@@ -2,12 +2,10 @@
 --!optimize 2
 
 --[=[
-	Reasons: Names each answer that Ledger gives when a write does not go through.
 
-	The type and the values are in one file. A new reason is therefore added one time, not two times.
-	Each value carries its own exact type. To compare against one of these catches a name that does
-	not exist. To compare against a plain string instead lets the checker prove that a chain of
-	comparisons handles every reason. Use both together to get both.
+	Reasons: Every answer Ledger gives when a write does not go through.
+
+	The type and the values are in one file, and each value carries its own exact type.
 
 	Return type: A frozen table of the ten reasons.
 	Example usage:

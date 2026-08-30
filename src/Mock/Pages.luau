@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
-	Pages: A page walker that finishes the way that a real one finishes.
 
-	It also refuses to move past the end, which a real one does.
-	A page size of zero is the caller asking for the usual one rather than for no rows, which is what
-	a real datastore reads it as, so it falls back the same way a missing one does.
-	Cursor is a place in the listing and never a row of it, which is what a real one hands back, and
-	the last page carries no cursor at all. A later call that carries one starts at that place, so a
-	walker of keys continues where the last one stopped without naming what it stopped on.
+	Pages: A page walker that behaves like a real one.
+
+	It refuses to advance past the end, reads a page size of zero as the usual size rather than none,
+	and hands back a cursor that is a place in the listing rather than a row of it. The last page
+	carries no cursor.
 
 	Return type: A table with New and PAGE_LIMIT.
 	Example usage:

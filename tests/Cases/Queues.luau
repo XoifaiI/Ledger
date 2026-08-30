@@ -2,16 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Queues: One rule per case for the queues every write stands on.
 
-	SubmitAsync runs the first task inline rather than queueing it, and that task may yield. All of
-	these rest on the fast path holding the queue shut while it is suspended.
-	Order, exclusion and errors are the three promises: tasks run in the order they arrived, never
-	two at once, and one that throws tells its own caller and nobody else.
-
+	Order, exclusion and errors: tasks run in the order they arrived, never two at once, and one that
+	throws tells its own caller and nobody else. The first task runs inline rather than queued, and may
+	yield while the queue stays shut.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

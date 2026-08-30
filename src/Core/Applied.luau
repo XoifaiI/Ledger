@@ -2,13 +2,12 @@
 --!optimize 2
 
 --[=[
-	Applied: The set of applied names that a key keeps in its own state.
 
-	A tag goes in front of each name, so a transfer, a transaction, a Once name and a grant
-	cannot collide. An entry holds the time of the write and a mark of what the name meant.
-	A write drops each name that is older than the horizon, and one whose time cannot be read has
-	run out rather than lasting forever. The set is therefore bounded by the window, and never by
-	the age of the key.
+	Applied: The set of applied names a key keeps in its own state.
+
+	Each name is tagged by what it was, so a transfer, a transaction, a Once name and a grant cannot
+	collide. An entry holds the time of the write and a mark of what the name meant. Names older than
+	the prune window are dropped on the next write.
 
 	Return type: A table with the five tags, the three recalls, Key, Entry, At, Meant, Find, Has, Recall, Tagged, Remember and Prune.
 	Example usage:

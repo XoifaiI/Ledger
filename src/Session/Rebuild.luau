@@ -2,17 +2,12 @@
 --!optimize 2
 
 --[=[
-	Rebuild: Pushes the queued ops to the log. Builds the state again.
 
-	Push reads back which ops landed. It does not trust the call that returned, because another
-	server can write first and the guard can refuse the write.
-	The fence is the erase mark that the key had at load. A write lands only while that mark is the
-	same, so a session stops if something erased the key.
-	Rebuild writes an op only if the record will take it. An op that the record turns away leaves the
-	queue, because the record turns it away every time.
+	Rebuild: Pushes the queued ops to the log, and builds the state again.
 
-	The fence rule lives in Append, so every write a session makes carries it and there is one place
-	that says a write lands only while the erase mark is unchanged.
+	Push reads back which ops actually landed rather than trusting the call that returned. Append
+	carries the fence, the erase mark the key had at load, so a write lands only while that mark is
+	unchanged. Rebuild folds the record that came back and puts the still queued ops on top.
 
 	Return type: A table with Append, Push, Rebuild, ApplyPending and SumBytes.
 	Example usage:
@@ -20,7 +15,6 @@
 		local Stored, Whole = Rebuild.Push(Active)
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local TableUtil = require("../Util/TableUtil")
 local Errors = require("../Core/Errors")
 local Shapes = require("../Core/Shapes")
@@ -124,7 +118,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= self.Fence then
 		self.Released = true
-		Warnings.Warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
+		warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
 	end
 
 	self.LogSize = #Stored.Ops
@@ -167,7 +161,7 @@ local function CheckPurity<S>(self: Session<S>, Stored: Record, Base: S, Folded:
 		return
 	end
 
-	Warnings.Warn(
+	warn(
 		`Ledger: the reducer for '{self.Key}' is not deterministic, so two servers would fold this log differently. replaying the same ops changed {Where}. read only the two arguments, and pass os.time or math.random in on the op instead`
 	)
 end

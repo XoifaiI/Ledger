@@ -2,11 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Types: The session declarations.
 
-	These are private to this folder. This file holds declarations, and never logic.
-	A ruling has three outcomes, and not a boolean with a reason beside it. Rejected is the reducer
-	that says no, which is not a failure, and only Accepted carries a next state.
+	These are private to this folder. This file holds declarations, and never logic. A ruling is a
+	tagged union of three outcomes rather than a boolean with a reason beside it, and only Accepted
+	carries a next state.
 
 	Return type: An empty table. The types are Admitted, SessionImpl and Session.
 	Example usage:

@@ -2,10 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	Class: The method table for the store.
 
-	Core, Write, Read, Admin and Ops write their methods onto it. Store.luau requires those five, so
-	the table must be in a file of its own. Store.luau freezes the table last.
+	Shared, Write, Read, Admin and Ops each write their methods onto it, and Store.luau freezes it
+	once all five have been required.
 
 	Return type: The method table. __index points at itself.
 	Example usage:

@@ -2,12 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	Ident: Makes an op id from this server and a count.
 
-	The half of the id that repeats on each op costs almost nothing after the record is compressed.
-	Restart pins the server name, which a test uses to get the same ids two times. It takes a count to
-	start from as well, because a harness that runs many times in one place would otherwise carry the
-	count between them, and an id that grows a digit is a different number of bytes to store.
+	Home is the server's name and Fresh adds the next count to it. Restart pins both, so a test gets
+	the same ids twice.
 
 	Return type: A table with Fresh, Home, Restart and NODE_CHARS.
 	Example usage:

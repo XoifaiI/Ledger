@@ -2,10 +2,11 @@
 --!optimize 2
 
 --[=[
-	Reducers: The handful of games that the cases are written against.
 
-	A case is about Ledger and not about the game on top of it, so the game should be the same one
-	every time. Each one is pure and refuses by giving back nothing.
+	Reducers: The handful of games the cases are written against.
+
+	A case is about Ledger and not the game on top of it, so the game stays the same one every time.
+	Each is pure and refuses by giving back nothing.
 
 	Return type: A table with the reducers and the default states they read.
 	Example usage:

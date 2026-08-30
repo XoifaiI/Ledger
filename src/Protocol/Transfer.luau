@@ -2,15 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Transfer: Moves a balance across two keys in three legs.
 
-	The legs are reserve, deliver and settle. Each leg is atomic on its own key, and the transfer id
-	makes each leg apply one time.
-	The order matters. The money arrives first, and the hold on the sender clears second. The other
-	order would destroy the money if a server stopped between the two.
-	A server that stops leaves the money set aside, and recovery finishes it or gives it back.
-	Post reads the applied name back out of the state, because an op sits in the log whether or not
-	the reducer took it.
+	Reserve sets the money aside on the sender, Post delivers it to the receiver, and Settle clears
+	the hold. Each leg is one op, atomic on its own key, and the transfer id makes each apply once.
+	The money arrives before the hold clears, so a server that stops leaves it set aside for recovery.
 
 	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms and LandedOn.
 	Example usage:
@@ -18,7 +15,6 @@
 		local Ok, Why = Transfer.Drive(Books, Format, "a", "b", 30, "tip1")
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local Clock = require("../Util/Clock")
 local Errors = require("../Core/Errors")
 local Windows = require("../Core/Constants/Windows")
@@ -55,7 +51,7 @@ local function Stopped(Why: Reason): Reserved
 end
 
 local function Spent(Tid: string): Reserved
-	Warnings.Warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
+	warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
 	return Stopped(SPENT)
 end
 
@@ -116,12 +112,12 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	local Escrowed = Escrow.Entry(State._Held, Tid)
 	if Escrowed ~= nil then
 		if Escrowed.To ~= To or Escrowed.Amount ~= Amount then
-			Warnings.Warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}, so that is what it pays out, not the {Amount} to {To} you just asked for`)
+			warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}, so that is what it pays out, not the {Amount} to {To} you just asked for`)
 		end
 
 		local At = Escrowed.At
 		if At ~= nil and Clock.Now() - At > Windows.REDRIVE then
-			Warnings.Warn(
+			warn(
 				`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again, so recovery owns it now and this call left it alone. it is finished or given back on its own`
 			)
 			return Stopped(HELD)
@@ -232,7 +228,7 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 		return true, nil, nil
 	end
 
-	Warnings.Warn(`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`)
+	warn(`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`)
 	return false, Errors.Named(Why), true
 end
 

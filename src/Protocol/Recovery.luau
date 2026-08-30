@@ -2,16 +2,13 @@
 --!optimize 2
 
 --[=[
-	Recovery: Picks up the work that a server left when it stopped.
 
-	A transfer that is still worth sending is sent again. A transfer that is past its window is
-	given back. A reservation that is past its hold is settled or returned.
-	A hold between those two windows is left alone, because the key can still be given it back. A key
-	that is going away cannot be, so Going sends that one rather than resting it.
-	Each pass has a limit, so a key with many stranded takes several passes and not one long one.
-	A transfer past the prune horizon is written off and not refunded, because the receiver has
-	forgotten the delivery id and a refund could pay twice. Ledger writes a warning, and a person
-	decides. The windows and the cap are in Shapes/Windows.
+	Recovery: Picks up the work a server left when it stopped.
+
+	Transfers sends a held transfer again while it is still worth sending, gives it back once it is
+	past its window, and writes it off past the prune window with a warning naming the amount and the
+	key. Bookings settles or returns a reservation past its hold. Each pass takes a fixed bite and
+	leaves the rest for the next one.
 
 	Return type: A table with Transfers, Bookings and PASS_LIMIT.
 	Example usage:
@@ -19,7 +16,6 @@
 		local Clean, Moved = Recovery.Transfers(Books, Format, "a", Held)
 --]=]
 
-local Warnings = require("../Util/Warnings")
 local Clock = require("../Util/Clock")
 local Errors = require("../Core/Errors")
 local Windows = require("../Core/Constants/Windows")
@@ -49,7 +45,7 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 		return
 	end
 
-	Warnings.Warn(
+	warn(
 		`Ledger: transfer {Tid} from {From} has been stuck over {Windows.PRUNE // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
 	)
 	Transfer.Settle(Records, From, Tid, Print)
@@ -60,7 +56,7 @@ local function Redeliver(Records: Log, Format: Format, From: number | string, Ti
 		Transfer.Post(Records, Format, From, Tid, Entry.To, Entry.Amount, Entry.At)
 	end)
 	if not Ok then
-		Warnings.Warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
+		warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
 	end
 	return Ok
 end
@@ -70,7 +66,7 @@ local function GiveBack(Records: Log, Format: Format, From: number | string, Tid
 		Expire(Records, Format, From, Tid, Entry, Age)
 	end)
 	if not Ok then
-		Warnings.Warn(`Ledger: could not give back transfer {Tid} from {From}. the money stays set aside and the next recovery has another go: {Reason}`)
+		warn(`Ledger: could not give back transfer {Tid} from {From}. the money stays set aside and the next recovery has another go: {Reason}`)
 	end
 	return Ok
 end
@@ -113,7 +109,7 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 	end
 
 	if Waiting > 0 then
-		Warnings.Warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
+		warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
 	end
 
 	Errors.Holds(Handled <= PASS_LIMIT, "one recovery pass took on more holds than its own limit allows")
@@ -130,7 +126,7 @@ local function Unreadable(Booked: any, Key: string)
 		if Booking.Entry(Booked, Rid) ~= nil then
 			continue
 		end
-		Warnings.Warn(
+		warn(
 			`Ledger: '{Key}' holds a reservation named '{tostring(Rid)}' that Ledger cannot read. nothing will ever settle it and its units stay out of circulation. check the audit log and put them back by hand`
 		)
 	end
@@ -148,7 +144,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 	local Ops: { Op } = {}
 	for _, Rid in Late do
 		if #Ops >= PASS_LIMIT then
-			Warnings.Warn(`Ledger: '{Key}' has more than {PASS_LIMIT} overdue reservations, so the rest wait for the next pass`)
+			warn(`Ledger: '{Key}' has more than {PASS_LIMIT} overdue reservations, so the rest wait for the next pass`)
 			break
 		end
 
@@ -164,7 +160,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 			return Booking.Granted(Read(To :: string), Rid, Booking.Terms(Key, Rid, Held :: any))
 		end)
 		if not Fine then
-			Warnings.Warn(`Ledger: could not check '{To}' before giving back booking {Rid}, so it waits for the next pass`)
+			warn(`Ledger: could not check '{To}' before giving back booking {Rid}, so it waits for the next pass`)
 			continue
 		end
 		if Ruling == Applied.SAME then
@@ -172,14 +168,14 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 			continue
 		end
 		if Ruling == Applied.OTHER then
-			Warnings.Warn(`Ledger: '{To}' holds a booking named {Rid} that came from somewhere else, so this one never arrived. its units go back to '{Key}'`)
+			warn(`Ledger: '{To}' holds a booking named {Rid} that came from somewhere else, so this one never arrived. its units go back to '{Key}'`)
 			table.insert(Ops, Booking.Undo(Rid))
 			continue
 		end
 
 		local At = if Held ~= nil then Held.At else nil
 		if Held ~= nil and Held.Handing == true and type(At) == "number" and Now - At > Windows.PRUNE then
-			Warnings.Warn(
+			warn(
 				`Ledger: booking {Rid} on '{Key}' has been open over {Windows.PRUNE // 86400} days and '{To}' has no record of it. giving it back could pay twice, so it is written off. check the audit log and give the {Held.Amount} of '{Held.Field}' back by hand if it never arrived`
 			)
 			table.insert(Ops, Booking.Take(Rid))
@@ -196,7 +192,7 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 		Records:Append(Key, Ops)
 	end)
 	if not Gave then
-		Warnings.Warn(`Ledger: could not settle {#Ops} overdue reservation(s) on '{Key}', so they wait for the next pass`)
+		warn(`Ledger: could not settle {#Ops} overdue reservation(s) on '{Key}', so they wait for the next pass`)
 	end
 	return Gave
 end

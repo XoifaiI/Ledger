@@ -2,11 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Mock: A datastore in memory that keeps the limits of the real one.
 
-	It keeps the budgets and the queues as well, so saves work offline.
-	It may see bytes and identity only, and never the record format. That is the point of a test
-	against it.
+	Key and name caps, the value size cap, kept versions, the request budget and the queues, so a
+	test writes against the same refusals a live game meets. It sees bytes and identity only, never
+	the record format.
 
 	Return type: A table with New, MAX_NAME, MAX_KEY, MAX_VALUE and KEEP_VERSIONS.
 	Example usage:

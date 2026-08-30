@@ -2,17 +2,15 @@
 --!optimize 2
 
 --[=[
+
 	Refusals: One rule per case for everything Ledger turns away.
 
-	Two different things are refused here. A caller that asked for something impossible gets a throw
-	where the call was written. A caller that asked for something reasonable that cannot happen now
-	gets a reason.
-	The reasons matter as much as the refusals. Behind promises nothing was written, Unresolved
-	promises nothing either way, and Refused says the reducer said no.
-
+	A caller that asked for something impossible gets a throw where the call was written. One that
+	asked for something reasonable that cannot happen now gets a reason instead, and which reason it
+	gets is what these cases pin.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

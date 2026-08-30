@@ -2,10 +2,11 @@
 --!optimize 2
 
 --[=[
+
 	Fold: Replays each op on top of a base state.
 
-	An op that a reducer refuses is skipped. An op that carries a transaction stamp is also skipped,
-	because a marker has not decided that transaction yet.
+	An op the reducer refuses is skipped, and so is one carrying a transaction stamp, since no marker
+	has decided that transaction yet.
 
 	Return type: A function that gives back the state, and whether the marked op applied.
 	Example usage:

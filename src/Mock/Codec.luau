@@ -2,12 +2,12 @@
 --!optimize 2
 
 --[=[
-	Codec: The json trip that a real datastore puts a value through.
 
-	A buffer has no json form. It goes in and out as base64 under one reserved key, which is what
-	a real datastore does with it.
-	Only a table that holds that key and nothing else is a buffer. A game field with the same name
-	is therefore left alone.
+	Codec: The json trip a real datastore puts a value through.
+
+	Encode refuses anything json cannot hold and anything over the value cap. A buffer has no json
+	form, so it goes in and out as base64 under one reserved key. Only a table holding that key and
+	nothing else reads back as a buffer.
 
 	Return type: A table with Encode, Decode, MAX_VALUE and BLOB.
 	Example usage:

@@ -2,17 +2,14 @@
 --!optimize 2
 
 --[=[
+
 	Escrow: One rule per case for the money path, reserve deliver settle.
 
-	A transfer is three writes on two keys. The money leaves the sender into a hold, it is paid in on
-	the receiver, and the hold clears last. That order is the design, because clearing the hold first
-	would let a server that stopped destroy the money.
-	A name means one move for good. Recovery decides an unfinished one by asking the receiver, and
-	the tombstone cases are about money sent to a key that was erased.
-
+	A transfer as three writes on two keys, what happens when a server stops between any two of them,
+	what recovery decides afterwards, and what a transfer meets when the key it is sent to was erased.
 	Return type: The case file.
 	Example usage:
-		Add a case with Cases.Case, and it runs the next time you press play.
+		Add a case with Cases.Case, then run zune run zune/Cases.luau
 --]=]
 
 local Suite = require("../Suite")

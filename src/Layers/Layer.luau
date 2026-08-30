@@ -2,11 +2,12 @@
 --!optimize 2
 
 --[=[
+
 	Layer: Puts the reducer layers of one key in order.
 
-	A layer names the op kinds that it handles, and the bookkeeping fields that it owns.
-	A game reducer that writes one of those fields gets that field put back.
-	A layer that is added later therefore cannot forget to protect its own field.
+	A layer names the op kinds it handles and the bookkeeping fields it owns. A kind a layer handles
+	never reaches the layers below it, and a game reducer that writes an owned field gets that field
+	put back.
 
 	Return type: A table with Wrap, Stack and Handles.
 	Example usage:

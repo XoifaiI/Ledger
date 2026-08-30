@@ -2,15 +2,14 @@
 --!optimize 2
 
 --[=[
-	Registry: The one list of stores that this server built.
 
-	The sweep is built on first use, and not on require. To require Ledger therefore does not start
-	a timer before a store exists.
-	Choosing a scheduler moves the sweep's timer onto it. Without that the sweep keeps the timer it was
-	born with, and every later run of a test holds a ticker on a scheduler that stopped, which never
-	fires again. The sweep itself is kept, because anything that already asked for it holds it.
+	Registry: The one list of stores this server built.
 
-	Return type: A table with Stores, Claimed, Shutting and Sweep.
+	It holds the stores, the names they claimed, whether a shutdown is running, and the scheduler and
+	hook a store is built with by default. Use replaces those defaults and refuses once a store is
+	live. The sweep is built on first use rather than on require.
+
+	Return type: A table with Stores, Claimed, Shutting, Defaults, Use and Sweep.
 	Example usage:
 		local Registry = require("./Registry")
 		Registry.Sweep():Add(Store:Swept(), Key)
