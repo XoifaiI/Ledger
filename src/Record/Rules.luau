@@ -20,6 +20,7 @@
 local Clock = require("../Util/Clock")
 local Kinds = require("../Core/Constants/Kinds")
 local Shapes = require("../Core/Shapes")
+local Errors = require("../Core/Errors")
 local Reasons = require("../Core/Constants/Reasons")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
@@ -69,11 +70,7 @@ local function Readable(Key: string, Known: number?, Record: Record)
 		return
 	end
 
-	error({
-		Ledger = true,
-		Why = Reasons.Behind,
-		Message = `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`,
-	})
+	Errors.Raise(Reasons.Behind, `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`)
 end
 
 local function Legible(Key: string, Known: number?): Rule
@@ -159,11 +156,7 @@ local function Capped(Key: string, Owned: boolean): Rule
 				return nil
 			end
 
-			error({
-				Ledger = true,
-				Why = Reasons.Full,
-				Message = `'{Key}' is carrying {Ceiling} bytes of ops that have not been compacted away, so this one cannot go on as well`,
-			})
+			return Errors.Raise(Reasons.Full, `'{Key}' is carrying {Ceiling} bytes of ops that have not been compacted away, so this one cannot go on as well`)
 		end,
 	}
 end

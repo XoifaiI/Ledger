@@ -242,7 +242,6 @@ function Case.Store(self: Case, Held: Spec): Fixture.Fixture
 	local Hook = Fault.Wrap(Memory.New(Turn, nil, self.Service), Turn)
 	local Built = Ledger.New({
 		Name = `V2case{Claimed}`,
-		Scheduler = Turn,
 		Hook = Hook,
 		Keys = Held.Keys or "String",
 		Default = Held.Default or Reducers.MONEY,

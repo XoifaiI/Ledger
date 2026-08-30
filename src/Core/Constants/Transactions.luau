@@ -40,6 +40,6 @@ return table.freeze({
 
 	REAP_LIMIT = 64,
 	REAP_LOOKS = 16,
-	REAP_PAGE = 64,
+	REAP_PAGE = 50,
 	REAP_FLOOR = 18,
 })

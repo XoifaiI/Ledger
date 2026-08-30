@@ -18,6 +18,7 @@
 local Future = require("../../Util/Future")
 local Clock = require("../../Util/Clock")
 local Windows = require("../../Core/Constants/Windows")
+local Errors = require("../../Core/Errors")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
 local Api = require("../../Core/Api")
@@ -190,18 +191,13 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: Shapes.Booked
 
 	local Ruling = Booking.Granted(self:Fold(Landed), Rid, Print)
 	if Ruling == Tags.OTHER then
-		error({
-			Ledger = true,
-			Why = SPENT,
-			Message = `'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`,
-		})
+		Errors.Raise(
+			SPENT,
+			`'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`
+		)
 	end
 	if Ruling ~= Tags.SAME then
-		error({
-			Ledger = true,
-			Why = HELD,
-			Message = `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`,
-		})
+		Errors.Raise(HELD, `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`)
 	end
 
 	local Cleared = Records:Append(Key, { Booking.Sent(Rid) })
@@ -224,11 +220,7 @@ function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Rea
 				return false
 			end
 			if Booking.Late(Held, Clock.Now()) then
-				error({
-					Ledger = true,
-					Why = SPENT,
-					Message = `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`,
-				})
+				Errors.Raise(SPENT, `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`)
 			end
 			assert(type(Held.To) == "string", `booking '{Rid}' was not reserved with a To, so there is nowhere to hand it to`)
 			return self:Handed(Resolved, Rid, Held)

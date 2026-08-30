@@ -20,6 +20,7 @@ local TableUtil = require("../../Util/TableUtil")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Windows = require("../../Core/Constants/Windows")
 local Reasons = require("../../Core/Constants/Reasons")
+local Verdicts = require("../../Core/Constants/Verdicts")
 local Shapes = require("../../Core/Shapes")
 local Digest = require("../../Encode/Digest")
 local Mark = require("../../Encode/Mark")
@@ -48,13 +49,13 @@ local Canon = Digest.Canon
 
 local function PrepareLeg(Leg: Leg, Op: Op, PerLeg: number?): Log.Prepared
 	local Verdict = Leg.Log:Prepare(Leg.Key, Op, Leg.Shape)
-	if Verdict ~= Log.Verdict.Busy then
+	if Verdict ~= Verdicts.BUSY then
 		return Verdict
 	end
 
 	local Record = Resolve.Settle(Leg.Log, Leg.TxStore, Leg.Key, Leg.Log:Read(Leg.Key), PerLeg)
 	if TxStamp.HasPending(Record) then
-		return Log.Verdict.Busy
+		return Verdicts.BUSY
 	end
 
 	return Leg.Log:Prepare(Leg.Key, Op, Leg.Shape)

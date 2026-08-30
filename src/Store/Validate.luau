@@ -27,6 +27,7 @@ local function Named<D>(Options: Config<D>)
 	assert(type(Options.Reducer) == "function", "New needs Reducer, a (State, Op) -> State? function")
 	assert(type(Options.Default) == "table", "New needs Default, the fresh state table")
 	assert(Options.Keys == nil or Options.Keys == "Player" or Options.Keys == "String", `Keys must be "Player" or "String"`)
+	assert(Options.Mock == nil or type(Options.Mock) == "boolean", "Mock must be true or false when you pass one, it puts this store on a fake datastore")
 	assert(Options.OnLoadFailed == nil or type(Options.OnLoadFailed) == "function", "OnLoadFailed must be a (Player, Reason) -> boolean function if you pass one")
 	assert(Options.OnLoadFailed == nil or Options.Keys ~= "String", `OnLoadFailed only fires for Store:Load, which needs Keys to be "Player"`)
 end

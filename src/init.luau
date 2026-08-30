@@ -6,11 +6,11 @@
 	Ledger: Player data as a ledger, and not as a document.
 
 	State is a pure fold of an append only log of ops, and there are no session locks. This file is the
-	whole surface a game can reach: New and NewTyped build a store, Use chooses the scheduler and
-	datastore stores are built with, Sweep runs a recovery pass, and CloseAll saves everything on the
-	way down.
+	whole surface a game can reach: New and NewTyped build a store, Sweep runs a recovery pass, and
+	CloseAll saves everything on the way down. A store takes its scheduler and datastore as options,
+	and Mock puts one on a fake datastore that nothing outlives.
 
-	Return type: A table with Reason, New, NewTyped, Use, UseMock, Sweep and CloseAll.
+	Return type: A table with Reason, New, NewTyped, Sweep and CloseAll.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
 		local Bank = Ledger.New({ Name = "Bank", Default = { Gold = 0 }, Reducer = Reducer })
@@ -27,9 +27,6 @@ local Shapes = require("@self/Core/Shapes")
 local Api = require("@self/Core/Api")
 local Reasons = require("@self/Core/Constants/Reasons")
 local TypeFunctions = require("@self/Core/TypeFunctions")
-local Engine = require("@self/Util/Engine")
-local Memory = require("@self/Hooks/Memory")
-local Mock = require("@self/Mock")
 local Tx = require("@self/Protocol/Tx")
 local Registry = require("@self/Store/Registry")
 local Store = require("@self/Store/Store")
@@ -61,8 +58,6 @@ export type Export = {
 
 	read New: <D>(Options: Config<D>) -> Store<D>,
 	read NewTyped: <D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>,
-	read Use: (Scheduler: Engine.Scheduler?, Hook: Engine.Hook?) -> (),
-	read UseMock: (Options: Mock.Options?) -> Memory.Memory,
 	read Sweep: () -> (),
 	read CloseAll: () -> (),
 }
@@ -76,17 +71,6 @@ end
 
 local function NewTyped<D, O>(Options: TypedConfig<D, O>): TypedStore<D, O>
 	return New(Options :: any) :: any
-end
-
-local function Use(Scheduler: Engine.Scheduler?, Hook: Engine.Hook?)
-	Registry.Use(Scheduler, Hook)
-end
-
-local function UseMock(Options: Mock.Options?): Memory.Memory
-	local Held = Registry.Defaults.Scheduler
-	local Hook = Memory.New(Held, Options)
-	Registry.Use(Held, Hook)
-	return Hook
 end
 
 local function Sweeps(Visit: (Registry.Sweeper) -> ())
@@ -158,8 +142,6 @@ return table.freeze({
 
 	New = New,
 	NewTyped = NewTyped,
-	Use = Use,
-	UseMock = UseMock,
 	Sweep = Sweep,
 	CloseAll = CloseAll,
 }) :: Export

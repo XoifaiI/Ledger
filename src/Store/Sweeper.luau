@@ -50,13 +50,6 @@ function Sweeper.New(): Sweeper
 	return Built
 end
 
-function Sweeper.Retime(self: Sweeper)
-	Clock.Cancel(self.Ticker)
-	self.Ticker = SetInterval(Clock.Held(), Windows.SWEEP, function()
-		self:Pass()
-	end)
-end
-
 function Sweeper.Adopt(self: Sweeper, Held: Swept)
 	if table.find(self.Stores, Held) ~= nil then
 		return

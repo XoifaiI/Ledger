@@ -17,6 +17,7 @@
 
 local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
+local Clock = require("../Util/Clock")
 local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
 local Roblox = require("../Hooks/Roblox")
@@ -58,7 +59,6 @@ type Store = Types.Store<any>
 local Players = game:GetService("Players")
 
 local IDLE_EVERY = 4
-local STAGGER = 97
 local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
@@ -110,8 +110,8 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	Registry.Claimed[Config.Name] = true
 	Registry.Claimed[Marked] = true
 
-	local Turn = Config.Scheduler or Registry.Defaults.Scheduler
-	local Hook = Config.Hook or Registry.Defaults.Hook
+	local Turn = Clock.Held()
+	local Hook = Config.Hook or (if Config.Mock then Registry.Mock() else Registry.Defaults.Hook)
 	if Hook ~= Roblox.New() then
 		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end
@@ -310,7 +310,7 @@ function Store.Load(self: Store, Player: Player)
 		Ticks = 0,
 		Ticker = SetInterval(self.Wrapper.Scheduler, Windows.AUTOSAVE, function()
 			self:Autosave(UserId)
-		end, UserId % STAGGER / STAGGER * Windows.AUTOSAVE),
+		end, math.random() * Windows.AUTOSAVE),
 	}
 	self:Wake(UserId, Active)
 	self:PickUp(Active, UserId)

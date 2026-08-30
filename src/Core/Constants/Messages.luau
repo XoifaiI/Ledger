@@ -14,7 +14,7 @@
 --]=]
 
 return table.freeze({
-	TAG = "Ledger",
+	TAG = "Ledger" :: "Ledger",
 	YIELDED = "the callback must complete without yielding",
 	SKIPPED = "ThreadQueue task skipped",
 })

@@ -89,6 +89,23 @@ Cases.Case("the mock keeps the limits the real service keeps", function(T: Case)
 	T:Is("a value that cannot be encoded at all", Odd, false)
 end)
 
+Cases.Case("the mock ages versions out by time rather than by count", function(T: Case)
+	local Store = Mock.New({ Throttled = false }, T.Turn):GetDataStore("Kept")
+
+	for Index = 1, 40 do
+		Store:SetAsync("k", Index)
+	end
+	local Burst = #Store:ListVersionsAsync("k", Enum.SortDirection.Descending, nil, nil, 50):GetCurrentPage()
+
+	T:Advance(Datastore.KEEP_WINDOW + 1)
+	Store:SetAsync("k", 41)
+	local Aged = Store:ListVersionsAsync("k", Enum.SortDirection.Descending, nil, nil, 50):GetCurrentPage()
+
+	T:Is("40 writes in a moment keep every version, no count trim", Burst, 40)
+	T:Is("once past the window only the newest survives", #Aged, 1)
+	T:Is("and the key still reads back", Store:GetAsync("k"), 41)
+end)
+
 Cases.Case("choosing the mock while a store is live is refused", function(T: Case)
 	local Ledger = Ledger
 
@@ -103,18 +120,41 @@ Cases.Case("choosing the mock while a store is live is refused", function(T: Cas
 	Built:Edit(4019838803, "Fund", { Amount = 100 }):Wait()
 	local Before = (Built:Peek(4019838803):Wait() :: any).Gold
 
-	local Says = T:Throws("choosing a datastore while a store is already built", function()
-		Ledger.UseMock()
-	end)
-
 	local After = (Built:Peek(4019838803):Wait() :: any).Gold
 	pcall(function()
 		Built:Destroy()
 	end)
 
 	T:Is("gold the store wrote", Before, 100)
-	T:Is("gold once the swap was refused, so nothing it wrote was lost", After, 100)
-	T:Ok("it said when to choose one instead", Says ~= nil and string.find(Says :: string, "before you build your stores", 1, true) ~= nil)
+	T:Is("gold once another store was built beside it", After, 100)
+end)
+
+Cases.Case("Mock puts a store on a fake datastore of its own", function(T: Case)
+	local Built = Ledger.New({
+		Name = "CaseMockFlag",
+		Keys = "String",
+		Default = { Gold = 0 },
+		Reducer = Suite.Reducers.Banker,
+		Mock = true,
+	})
+	local Handed: any = Built.Wrapper.Hook
+	pcall(function()
+		Built:Destroy()
+	end)
+
+	local Says = T:Throws("a Mock that is not a boolean", function()
+		Ledger.New({
+			Name = "CaseMockBad",
+			Keys = "String",
+			Default = { Gold = 0 },
+			Reducer = Suite.Reducers.Banker,
+			Mock = "yes" :: any,
+		})
+	end)
+
+	T:Ok("the hook it was handed is a fake one", Handed ~= nil and Handed.Service ~= nil)
+	T:Warns("it said the store is fake", "fake datastore")
+	T:Ok("it refused a Mock that is not a boolean", Says ~= nil and string.find(Says :: string, "true or false", 1, true) ~= nil)
 end)
 
 Cases.Case("the mock runs out of experience budget while the gauge still shows room", function(T: Case)

@@ -56,7 +56,6 @@ export type SweeperImpl = {
 
 	New: () -> Sweeper,
 	Adopt: (self: Sweeper, Held: Swept) -> (),
-	Retime: (self: Sweeper) -> (),
 	Add: (self: Sweeper, Held: Swept, Key: string) -> (),
 	Drop: (self: Sweeper, Mark: string) -> (),
 	Forget: (self: Sweeper, Held: Swept) -> (),

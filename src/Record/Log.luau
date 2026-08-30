@@ -18,7 +18,9 @@
 
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Sizes = require("../Core/Constants/Sizes")
+local Errors = require("../Core/Errors")
 local Reasons = require("../Core/Constants/Reasons")
+local Verdicts = require("../Core/Constants/Verdicts")
 local Kinds = require("../Core/Constants/Kinds")
 local Shapes = require("../Core/Shapes")
 local Tags = require("../Core/Constants/Tags")
@@ -48,29 +50,13 @@ export type Verdict = Types.Verdict
 export type Prepared = Types.Prepared
 export type Fated = Types.Fated
 
-local OWNED = "Owned" :: "Owned"
-local DEAD = "Dead" :: "Dead"
-
-local VERDICT = table.freeze({
-	Prepared = "Prepared" :: "Prepared",
-	Settled = "Settled" :: "Settled",
-	Busy = "Busy" :: "Busy",
-	Rejected = "Rejected" :: "Rejected",
-	Spent = "Spent" :: "Spent",
-	Full = "Full" :: "Full",
-})
-
 local function Materialize(Value: any): Record
 	if type(Value) ~= "table" then
 		return { Ops = {}, Seen = {} }
 	end
 
 	if type(Value.Envelope) == "number" and Value.Envelope > Kinds.ENVELOPE then
-		error({
-			Ledger = true,
-			Why = Reasons.Behind,
-			Message = `the record envelope is format {Value.Envelope} but this server only knows {Kinds.ENVELOPE}, a newer framework wrote it`,
-		})
+		Errors.Raise(Reasons.Behind, `the record envelope is format {Value.Envelope} but this server only knows {Kinds.ENVELOPE}, a newer framework wrote it`)
 	end
 
 	local Ops: { Op } = {}
@@ -144,25 +130,25 @@ local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?
 	for _, Existing in Record.Ops do
 		if Existing.Id == Op.Id then
 			if Existing.Tx == nil then
-				return if Meant(Existing.TxTerms, Op.TxTerms) then VERDICT.Settled else VERDICT.Spent
+				return if Meant(Existing.TxTerms, Op.TxTerms) then Verdicts.SETTLED else Verdicts.SPENT
 			end
-			return if Existing.TxGen == Op.TxGen then VERDICT.Prepared else VERDICT.Busy
+			return if Existing.TxGen == Op.TxGen then Verdicts.PREPARED else Verdicts.BUSY
 		end
 	end
 
 	if type(Op.Tx) == "string" and type(Op.TxTerms) == "string" then
 		local Recalled = Applied.Recall(Held(Record, Format, Folded)._Received, Tags.TX, Op.Tx, Op.TxTerms)
 		if Recalled == Tags.OTHER then
-			return VERDICT.Spent
+			return Verdicts.SPENT
 		end
 		if Recalled == Tags.SAME then
-			return VERDICT.Settled
+			return Verdicts.SETTLED
 		end
 	end
 
 	for _, Id in Record.Seen do
 		if Id == Op.Id then
-			return VERDICT.Settled
+			return Verdicts.SETTLED
 		end
 	end
 
@@ -171,7 +157,7 @@ local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?
 	end
 
 	if Applied.Has(Held(Record, Format, Folded)._Received, Tags.TX, Op.Tx) then
-		return VERDICT.Settled
+		return Verdicts.SETTLED
 	end
 	return nil
 end
@@ -179,7 +165,7 @@ end
 local function Fate(Op: Op, Verdict: Verdict): Fated?
 	local Gen = Op.TxGen
 	if type(Gen) ~= "string" or Gen == Verdict.Gen then
-		return OWNED
+		return Verdicts.OWNED
 	end
 
 	if Verdict.Commit then
@@ -188,7 +174,7 @@ local function Fate(Op: Op, Verdict: Verdict): Fated?
 
 	local Since, At = Verdict.Since, Op.TxAt
 	if Since ~= nil and type(At) == "number" and At < Since then
-		return DEAD
+		return Verdicts.DEAD
 	end
 	return nil
 end
@@ -290,11 +276,7 @@ function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Recor
 	return self:Update(Key, function(Record: Record): Record?
 		self:Legible(Key, Record)
 		if TxStamp.HasPending(Record) then
-			error({
-				Ledger = true,
-				Why = Reasons.Busy,
-				Message = `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`,
-			})
+			Errors.Raise(Reasons.Busy, `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`)
 		end
 
 		local Body: Record = if Bury ~= nil then Bury(Record) else { Ops = {}, Seen = {} }
@@ -313,9 +295,9 @@ end
 function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepared
 	assert(type(Op.Tx) == "string", "a transaction leg is being prepared without the transaction it belongs to")
 
-	local Verdict: Prepared = VERDICT.Rejected
+	local Verdict: Prepared = Verdicts.REJECTED
 	local Outcome = self:Update(Key, function(Record: Record): Record?
-		Verdict = VERDICT.Rejected
+		Verdict = Verdicts.REJECTED
 		local Folded: { any } = {}
 		self:Legible(Key, Record)
 		local Already = Known(Record, Op, Format, Folded)
@@ -325,14 +307,14 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 		end
 
 		if TxStamp.HasPending(Record) then
-			Verdict = VERDICT.Busy
+			Verdict = Verdicts.BUSY
 			return nil
 		end
 
 		local State = Held(Record, Format, Folded)
 		local Next = Apply(Format.Reducer, State, TxStamp.Unstamped(Op))
 		if Next == nil then
-			Verdict = VERDICT.Rejected
+			Verdict = Verdicts.REJECTED
 			return nil
 		end
 
@@ -341,7 +323,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 		if Compact.Bulk(Record) + LogBytes + OpBytes > Sizes.StateFloor then
 			local Bytes = Measure(Next)
 			if Bytes > Sizes.State and Bytes > Measure(State) then
-				Verdict = VERDICT.Full
+				Verdict = Verdicts.FULL
 				return nil
 			end
 		end
@@ -349,7 +331,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 		local Separator = if #Record.Ops > 0 then 1 else 0
 		table.insert(Record.Ops, Op)
 		if LogBytes + OpBytes + Separator > Sizes.Log then
-			Verdict = VERDICT.Full
+			Verdict = Verdicts.FULL
 			return nil
 		end
 
@@ -357,17 +339,17 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 		if type(self.Floor) == "number" and self.Floor > (Record.Floor or 0) then
 			Record.Floor = self.Floor
 		end
-		Verdict = VERDICT.Prepared
+		Verdict = Verdicts.PREPARED
 		return Record
 	end)
 
-	if Verdict == VERDICT.Prepared then
+	if Verdict == Verdicts.PREPARED then
 		assert(TxStamp.Holds(Outcome.After, Op.Id), `leg {Op.Id} reported as prepared but is not on '{Key}', so the transaction would wait on nothing`)
 	end
 	return Verdict
 end
 
-function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): Resolution
+function Log.Resolve(self: Log, Key: string, Rulings: { [string]: Verdict }): Resolution
 	local Counts: { [string]: number } = {}
 	local Result = self:Update(Key, function(Record: Record): Record?
 		table.clear(Counts)
@@ -380,7 +362,7 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 				continue
 			end
 
-			local Verdict = Verdicts[Txid]
+			local Verdict = Rulings[Txid]
 			if Verdict == nil then
 				table.insert(Kept, Existing)
 				continue
@@ -391,7 +373,7 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 				table.insert(Kept, Existing)
 				continue
 			end
-			if Fated == DEAD then
+			if Fated == Verdicts.DEAD then
 				Retired += 1
 				continue
 			end
@@ -472,7 +454,6 @@ table.freeze(Log)
 
 return table.freeze({
 	New = Log.New,
-	Verdict = VERDICT,
 	Entombed = Entombed,
 	NotEntombed = NotEntombed,
 })

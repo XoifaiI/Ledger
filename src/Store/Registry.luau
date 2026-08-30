@@ -9,14 +9,14 @@
 	hook a store is built with by default. Use replaces those defaults and refuses once a store is
 	live. The sweep is built on first use rather than on require.
 
-	Return type: A table with Stores, Claimed, Shutting, Defaults, Use and Sweep.
+	Return type: A table with Stores, Claimed, Shutting, Defaults, Mock and Sweep.
 	Example usage:
 		local Registry = require("./Registry")
 		Registry.Sweep():Add(Store:Swept(), Key)
 --]=]
 
+local Memory = require("../Hooks/Memory")
 local RobloxHook = require("../Hooks/Roblox")
-local RobloxScheduler = require("../Schedulers/Roblox")
 local Clock = require("../Util/Clock")
 local Engine = require("../Util/Engine")
 
@@ -31,24 +31,23 @@ local Stores: { Store } = {}
 local Claimed: { [string]: boolean } = {}
 local Shutting = { Now = false }
 
-local Defaults: { Scheduler: Engine.Scheduler, Hook: Engine.Hook } = {
-	Scheduler = RobloxScheduler.New(),
+local Defaults: { Hook: Engine.Hook } = {
 	Hook = RobloxHook.New(),
 }
 
 local Sweep: Sweeper.Sweeper? = nil
 
-local function Use(Scheduler: Engine.Scheduler?, Hook: Engine.Hook?)
-	assert(#Stores == 0, `Ledger: {#Stores} store(s) are already built, so choosing a scheduler or a datastore now would leave them on the old one. do it before you build your stores`)
-	Defaults.Scheduler = Scheduler or RobloxScheduler.New()
-	Defaults.Hook = Hook or RobloxHook.New()
+local Mocked: Engine.Hook? = nil
 
-	Clock.Use(Scheduler)
-
-	local Held = Sweep
+local function Mock(): Engine.Hook
+	local Held = Mocked
 	if Held ~= nil then
-		Held:Retime()
+		return Held
 	end
+
+	Held = Memory.New(Clock.Held())
+	Mocked = Held
+	return Held
 end
 
 local function Walker(): Sweeper.Sweeper
@@ -67,6 +66,6 @@ return table.freeze({
 	Claimed = Claimed,
 	Shutting = Shutting,
 	Defaults = Defaults,
-	Use = Use,
+	Mock = Mock,
 	Sweep = Walker,
 })

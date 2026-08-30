@@ -3,16 +3,16 @@
 
 --[=[
 
-	Errors: Identifies Ledger errors.
+	Errors: Raises and identifies Ledger errors.
 
-	Reason reads the reason from a thrown value. Anything that is not one of Ledger's own reads as
-	Unresolved, so a plain assert answers a caller the same way.
+	Raise throws one, and is the only place the tag is written. Reason reads the reason back off a
+	thrown value, and anything that is not one of Ledger's own reads as Unresolved, so a plain assert
+	answers a caller the same way.
 
+	Return type: A table with Raise and Reason. The type is Error.
 	Example usage:
 		local Errors = require("./Errors")
-
-		local Reason = Errors.Reason(Err)
-
+		Errors.Raise(Reasons.Busy, "that key has a transaction parked on it")
 --]=]
 
 local Tagged = require("../Util/Tagged")
@@ -31,6 +31,17 @@ local function IsError(Value: unknown): boolean
 	return Tagged.Is(Value) and type((Value :: { Why: unknown }).Why) == "string"
 end
 
+local function Raise(Why: Reason, Message: string): never
+	error(
+		{
+			[Messages.TAG] = true,
+			Why = Why,
+			Message = Message,
+		} :: Error,
+		0
+	)
+end
+
 local function Reason(Err: unknown): Reason
 	if Err == Messages.SKIPPED then
 		return Reasons.Closed
@@ -43,5 +54,6 @@ local function Reason(Err: unknown): Reason
 end
 
 return table.freeze({
+	Raise = Raise,
 	Reason = Reason,
 })

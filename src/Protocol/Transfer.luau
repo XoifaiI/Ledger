@@ -165,33 +165,26 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 	end)
 	if not TxStamp.Carries(Landed, DeliverOp.Id) then
 		if not Sound(At) then
-			error({
-				Ledger = true,
-				Why = HELD,
-				Message = `transfer {Tid} reached '{To}' later than the window it is given back in, so it was not delivered. the {Amount} stays set aside on '{From}' until recovery gives it back`,
-			})
+			Errors.Raise(
+				HELD,
+				`transfer {Tid} reached '{To}' later than the window it is given back in, so it was not delivered. the {Amount} stays set aside on '{From}' until recovery gives it back`
+			)
 		end
-		error({
-			Ledger = true,
-			Why = HELD,
-			Message = `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`,
-		})
+		Errors.Raise(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`)
 	end
 
 	local Landing = LandedOn(Format, Landed, Tid, DeliverOp.Print, From)
 	if Landing == Tags.OTHER then
-		error({
-			Ledger = true,
-			Why = SPENT,
-			Message = `transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back, and a transfer name belongs to one sender`,
-		})
+		Errors.Raise(
+			SPENT,
+			`transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back, and a transfer name belongs to one sender`
+		)
 	end
 	if Landing == Tags.UNSEEN then
-		error({
-			Ledger = true,
-			Why = HELD,
-			Message = `transfer {Tid} cannot be shown to have reached '{To}'. its delivery was folded into the snapshot and the name has aged out, so the {Amount} stays set aside on '{From}' rather than settle against a delivery that may belong to someone else`,
-		})
+		Errors.Raise(
+			HELD,
+			`transfer {Tid} cannot be shown to have reached '{To}'. its delivery was folded into the snapshot and the name has aged out, so the {Amount} stays set aside on '{From}' rather than settle against a delivery that may belong to someone else`
+		)
 	end
 
 	local Cleared = Settle(Records, From, Tid, Print)

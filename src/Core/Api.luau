@@ -121,8 +121,8 @@ type ConfigCommon<D> = {
 	read Migrations: { Migration }?,
 	read Keys: KeysMode?,
 	read OnLoadFailed: ((Player: Player, Why: Reason) -> boolean)?,
-	read Scheduler: Engine.Scheduler?,
 	read Hook: Engine.Hook?,
+	read Mock: boolean?,
 }
 
 export type Config<D> = ConfigCommon<D> & {

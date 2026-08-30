@@ -14,6 +14,7 @@
 --]=]
 
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local Verdicts = require("../Core/Constants/Verdicts")
 local Shapes = require("../Core/Shapes")
 
 type Op = Shapes.Op
@@ -28,9 +29,9 @@ export type Resolution = { Record: Record<any>, Counts: { [string]: number } }
 
 export type Verdict = { Commit: boolean, Gen: string?, Since: number? }
 
-export type Prepared = "Prepared" | "Settled" | "Busy" | "Rejected" | "Spent" | "Full"
+export type Prepared = Verdicts.Prepared
 
-export type Fated = "Owned" | "Dead"
+export type Fated = Verdicts.Fated
 
 export type ShapeImpl<S> = {
 	__index: ShapeImpl<S>,
@@ -61,7 +62,7 @@ export type LogImpl = {
 	AppendUnlessPending: (self: Log, Key: string, Ops: { Op }) -> Record<any>,
 	Entomb: (self: Log, Key: string, At: number, Bury: ((Record<any>) -> Record<any>)?) -> Record<any>,
 	Prepare: (self: Log, Key: string, Op: Op, Format: Shape<any>) -> Prepared,
-	Resolve: (self: Log, Key: string, Verdicts: { [string]: Verdict }) -> Resolution,
+	Resolve: (self: Log, Key: string, Rulings: { [string]: Verdict }) -> Resolution,
 	Compact: (self: Log, Key: string, Format: Shape<any>) -> Record<any>,
 	Trim: (self: Log, Key: string, Format: Shape<any>, Record: Record<any>) -> Record<any>,
 }

@@ -1,16 +1,18 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 
 	Virtual: A scheduler whose clock only moves when nothing is left to run.
 
-	Everything ready runs first, then time jumps straight to the next deadline, so a run costs what
-	its work costs rather than what its waits ask for. Step takes one turn, Run takes them until
-	nothing is left, and Done says whether anything is ready or sleeping. A thread that throws is kept
-	in Failures rather than printed.
+	Everything ready runs first, then time jumps straight to the next deadline, so a run costs what its
+	work costs rather than what its waits ask for. Step takes one turn, Run takes them until nothing is
+	left, and Done says whether anything is ready or sleeping. A thread that throws is kept in Failures
+	rather than printed. The ready queue is a ring indexed by a mask rather than a division, so its
+	capacity has to stay a power of two, and the sleepers are a heap keyed on the deadline.
 
-	Return type: A table with New. It answers the Scheduler shape and adds the driving. The type is Virtual.
+	Return type: A table with New, EPOCH and STEP_CAP. It answers the Scheduler shape and adds the driving. The type is Virtual.
 	Example usage:
 		local Turn = Virtual.New()
 		Turn.Defer(Body)
@@ -42,6 +44,7 @@ local function New(From: number?): Virtual
 
 	local Queue: { thread } = table.create(READY) :: { thread }
 	local Capacity = READY
+	local Mask = READY - 1
 	local Head = 0
 	local Tail = 0
 
@@ -50,19 +53,23 @@ local function New(From: number?): Virtual
 	local Count = 0
 
 	local function Push(Thread: thread)
-		if Tail - Head >= Capacity then
+		if Head == Tail then
+			Head = 0
+			Tail = 0
+		elseif Tail - Head >= Capacity then
 			local Bigger: { thread } = table.create(Capacity * 2) :: { thread }
 			local Waiting = Tail - Head
 			for Index = 0, Waiting - 1 do
-				Bigger[Index + 1] = Queue[(Head + Index) % Capacity + 1]
+				Bigger[Index + 1] = Queue[bit32.band(Head + Index, Mask) + 1]
 			end
 			Queue = Bigger
 			Capacity *= 2
+			Mask = Capacity - 1
 			Head = 0
 			Tail = Waiting
 		end
 
-		Queue[Tail % Capacity + 1] = Thread
+		Queue[bit32.band(Tail, Mask) + 1] = Thread
 		Tail += 1
 	end
 
@@ -71,19 +78,18 @@ local function New(From: number?): Virtual
 			return nil
 		end
 
-		local Thread = Queue[Head % Capacity + 1]
+		local Thread = Queue[bit32.band(Head, Mask) + 1]
 		Head += 1
 		return Thread
 	end
 
-	@native
 	local function Up(At: number)
 		local When = Deadlines[At]
 		local Thread = Sleepers[At]
 		local Index = At
 
 		while Index > 1 do
-			local Parent = Index // 2
+			local Parent = bit32.rshift(Index, 1)
 			if Deadlines[Parent] <= When then
 				break
 			end
@@ -97,7 +103,6 @@ local function New(From: number?): Virtual
 		Sleepers[Index] = Thread
 	end
 
-	@native
 	local function Down(At: number)
 		local When = Deadlines[At]
 		local Thread = Sleepers[At]
@@ -177,8 +182,8 @@ local function New(From: number?): Virtual
 	end
 
 	local function Spawn(Body: (...any) -> (), ...: any): thread
-		local Thread = coroutine.create(Body)
-		Carry(Thread, coroutine.resume(Thread, ...))
+		local Thread = Bind(Body, ...)
+		Carry(Thread, coroutine.resume(Thread))
 		return Thread
 	end
 

@@ -4,7 +4,7 @@
 --[=[
 	Datastore: The limits a real datastore keeps, which the mock keeps as well.
 
-	How long a name and a key may be, how many versions of a key are kept, how many rows a page hands
+	How long a name and a key may be, how long a version of a key is kept, how many rows a page hands
 	back, and the request budget: a base allowance plus a share per player, refilled over a window.
 	The byte lanes are how much one key may be read from or written to in that same window.
 
@@ -18,8 +18,8 @@ return table.freeze({
 	MAX_NAME = 50,
 	MAX_SCOPE = 50,
 	MAX_KEY = 50,
-	KEEP_VERSIONS = 30,
-	PAGE_LIMIT = 100,
+	KEEP_WINDOW = 30 * 86400,
+	PAGE_LIMIT = 50,
 	CONFLICT_LIMIT = 32,
 
 	REFILL_WINDOW = 60,

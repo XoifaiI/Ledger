@@ -160,12 +160,15 @@ function Store.Commit(self: Store, Key: string, Text: string?, Deleted: boolean)
 	Slot.Live = Text
 	table.insert(Slot.Entries, Fresh)
 
-	local Spare = #Slot.Entries - Datastore.KEEP_VERSIONS
-	if Spare > 0 then
-		Slot.Entries = table.move(Slot.Entries, Spare + 1, #Slot.Entries, 1, {})
+	local Floor = Fresh.Written - Datastore.KEEP_WINDOW
+	local Last = #Slot.Entries
+	local Kept: { Entry } = {}
+	for Index, Held in Slot.Entries do
+		if Held.Written >= Floor or Index == Last then
+			table.insert(Kept, Held)
+		end
 	end
-
-	assert(#Slot.Entries <= Datastore.KEEP_VERSIONS, "the mock is keeping more versions of a key than a real datastore would")
+	Slot.Entries = Kept
 	assert(Newest(Slot) == Fresh, "the mock wrote a version that is not the one a read would hand back")
 	return Fresh
 end
