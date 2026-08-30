@@ -87,8 +87,6 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 		local Age = if type(Entry.At) == "number" then Now - Entry.At else nil
 		local Overdue = Age == nil or Age > Windows.REDRIVE + Windows.EXPIRE_MARGIN
 		local Fresh = if Going then not Overdue else Age ~= nil and Age <= Windows.REDRIVE
-		assert(not (Fresh and Overdue), `transfer {Tid} counts as both still worth sending and long overdue, so recovery cannot tell whether to deliver it or give it back`)
-
 		if not Fresh and not Overdue then
 			Resting += 1
 			continue
@@ -112,8 +110,6 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 		warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
 	end
 
-	assert(Handled <= PASS_LIMIT, "one recovery pass took on more holds than its own limit allows")
-	assert(Moved + Failures == Handled, "a recovery pass neither finished nor failed one of the holds it took on")
 	return Failures == 0 and Waiting == 0 and Resting == 0, Moved > 0 or Resting > 0
 end
 

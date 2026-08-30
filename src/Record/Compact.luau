@@ -8,9 +8,9 @@
 	Overgrown and Worthwhile say whether a key is worth compacting, on a share of the snapshot for a
 	large state and on a count for a small one. Packed does the fold: it absorbs the run of ops at the
 	front this build can apply, keeps the rest, and moves the absorbed ids to Seen. Hint names the
-	field taking the most room.
+	field taking the most room, and Blocked names the kind that stops a key compacting at all.
 
-	Return type: A table with Packed, Oversized, Overgrown, Bulk, Hint and SEEN_LIMIT.
+	Return type: A table with Packed, Oversized, Overgrown, Bulk, Hint, Blocked and SEEN_LIMIT.
 	Example usage:
 		local Compact = require("./Compact")
 		if Compact.Overgrown(Record) then Fold() end
@@ -110,6 +110,15 @@ local function Absorbable(Record: Record, Format: Schema<any>): (any, number, st
 	return State, Taken, nil
 end
 
+local function Blocked(Record: Record, Format: Schema<any>): string?
+	if #Record.Ops == 0 or TxStamp.HasPending(Record) then
+		return nil
+	end
+
+	local _, Taken, Held = Absorbable(Record, Format)
+	return if Taken == 0 then Held else nil
+end
+
 local function Hint(Snapshot: any): (string, boolean)
 	if type(Snapshot) ~= "table" then
 		return "", false
@@ -189,5 +198,6 @@ return table.freeze({
 	Overgrown = Overgrown,
 	Bulk = Bulk,
 	Hint = Hint,
+	Blocked = Blocked,
 	SEEN_LIMIT = SEEN_LIMIT,
 })

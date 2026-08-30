@@ -131,6 +131,11 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 		elseif Verdict == "Full" then
 			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key is carrying more ops than it can hold until it compacts. nothing was applied`)
 			return Prepared, Settled, FULL
+		elseif Verdict == "Erased" then
+			warn(
+				`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`
+			)
+			return Prepared, Settled, REFUSED
 		else
 			local Unreachable: never = Verdict
 			return Prepared, Settled, Unreachable

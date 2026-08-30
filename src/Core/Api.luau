@@ -122,7 +122,7 @@ type ConfigCommon<D> = {
 	read Keys: KeysMode?,
 	read OnLoadFailed: ((Player: Player, Why: Reason) -> boolean)?,
 	read Hook: Engine.Hook?,
-	read Mock: boolean?,
+	read Mock: (boolean | Shapes.Mocked)?,
 }
 
 export type Config<D> = ConfigCommon<D> & {

@@ -8,7 +8,8 @@
 	A transaction writes its name here before it opens a marker, so no marker exists without one. Names
 	are spread over shards and buckets of time, and a key holds up to a limit before the next key of
 	that bucket takes the rest, so any one key costs a bounded read and write. A name the reaper cannot
-	clear yet is carried onto a newer key.
+	clear yet is carried onto a newer key. Which part of a bucket to write to next is remembered per
+	store, since two stores keep their own keys and neither one fills the other's.
 
 	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add and Carry.
 	Example usage:
@@ -35,11 +36,15 @@ local HEAD = `{Transactions.RESERVED}%02d:`
 local PATTERN = `^{Transactions.RESERVED}%d%d:({DIGITS}):%d+$`
 local PLAIN = `^{Transactions.RESERVED}%d%d:({DIGITS})$`
 
+type Parts = {
+	At: number,
+	Slots: { [number]: number },
+}
+
 local LastNode = ""
 local LastShard = 0
 
-local Filled: { [number]: number } = {}
-local FilledAt = -1
+local Filled: { [DataStoreWrapper]: Parts } = setmetatable({}, { __mode = "k" }) :: any
 
 local function Shard(Text: string): number
 	return Digest.Bucket(Text, Transactions.SHARDS)
@@ -81,13 +86,18 @@ end
 
 local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batch: { string }): boolean
 	local Minute = When // Windows.BUCKET
-	if FilledAt ~= Minute then
-		table.clear(Filled)
-		FilledAt = Minute
+	local Hint = Filled[TxStore]
+	if Hint == nil then
+		Hint = { At = Minute, Slots = {} }
+		Filled[TxStore] = Hint
+	end
+	if Hint.At ~= Minute then
+		table.clear(Hint.Slots)
+		Hint.At = Minute
 	end
 
 	local Left = Batch
-	local Part = Filled[Slot] or 1
+	local Part = Hint.Slots[Slot] or 1
 
 	while #Left > 0 and Part <= Transactions.PARTS do
 		local Placed = 0
@@ -136,7 +146,7 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 
 		Left = table.move(Left, Placed + 1, #Left, 1, {})
 		Part += 1
-		Filled[Slot] = Part
+		Hint.Slots[Slot] = Part
 	end
 
 	return #Left == 0

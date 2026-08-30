@@ -141,7 +141,7 @@ export type StoreImpl<D> = {
 	Maintain: (self: Store<D>, Key: string, Record: Record) -> Record,
 	Applies: (self: Store<D>, Op: Op, Record: Record) -> (boolean, boolean),
 	Swollen: (self: Store<D>, Op: Op, Record: Record) -> boolean,
-	Written: (self: Store<D>, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?) -> (boolean, Reason?),
+	Written: (self: Store<D>, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?, Shows: ((Record) -> Reason?)?) -> (boolean, Reason?),
 	Swelling: (self: Store<D>, Key: string, Record: Record) -> (),
 	Starved: (self: Store<D>, Pool: Enum.DataStoreRequestType) -> (),
 

@@ -16,12 +16,9 @@
 --]=]
 
 local Engine = require("../Util/Engine")
+local Shapes = require("../Core/Shapes")
 
-export type Options = {
-	Players: number?,
-	CCU: number?,
-	Throttled: boolean?,
-}
+export type Options = Shapes.Mocked
 
 export type KeyInfo = {
 	read Version: string,

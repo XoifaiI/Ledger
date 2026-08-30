@@ -152,6 +152,8 @@ function Case.Open(Name: string): Case
 	Spoken = {}
 	Ids.Restart(SIM_NODE)
 
+	Registry.Unmock()
+
 	local Walker = Registry.Sweep()
 	Walker:Stop()
 	Walker.Passes = 0

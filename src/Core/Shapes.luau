@@ -69,4 +69,10 @@ export type Reducer<S> = (State: S, Op: Op) -> S?
 
 export type Migration = ((State: any) -> any) | { Apply: (State: any) -> any, Compatible: boolean? }
 
+export type Mocked = {
+	Players: number?,
+	CCU: number?,
+	Throttled: boolean?,
+}
+
 return table.freeze({})

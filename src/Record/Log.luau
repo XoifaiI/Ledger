@@ -306,6 +306,11 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 			return nil
 		end
 
+		if Entombed(Record) then
+			Verdict = Verdicts.ERASED
+			return nil
+		end
+
 		if TxStamp.HasPending(Record) then
 			Verdict = Verdicts.BUSY
 			return nil
@@ -353,6 +358,8 @@ function Log.Resolve(self: Log, Key: string, Rulings: { [string]: Verdict }): Re
 	local Counts: { [string]: number } = {}
 	local Result = self:Update(Key, function(Record: Record): Record?
 		table.clear(Counts)
+		self:Legible(Key, Record)
+
 		local Kept: { Op } = {}
 		local Retired = 0
 		for _, Existing in Record.Ops do

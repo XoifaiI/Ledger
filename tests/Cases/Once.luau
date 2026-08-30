@@ -487,4 +487,32 @@ Cases.Case("a hand built op named Once is still remembered across a compaction",
 	T:Is("gold granted once", Bank:Amount("a"), 500)
 end)
 
+Cases.Case("an op carrying a name with no time on it is refused rather than kept for good", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("timeless", { Gold = 0, Touches = 0 })
+	Bank:Append("timeless", { { Id = "plain:1", Kind = "Fund", Amount = 5, Once = "nostamp" } :: any })
+
+	T:Is("what the op added", Bank:State("timeless").Gold, 0)
+	T:Accuses("it named itself for a name it could never age out", "carries a name with no time on it")
+end)
+
+Cases.Case("a Once name still answers after the op that carried it was compacted away", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("receipt", { Gold = 0, Touches = 0 })
+
+	T:Is("the edit that carries the name", (Bank.Store:Edit("receipt", "Fund", { Amount = 50, Once = "buy1" }):Wait()), true)
+	T:Is("Ledger knows the name landed", (Bank.Store:DidApply("receipt", "buy1"):Wait()), true)
+
+	Bank:Log():Compact("receipt", Bank:Format())
+
+	T:Is("ops left after compaction", #Bank:Record("receipt").Ops, 0)
+	T:Is("it still knows the name landed", (Bank.Store:DidApply("receipt", "buy1"):Wait()), true)
+
+	local Again, Why = Bank.Store:Edit("receipt", "Fund", { Amount = 50, Once = "buy1" }):Wait()
+
+	T:Is("writing under the same name again", Again, false)
+	T:Is("the reason, which is an answer rather than a shrug", Why, "Refused")
+	T:Is("the gold it was paid exactly once", Bank:State("receipt").Gold, 50)
+end)
+
 return Cases

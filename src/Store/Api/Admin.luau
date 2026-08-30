@@ -23,6 +23,7 @@ local Windows = require("../../Core/Constants/Windows")
 local Errors = require("../../Core/Errors")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
+local Compact = require("../../Record/Compact")
 local Log = require("../../Record/Log")
 local NewOp = require("../../Record/NewOp")
 local Schema = require("../../Record/Schema")
@@ -304,6 +305,15 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 			for Named, Amount in Fields do
 				warn(
 					`Ledger: resetting '{Resolved}' destroyed {Count} reservation(s) holding {Amount} {Named}. Confirm and Release on those ids are refused from here on, so tell whoever is holding them`
+				)
+			end
+
+			local Read, Held = pcall(function(): string?
+				return Compact.Blocked(self:ReadRecord(Resolved), self:Format())
+			end)
+			if Read and Held ~= nil then
+				warn(
+					`Ledger: '{Resolved}' was reset but its oldest op is still a '{Held}' this build does not apply, so the log cannot be compacted and the key stops taking writes once it fills up. a reset cannot clear that, only a build that applies '{Held}' or erasing the key can`
 				)
 			end
 		end

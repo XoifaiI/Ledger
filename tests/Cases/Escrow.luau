@@ -14,6 +14,7 @@
 
 local Suite = require("../Suite")
 
+local Tags = require("../../src/Core/Constants/Tags")
 local Windows = require("../../src/Core/Constants/Windows")
 local TxStamp = require("../../src/Record/TxStamp")
 local Recovery = require("../../src/Protocol/Recovery")
@@ -1131,6 +1132,58 @@ Cases.Case("an erase delivers money recovery was still holding for a refund", fu
 	T:Is("a hold past the window it is given back in", Bank:Amount("oldB"), 10)
 
 	T:Silent("nothing was written off on the way out", "gone for good")
+end)
+
+Cases.Case("a delivery that lands after the hold has gone is caught rather than paid twice", function(T: Case)
+	local Bank = Funded(T, { gaugeA = 100, gaugeB = 0 })
+
+	Bank:Fault(Fault.Updates():OnKey("gaugeB"):Meddle(function()
+		Bank:Seed("gaugeA", { Gold = 100 })
+	end))
+
+	local Ok = Bank.Store:Transfer("gaugeA", "gaugeB", 40, "gauge1"):Wait()
+
+	T:Is("the transfer does not report success", Ok, false)
+	T:Warns("Ledger caught the money sitting on both keys", "so the money is on both keys", 1)
+	T:Is("and it is the receiver that holds it", Bank:Amount("gaugeB"), 40)
+end)
+
+Cases.Case("giving back a hold that would take money away accuses Ledger instead", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("bentA", { Gold = 100, _Held = { bent1 = { To = "bentB", Amount = -5, At = T:Now() - PAST_REDRIVE } } })
+	Bank:Seed("bentB", { Gold = 0 })
+
+	Bank.Store:RecoverTransfers("bentA"):Wait()
+
+	T:Is("the gold it would have taken from", Bank:Amount("bentA"), 100)
+	T:Is("the receiver was never paid", Bank:Amount("bentB"), 0)
+	T:Accuses("it named itself rather than shrinking the balance", "left the sender with less")
+end)
+
+Cases.Case("moving money needs the store to name a Balance", function(T: Case)
+	local Shelf = T:Shelf()
+
+	T:Throws("transferring on a store with no Balance", function()
+		Shelf.Store:Transfer("a", "b", 5)
+	end)
+	T:Throws("recovering transfers on a store with no Balance", function()
+		Shelf.Store:RecoverTransfers("a")
+	end)
+
+	local Bank = T:Bank()
+	T:Holds("recovering transfers on a store that names one", function()
+		Bank.Store:RecoverTransfers("a"):Wait()
+	end)
+end)
+
+Cases.Case("clearing delivered names goes through even when none have aged out", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("young", { Gold = 0 })
+	Bank.Store:Edit("young", "Fund", { Amount = 5, Once = "young1" }):Wait()
+
+	T:Is("clearing them", (Bank.Store:ClearDelivered("young"):Wait()), true)
+	T:Is("the name it kept, since it is still inside its window", Bank:Knows("young", Tags.ONCE, "young1"), true)
+	T:Is("the gold it did not touch", Bank:Amount("young"), 5)
 end)
 
 return Cases

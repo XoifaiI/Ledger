@@ -6,8 +6,10 @@
 	Schema: Turns a stored record into the state a game reads.
 
 	Migrations run first, defaults are filled in second, and the ops fold on top of the snapshot last.
-	Certain says whether a parked transaction can still change the answer. Detached copies the
-	snapshot, so a reducer cannot reach the stored record through it.
+	A migration is the game's code and is not trusted with Ledger's own fields, so anything starting
+	with an underscore is put back after every step and the step that dropped it is named. Certain says
+	whether a parked transaction can still change the answer. Detached copies the snapshot, so a
+	reducer cannot reach the stored record through it.
 
 	Return type: A table with New, FloorOf, Migrate and Detached.
 	Example usage:
@@ -20,6 +22,7 @@ local TableUtil = require("../Util/TableUtil")
 local Errors = require("../Core/Errors")
 local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
+local Storable = require("../Encode/Storable")
 local Fold = require("./Fold")
 local Reconcile = require("./Reconcile")
 local TxStamp = require("./TxStamp")
@@ -32,6 +35,39 @@ export type Schema<S> = Types.Shape<S>
 
 local function StepApply(Migration: Migration, State: any): any
 	return NoYield.Run(if type(Migration) == "function" then Migration else Migration.Apply, State)
+end
+
+local function Bookkeeping(Snapshot: any): { [string]: any }?
+	local Kept: { [string]: any }? = nil
+	for Key, Value in Snapshot do
+		if type(Key) == "string" and Storable.Bookkeeping(Key) then
+			Kept = Kept or {}
+			;(Kept :: { [string]: any })[Key] = Value
+		end
+	end
+	return Kept
+end
+
+local function Restored(Snapshot: any, Kept: { [string]: any }?, Index: number): any
+	if Kept == nil then
+		return Snapshot
+	end
+
+	local Next = Snapshot
+	for Key, Value in Kept do
+		if Next[Key] == Value then
+			continue
+		end
+
+		if Next == Snapshot then
+			Next = table.clone(Snapshot)
+		end
+		Next[Key] = Value
+		warn(
+			`Ledger bug: migration {Index} dropped Ledger's own '{Key}', so Ledger put it back. a migration changes the game's own fields and leaves anything starting with an underscore alone`
+		)
+	end
+	return Next
 end
 
 local function Migrate(Steps: { Migration }, Snapshot: any, From: number): any?
@@ -121,11 +157,13 @@ function Schema.Rehydrate(self: Schema<any>, Record: Record): any
 	end
 
 	local Snapshot = Record.Snapshot
+	local Kept = if Version < #Steps then Bookkeeping(Snapshot) else nil
 	for Index = Version + 1, #Steps do
 		Snapshot = StepApply(Steps[Index], Snapshot)
 		if type(Snapshot) ~= "table" then
 			error(`migration {Index} returned a {typeof(Snapshot)} instead of the migrated state`)
 		end
+		Snapshot = Restored(Snapshot, Kept, Index)
 	end
 
 	return Reconcile(self.Initial, Snapshot)

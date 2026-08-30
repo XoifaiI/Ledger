@@ -7,7 +7,9 @@
 
 	Create opens one, Decide commits or aborts it, StatusOf reads it and abandons one nothing has
 	touched for longer than a transaction may take, and Adopt records that a leg has reported. No
-	marker means aborted. A marker goes away only once every leg has reported.
+	marker means aborted. A marker goes away only once every leg has reported. The handles it keeps
+	to other stores belong to the hook they were opened on, and so does the count of how many are
+	left, since a handle that stops being cached stops queueing its writes in order.
 
 	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
 	Example usage:
@@ -29,9 +31,13 @@ type Marker = Types.Marker
 type Status = Types.Status
 type Opened = Types.Opened
 
-local Homes: { [Engine.Hook]: { [string]: DataStoreWrapper } } = {}
-local Kept = 0
-local Said = false
+type Home = {
+	Wrappers: { [string]: DataStoreWrapper },
+	Kept: number,
+	Said: boolean,
+}
+
+local Homes: { [Engine.Hook]: Home } = setmetatable({}, { __mode = "k" }) :: any
 
 local function GenOf(Value: any): string?
 	if type(Value) ~= "table" or type(Value.Gen) ~= "string" then
@@ -70,24 +76,24 @@ end
 local function Elsewhere(Name: string, From: DataStoreWrapper): DataStoreWrapper
 	local Mine = Homes[From.Hook]
 	if Mine == nil then
-		Mine = {}
+		Mine = { Wrappers = {}, Kept = 0, Said = false }
 		Homes[From.Hook] = Mine
 	end
 
-	local Cached = Mine[Name]
+	local Cached = Mine.Wrappers[Name]
 	if Cached ~= nil then
 		return Cached
 	end
 
 	local Fresh = DataStoreWrapper.New(Name, From.Scheduler, From.Hook)
-	if Kept < Transactions.MAX_HOMES then
-		Mine[Name] = Fresh
-		Kept += 1
+	if Mine.Kept < Transactions.MAX_HOMES then
+		Mine.Wrappers[Name] = Fresh
+		Mine.Kept += 1
 		return Fresh
 	end
 
-	if not Said then
-		Said = true
+	if not Mine.Said then
+		Mine.Said = true
 		warn(
 			`Ledger: this server holds {Transactions.MAX_HOMES} transaction homes, so '{Name}' gets a new handle each time. its writes no longer queue, and a shutdown cannot stop its retries. use fewer stores in your transactions`
 		)
@@ -235,7 +241,7 @@ end
 
 local function ShutdownHomes(Attempts: number)
 	for _, Mine in Homes do
-		for _, Wrapper in Mine do
+		for _, Wrapper in Mine.Wrappers do
 			Wrapper:SkipAllQueuesToLastEnqueued()
 			Wrapper.Attempts = Attempts
 		end

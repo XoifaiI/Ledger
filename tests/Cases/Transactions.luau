@@ -22,6 +22,7 @@ local Mark = require("../../src/Encode/Mark")
 local Storable = require("../../src/Encode/Storable")
 local TxStamp = require("../../src/Record/TxStamp")
 local Cleanup = require("../../src/Protocol/Tx/Cleanup")
+local Marker = require("../../src/Protocol/Tx/Marker")
 local Session = require("../../src/Session/Session")
 local Registry = require("../../src/Store/Registry")
 local Sweep = require("../../src/Store/Registry").Sweep()
@@ -53,6 +54,11 @@ end
 
 local function Wares(Shop: Fixture, Key: string, Gold: number, Sword: boolean)
 	Shop:Seed(Key, { Gold = Gold, Items = if Sword then { Sword = true } else {} })
+end
+
+local function Packed(Held: Fixture, Slot: number, When: number, Part: number): { string }
+	local Raw = (Held.DirectMarks:Current(Cleanup.Named(Slot, When, Part)))
+	return if type(Raw) == "string" then Mark.Unpack(Raw) else {}
 end
 
 local function CraftSwap(Shop: Fixture, A: string, B: string, Status: string, Price: number): string
@@ -1970,6 +1976,87 @@ Cases.Case("a stale marker naming no keys says so rather than sitting there quie
 	T:Is("the undecided one, which nothing can prove is finished", type(Bank:Mark("blind1")), "table")
 	T:Is("the one that says it committed, whose keys nothing else knows", type(Bank:Mark("blind2")), "table")
 	T:Warns("it named the ones only a person can clear", "names no keys Ledger can read, so nothing", 2)
+end)
+
+Cases.Case("a server running out of transaction homes leaves another server's caching alone", function(T: Case)
+	local One, Two = T:Bank(), T:Bank()
+
+	for Index = 1, Transactions.MAX_HOMES + 1 do
+		Marker.Elsewhere(`home{Index}`, One.Store.TxWrapper)
+	end
+
+	local First = Marker.Elsewhere("shared", Two.Store.TxWrapper)
+	local Again = Marker.Elsewhere("shared", Two.Store.TxWrapper)
+
+	T:Is("the other server still caches the home it just built", First == Again, true)
+	T:Warns("the server that ran out is the only one that says so", "transaction homes", 1)
+end)
+
+Cases.Case("a store filling a cleanup key does not push another store's names past it", function(T: Case)
+	local Bank, Vault = T:Bank(), T:Vault()
+
+	local Slot = Cleanup.Shard("late1")
+	local Filling: { string } = {}
+	local Tried = 0
+	while #Filling <= Transactions.ROLL_LIMIT do
+		Tried += 1
+		local Named = `fill{Tried}`
+		if Cleanup.Shard(Named) == Slot then
+			table.insert(Filling, Named)
+		end
+	end
+
+	T:Is("the first store overflows its own key", Cleanup.Carry(Bank.Store.TxWrapper, Filling), true)
+	T:Is("the second store writes one name", Cleanup.Add(Vault.Store.TxWrapper, "late1"), true)
+
+	T:Is("what the first store put on the first part", #Packed(Bank, Slot, T:Now(), 1), Transactions.ROLL_LIMIT)
+	T:Is("what the second store put on the first part of its own key", #Packed(Vault, Slot, T:Now(), 1), 1)
+	T:Is("and nothing of the second store's went past it", #Packed(Vault, Slot, T:Now(), 2), 0)
+end)
+
+Cases.Case("a transaction will not put a leg on an erased key", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("tombA", { Gold = 100 })
+	Bank:Seed("tombB", { Gold = 0 })
+
+	T:Is("erasing the receiver", (Bank.Store:Erase("tombB"):Wait()), true)
+
+	local Ok, Why = Bank.Store
+		:Tx("tombtx1", {
+			{ Key = "tombA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "tombB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait()
+
+	T:Is("a transaction onto a key that was erased", Ok, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("the sender kept its money", Bank:State("tombA").Gold, 100)
+	T:Is("the erased key took nothing", Bank:State("tombB").Gold, 0)
+	T:Is("nothing is left parked on the sender", Bank:Pending("tombA"), false)
+	T:Is("nothing is left parked on the erased key", Bank:Pending("tombB"), false)
+	T:Warns("it named the key it would not write to", "was erased and is turned away", 1)
+end)
+
+Cases.Case("a transaction lands on an erased key once its tomb has run out", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("lateA", { Gold = 100 })
+	Bank:Seed("lateB", { Gold = 0 })
+
+	Bank.Store:Erase("lateB"):Wait()
+	T:Advance(Windows.TOMB + 60)
+
+	local Ok, Why = Bank.Store
+		:Tx("latetx1", {
+			{ Key = "lateA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "lateB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait()
+
+	T:Is("a transaction once the tomb has run out", Ok, true)
+	T:Is("the reason", Why, nil)
+	T:Is("the sender paid", Bank:State("lateA").Gold, 90)
+	T:Is("the key that was erased took it", Bank:State("lateB").Gold, 10)
+	T:Silent("it did not say the key was turned away", "was erased and is turned away")
 end)
 
 return Cases

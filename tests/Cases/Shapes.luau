@@ -23,6 +23,8 @@ local Schema = require("../../src/Record/Schema")
 local Session = require("../../src/Session/Session")
 local TableUtil = require("../../src/Util/TableUtil")
 
+local Reducers = Suite.Reducers
+
 type Case = Suite.Case
 type Fixture = Suite.Fixture
 
@@ -449,6 +451,33 @@ Cases.Case("sizing is never below what json actually takes", function(T: Case)
 	}
 
 	T:Is("the estimate against real json", Measure(Record) >= #HttpService:JSONEncode(Record), true)
+end)
+
+Cases.Case("a migration cannot take Ledger's own bookkeeping with it", function(T: Case)
+	local Store = T:Store({
+		Default = Reducers.MONEY,
+		Reducer = Reducers.Banker,
+		Balance = "Gold",
+		Migrations = {
+			function(State: any): any
+				return { Gold = State.Gold, Touches = State.Touches }
+			end,
+		},
+	})
+
+	Store:Seed("kept", {
+		Gold = 100,
+		Touches = 0,
+		_Held = { held1 = { To = "elsewhere", Amount = 40, At = T:Now() } },
+		_Received = { ["t:paid1"] = T:Now() },
+	})
+
+	local Now = Store:State("kept")
+
+	T:Is("the gold the migration was free to rewrite", Now.Gold, 100)
+	T:Is("the money set aside, which it may not take with it", Store:Aside("kept"), 40)
+	T:Is("the applied name it may not take either", Store:Names("kept")["t:paid1"] ~= nil, true)
+	T:Accuses("it named what the migration dropped", "dropped Ledger's own")
 end)
 
 return Cases

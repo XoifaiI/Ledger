@@ -18,6 +18,7 @@ local Suite = require("../Suite")
 local Ledger = require("../../src") :: any
 local NewOp = require("../../src/Record/NewOp")
 local Session = require("../../src/Session/Session")
+local Windows = require("../../src/Core/Constants/Windows")
 local Registry = require("../../src/Store/Registry")
 local Observer = require("../../src/Util/Observer")
 local Sweep = require("../../src/Store/Registry").Sweep()
@@ -1206,6 +1207,51 @@ Cases.Case("a session left behind by another server's compaction is not called a
 
 	T:Is("touches once it catches up", Active:Get().Touches, 13)
 	T:Silent("the reducer is pure, so nothing says otherwise", "is not deterministic")
+end)
+
+local function Ticking(T: Case, UserId: number): (Fixture, any)
+	local Bank = T:Store({ Keys = "Player", Default = Reducers.MONEY, Reducer = Reducers.Banker, Balance = "Gold" })
+	local Fake = T:Player(UserId)
+	Bank:Seed(tostring(UserId), { Gold = 100, Touches = 0 })
+
+	Bank.Store:Load(Fake)
+	T:Wait()
+	return Bank, Bank.Store:Expect(Fake)
+end
+
+Cases.Case("the autosave writes what a session has been holding", function(T: Case)
+	local Bank, Live = Ticking(T, 64)
+
+	T:Is("the op the session takes", Live:Apply("Fund", { Amount = 5 }), true)
+	T:Is("what is on the key before the autosave comes round", #Bank:Record("64").Ops, 0)
+
+	T:Advance(Windows.AUTOSAVE + 1)
+	T:Is("the autosave came round", T:Until(function(): boolean
+		return #Bank:Record("64").Ops > 0
+	end), true)
+
+	T:Is("what it wrote", #Bank:Record("64").Ops, 1)
+	T:Is("the gold it saved", Bank:Stored("64").Gold, 105)
+end)
+
+Cases.Case("a server whose write budget has run out says so rather than piling ops up quietly", function(T: Case)
+	local Bank, Live = Ticking(T, 65)
+	Live:Apply("Fund", { Amount = 5 })
+
+	local Asked = 0
+	Bank:Budget(function(): number
+		Asked += 1
+		return 0
+	end)
+
+	T:Advance(Windows.AUTOSAVE + 1)
+	T:Is("the autosave asked what it could afford", T:Until(function(): boolean
+		return Asked > 0
+	end), true)
+
+	T:Warns("it named the autosaves it could not afford", "autosave(s) skipped on", 1)
+	T:Is("nothing was written to the key", #Bank:Record("65").Ops, 0)
+	T:Is("and the session still reads what it applied", Live:Get().Gold, 105)
 end)
 
 return Cases

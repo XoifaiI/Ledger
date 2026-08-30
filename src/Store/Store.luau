@@ -111,7 +111,8 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	Registry.Claimed[Marked] = true
 
 	local Turn = Clock.Held()
-	local Hook = Config.Hook or (if Config.Mock then Registry.Mock() else Registry.Defaults.Hook)
+	local Asked = Config.Mock
+	local Hook = Config.Hook or (if Asked then Registry.Mock(if type(Asked) == "table" then Asked else nil) else Registry.Defaults.Hook)
 	if Hook ~= Roblox.New() then
 		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end

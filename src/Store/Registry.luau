@@ -19,6 +19,7 @@ local Memory = require("../Hooks/Memory")
 local RobloxHook = require("../Hooks/Roblox")
 local Clock = require("../Util/Clock")
 local Engine = require("../Util/Engine")
+local Shapes = require("../Core/Shapes")
 
 local Sweeper = require("./Sweeper")
 local Types = require("./Types")
@@ -38,16 +39,33 @@ local Defaults: { Hook: Engine.Hook } = {
 local Sweep: Sweeper.Sweeper? = nil
 
 local Mocked: Engine.Hook? = nil
+local Sized: Shapes.Mocked? = nil
 
-local function Mock(): Engine.Hook
+local function Same(Left: Shapes.Mocked?, Right: Shapes.Mocked?): boolean
+	local Held: Shapes.Mocked = Left or {}
+	local Asked: Shapes.Mocked = Right or {}
+	return Held.Players == Asked.Players and Held.CCU == Asked.CCU and Held.Throttled == Asked.Throttled
+end
+
+local function Mock(Options: Shapes.Mocked?): Engine.Hook
 	local Held = Mocked
 	if Held ~= nil then
+		assert(
+			Options == nil or Same(Sized, Options),
+			"the fake datastore is already sized, so a second store cannot ask for a different Players, CCU or Throttled. size it on the first store you build with Mock"
+		)
 		return Held
 	end
 
-	Held = Memory.New(Clock.Held())
+	Held = Memory.New(Clock.Held(), Options)
 	Mocked = Held
+	Sized = Options
 	return Held
+end
+
+local function Unmock()
+	Mocked = nil
+	Sized = nil
 end
 
 local function Walker(): Sweeper.Sweeper
@@ -67,5 +85,6 @@ return table.freeze({
 	Shutting = Shutting,
 	Defaults = Defaults,
 	Mock = Mock,
+	Unmock = Unmock,
 	Sweep = Walker,
 })

@@ -133,7 +133,16 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 	local Op = Booking.Book(Rid, Field, Amount, Hold, To)
 
 	return Future.New(function(): (boolean, Reason?)
-		return self:Written(Resolved, Op, `reserve {Amount} {Field}`)
+		return self:Written(Resolved, Op, `reserve {Amount} {Field}`, nil, nil, function(Record: Record): Reason?
+			if Booking.Entry(self:Fold(Record)._Booked, Rid) ~= nil then
+				return nil
+			end
+
+			warn(
+				`Ledger: booking '{Rid}' on '{Resolved}' was used before and its units have gone, so nothing was set aside. that name cannot be used again, pick a new one`
+			)
+			return SPENT
+		end)
 	end)
 end
 

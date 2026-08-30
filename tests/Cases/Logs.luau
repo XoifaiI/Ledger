@@ -16,8 +16,11 @@ local Suite = require("../Suite")
 
 local Windows = require("../../src/Core/Constants/Windows")
 local Fold = require("../../src/Record/Fold")
+local Log = require("../../src/Record/Log")
 local NewOp = require("../../src/Record/NewOp")
 local Schema = require("../../src/Record/Schema")
+local Sizes = require("../../src/Core/Constants/Sizes")
+local Tags = require("../../src/Core/Constants/Tags")
 local TxStamp = require("../../src/Record/TxStamp")
 
 type Case = Suite.Case
@@ -669,6 +672,137 @@ Cases.Case("a compaction holds back a reserved kind this build does not handle",
 
 	T:Is("the op a later build still has to apply", Kept, true)
 	T:Is("its id being burned into the seen list", Burned, false)
+end)
+
+Cases.Case("the build floor decides who may resolve a leg", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("floorleg", { Gold = 100 })
+	Bank:Park("floorleg", { Id = "tx:floor1:1", Kind = "Give", Amount = -10, Tx = "floor1", TxGen = "g1", TxAt = T:Now() })
+
+	local Stored = Bank:Record("floorleg")
+	Stored.Floor = 5
+	Bank:Write("floorleg", Stored)
+
+	local Ruling: any = { floor1 = { Commit = false, Gen = "g1", Since = T:Now() } }
+	local Behind = Log.New(Bank.Store.Wrapper, 0)
+
+	local Ok, Raised = pcall(function()
+		return Behind:Resolve("floorleg", Ruling)
+	end)
+
+	T:Is("an older build resolving a leg on a record it may not write", Ok, false)
+	T:Is("the reason", if type(Raised) == "table" then (Raised :: any).Why else nil, "Behind")
+	T:Is("the leg is left exactly where it was", Bank:Pending("floorleg"), true)
+
+	local Ahead = Log.New(Bank.Store.Wrapper, 5)
+	Ahead:Resolve("floorleg", Ruling)
+
+	T:Is("a build that meets the floor settles it", Bank:Pending("floorleg"), false)
+	T:Is("and the leg was rolled back rather than applied", #Bank:Record("floorleg").Ops, 0)
+end)
+
+local function OnDisk(Held: Fixture, Key: string): boolean
+	return (Held.Direct:Current(Key)) ~= nil
+end
+
+Cases.Case("a key erased once keeps its record, since the names on it still have to be checked", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("keptrec", { Gold = 100 })
+	Bank.Store:Edit("keptrec", "Fund", { Amount = 5, Once = "gift1" }):Wait()
+
+	T:Is("erasing it", (Bank.Store:Erase("keptrec"):Wait()), true)
+
+	T:Is("the record is still on the datastore", OnDisk(Bank, "keptrec"), true)
+	T:Is("and it still knows the name it applied", Bank:Knows("keptrec", Tags.ONCE, "gift1"), true)
+
+	T:Advance(Windows.TOMB + 60)
+
+	T:Is("still there once the tomb has run out", OnDisk(Bank, "keptrec"), true)
+	T:Is("and still knowing the name, which outlives the tomb", Bank:Knows("keptrec", Tags.ONCE, "gift1"), true)
+end)
+
+Cases.Case("erasing a key whose tomb has run out takes its record off the datastore", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("gonerec", { Gold = 100 })
+
+	T:Is("the first erase", (Bank.Store:Erase("gonerec"):Wait()), true)
+	T:Is("the record it left behind", OnDisk(Bank, "gonerec"), true)
+
+	T:Advance(Windows.TOMB + 60)
+
+	T:Is("erasing it again once the tomb has run out", (Bank.Store:Erase("gonerec"):Wait()), true)
+	T:Is("the record is off the datastore", OnDisk(Bank, "gonerec"), false)
+end)
+
+Cases.Case("a key whose oldest op this build will not apply stops taking writes", function(T: Case)
+	Sizes.Set({ Value = 65536, State = 4096, Op = 1024, Log = 2048, Compact = 512 })
+
+	local Store = Ledgered(T)
+	Store:Append("wedged", { { Id = "legacy:1", Kind = "Legacy", Payload = string.rep("x", 200) } :: any })
+
+	local Why: any = nil
+	for _ = 1, 60 do
+		local Ok, Reason = Store.Store:Edit("wedged", "Add", { Amount = 1, Pad = string.rep("y", 60) }):Wait()
+		pcall(function()
+			Store:Log():Compact("wedged", Store:Format())
+		end)
+		if not Ok then
+			Why = Reason
+			break
+		end
+	end
+
+	T:Is("writes stop once the log fills up behind it", Why, "Full")
+	T:Warns("it named the op holding the key", "this build does not apply")
+	T:Is("the game can still read what did land", Store:Stored("wedged").Gold > 0, true)
+
+	T:Is("a reset goes through", (Store.Store:Reset("wedged"):Wait()), true)
+	T:Warns("but it says it did not free the key", "a reset cannot clear that", 1)
+	T:Is("and writes still do not go through", (Store.Store:Edit("wedged", "Add", { Amount = 1 }):Wait()), false)
+
+	T:Is("erasing it is what frees the key", (Store.Store:Erase("wedged"):Wait()), true)
+	T:Is("and the log is empty again", #Store:Record("wedged").Ops, 0)
+end)
+
+local function Kept(Held: Fixture, Key: string): string
+	local Names: { string } = {}
+	for _, Op in Held:Record(Key).Ops do
+		table.insert(Names, tostring(Op.Kind))
+	end
+	return if #Names == 0 then "none" else table.concat(Names, ",")
+end
+
+Cases.Case("a write the reducer would refuse never reaches the log", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("spendrace", { Gold = 100, Touches = 0 })
+
+	local First, Second: any = nil, nil
+	T:Race({
+		function()
+			First = Bank.Store:Edit("spendrace", "Give", { Amount = -100 }):Wait()
+		end,
+		function()
+			Second = Bank.Store:Edit("spendrace", "Give", { Amount = -100 }):Wait()
+		end,
+	})
+
+	T:Is("one of the two racing spends took", First == true or Second == true, true)
+	T:Is("and only one of them", First == true and Second == true, false)
+	T:Is("the log holds the one that took and nothing else", Kept(Bank, "spendrace"), "Give")
+	T:Is("gold left", Bank:State("spendrace").Gold, 0)
+end)
+
+Cases.Case("an op whose reducer throws never reaches the log", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("thrower", { Gold = 10, Touches = 0 })
+	Bank.Store:Edit("thrower", "Fund", { Amount = 5 }):Wait()
+
+	local Ok, Why = Bank.Store:Edit("thrower", "Boom", {}):Wait()
+
+	T:Is("an edit whose reducer throws", Ok, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("the log is untouched by it", Kept(Bank, "thrower"), "Fund")
+	T:Is("and the key still reads", Bank:State("thrower").Gold, 15)
 end)
 
 return Cases

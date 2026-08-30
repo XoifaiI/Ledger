@@ -178,4 +178,44 @@ Cases.Case("the mock runs out of experience budget while the gauge still shows r
 	T:Is("what the server gauge still reports once it blocks", Service:GetRequestBudgetForRequestType(Write) > 0, true)
 end)
 
+local function Fake(Name: string, Mock: any): any
+	return Ledger.New({
+		Name = Name,
+		Keys = "String",
+		Default = { Gold = 0 },
+		Reducer = Suite.Reducers.Banker,
+		Mock = Mock,
+	})
+end
+
+Cases.Case("Mock takes the sizing the fake datastore should use", function(T: Case)
+	local Built = Fake("CaseMockSized", { Players = 30 })
+	local Service: any = (Built.Wrapper.Hook :: any).Service
+	local Budget = Service:GetRequestBudgetForRequestType(Enum.DataStoreRequestType.UpdateAsync)
+	pcall(function()
+		Built:Destroy()
+	end)
+
+	T:Is("the budget the fake datastore was sized to", Budget, 60 + 30 * 40)
+end)
+
+Cases.Case("the fake datastore is sized once and turns away a second size", function(T: Case)
+	local First = Fake("CaseSizedOne", { Players = 30 })
+
+	local Says = T:Throws("a second store asking for a different size", function()
+		Fake("CaseSizedTwo", { Players = 8 })
+	end)
+
+	local Joined = Fake("CaseSizedThree", true)
+	pcall(function()
+		First:Destroy()
+	end)
+	pcall(function()
+		Joined:Destroy()
+	end)
+
+	T:Ok("it refused the second size", Says ~= nil)
+	T:Ok("a plain Mock still joins the one that is already there", Joined ~= nil)
+end)
+
 return Cases

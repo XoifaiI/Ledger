@@ -35,7 +35,9 @@ local function Banker(State: any, Op: any): any?
 	elseif Op.Kind == "Stamp" then
 		return { Gold = State.Gold, Touches = State.Touches }
 	elseif Op.Kind == "Meddle" then
-		return { Gold = State.Gold, Touches = State.Touches + 1, _Received = {}, _Held = {} }
+		return { Gold = State.Gold, Touches = State.Touches + 1, _Received = {}, _Held = {}, _Booked = {}, _Tally = {} }
+	elseif Op.Kind == "Boom" then
+		error("the game's reducer threw on a Boom op")
 	elseif Op.Kind == "Give" then
 		local Gold = State.Gold + Op.Amount
 		if Gold < 0 then

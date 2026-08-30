@@ -18,6 +18,7 @@ local Suite = require("../Suite")
 local Windows = require("../../src/Core/Constants/Windows")
 local Sizes = require("../../src/Core/Constants/Sizes")
 local Booking = require("../../src/Layers/Booking")
+local Kinds = require("../../src/Core/Constants/Kinds")
 local Shards = require("../../src/Core/Constants/Shards")
 local Tally = require("../../src/Layers/Tally")
 
@@ -790,6 +791,261 @@ Cases.Case("an erase leaves a booking that is owed to nobody alone", function(T:
 	T:Is("erasing the key holding it", Shelf.Store:Erase("shelf"):Wait(), true)
 
 	T:Warns("it named what went with the key", "destroyed 1 reservation(s) holding 3 Stock")
+end)
+
+Cases.Case("giving back a booking that would take units away accuses Ledger instead", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf:Seed("bent", { Stock = 10, Sold = 0, Gold = 0, _Booked = { bent1 = { Field = "Stock", Amount = -5, At = T:Now() } } })
+
+	local Ok = Shelf.Store:Release("bent", "bent1"):Wait()
+
+	T:Is("releasing a booking whose amount would shrink the field", Ok, false)
+	T:Is("the stock it would have taken from", Shelf:State("bent").Stock, 10)
+	T:Is("the booking is left where it was", Shelf:Booked("bent"), 1)
+	T:Accuses("it named itself rather than shrinking the field", "left less of")
+end)
+
+Cases.Case("a reducer that writes Ledger's own bookkeeping has every field of it put back", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("meddler", { Gold = 50, Touches = 0 })
+
+	local Ok = Bank.Store:Edit("meddler", "Meddle"):Wait()
+
+	T:Is("the edit still goes through", Ok, true)
+	T:Is("what the reducer was allowed to change", Bank:State("meddler").Touches, 1)
+	T:Is("the gold it left alone", Bank:State("meddler").Gold, 50)
+	T:Accuses("it put the money set aside back", "wrote its own _Held")
+	T:Accuses("it put the applied names back", "wrote its own _Received")
+	T:Accuses("it put the units set aside back", "wrote its own _Booked")
+	T:Accuses("it put the tally back", "wrote its own _Tally")
+end)
+
+Cases.Case("two servers granting one booking hand the units over once", function(T: Case)
+	local One, Two = T:Shelf("nodeA"), T:Shelf("nodeB")
+	One:Seed("twinshelf", { Stock = 10, Sold = 0, Gold = 0 })
+	One:Seed("twincart", { Stock = 0, Sold = 0, Gold = 0 })
+	One.Store:Reserve("twinshelf", "Stock", 3, "twin1", { To = "twincart" }):Wait()
+
+	local First, Second: any = nil, nil
+	T:Race({
+		function()
+			First = (One.Store:Grant("twinshelf", "twin1"):Wait())
+		end,
+		function()
+			Second = (Two.Store:Grant("twinshelf", "twin1"):Wait())
+		end,
+	})
+
+	T:Is("the units the receiver holds", One:Amount("twincart"), 3)
+	T:Is("the units left on the shelf", One:Amount("twinshelf"), 7)
+	T:Is("the units add up", One:Amount("twinshelf") + One:Amount("twincart"), 10)
+	T:Is("nothing is still set aside", One:Booked("twinshelf"), 0)
+	T:Is("at least one server was told it went through", First == true or Second == true, true)
+end)
+
+Cases.Case("a booking past its hold is still spent by a confirm that gets there first", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("holdA", "Stock", 3, "holdA1"):Wait()
+
+	T:Advance(STALE)
+
+	T:Is("confirming it once its hold has run out", (Shelf.Store:Confirm("holdA", "holdA1"):Wait()), true)
+	T:Is("the stock it spent, which was already set aside", Shelf:Amount("holdA"), 7)
+	T:Is("nothing is left set aside", Shelf:Booked("holdA"), 0)
+end)
+
+Cases.Case("a booking the next reservation gave back cannot be confirmed", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("holdB", "Stock", 3, "holdB1"):Wait()
+
+	T:Advance(STALE)
+	Shelf.Store:Reserve("holdB", "Stock", 1, "holdB2"):Wait()
+
+	T:Is("the stale booking went back before the new one took its units", Shelf:Amount("holdB"), 9)
+	T:Is("confirming the one that was given back", (Shelf.Store:Confirm("holdB", "holdB1"):Wait()), false)
+	T:Is("the stock is left where it went", Shelf:Amount("holdB"), 9)
+	T:Is("only the newer booking is set aside", Shelf:Booked("holdB"), 1)
+end)
+
+Cases.Case("a hand over past its hold is refused where a confirm would not be", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("holdC", "Stock", 3, "holdC1", { To = "holdCart" }):Wait()
+
+	T:Advance(STALE)
+	local Ok, Why = Shelf.Store:Grant("holdC", "holdC1"):Wait()
+
+	T:Is("handing it over once its hold has run out", Ok, false)
+	T:Is("the reason", Why, "Spent")
+	T:Is("the units are left set aside for recovery", Shelf:Booked("holdC"), 1)
+	T:Is("and the receiver was given nothing", Shelf:Amount("holdCart"), 10)
+end)
+
+Cases.Case("a booking replayed after its op was compacted away cannot be answered", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("faded", "Stock", 2, "faded1"):Wait()
+
+	T:Is("confirming it", (Shelf.Store:Confirm("faded", "faded1"):Wait()), true)
+	T:Is("confirming again while the op is still in the log", (Shelf.Store:Confirm("faded", "faded1"):Wait()), true)
+
+	Shelf:Log():Compact("faded", Shelf:Format())
+	local Late, Why = Shelf.Store:Confirm("faded", "faded1"):Wait()
+
+	T:Is("confirming again once the op has been folded into the snapshot", Late, false)
+	T:Is("the reason, since the record can no longer say whether it took or was turned away", Why, "Unresolved")
+	T:Is("the units were still spent exactly once", Shelf:Amount("faded"), 8)
+	T:Is("and nothing is left set aside", Shelf:Booked("faded"), 0)
+end)
+
+Cases.Case("units are protected by the booking being gone, not by remembering the op", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf.Store:Reserve("proof", "Stock", 2, "proof1"):Wait()
+	Shelf.Store:Confirm("proof", "proof1"):Wait()
+	Shelf:Forget("proof", { `{Kinds.TAKE_ID}:`, `{Kinds.BOOK_ID}:` })
+
+	T:Is("nothing is left of the confirm, in the log or in what was seen", #Shelf:Record("proof").Seen, 0)
+	T:Is("confirming again with every trace of it gone", (Shelf.Store:Confirm("proof", "proof1"):Wait()), false)
+	T:Is("the units are still spent exactly once", Shelf:Amount("proof"), 8)
+
+	Shelf.Store:Reserve("kept", "Stock", 2, "kept1"):Wait()
+	Shelf.Store:Release("kept", "kept1"):Wait()
+	Shelf:Forget("kept", { `{Kinds.FREE_ID}:`, `{Kinds.BOOK_ID}:` })
+
+	T:Is("releasing again with every trace of it gone", (Shelf.Store:Release("kept", "kept1"):Wait()), false)
+	T:Is("the units are given back exactly once", Shelf:Amount("kept"), 10)
+end)
+
+Cases.Case("a booking name can be used again once its booking is gone", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf.Store:Reserve("reuse", "Stock", 2, "reuse1"):Wait()
+	Shelf.Store:Confirm("reuse", "reuse1"):Wait()
+	Shelf:Forget("reuse", { `{Kinds.TAKE_ID}:`, `{Kinds.BOOK_ID}:` })
+
+	T:Is("reserving under the same name again", (Shelf.Store:Reserve("reuse", "Stock", 2, "reuse1"):Wait()), true)
+	T:Is("the units it set aside this time", Shelf:Booked("reuse"), 1)
+	T:Is("the stock left after both", Shelf:Amount("reuse"), 6)
+end)
+
+Cases.Case("a booking can still be released after it has been compacted into the snapshot", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("packed", "Stock", 3, "packed1"):Wait()
+
+	Shelf:Log():Compact("packed", Shelf:Format())
+
+	T:Is("ops left after compaction", #Shelf:Record("packed").Ops, 0)
+	T:Is("the booking, now living in the snapshot", Shelf:Booked("packed"), 1)
+	T:Is("releasing it from there", (Shelf.Store:Release("packed", "packed1"):Wait()), true)
+	T:Is("the units it gave back", Shelf:Amount("packed"), 10)
+	T:Is("nothing is left set aside", Shelf:Booked("packed"), 0)
+end)
+
+Cases.Case("a booking compacted into the snapshot still runs out on its own", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Store:Reserve("ticking", "Stock", 3, "ticking1"):Wait()
+
+	Shelf:Log():Compact("ticking", Shelf:Format())
+	T:Advance(STALE)
+	Shelf.Store:Reserve("ticking", "Stock", 1, "ticking2"):Wait()
+
+	T:Is("the stale booking went back before the new one took its units", Shelf:Amount("ticking"), 9)
+	T:Is("only the newer booking is set aside", Shelf:Booked("ticking"), 1)
+end)
+
+Cases.Case("a fleet spreads its bumps over more than one shard", function(T: Case)
+	local Fleet: { any } = {}
+	for Index = 1, 12 do
+		table.insert(Fleet, T:Shelf(`spread{Index}`))
+	end
+	for _, Held in Fleet do
+		Held.Store:Bump("spread", "Gold", 1):Wait()
+	end
+
+	local Written = 0
+	for _, Key in Tally.Keys("spread") do
+		if (Fleet[1].Direct:Current(Key)) ~= nil then
+			Written += 1
+		end
+	end
+
+	T:Is("the tally every server added to", (Fleet[1].Store:Total("spread", "Gold"):Wait()), 12)
+	T:Is("shard keys they actually wrote, which is the whole point of spreading it", Written > 1, true)
+	T:Is("and never more keys than there are shards", Written <= Shards.SHARDS, true)
+end)
+
+Cases.Case("a total refuses rather than under reporting when a shard cannot be read", function(T: Case)
+	local Shelf = T:Shelf()
+	for Index = 1, 6 do
+		T:Shelf(`part{Index}`).Store:Bump("part", "Gold", 5):Wait()
+	end
+
+	T:Is("the total while every shard is readable", (Shelf.Store:Total("part", "Gold"):Wait()), 30)
+
+	Shelf:Fault(Fault.Reads():OnKey(Tally.Shard("part", 0)))
+	Shelf:NoRetries()
+	local Sum, Why = Shelf.Store:Total("part", "Gold"):Wait()
+
+	T:Is("the total with one shard unreadable", Sum, nil)
+	T:Is("the reason, since a number would be wrong rather than late", Why, "Unresolved")
+end)
+
+Cases.Case("a grant whose booking another server gave back hands nothing over", function(T: Case)
+	local One, Two = T:Shelf("granta"), T:Shelf("grantb")
+	One:Seed("gsrc", { Stock = 10, Sold = 0, Gold = 0 })
+	One:Seed("gdst", { Stock = 0, Sold = 0, Gold = 0 })
+
+	One.Store:Reserve("gsrc", "Stock", 3, "gswap1", { To = "gdst" }):Wait()
+	One:Fault(Fault.Updates():OnKey("gsrc"):Only(1):Stall(5))
+
+	local Ok, Why: any = nil, nil
+	T:Race({
+		function()
+			Ok, Why = One.Store:Grant("gsrc", "gswap1"):Wait()
+		end,
+		function()
+			Two.Store:Release("gsrc", "gswap1"):Wait()
+		end,
+	})
+
+	T:Is("the grant, once the booking went from under it", Ok, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("the units went back to the key that held them", One:Amount("gsrc"), 10)
+	T:Is("and none of them reached the receiver", One:Amount("gdst"), 0)
+	T:Is("nothing is left set aside", One:Booked("gsrc"), 0)
+end)
+
+Cases.Case("reserving under a name whose units have gone says so rather than reporting success", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf:Seed("spent", { Stock = 10, Sold = 0, Gold = 0 })
+
+	T:Is("the first reservation", (Shelf.Store:Reserve("spent", "Stock", 3, "spent1"):Wait()), true)
+	T:Is("asking again while it is still held", (Shelf.Store:Reserve("spent", "Stock", 3, "spent1"):Wait()), true)
+	T:Is("the units it set aside, which is one booking and not two", Shelf:Booked("spent"), 1)
+
+	T:Is("giving it back", (Shelf.Store:Release("spent", "spent1"):Wait()), true)
+
+	local Again, Why = Shelf.Store:Reserve("spent", "Stock", 5, "spent1"):Wait()
+
+	T:Is("reserving under that name once its units have gone", Again, false)
+	T:Is("the reason", Why, "Spent")
+	T:Is("nothing was set aside", Shelf:Booked("spent"), 0)
+	T:Is("and the stock is whole", Shelf:Amount("spent"), 10)
+	T:Warns("it said the name cannot be used again", "was used before and its units have gone", 1)
+end)
+
+Cases.Case("resettling a key that is only holding a live booking says it is still busy", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf:Seed("resting", { Stock = 10, Sold = 0, Gold = 0 })
+
+	T:Is("resettling it while nothing is on it", (Shelf.Store:Resettle("resting"):Wait()), true)
+
+	Shelf.Store:Reserve("resting", "Stock", 3, "resting1"):Wait()
+	local Ok, Why = Shelf.Store:Resettle("resting"):Wait()
+
+	T:Is("resettling it while it holds a live booking", Ok, false)
+	T:Is("the reason, since those units are still to be decided", Why, "Busy")
+	T:Is("the booking is left exactly as it was", Shelf:Booked("resting"), 1)
+	T:Is("and so is the stock it set aside", Shelf:Amount("resting"), 7)
 end)
 
 return Cases

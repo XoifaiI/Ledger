@@ -22,12 +22,30 @@ type Config<D> = Api.Config<D>
 
 local MAX_NAME = 47
 
+local function Sized(Mock: any)
+	if type(Mock) ~= "table" then
+		return
+	end
+
+	for Named in Mock do
+		assert(Named == "Players" or Named == "CCU" or Named == "Throttled", `Mock does not take '{tostring(Named)}', only Players, CCU and Throttled`)
+	end
+
+	assert(Mock.Players == nil or (type(Mock.Players) == "number" and Mock.Players >= 0), "Mock Players has to be a count of players on this server when you pass one")
+	assert(Mock.CCU == nil or (type(Mock.CCU) == "number" and Mock.CCU >= 0), "Mock CCU has to be a count of players in the whole experience when you pass one")
+	assert(Mock.Throttled == nil or type(Mock.Throttled) == "boolean", "Mock Throttled has to be true or false when you pass one")
+end
+
 local function Named<D>(Options: Config<D>)
 	assert(type(Options.Name) == "string" and #Options.Name > 0 and #Options.Name <= MAX_NAME, `New needs Name, a datastore name of 1 to {MAX_NAME} characters (the transaction store appends _Tx)`)
 	assert(type(Options.Reducer) == "function", "New needs Reducer, a (State, Op) -> State? function")
 	assert(type(Options.Default) == "table", "New needs Default, the fresh state table")
 	assert(Options.Keys == nil or Options.Keys == "Player" or Options.Keys == "String", `Keys must be "Player" or "String"`)
-	assert(Options.Mock == nil or type(Options.Mock) == "boolean", "Mock must be true or false when you pass one, it puts this store on a fake datastore")
+	assert(
+		Options.Mock == nil or type(Options.Mock) == "boolean" or type(Options.Mock) == "table",
+		"Mock must be true or false, or a table of Players, CCU and Throttled, and it puts this store on a fake datastore"
+	)
+	Sized(Options.Mock)
 	assert(Options.OnLoadFailed == nil or type(Options.OnLoadFailed) == "function", "OnLoadFailed must be a (Player, Reason) -> boolean function if you pass one")
 	assert(Options.OnLoadFailed == nil or Options.Keys ~= "String", `OnLoadFailed only fires for Store:Load, which needs Keys to be "Player"`)
 end

@@ -7,8 +7,9 @@
 
 	Every public write ends here, and this is the only place that turns a datastore answer into a
 	reason. It runs the caller's guard, asks whether the op still applies, appends, settles and trims
-	the record, then reads back whether the op really took. It also adds a key to the sweep when that
-	key is left holding money mid move.
+	the record, then reads back whether the op really took. Shows is for a caller whose op can land and
+	still leave nothing behind, because a later op undid it: it is asked once of the settled record and
+	names the reason. It also adds a key to the sweep when that key is left holding money mid move.
 
 	Return type: A table with Failed. It writes Stale, Went, Watch, WatchHeld, Append, Swelling, Starved, Maintain, Applies, Swollen and Written onto the class.
 	Example usage:
@@ -198,7 +199,7 @@ function Store.Swollen(self: Store, Op: Op, Record: Record): boolean
 	return Read and Over
 end
 
-function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?): (boolean, Reason?)
+function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?, Shows: ((Record) -> Reason?)?): (boolean, Reason?)
 	local Applied = true
 	local Swollen = false
 	local Landed, Result = pcall(function(): Record
@@ -266,7 +267,13 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		if not Sure then
 			return UNRESOLVED
 		end
-		return if Took then nil else REFUSED
+		if not Took then
+			return REFUSED
+		end
+		if Shows ~= nil then
+			return Shows(Settled)
+		end
+		return nil
 	end)
 
 	if not Ok then
