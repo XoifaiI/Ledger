@@ -21,7 +21,7 @@ local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Windows = require("../../Core/Constants/Windows")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
-local Fingerprint = require("../../Encode/Fingerprint")
+local Digest = require("../../Encode/Digest")
 local Mark = require("../../Encode/Mark")
 local Storable = require("../../Encode/Storable")
 local Log = require("../../Record/Log")
@@ -38,14 +38,13 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type Leg = Types.Leg
 type Pass = Types.Pass
 
-
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
 local FULL = Reasons.Full
 local UNRESOLVED = Reasons.Unresolved
 
-local Canon = Fingerprint.Canon
+local Canon = Digest.Canon
 
 local function PrepareLeg(Leg: Leg, Op: Op, PerLeg: number?): Log.Prepared
 	local Verdict = Leg.Log:Prepare(Leg.Key, Op, Leg.Shape)
@@ -240,7 +239,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 
 	local Keys = Mark.Pack(Marks)
 	local Shape = Mark.Pack(Terms)
-	local Print = Fingerprint.Of(Mark.Pack({ Keys, Shape }))
+	local Print = Digest.Of(Mark.Pack({ Keys, Shape }))
 
 	local Added = Clock.Now()
 	if not Cleanup.Add(TxStore, Id) then

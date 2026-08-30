@@ -26,7 +26,6 @@ type Fixture = Suite.Fixture
 
 local Cases = Suite.File("Shutdown")
 
-
 local function Counted(Set: any): number
 	local Count = 0
 	for _ in Set do
@@ -158,7 +157,6 @@ Cases.Case("CloseAll twice is harmless", function(T: Case)
 end)
 
 Cases.Case("a write the shutdown skips says Closed rather than Unresolved", function(T: Case)
-
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 0 })
 	Bank:Fault(Fault.Updates():Stall(0.3))
@@ -197,7 +195,6 @@ Cases.Case("a write the shutdown skips says Closed rather than Unresolved", func
 end)
 
 Cases.Case("a deliver the shutdown drops leaves the money set aside", function(T: Case)
-
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 100 })
 	Bank:Seed("b", { Gold = 0 })
@@ -234,7 +231,6 @@ Cases.Case("a deliver the shutdown drops leaves the money set aside", function(T
 end)
 
 Cases.Case("ops dropped from a queued save are written again on the way out", function(T: Case)
-
 	local Bank = T:Bank()
 	Bank:Seed("1", { Gold = 0 })
 

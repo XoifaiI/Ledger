@@ -3,16 +3,16 @@
 
 --[=[
 
-	Codec: The json trip a real datastore puts a value through.
+	Json: The json trip a real datastore puts a value through.
 
 	Encode refuses anything json cannot hold and anything over the value cap. A buffer has no json
 	form, so it goes in and out as base64 under one reserved key. Only a table holding that key and
 	nothing else reads back as a buffer.
 
-	Return type: A table with Encode, Decode, MAX_VALUE and BLOB.
+	Return type: A table with Encode, Decode and MAX_VALUE.
 	Example usage:
-		local Codec = require("./Codec")
-		local Text = Codec.Encode(Value)
+		local Json = require("./Json")
+		local Text = Json.Encode(Value)
 --]=]
 
 local Sizes = require("../Core/Constants/Sizes")
@@ -90,5 +90,4 @@ return table.freeze({
 	Encode = Encode,
 	Decode = Decode,
 	MAX_VALUE = Sizes.Value,
-	BLOB = BLOB,
 })

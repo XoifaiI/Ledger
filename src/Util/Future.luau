@@ -8,7 +8,7 @@
 	The work starts immediately. Wait gives back the result, or nothing if the work failed, and
 	Happened says which of those it was. Wait takes a timeout.
 
-	Return type: A table with New, Completed and Errored.
+	Return type: A table with New and Completed.
 	Example usage:
 		local Future = require("./Future")
 		local Job = Future.New(function() return 1 end)
@@ -165,10 +165,6 @@ local function NewCompleted<T...>(...: T...): Future<T...>
 	return Settled(Pack(true, ...))
 end
 
-local function NewErrored<T...>(Reason: string): Future<T...>
-	return Settled(Pack(false, Reason))
-end
-
 function Future.Wait<T...>(self: Future<T...>, Timeout: number?): T...
 	local Private = ToPrivate(self)
 
@@ -218,5 +214,4 @@ return table.freeze({
 	New = New,
 
 	Completed = NewCompleted,
-	Errored = NewErrored,
 })

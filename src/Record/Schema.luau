@@ -112,7 +112,7 @@ function Schema.Rehydrate(self: Schema<any>, Record: Record): any
 	local Held = Record.Floor
 	local Needs = if type(Held) == "number" then Held elseif Version > #Steps then Version else 0
 	if Needs > #Steps then
-error({
+		error({
 			Ledger = true,
 			Why = Reasons.Behind,
 			Message = `the record needs format version {Needs} but this server only knows {#Steps} migrations, a newer server wrote it`,

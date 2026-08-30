@@ -21,7 +21,7 @@ local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
 local Roblox = require("../Hooks/Roblox")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
-local Ident = require("../Encode/Ident")
+local Ids = require("../Encode/Ids")
 local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
@@ -145,7 +145,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Waiters = {},
 		Loads = {},
 		Saving = {},
-		Node = Ident.Home(),
+		Node = Ids.Home(),
 		Sweep = Registry.Sweep(),
 		Sweeping = nil,
 		Staleness = Observer.New(true) :: Observer.Subject<string>,

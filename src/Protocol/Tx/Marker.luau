@@ -19,7 +19,7 @@ local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Engine = require("../../Util/Engine")
-local Ident = require("../../Encode/Ident")
+local Ids = require("../../Encode/Ids")
 local Mark = require("../../Encode/Mark")
 local Transactions = require("../../Core/Constants/Transactions")
 local Types = require("./Types")
@@ -117,7 +117,7 @@ local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Ke
 			return {
 				Status = Transactions.PENDING,
 				Total = Total,
-				Gen = Ident.Fresh(),
+				Gen = Ids.Fresh(),
 				At = Born,
 				Adopted = {},
 				Keys = Keys,
@@ -253,7 +253,4 @@ return table.freeze({
 	Elsewhere = Elsewhere,
 	HomeOf = HomeOf,
 	ShutdownHomes = ShutdownHomes,
-
-
-
 })

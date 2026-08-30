@@ -45,7 +45,6 @@ type Store = Types.Store<any>
 
 local Players = game:GetService("Players")
 
-
 local BUSY = Reasons.Busy
 local BEHIND = Reasons.Behind
 
@@ -290,7 +289,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
 			if TxStamp.HasPending(Record) then
-error({
+				error({
 					Ledger = true,
 					Why = BUSY,
 					Message = `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`,
@@ -298,7 +297,7 @@ error({
 			end
 
 			if Booking.Owed(self:Fold(Record)._Booked) then
-error({
+				error({
 					Ledger = true,
 					Why = BUSY,
 					Message = `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`,

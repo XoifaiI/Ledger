@@ -192,6 +192,4 @@ end
 return table.freeze({
 	Layered = Layered,
 	Entry = Entry,
-
-
 })

@@ -23,8 +23,8 @@ local Shapes = require("../Core/Shapes")
 local Validate = require("../Core/Validate")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
-local Fingerprint = require("../Encode/Fingerprint")
-local Ident = require("../Encode/Ident")
+local Digest = require("../Encode/Digest")
+local Ids = require("../Encode/Ids")
 local Log = require("../Record/Log")
 local LogTypes = require("../Record/Types")
 local TxStamp = require("../Record/TxStamp")
@@ -58,7 +58,7 @@ local function Spent(Tid: string): Reserved
 end
 
 local function Terms(From: number | string, To: number | string, Amount: number): string
-	return Fingerprint.Of(Fingerprint.Canon({ From = tostring(From), To = tostring(To), Amount = Amount }))
+	return Digest.Of(Digest.Canon({ From = tostring(From), To = tostring(To), Amount = Amount }))
 end
 
 local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, From: (number | string)?): Applied.Recalled
@@ -88,7 +88,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		return Stopped(REFUSED)
 	end
 
-	local Tid = Id or Ident.Fresh()
+	local Tid = Id or Ids.Fresh()
 	local Print = Terms(From, To, Amount)
 
 	if Id ~= nil then
@@ -165,13 +165,13 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 	end)
 	if not TxStamp.Carries(Landed, DeliverOp.Id) then
 		if not Sound(At) then
-error({
+			error({
 				Ledger = true,
 				Why = HELD,
 				Message = `transfer {Tid} reached '{To}' later than the window it is given back in, so it was not delivered. the {Amount} stays set aside on '{From}' until recovery gives it back`,
 			})
 		end
-error({
+		error({
 			Ledger = true,
 			Why = HELD,
 			Message = `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`,
@@ -180,14 +180,14 @@ error({
 
 	local Landing = LandedOn(Format, Landed, Tid, DeliverOp.Print, From)
 	if Landing == Tags.OTHER then
-error({
+		error({
 			Ledger = true,
 			Why = SPENT,
 			Message = `transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back, and a transfer name belongs to one sender`,
 		})
 	end
 	if Landing == Tags.UNSEEN then
-error({
+		error({
 			Ledger = true,
 			Why = HELD,
 			Message = `transfer {Tid} cannot be shown to have reached '{To}'. its delivery was folded into the snapshot and the name has aged out, so the {Amount} stays set aside on '{From}' rather than settle against a delivery that may belong to someone else`,
@@ -202,7 +202,7 @@ error({
 end
 
 local function Prune(Records: Log, UserId: number | string)
-	local PruneOp: Op = { Id = `{Kinds.PRUNE_ID}:{Ident.Fresh()}`, Kind = Kinds.PRUNE, At = Clock.Now() }
+	local PruneOp: Op = { Id = `{Kinds.PRUNE_ID}:{Ids.Fresh()}`, Kind = Kinds.PRUNE, At = Clock.Now() }
 	Records:Append(tostring(UserId), { PruneOp })
 end
 

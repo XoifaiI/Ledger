@@ -219,7 +219,6 @@ Cases.Case("flushing the same ops again applies them once", function(T: Case)
 end)
 
 Cases.Case("every apply accepted during a flush still lands", function(T: Case)
-
 	local Bank = T:Bank()
 	Bank:Seed("flushK", { Gold = 0 })
 
@@ -654,7 +653,6 @@ Cases.Case("a write names the key it landed on as stale", function(T: Case)
 end)
 
 Cases.Case("a stale listener may yield and does not hold up the write", function(T: Case)
-
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 0, Touches = 0 })
 
@@ -948,7 +946,6 @@ Cases.Case("a server on its way down does not start picking up transfers", funct
 end)
 
 Cases.Case("a second load while the first is still loading is ignored", function(T: Case)
-
 	local Store = T:Players()
 	local Fake = T:Player(91)
 
@@ -969,7 +966,6 @@ Cases.Case("a second load while the first is still loading is ignored", function
 end)
 
 Cases.Case("an unload during a load releases the session on arrival", function(T: Case)
-
 	local Store = T:Players()
 	local Fake = T:Player(92)
 
@@ -998,7 +994,6 @@ Cases.Case("an unload during a load releases the session on arrival", function(T
 end)
 
 Cases.Case("a rejoin during a leaving load ends with one live session", function(T: Case)
-
 	local Store = T:Players()
 	local Fake = T:Player(93)
 
@@ -1110,7 +1105,6 @@ Cases.Case("waiters are let go before the callback is asked", function(T: Case)
 end)
 
 Cases.Case("a load that lands after Destroy is let go of", function(T: Case)
-
 	local Store = T:Players()
 	local Fake = T:Player(97)
 

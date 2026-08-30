@@ -3,19 +3,18 @@
 
 --[=[
 
-	Ident: Makes an op id from this server and a count.
+	Ids: Makes an op id from this server and a count.
 
 	Home is the server's name and Fresh adds the next count to it. Restart pins both, so a test gets
 	the same ids twice.
 
-	Return type: A table with Fresh, Home, Restart and NODE_CHARS.
+	Return type: A table with Fresh, Home and Restart.
 	Example usage:
-		local Ident = require("./Ident")
-		local Id = Ident.Fresh()
+		local Ids = require("./Ids")
+		local Id = Ids.Fresh()
 --]=]
 
 local HttpService = game:GetService("HttpService")
-
 
 local NODE_CHARS = 16
 
@@ -49,5 +48,4 @@ return table.freeze({
 	Fresh = Fresh,
 	Home = Home,
 	Restart = Restart,
-	NODE_CHARS = NODE_CHARS,
 })

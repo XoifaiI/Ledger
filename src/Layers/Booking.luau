@@ -20,7 +20,7 @@ local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
 local Windows = require("../Core/Constants/Windows")
 local Sizes = require("../Core/Constants/Sizes")
-local Fingerprint = require("../Encode/Fingerprint")
+local Digest = require("../Encode/Digest")
 local Validate = require("../Core/Validate")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
@@ -275,7 +275,7 @@ local function Give(Rid: string, Field: string, Amount: number, Print: string?):
 end
 
 local function Terms(From: string, Rid: string, Held: Shapes.Booked): string
-	return Fingerprint.Of(Fingerprint.Canon({
+	return Digest.Of(Digest.Canon({
 		From = From,
 		Rid = Rid,
 		Field = tostring(Held.Field),

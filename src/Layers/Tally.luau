@@ -15,8 +15,8 @@
 		local Key = Tally.Shard(Name, Tally.Mine())
 --]=]
 
-local Fingerprint = require("../Encode/Fingerprint")
-local Ident = require("../Encode/Ident")
+local Digest = require("../Encode/Digest")
+local Ids = require("../Encode/Ids")
 local Validate = require("../Core/Validate")
 local Kinds = require("../Core/Constants/Kinds")
 local Shards = require("../Core/Constants/Shards")
@@ -25,7 +25,6 @@ local Shapes = require("../Core/Shapes")
 
 type Op = Shapes.Op
 type Data = Shapes.Folded
-
 
 local LastNode = ""
 local LastShard = 0
@@ -64,10 +63,10 @@ local function Bumping(Data: Data, Op: Op): Data?
 end
 
 local function Mine(Node: string?): number
-	local Home = Node or Ident.Home()
+	local Home = Node or Ids.Home()
 	if Home ~= LastNode then
 		LastNode = Home
-		LastShard = Fingerprint.Bucket(Home, Shards.SHARDS)
+		LastShard = Digest.Bucket(Home, Shards.SHARDS)
 	end
 	return LastShard
 end
@@ -85,7 +84,7 @@ local function Keys(Name: string): { string }
 end
 
 local function Bump(Field: string, Amount: number): Op
-	return { Id = Ident.Fresh(), Kind = Kinds.BUMP, Field = Field, Amount = Amount } :: any
+	return { Id = Ids.Fresh(), Kind = Kinds.BUMP, Field = Field, Amount = Amount } :: any
 end
 
 local Held: Layer.Layer = {

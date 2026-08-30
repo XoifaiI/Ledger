@@ -9,7 +9,7 @@
 	named has forgotten its leg, and a key that cannot be read counts as still holding one. Each pass
 	reads a fixed number of names per shard and gives back where it stopped.
 
-	Return type: A table with Reap, Spent, Quiet and Anywhere. The type is Reaping.
+	Return type: A table with Reap. The type is Reaping.
 	Example usage:
 		local Reap = require("./Reap")
 		local Count, Next = Reap.Reap(TxStore, Lookup)
@@ -239,7 +239,4 @@ end
 
 return table.freeze({
 	Reap = Reap,
-	Spent = Spent,
-	Quiet = Quiet,
-	Anywhere = Anywhere,
 })

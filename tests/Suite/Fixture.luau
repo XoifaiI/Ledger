@@ -24,17 +24,17 @@ local Booking = require("../../src/Layers/Booking")
 local Log = require("../../src/Record/Log")
 local Wrapper = require("../../src/Util/DataStoreWrapper")
 local Session = require("../../src/Session/Session")
-local Memory = require("../../src/Hooks/Memory")
+local Fault = require("./Fault")
 local Mock = require("../../src/Mock")
 
-type Spec = Memory.Spec
+type Spec = Fault.Spec
 type Fake = Mock.Store
 type Service = Mock.Service
 
 type FixtureImpl = {
 	__index: FixtureImpl,
 
-	New: (Store: any, Hook: Memory.Memory, Service: Service, Data: string, Marked: string, Node: string, Field: string?) -> Fixture,
+	New: (Store: any, Hook: Fault.Faulted, Service: Service, Data: string, Marked: string, Node: string, Field: string?) -> Fixture,
 
 	Seed: (self: Fixture, Key: string, Snapshot: { [string]: any }) -> (),
 	Write: (self: Fixture, Key: string, Record: { [string]: any }) -> (),
@@ -73,7 +73,7 @@ type FixtureImpl = {
 
 export type Fixture = setmetatable<{
 	Store: any,
-	Hook: Memory.Memory,
+	Hook: Fault.Faulted,
 	Service: Service,
 	Data: string,
 	Marked: string,
@@ -139,7 +139,7 @@ local function Bookings(Held: any): number
 	return Count
 end
 
-function Fixture.New(Store: any, Hook: Memory.Memory, Service: Service, Data: string, Marked: string, Node: string, Field: string?): Fixture
+function Fixture.New(Store: any, Hook: Fault.Faulted, Service: Service, Data: string, Marked: string, Node: string, Field: string?): Fixture
 	return setmetatable({
 		Store = Store,
 		Hook = Hook,

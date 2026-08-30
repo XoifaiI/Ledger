@@ -15,7 +15,7 @@
 		local Fake = Mock.New({ Throttled = false })
 --]=]
 
-local Codec = require("@self/Codec")
+local Json = require("@self/Json")
 local Service = require("@self/Service")
 local Types = require("@self/Types")
 
@@ -27,5 +27,5 @@ export type KeyInfo = Types.KeyInfo
 
 return table.freeze({
 	New = Service.New,
-	MAX_VALUE = Codec.MAX_VALUE,
+	MAX_VALUE = Json.MAX_VALUE,
 })

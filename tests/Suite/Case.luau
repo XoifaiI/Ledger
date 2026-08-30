@@ -23,9 +23,10 @@ local Reducers = require("./Reducers")
 local Ledger = require("../../src") :: any
 local Sizes = require("../../src/Core/Constants/Sizes")
 local Clock = require("../../src/Util/Clock")
-local Ident = require("../../src/Encode/Ident")
+local Ids = require("../../src/Encode/Ids")
 local Wrapper = require("../../src/Util/DataStoreWrapper")
 local Memory = require("../../src/Hooks/Memory")
+local Fault = require("./Fault")
 local Registry = require("../../src/Store/Registry")
 local Virtual = require("../../src/Schedulers/Virtual")
 local Mock = require("../../src/Mock")
@@ -149,7 +150,7 @@ end
 
 function Case.Open(Name: string): Case
 	Spoken = {}
-	Ident.Restart(SIM_NODE)
+	Ids.Restart(SIM_NODE)
 
 	local Walker = Registry.Sweep()
 	Walker:Stop()
@@ -165,7 +166,7 @@ function Case.Open(Name: string): Case
 		Turn = Turn,
 		Broken = {},
 		Service = Service,
-		Hook = Memory.New(Turn, nil, Service),
+		Hook = Fault.Wrap(Memory.New(Turn, nil, Service), Turn),
 		Built = {},
 		Records = Spoken,
 		Expect = {},
@@ -238,7 +239,7 @@ function Case.Store(self: Case, Held: Spec): Fixture.Fixture
 	local Node = Held.Node or NODE
 
 	local Turn = self.Turn
-	local Hook = Memory.New(Turn, nil, self.Service)
+	local Hook = Fault.Wrap(Memory.New(Turn, nil, self.Service), Turn)
 	local Built = Ledger.New({
 		Name = `V2case{Claimed}`,
 		Scheduler = Turn,

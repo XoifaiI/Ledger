@@ -10,7 +10,7 @@
 	front this build can apply, keeps the rest, and moves the absorbed ids to Seen. Hint names the
 	field taking the most room.
 
-	Return type: A table with Packed, Worthwhile, Oversized, Overgrown, Bulk, Hint and SEEN_LIMIT.
+	Return type: A table with Packed, Oversized, Overgrown, Bulk, Hint and SEEN_LIMIT.
 	Example usage:
 		local Compact = require("./Compact")
 		if Compact.Overgrown(Record) then Fold() end
@@ -185,7 +185,6 @@ end
 
 return table.freeze({
 	Packed = Packed,
-	Worthwhile = Worthwhile,
 	Oversized = Oversized,
 	Overgrown = Overgrown,
 	Bulk = Bulk,

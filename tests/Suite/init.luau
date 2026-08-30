@@ -17,6 +17,7 @@
 
 local Case = require("@self/Case")
 local Fixture = require("@self/Fixture")
+local Fault = require("@self/Fault")
 local Reducers = require("@self/Reducers")
 
 export type Case = Case.Case
@@ -141,7 +142,7 @@ return table.freeze({
 	Run = Run,
 	Heard = Case.Heard,
 
-	Fault = require("../src/Hooks/Memory"),
+	Fault = Fault,
 	Reducers = Reducers,
 	Reasons = require("../src/Core/Constants/Reasons"),
 	Horizons = require("../src/Core/Constants/Windows"),

@@ -20,8 +20,8 @@ local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Transactions = require("../../Core/Constants/Transactions")
 local Windows = require("../../Core/Constants/Windows")
-local Fingerprint = require("../../Encode/Fingerprint")
-local Ident = require("../../Encode/Ident")
+local Digest = require("../../Encode/Digest")
+local Ids = require("../../Encode/Ids")
 local Mark = require("../../Encode/Mark")
 
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
@@ -42,7 +42,7 @@ local Filled: { [number]: number } = {}
 local FilledAt = -1
 
 local function Shard(Text: string): number
-	return Fingerprint.Bucket(Text, Transactions.SHARDS)
+	return Digest.Bucket(Text, Transactions.SHARDS)
 end
 
 local function Named(Slot: number, When: number, Part: number): string
@@ -71,7 +71,7 @@ local function At(Held: string): number?
 end
 
 local function Mine(Node: string?): number
-	local Home = Node or Ident.Home()
+	local Home = Node or Ids.Home()
 	if Home ~= LastNode then
 		LastNode = Home
 		LastShard = Shard(Home)
@@ -175,5 +175,4 @@ return table.freeze({
 	Mine = Mine,
 	Add = Add,
 	Carry = Carry,
-
 })

@@ -9,7 +9,7 @@
 	the request budget, and the five plain functions the sweep sees a store as. The log handle is kept
 	against the wrapper that built it.
 
-	Return type: A table with ValidId. It writes Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Affords, TxAffords, Swept, Records, Format, Fold and ReadRecord onto the class.
+	Return type: An empty table. It writes Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Affords, TxAffords, Swept, Records, Format, Fold and ReadRecord onto the class.
 	Example usage:
 		local Shared = require("./Shared")
 		local Key = self:Resolve(1, "Peek")
@@ -133,6 +133,4 @@ function Store.ReadRecord(self: Store, Key: string): Record
 	return self:Records():Read(Key)
 end
 
-return table.freeze({
-	ValidId = ValidId,
-})
+return table.freeze({})

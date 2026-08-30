@@ -2,13 +2,13 @@
 
 --[=[
 
-	Engine: The Roblox globals Ledger reads, answered by Zune.
+	Engine: The Roblox globals Ledger reads, handled by Zune.
 
-	Ledger takes its datastore, scheduler and clock as arguments, so what is left is vocabulary: a
-	hash, base64, json, a guid, the request kinds, the sort directions, task, workspace, Random and
-	warn. Install puts them in place, and Listen points warn at something other than the screen.
-	The hash hands back raw bytes rather than hex, since a fingerprint cuts the first six and a shard
-	reads the first four.
+	Ledger takes its datastore, scheduler and clock as arguments, so what is left is: a hash, base64,
+	zstd, json, a guid, the request, compression and sort enums, task, workspace, Random and warn.
+	Install puts them in place, and Listen points warn at something other than the screen. The hash
+	hands back raw bytes rather than hex, since a digest cuts the first six and a shard reads the
+	first four.
 
 	Return type: A table with Install and Listen.
 	Example usage:
@@ -46,6 +46,7 @@ local Enums = table.freeze({
 	}),
 	SortDirection = Members("SortDirection", { "Ascending", "Descending" }),
 	HashAlgorithm = Members("HashAlgorithm", { "Blake3" }),
+	CompressionAlgorithm = Members("CompressionAlgorithm", { "Zstd" }),
 })
 
 local EncodingService = table.freeze({
@@ -59,6 +60,9 @@ local EncodingService = table.freeze({
 	end,
 	Base64Decode = function(_: any, Held: buffer): buffer
 		return Serde.base64.decode(Held)
+	end,
+	CompressBuffer = function(_: any, Held: buffer, _Algorithm: any, _Level: number?): buffer
+		return Serde.zstd.compress(Held)
 	end,
 })
 

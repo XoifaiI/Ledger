@@ -190,14 +190,14 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: Shapes.Booked
 
 	local Ruling = Booking.Granted(self:Fold(Landed), Rid, Print)
 	if Ruling == Tags.OTHER then
-error({
+		error({
 			Ledger = true,
 			Why = SPENT,
 			Message = `'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`,
 		})
 	end
 	if Ruling ~= Tags.SAME then
-error({
+		error({
 			Ledger = true,
 			Why = HELD,
 			Message = `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`,
@@ -224,7 +224,7 @@ function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Rea
 				return false
 			end
 			if Booking.Late(Held, Clock.Now()) then
-error({
+				error({
 					Ledger = true,
 					Why = SPENT,
 					Message = `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`,

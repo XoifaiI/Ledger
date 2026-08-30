@@ -9,7 +9,7 @@
 	name and refuses one stamped outside the window a name is kept for. Check is everything an op has
 	to pass before it is offered anywhere: stamped, then held against what a datastore can store.
 
-	Return type: A table with New, Stamp and Check.
+	Return type: A table with New and Check.
 	Example usage:
 		local NewOp = require("./NewOp")
 		local Op = NewOp.New("Add", { Amount = 5 })
@@ -17,7 +17,7 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
-local Ident = require("../Encode/Ident")
+local Ids = require("../Encode/Ids")
 local Storable = require("../Encode/Storable")
 local Shapes = require("../Core/Shapes")
 local Windows = require("../Core/Constants/Windows")
@@ -63,7 +63,7 @@ local function NewOp(Kind: string, Fields: { [any]: any }?): Op
 		warn(`Ledger: op '{Kind}' passed Id, Kind or OnceAt in its fields. those belong to Ledger, so they got overwritten`)
 	end
 
-	Op.Id = Ident.Fresh()
+	Op.Id = Ids.Fresh()
 	Op.Kind = Kind
 	Op.OnceAt = nil
 
@@ -72,6 +72,5 @@ end
 
 return table.freeze({
 	New = NewOp,
-	Stamp = Stamp,
 	Check = Check,
 })

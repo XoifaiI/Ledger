@@ -28,6 +28,18 @@ local function Bytes(Text: string): buffer
 	return buffer.fromstring(Text)
 end
 
+local function Noise(Size: number): buffer
+	local Held = buffer.create(Size)
+	for Index = 0, Size - 1 do
+		local Mixed = bit32.bxor(Index, bit32.rshift(Index, 16))
+		Mixed = bit32.band(Mixed * 0x85EBCA6B, 0xFFFFFFFF)
+		Mixed = bit32.bxor(Mixed, bit32.rshift(Mixed, 13))
+		Mixed = bit32.band(Mixed * 0xC2B2AE35, 0xFFFFFFFF)
+		buffer.writeu8(Held, Index, bit32.band(bit32.bxor(Mixed, bit32.rshift(Mixed, 16)), 255))
+	end
+	return Held
+end
+
 local function Keeps(State: any, Op: any): any?
 	if Op.Kind ~= "Stash" then
 		return nil
@@ -172,9 +184,21 @@ Cases.Case("a buffer on a record survives compaction", function(T: Case)
 	T:Is("and the count survived", State.Count, 40)
 end)
 
+Cases.Case("a compressible buffer is charged what it compresses to", function(T: Case)
+	local Store = Stashing(T)
+	local Flat = Bytes(string.rep("x", 1024 * 1024))
+
+	local Ok = Store.Store:Edit("k", "Stash", { Blob = Flat }):Wait()
+	local State: any = Store:State("k")
+
+	T:Is("a megabyte zstd crushes is charged nothing like its raw size", Measure(Flat) < 4096, true)
+	T:Is("so the write the raw size would have refused goes through", Ok, true)
+	T:Is("and the bytes come back whole", buffer.len(State.Blob), 1024 * 1024)
+end)
+
 Cases.Case("a buffer past the op cap is still refused", function(T: Case)
 	local Store = Stashing(T)
-	local Fat = Bytes(string.rep("x", 1024 * 1024))
+	local Fat = Noise(1536 * 1024)
 
 	local Ok = Store.Store:Edit("k", "Stash", { Blob = Fat }):Wait()
 

@@ -9,7 +9,7 @@
 	collide. An entry holds the time of the write and a mark of what the name meant. Names older than
 	the prune window are dropped on the next write.
 
-	Return type: A table with Key, Entry, At, Meant, Find, Has, Recall, Tagged, Remember and Prune. The type is Recalled.
+	Return type: A table with Key, Entry, At, Has, Recall, Remember and Prune. The type is Recalled.
 	Example usage:
 		local Applied = require("./Applied")
 		if Applied.Has(Names, Applied.ONCE, "gift") then return end
@@ -81,10 +81,6 @@ local function Recall(Received: any, Tag: string, Id: string, Print: string?): R
 	return if Held == Print then Tags.SAME else Tags.OTHER
 end
 
-local function Tagged(Id: any, Tag: string): boolean
-	return type(Id) == "string" and string.sub(Id, 1, #Tag) == Tag
-end
-
 local function Fresh(Stamp: any, Floor: number): boolean
 	local When = At(Stamp)
 	return When ~= nil and When >= Floor
@@ -144,11 +140,8 @@ return table.freeze({
 	Key = Key,
 	Entry = Entry,
 	At = At,
-	Meant = Meant,
-	Find = Find,
 	Has = Has,
 	Recall = Recall,
-	Tagged = Tagged,
 
 	Remember = Remember,
 	Prune = Prune,

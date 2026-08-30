@@ -9,7 +9,7 @@
 	An append adds only the ops the record does not already have, so running one twice applies once.
 	Every write first asks whether this build may write the record at all.
 
-	Return type: A table with New, Verdict, Entombed, NotEntombed and Known.
+	Return type: A table with New, Verdict, Entombed and NotEntombed.
 	Example usage:
 		local Log = require("./Log")
 		local Books = Log.New(Wrapper, 0)
@@ -48,7 +48,6 @@ export type Verdict = Types.Verdict
 export type Prepared = Types.Prepared
 export type Fated = Types.Fated
 
-
 local OWNED = "Owned" :: "Owned"
 local DEAD = "Dead" :: "Dead"
 
@@ -67,7 +66,7 @@ local function Materialize(Value: any): Record
 	end
 
 	if type(Value.Envelope) == "number" and Value.Envelope > Kinds.ENVELOPE then
-error({
+		error({
 			Ledger = true,
 			Why = Reasons.Behind,
 			Message = `the record envelope is format {Value.Envelope} but this server only knows {Kinds.ENVELOPE}, a newer framework wrote it`,
@@ -291,7 +290,7 @@ function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Recor
 	return self:Update(Key, function(Record: Record): Record?
 		self:Legible(Key, Record)
 		if TxStamp.HasPending(Record) then
-error({
+			error({
 				Ledger = true,
 				Why = Reasons.Busy,
 				Message = `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`,
@@ -476,5 +475,4 @@ return table.freeze({
 	Verdict = VERDICT,
 	Entombed = Entombed,
 	NotEntombed = NotEntombed,
-	Known = Known,
 })

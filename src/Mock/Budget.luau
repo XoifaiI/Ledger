@@ -55,5 +55,4 @@ end
 return table.freeze({
 	Ceiling = Ceiling,
 	Allowance = Allowance,
-
 })

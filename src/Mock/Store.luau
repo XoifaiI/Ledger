@@ -20,7 +20,8 @@ local Messages = require("../Core/Constants/Messages")
 local NoYield = require("../Util/NoYield")
 local Clock = require("../Util/Clock")
 local Datastore = require("../Core/Constants/Datastore")
-local Codec = require("./Codec")
+local Digest = require("../Encode/Digest")
+local Json = require("./Json")
 local Pages = require("./Pages")
 local Types = require("./Types")
 
@@ -30,13 +31,12 @@ type Entry = Types.Entry
 type KeyInfo = Types.KeyInfo
 type Transform = Types.Transform
 
-
-local HASH_SEED = 5381
-local HASH_STEP = 33
-local HASH_WRAP = 2 ^ 32
+local HASH_RANGE = 2 ^ 32
 
 local CURSOR = "c%08x"
 local CURSOR_PATTERN = "^c(%x+)$"
+
+local Marks: { [string]: number } = {}
 
 local function NoIds(_self: KeyInfo): { number }
 	return {}
@@ -72,16 +72,17 @@ local function Newest(Slot: Slot?): Entry?
 	return Slot.Entries[#Slot.Entries]
 end
 
-local function Hashed(Key: string): number
-	local Held = HASH_SEED
-	for Index = 1, #Key do
-		Held = (Held * HASH_STEP + string.byte(Key, Index)) % HASH_WRAP
+local function Mark(Key: string): number
+	local Held = Marks[Key]
+	if Held == nil then
+		Held = Digest.Bucket(Key, HASH_RANGE)
+		Marks[Key] = Held
 	end
 	return Held
 end
 
 local function Ordered(Left: string, Right: string): boolean
-	local Mine, Theirs = Hashed(Left), Hashed(Right)
+	local Mine, Theirs = Mark(Left), Mark(Right)
 	if Mine ~= Theirs then
 		return Mine < Theirs
 	end
@@ -178,11 +179,11 @@ function Store.Current(self: Store, Key: string): (any, KeyInfo?)
 	end
 
 	self.Service:Carry("r", self.Name, Key, #Text)
-	return Codec.Decode(Text), MakeInfo(Mark.Label, Mark.Written)
+	return Json.Decode(Text), MakeInfo(Mark.Label, Mark.Written)
 end
 
 function Store.Put(self: Store, Key: string, Value: any): Entry
-	local Text = Codec.Encode(Value)
+	local Text = Json.Encode(Value)
 	self.Service:Carry("w", self.Name, Key, #Text)
 	return self:Commit(Key, Text, false)
 end
@@ -219,7 +220,7 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 		end
 
 		local Fresh = self:Put(Key, Next)
-		local Read = Codec.Decode(Fresh.Text)
+		local Read = Json.Decode(Fresh.Text)
 		assert(Read ~= nil, "the mock stored a transform result it cannot read back, so a round trip loses data")
 		return Read, MakeInfo(Fresh.Label, Fresh.Written)
 	end
@@ -253,7 +254,7 @@ function Store.GetVersionAsync(self: Store, Key: string, Version: string): (any,
 	local Slot = self:Look(Key)
 	for _, Mark in if Slot == nil then {} else Slot.Entries do
 		if Mark.Label == Version then
-			return Codec.Decode(Mark.Text), MakeInfo(Mark.Label, Mark.Written)
+			return Json.Decode(Mark.Text), MakeInfo(Mark.Label, Mark.Written)
 		end
 	end
 

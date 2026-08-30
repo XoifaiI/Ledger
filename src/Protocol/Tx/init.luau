@@ -7,7 +7,7 @@
 
 	A caller above this tier does not have to know which half of the protocol owns what.
 
-	Return type: A table with Drive, Settle, Reap, ShutdownHomes and Roll.
+	Return type: A table with Drive, Settle, Reap and ShutdownHomes.
 	Example usage:
 		local Tx = require("../Protocol/Tx")
 		local Ok, Why = Tx.Drive(TxStore, Legs, "trade1")
@@ -16,7 +16,6 @@
 local Coordinator = require("@self/Coordinator")
 local Marker = require("@self/Marker")
 local Reap = require("@self/Reap")
-local Cleanup = require("@self/Cleanup")
 local Resolve = require("@self/Resolve")
 local Types = require("@self/Types")
 
@@ -29,6 +28,4 @@ return table.freeze({
 	Settle = Resolve.Settle,
 	Reap = Reap.Reap,
 	ShutdownHomes = Marker.ShutdownHomes,
-
-	Roll = Cleanup,
 })

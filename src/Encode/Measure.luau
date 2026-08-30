@@ -8,7 +8,9 @@
 
 	The count is exact rather than an estimate, since every cap in Ledger is decided against it. A
 	string is measured with its escapes, a number by its digits, and a table by its braces, its keys
-	and one separator between entries.
+	and one separator between entries. A buffer is charged what the datastore charges for one: zstd
+	first, then base64 sizing on whatever survives. One under a few kilobytes skips the compression
+	and is charged raw, which can only over count.
 
 	Return type: A function that gives back the number of bytes.
 	Example usage:
@@ -16,10 +18,15 @@
 		local Bytes = Measure(State)
 --]=]
 
+local EncodingService = game:GetService("EncodingService")
+
 local Sizes = require("../Core/Constants/Sizes")
 
 local MAX_EXACT = 2 ^ 53
 local BUFFER_WRAP = 35
+local BUFFER_PROBE = 4096
+local ZSTD = Enum.CompressionAlgorithm.Zstd
+local ZSTD_LEVEL = 1
 local MAX_DEPTH = Sizes.Depth
 local FRACTION_MARGIN = 3
 
@@ -175,6 +182,15 @@ local function NumberBytes(Value: number): number
 	return Digits + (if Rest < 1000000000000000 then 14 else 15)
 end
 
+local function Stored(Value: buffer): number
+	local Raw = buffer.len(Value)
+	if Raw < BUFFER_PROBE then
+		return Raw
+	end
+
+	return math.min(Raw, buffer.len(EncodingService:CompressBuffer(Value, ZSTD, ZSTD_LEVEL)))
+end
+
 local function MeasureValue(Value: any, Depth: number): number
 	local Kind = type(Value)
 	if Kind == "table" then
@@ -213,7 +229,7 @@ local function MeasureValue(Value: any, Depth: number): number
 	elseif Kind == "boolean" then
 		return if Value then 4 else 5
 	elseif Kind == "buffer" then
-		return BUFFER_WRAP + 4 * ((buffer.len(Value) + 2) // 3)
+		return BUFFER_WRAP + 4 * ((Stored(Value) + 2) // 3)
 	end
 
 	return 0

@@ -11,7 +11,7 @@
 	adds only the ops the record lacks, capped refuses once the log is too long, format raises the
 	version floor, and tomb stamps the envelope.
 
-	Return type: A table with New, Reset, Quiet and the seven rules. The types are Pass, Rule and Sift.
+	Return type: A table with New, Reset, Readable, Entombed and the six rules. The types are Pass, Rule and Sift.
 	Example usage:
 		local Rules = require("./Rules")
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
@@ -58,7 +58,6 @@ local function Reset(Pass: Pass)
 	table.clear(Pass.Notes)
 end
 
-
 local function Entombed(Record: Record): boolean
 	local At = Record.Erased
 	return type(At) == "number" and Clock.Now() - At <= Windows.TOMB
@@ -70,7 +69,7 @@ local function Readable(Key: string, Known: number?, Record: Record)
 		return
 	end
 
-error({
+	error({
 		Ledger = true,
 		Why = Reasons.Behind,
 		Message = `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`,
@@ -160,7 +159,7 @@ local function Capped(Key: string, Owned: boolean): Rule
 				return nil
 			end
 
-error({
+			error({
 				Ledger = true,
 				Why = Reasons.Full,
 				Message = `'{Key}' is carrying {Ceiling} bytes of ops that have not been compacted away, so this one cannot go on as well`,
@@ -205,7 +204,6 @@ end
 return table.freeze({
 	New = New,
 	Reset = Reset,
-	Quiet = Quiet,
 
 	Readable = Readable,
 	Legible = Legible,
