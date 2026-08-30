@@ -16,7 +16,6 @@
 
 local HttpService = game:GetService("HttpService")
 
-local Errors = require("../Core/Errors")
 
 local NODE_CHARS = 16
 
@@ -31,13 +30,13 @@ local function Home(): string
 	local Job = game.JobId
 	local Source = if type(Job) == "string" and #Job > 0 then Job else HttpService:GenerateGUID(false)
 	Node = string.sub((string.gsub(Source, "[^%w]", "")), 1, NODE_CHARS)
-	Errors.Holds(#Node > 0, "an op id needs a server name to build on, and this server gave nothing usable")
+	assert(#Node > 0, "an op id needs a server name to build on, and this server gave nothing usable")
 	return Node
 end
 
 local function Fresh(): string
 	Count += 1
-	Errors.Holds(Count < 2 ^ 53, "this server has built more op ids than a number can count exactly")
+	assert(Count < 2 ^ 53, "this server has built more op ids than a number can count exactly")
 	return `{Home()}:{Count}`
 end
 

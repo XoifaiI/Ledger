@@ -9,16 +9,15 @@
 	throw, and Try answers with a boolean instead. Threads that finished cleanly are kept and used
 	again.
 
-	Return type: A table with Run, Try and YIELDED.
+	Return type: A table with Run and Try.
 	Example usage:
 		local NoYield = require("./NoYield")
 		local Value = NoYield.Run(Callback, 1, 2)
 --]=]
 
+local Messages = require("../Core/Constants/Messages")
 local Tagged = require("./Tagged")
 local Threads = require("./Threads")
-
-local YIELDED = "the callback must complete without yielding"
 
 local DONE = newproxy(false)
 local Idle = Threads.Pool()
@@ -43,7 +42,7 @@ local function Finish(Thread: thread, Success: boolean, Signal: any, ...: any): 
 	end
 
 	if Signal ~= DONE then
-		local Trace = debug.traceback(Thread, YIELDED)
+		local Trace = debug.traceback(Thread, Messages.YIELDED)
 		coroutine.close(Thread)
 		error(Trace, 2)
 	end
@@ -61,7 +60,7 @@ local function Answer(Thread: thread, Success: boolean, Signal: any, ...: any): 
 	end
 
 	if Signal ~= DONE then
-		local Trace = debug.traceback(Thread, YIELDED)
+		local Trace = debug.traceback(Thread, Messages.YIELDED)
 		coroutine.close(Thread)
 		return false, Trace
 	end
@@ -96,5 +95,4 @@ end
 return table.freeze({
 	Run = Run,
 	Try = Try,
-	YIELDED = YIELDED,
 })

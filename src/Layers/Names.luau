@@ -16,8 +16,8 @@
 --]=]
 
 local TableUtil = require("../Util/TableUtil")
-local Errors = require("../Core/Errors")
 local Shapes = require("../Core/Shapes")
+local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Storable = require("../Encode/Storable")
 
@@ -28,12 +28,12 @@ local function StampOf(Op: Op): (string?, any, string?)
 	local Sticky = Op.TxSticky
 	if type(Sticky) == "string" then
 		local Print = if type(Op.TxTerms) == "string" then Op.TxTerms else nil
-		return Applied.Key(Applied.TX, Sticky), Op.TxAt, Print
+		return Applied.Key(Tags.TX, Sticky), Op.TxAt, Print
 	end
 
 	local Once = Op.Once
 	if type(Once) == "string" then
-		return Applied.Key(Applied.ONCE, Once), Op.OnceAt, nil
+		return Applied.Key(Tags.ONCE, Once), Op.OnceAt, nil
 	end
 	return nil, nil, nil
 end
@@ -41,7 +41,7 @@ end
 local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 	local function Combined(State: S, Op: Op): S?
 		local Data: any = State
-		if type(Op.Once) == "string" and Applied.Has(Data._Received, Applied.ONCE, Op.Once) then
+		if type(Op.Once) == "string" and Applied.Has(Data._Received, Tags.ONCE, Op.Once) then
 			return nil
 		end
 
@@ -54,7 +54,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		local Stamp, At, Print = StampOf(Op)
 		if Stamp ~= nil then
 			if type(At) ~= "number" then
-				Errors.Broke(`op '{tostring(Op.Kind)}' carries a name with no time on it, so the name could never be aged out`)
+				warn(`Ledger bug: op '{tostring(Op.Kind)}' carries a name with no time on it, so the name could never be aged out`)
 				return nil
 			end
 			local Marked = table.clone(Plain)
@@ -68,7 +68,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		end
 
 		if Plain._Received ~= nil and not TableUtil.DeepEqual(Plain._Received, Data._Received) then
-			Errors.Broke(`your reducer wrote its own _Received on op '{tostring(Op.Kind)}', so Ledger put the applied names back`)
+			warn(`Ledger bug: your reducer wrote its own _Received on op '{tostring(Op.Kind)}', so Ledger put the applied names back`)
 		end
 
 		local Kept = table.clone(Plain)

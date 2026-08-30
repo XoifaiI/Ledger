@@ -9,14 +9,15 @@
 	the request budget, and the five plain functions the sweep sees a store as. The log handle is kept
 	against the wrapper that built it.
 
-	Return type: A table with ValidId and MAX_KEY. It writes Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Affords, TxAffords, Swept, Records, Format, Fold and ReadRecord onto the class.
+	Return type: A table with ValidId. It writes Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Affords, TxAffords, Swept, Records, Format, Fold and ReadRecord onto the class.
 	Example usage:
 		local Shared = require("./Shared")
 		local Key = self:Resolve(1, "Peek")
 --]=]
 
 local Shapes = require("../Core/Shapes")
-local Tally = require("../Layers/Tally")
+local Shards = require("../Core/Constants/Shards")
+local Datastore = require("../Core/Constants/Datastore")
 local Mark = require("../Encode/Mark")
 local Log = require("../Record/Log")
 local Schema = require("../Record/Schema")
@@ -27,8 +28,6 @@ local Types = require("./Types")
 type Record = Shapes.Record<any>
 type KeyLike = Shapes.KeyLike
 type Store = Types.Store<any>
-
-local MAX_KEY = 50
 
 local function ValidId(UserId: any): boolean
 	return type(UserId) == "number" and UserId == UserId // 1 and UserId > 0 and UserId < math.huge
@@ -42,11 +41,11 @@ function Store.KeyFor(self: Store, Value: any): string?
 	if self.Keys == "Player" then
 		return if ValidId(Value) then tostring(Value) else nil
 	end
-	return if type(Value) == "string" and #Value > 0 and #Value <= MAX_KEY and utf8.len(Value) ~= nil and string.find(Value, Tally.PART, 1, true) == nil then Value else nil
+	return if type(Value) == "string" and #Value > 0 and #Value <= Datastore.MAX_KEY and utf8.len(Value) ~= nil and string.find(Value, Shards.PART, 1, true) == nil then Value else nil
 end
 
 function Store.KeyIssue(self: Store): string
-	return if self.Keys == "Player" then "a positive integer UserId" else `a key string of 1 to {MAX_KEY} characters, without '{Tally.PART}' in it`
+	return if self.Keys == "Player" then "a positive integer UserId" else `a key string of 1 to {Datastore.MAX_KEY} characters, without '{Shards.PART}' in it`
 end
 
 function Store.Live(self: Store, What: string)
@@ -136,5 +135,4 @@ end
 
 return table.freeze({
 	ValidId = ValidId,
-	MAX_KEY = MAX_KEY,
 })

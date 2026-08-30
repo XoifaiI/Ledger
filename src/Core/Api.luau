@@ -19,7 +19,7 @@ local Engine = require("../Util/Engine")
 local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local Shapes = require("./Shapes")
-local Reasons = require("./Reasons")
+local Reasons = require("./Constants/Reasons")
 local TypeFunctions = require("./TypeFunctions")
 
 type Future<T...> = Future.Future<T...>

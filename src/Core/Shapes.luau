@@ -9,7 +9,7 @@
 	fields and leaves the game's own open. Held and Booked are one entry of the money set aside and
 	the units set aside.
 
-	Return type: A table with ENVELOPE. The types are Op, Record, HistoryEntry, KeyLike, KeysMode, Reducer, Migration, Held, Booked and Folded.
+	Return type: An empty table. The types are Op, Record, HistoryEntry, KeyLike, KeysMode, Reducer, Migration, Held, Booked and Folded.
 	Example usage:
 		local Shapes = require("./Shapes")
 		type Op = Shapes.Op
@@ -69,8 +69,4 @@ export type Reducer<S> = (State: S, Op: Op) -> S?
 
 export type Migration = ((State: any) -> any) | { Apply: (State: any) -> any, Compatible: boolean? }
 
-local ENVELOPE = 1
-
-return table.freeze({
-	ENVELOPE = ENVELOPE,
-})
+return table.freeze({})

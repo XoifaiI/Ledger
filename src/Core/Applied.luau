@@ -9,29 +9,18 @@
 	collide. An entry holds the time of the write and a mark of what the name meant. Names older than
 	the prune window are dropped on the next write.
 
-	Return type: A table with the five tags, the three recalls, Key, Entry, At, Meant, Find, Has, Recall, Tagged, Remember and Prune.
+	Return type: A table with Key, Entry, At, Meant, Find, Has, Recall, Tagged, Remember and Prune. The type is Recalled.
 	Example usage:
 		local Applied = require("./Applied")
 		if Applied.Has(Names, Applied.ONCE, "gift") then return end
 --]=]
 
+local Tags = require("./Constants/Tags")
 local Windows = require("./Constants/Windows")
 
-local TRANSFER = "t:"
-local TX = "x:"
-local ONCE = "o:"
-local SENT = "s:"
-local GRANT = "g:"
+export type Recalled = Tags.Recalled
 
-local MEANT = "#"
-
-export type Recalled = "Unseen" | "Same" | "Other"
-
-local UNSEEN: Recalled = "Unseen"
-local SAME: Recalled = "Same"
-local OTHER: Recalled = "Other"
-
-local TAGS: { [string]: boolean } = { [TRANSFER] = true, [TX] = true, [ONCE] = true, [SENT] = true, [GRANT] = true }
+local TAGS: { [string]: boolean } = { [Tags.TRANSFER] = true, [Tags.TX] = true, [Tags.ONCE] = true, [Tags.SENT] = true, [Tags.GRANT] = true }
 
 local function Key(Tag: string, Id: string): string
 	assert(TAGS[Tag], "an applied name has to be tagged transfer, transaction, once, sent or grant")
@@ -43,14 +32,14 @@ local function Entry(At: number, Meant: string?): any
 	if Meant == nil then
 		return At
 	end
-	return `{At}{MEANT}{Meant}`
+	return `{At}{Tags.MEANT}{Meant}`
 end
 
 local function Cut(Value: any): number?
 	if type(Value) ~= "string" then
 		return nil
 	end
-	return (string.find(Value, MEANT, 1, true))
+	return (string.find(Value, Tags.MEANT, 1, true))
 end
 
 local function At(Value: any): number?
@@ -82,14 +71,14 @@ end
 local function Recall(Received: any, Tag: string, Id: string, Print: string?): Recalled
 	local Value = Find(Received, Tag, Id)
 	if Value == nil then
-		return UNSEEN
+		return Tags.UNSEEN
 	end
 
 	local Held = Meant(Value)
 	if Held == nil or Print == nil then
-		return SAME
+		return Tags.SAME
 	end
-	return if Held == Print then SAME else OTHER
+	return if Held == Print then Tags.SAME else Tags.OTHER
 end
 
 local function Tagged(Id: any, Tag: string): boolean
@@ -152,16 +141,6 @@ local function Prune(Received: any, Stamped: any): { [string]: any }?
 end
 
 return table.freeze({
-	TRANSFER = TRANSFER,
-	TX = TX,
-	ONCE = ONCE,
-	SENT = SENT,
-	GRANT = GRANT,
-
-	UNSEEN = UNSEEN,
-	SAME = SAME,
-	OTHER = OTHER,
-
 	Key = Key,
 	Entry = Entry,
 	At = At,

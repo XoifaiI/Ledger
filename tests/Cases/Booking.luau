@@ -18,6 +18,7 @@ local Suite = require("../Suite")
 local Windows = require("../../src/Core/Constants/Windows")
 local Sizes = require("../../src/Core/Constants/Sizes")
 local Booking = require("../../src/Layers/Booking")
+local Shards = require("../../src/Core/Constants/Shards")
 local Tally = require("../../src/Layers/Tally")
 
 local function Counted(Booked: any): number
@@ -547,7 +548,7 @@ Cases.Case("a shard holding a total below zero is caught and not counted", funct
 	local Shelf = T:Store({ Default = { Gold = 0 }, Reducer = Reducers.Keep, Data = "CaseTallyBent" })
 	local Shard = Tally.Shard("bent", Tally.Mine())
 
-	Shelf:Write(Shard, { Snapshot = { Gold = 0, [Tally.FIELD] = { Gold = -50 } }, Ops = {}, Seen = {} })
+	Shelf:Write(Shard, { Snapshot = { Gold = 0, [Shards.FIELD] = { Gold = -50 } }, Ops = {}, Seen = {} })
 
 	T:Is("the total a reader is given, which never goes below zero", Shelf.Store:Total("bent", "Gold"):Wait(), 0)
 	T:Is("the shard itself, which is what the reader is protecting against", Shelf:Stored(Shard)._Tally.Gold, -50)

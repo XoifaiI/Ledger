@@ -10,7 +10,7 @@
 	that bucket takes the rest, so any one key costs a bounded read and write. A name the reaper cannot
 	clear yet is carried onto a newer key.
 
-	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add, Carry and the caps.
+	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add and Carry.
 	Example usage:
 		local Cleanup = require("./Cleanup")
 		Cleanup.Add(TxStore, "trade1")
@@ -18,6 +18,7 @@
 
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Transactions = require("../../Core/Constants/Transactions")
 local Windows = require("../../Core/Constants/Windows")
 local Fingerprint = require("../../Encode/Fingerprint")
 local Ident = require("../../Encode/Ident")
@@ -25,19 +26,14 @@ local Mark = require("../../Encode/Mark")
 
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 
-local RESERVED = "__"
-local SHARDS = 32
 local WIDTH = 10
 local PART_WIDTH = 3
 
-local ROLL_LIMIT = 256
-local PARTS = 64
-
 local DIGITS = string.rep("%d", WIDTH)
-local FORMAT = `{RESERVED}%02d:%0{WIDTH}d:%0{PART_WIDTH}d`
-local HEAD = `{RESERVED}%02d:`
-local PATTERN = `^{RESERVED}%d%d:({DIGITS}):%d+$`
-local PLAIN = `^{RESERVED}%d%d:({DIGITS})$`
+local FORMAT = `{Transactions.RESERVED}%02d:%0{WIDTH}d:%0{PART_WIDTH}d`
+local HEAD = `{Transactions.RESERVED}%02d:`
+local PATTERN = `^{Transactions.RESERVED}%d%d:({DIGITS}):%d+$`
+local PLAIN = `^{Transactions.RESERVED}%d%d:({DIGITS})$`
 
 local LastNode = ""
 local LastShard = 0
@@ -46,7 +42,7 @@ local Filled: { [number]: number } = {}
 local FilledAt = -1
 
 local function Shard(Text: string): number
-	return Fingerprint.Bucket(Text, SHARDS)
+	return Fingerprint.Bucket(Text, Transactions.SHARDS)
 end
 
 local function Named(Slot: number, When: number, Part: number): string
@@ -93,7 +89,7 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 	local Left = Batch
 	local Part = Filled[Slot] or 1
 
-	while #Left > 0 and Part <= PARTS do
+	while #Left > 0 and Part <= Transactions.PARTS do
 		local Placed = 0
 		local Ok = TxStore:UpdateAsync(Named(Slot, When, Part), function(Current: any): string?
 			Placed = 0
@@ -115,7 +111,7 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 					Placed += 1
 					continue
 				end
-				if #Held >= ROLL_LIMIT then
+				if #Held >= Transactions.ROLL_LIMIT then
 					break
 				end
 
@@ -180,8 +176,4 @@ return table.freeze({
 	Add = Add,
 	Carry = Carry,
 
-	RESERVED = RESERVED,
-	SHARDS = SHARDS,
-	ROLL_LIMIT = ROLL_LIMIT,
-	PARTS = PARTS,
 })

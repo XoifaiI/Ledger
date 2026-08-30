@@ -10,14 +10,16 @@
 	yields raises, and one that throws cancels the write silently. A listing comes back in a stable
 	order that is not the key order, since a real one gives no order to lean on.
 
-	Return type: A table with New, MAX_KEY and KEEP_VERSIONS.
+	Return type: A table with New.
 	Example usage:
 		local Store = require("./Store")
 		local Books = Store.New("Players", "global", Service)
 --]=]
 
+local Messages = require("../Core/Constants/Messages")
 local NoYield = require("../Util/NoYield")
 local Clock = require("../Util/Clock")
+local Datastore = require("../Core/Constants/Datastore")
 local Codec = require("./Codec")
 local Pages = require("./Pages")
 local Types = require("./Types")
@@ -28,10 +30,6 @@ type Entry = Types.Entry
 type KeyInfo = Types.KeyInfo
 type Transform = Types.Transform
 
-local MAX_KEY = 50
-local KEEP_VERSIONS = 30
-local CONFLICT_LIMIT = 32
-local YIELDED = "must complete without yielding"
 
 local HASH_SEED = 5381
 local HASH_STEP = 33
@@ -62,8 +60,8 @@ local function CheckKey(Key: string)
 	if type(Key) ~= "string" or #Key == 0 then
 		error("Ledger mock: key must be a non empty string", 0)
 	end
-	if #Key > MAX_KEY then
-		error(`Ledger mock: key name exceeds the {MAX_KEY} character limit`, 0)
+	if #Key > Datastore.MAX_KEY then
+		error(`Ledger mock: key name exceeds the {Datastore.MAX_KEY} character limit`, 0)
 	end
 end
 
@@ -161,12 +159,12 @@ function Store.Commit(self: Store, Key: string, Text: string?, Deleted: boolean)
 	Slot.Live = Text
 	table.insert(Slot.Entries, Fresh)
 
-	local Spare = #Slot.Entries - KEEP_VERSIONS
+	local Spare = #Slot.Entries - Datastore.KEEP_VERSIONS
 	if Spare > 0 then
 		Slot.Entries = table.move(Slot.Entries, Spare + 1, #Slot.Entries, 1, {})
 	end
 
-	assert(#Slot.Entries <= KEEP_VERSIONS, "the mock is keeping more versions of a key than a real datastore would")
+	assert(#Slot.Entries <= Datastore.KEEP_VERSIONS, "the mock is keeping more versions of a key than a real datastore would")
 	assert(Newest(Slot) == Fresh, "the mock wrote a version that is not the one a read would hand back")
 	return Fresh
 end
@@ -199,14 +197,14 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 	CheckKey(Key)
 	self:Reach(Enum.DataStoreRequestType.UpdateAsync)
 
-	for _ = 1, CONFLICT_LIMIT do
+	for _ = 1, Datastore.CONFLICT_LIMIT do
 		local Latest = Newest(self:Look(Key))
 		local Before = if Latest then Latest.Label else nil
 
 		local Was, Info = self:Current(Key)
 		local Ran, Next = NoYield.Try(Transform, Was, Info)
 		if not Ran then
-			if type(Next) == "string" and string.find(Next, YIELDED, 1, true) ~= nil then
+			if type(Next) == "string" and string.find(Next, Messages.YIELDED, 1, true) ~= nil then
 				error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)
 			end
 			return nil, nil
@@ -332,6 +330,4 @@ table.freeze(Store)
 
 return table.freeze({
 	New = Store.New,
-	MAX_KEY = MAX_KEY,
-	KEEP_VERSIONS = KEEP_VERSIONS,
 })

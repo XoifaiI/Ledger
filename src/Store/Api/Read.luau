@@ -18,7 +18,8 @@
 local Future = require("../../Util/Future")
 local TableUtil = require("../../Util/TableUtil")
 local Shapes = require("../../Core/Shapes")
-local Reasons = require("../../Core/Reasons")
+local Reasons = require("../../Core/Constants/Reasons")
+local Tags = require("../../Core/Constants/Tags")
 local Applied = require("../../Core/Applied")
 local Write = require("./Write")
 local Store = require("../Class")
@@ -65,7 +66,7 @@ function Store.DidApply(self: Store, Key: KeyLike, Id: string): Future<boolean?,
 	assert(type(Id) == "string" and #Id > 0, "DidApply needs the same Once name the op was written under")
 
 	return Reading("check what has been applied to", Resolved, function(): boolean
-		return Applied.Has(Followed(self, Resolved)._Received, Applied.ONCE, Id)
+		return Applied.Has(Followed(self, Resolved)._Received, Tags.ONCE, Id)
 	end)
 end
 

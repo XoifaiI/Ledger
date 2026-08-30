@@ -16,11 +16,12 @@
 --]=]
 
 local Clock = require("../Util/Clock")
-local Errors = require("../Core/Errors")
 local Windows = require("../Core/Constants/Windows")
-local Reasons = require("../Core/Reasons")
+local Errors = require("../Core/Errors")
+local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
 local Validate = require("../Core/Validate")
+local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Fingerprint = require("../Encode/Fingerprint")
 local Ident = require("../Encode/Ident")
@@ -29,6 +30,7 @@ local LogTypes = require("../Record/Types")
 local TxStamp = require("../Record/TxStamp")
 local Apply = require("../Record/Apply")
 local Schema = require("../Record/Schema")
+local Kinds = require("../Core/Constants/Kinds")
 local Escrow = require("../Layers/Escrow")
 
 type Op = Shapes.Op
@@ -60,21 +62,21 @@ local function Terms(From: number | string, To: number | string, Amount: number)
 end
 
 local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, From: (number | string)?): Applied.Recalled
-	local Held, Meant, Sender = TxStamp.Written(Record, `{Escrow.DELIVER_ID}:{Tid}`)
+	local Held, Meant, Sender = TxStamp.Written(Record, `{Kinds.DELIVER_ID}:{Tid}`)
 	if Held and Print ~= nil and Sender ~= nil and From ~= nil and tostring(Sender) ~= tostring(From) then
-		return Applied.OTHER
+		return Tags.OTHER
 	end
 
 	if Held and Meant ~= nil and Print ~= nil then
-		return if Meant == Print then Applied.SAME else Applied.OTHER
+		return if Meant == Print then Tags.SAME else Tags.OTHER
 	end
 
 	if Held and Print == nil then
-		return Applied.SAME
+		return Tags.SAME
 	end
 
 	local State: any = Format:Fold(Record)
-	return Applied.Recall(State._Received, Applied.TRANSFER, Tid, Print)
+	return Applied.Recall(State._Received, Tags.TRANSFER, Tid, Print)
 end
 
 local function Delivered(Records: Log, Format: Format, To: number | string, Tid: string, Print: string?, From: (number | string)?): Applied.Recalled
@@ -91,15 +93,15 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 	if Id ~= nil then
 		local Already = Delivered(Records, Format, To, Tid, Print, From)
-		if Already == Applied.SAME then
+		if Already == Tags.SAME then
 			return { Outcome = "Finished" }
 		end
-		if Already == Applied.OTHER then
+		if Already == Tags.OTHER then
 			return Spent(Tid)
 		end
 	end
 
-	local ReserveOp: Op = { Id = `{Escrow.RESERVE_ID}:{Tid}`, Kind = Escrow.RESERVE, To = To, Amount = Amount, Tid = Tid, At = Clock.Now() }
+	local ReserveOp: Op = { Id = `{Kinds.RESERVE_ID}:{Tid}`, Kind = Kinds.RESERVE, To = To, Amount = Amount, Tid = Tid, At = Clock.Now() }
 
 	local Record = Records:Append(tostring(From), { ReserveOp }, function(Stored: Record): boolean
 		if TxStamp.HasPending(Stored) then
@@ -126,14 +128,14 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		return { Outcome = "Escrowed", Tid = Tid, Hold = Escrowed }
 	end
 
-	local Spend = Applied.Recall(State._Received, Applied.SENT, Tid, Print)
-	if Spend == Applied.OTHER then
+	local Spend = Applied.Recall(State._Received, Tags.SENT, Tid, Print)
+	if Spend == Tags.OTHER then
 		return Spent(Tid)
 	end
-	if Spend == Applied.SAME or TxStamp.Carries(Record, `{Escrow.SETTLE_ID}:{Tid}`) then
+	if Spend == Tags.SAME or TxStamp.Carries(Record, `{Kinds.SETTLE_ID}:{Tid}`) then
 		return { Outcome = "Finished" }
 	end
-	if TxStamp.Carries(Record, `{Escrow.EXPIRE_ID}:{Tid}`) then
+	if TxStamp.Carries(Record, `{Kinds.EXPIRE_ID}:{Tid}`) then
 		return Stopped(SPENT)
 	end
 	if TxStamp.HasPending(Record) then
@@ -144,7 +146,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 end
 
 local function Settle(Records: Log, From: number | string, Tid: string, Print: string?): Record
-	local SettleOp: Op = { Id = `{Escrow.SETTLE_ID}:{Tid}`, Kind = Escrow.SETTLE, Tid = Tid, At = Clock.Now(), Print = Print }
+	local SettleOp: Op = { Id = `{Kinds.SETTLE_ID}:{Tid}`, Kind = Kinds.SETTLE, Tid = Tid, At = Clock.Now(), Print = Print }
 	return (Records:Append(tostring(From), { SettleOp }))
 end
 
@@ -153,60 +155,61 @@ local function Sound(At: number?): boolean
 end
 
 local function Post(Records: Log, Format: Format, From: number | string, Tid: string, To: number | string, Amount: number, At: number?)
-	Errors.Holds(tostring(From) ~= tostring(To), `transfer {Tid} is being delivered to the key it came from, so the money would be counted twice`)
-	Errors.Holds(Amount > 0, `transfer {Tid} is being delivered with nothing in it`)
+	assert(tostring(From) ~= tostring(To), `transfer {Tid} is being delivered to the key it came from, so the money would be counted twice`)
+	assert(Amount > 0, `transfer {Tid} is being delivered with nothing in it`)
 
 	local Print = Terms(From, To, Amount)
-	local DeliverOp: Op = { Id = `{Escrow.DELIVER_ID}:{Tid}`, Kind = Escrow.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print }
+	local DeliverOp: Op = { Id = `{Kinds.DELIVER_ID}:{Tid}`, Kind = Kinds.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print }
 	local Landed = Records:Append(tostring(To), { DeliverOp }, function(Record: Record): boolean
 		return Sound(At) and Log.NotEntombed(Record)
 	end)
 	if not TxStamp.Carries(Landed, DeliverOp.Id) then
 		if not Sound(At) then
-			error(
-				Errors.New(
-					HELD,
-					`transfer {Tid} reached '{To}' later than the window it is given back in, so it was not delivered. the {Amount} stays set aside on '{From}' until recovery gives it back`
-				)
-			)
+error({
+				Ledger = true,
+				Why = HELD,
+				Message = `transfer {Tid} reached '{To}' later than the window it is given back in, so it was not delivered. the {Amount} stays set aside on '{From}' until recovery gives it back`,
+			})
 		end
-		error(Errors.New(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`))
+error({
+			Ledger = true,
+			Why = HELD,
+			Message = `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`,
+		})
 	end
 
 	local Landing = LandedOn(Format, Landed, Tid, DeliverOp.Print, From)
-	if Landing == Applied.OTHER then
-		error(
-			Errors.New(
-				SPENT,
-				`transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back, and a transfer name belongs to one sender`
-			)
-		)
+	if Landing == Tags.OTHER then
+error({
+			Ledger = true,
+			Why = SPENT,
+			Message = `transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back, and a transfer name belongs to one sender`,
+		})
 	end
-	if Landing == Applied.UNSEEN then
-		error(
-			Errors.New(
-				HELD,
-				`transfer {Tid} cannot be shown to have reached '{To}'. its delivery was folded into the snapshot and the name has aged out, so the {Amount} stays set aside on '{From}' rather than settle against a delivery that may belong to someone else`
-			)
-		)
+	if Landing == Tags.UNSEEN then
+error({
+			Ledger = true,
+			Why = HELD,
+			Message = `transfer {Tid} cannot be shown to have reached '{To}'. its delivery was folded into the snapshot and the name has aged out, so the {Amount} stays set aside on '{From}' rather than settle against a delivery that may belong to someone else`,
+		})
 	end
 
 	local Cleared = Settle(Records, From, Tid, Print)
-	Errors.Holds(Applied.Has(Format:Fold(Cleared)._Received, Applied.SENT, Tid), `transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`)
+	assert(Applied.Has(Format:Fold(Cleared)._Received, Tags.SENT, Tid), `transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`)
 
 	Records:Trim(tostring(To), Format, Landed)
 	Records:Trim(tostring(From), Format, Cleared)
 end
 
 local function Prune(Records: Log, UserId: number | string)
-	local PruneOp: Op = { Id = `{Escrow.PRUNE_ID}:{Ident.Fresh()}`, Kind = Escrow.PRUNE, At = Clock.Now() }
+	local PruneOp: Op = { Id = `{Kinds.PRUNE_ID}:{Ident.Fresh()}`, Kind = Kinds.PRUNE, At = Clock.Now() }
 	Records:Append(tostring(UserId), { PruneOp })
 end
 
 local function Drive(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): (boolean, Reason?, boolean?)
 	local Fine, Ruling = pcall(Reserve, Records, Format, From, To, Amount, Id)
 	if not Fine then
-		return false, Errors.Named(Ruling), nil
+		return false, Errors.Reason(Ruling), nil
 	end
 
 	if Ruling.Outcome == "Finished" then
@@ -229,7 +232,7 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 	end
 
 	warn(`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`)
-	return false, Errors.Named(Why), true
+	return false, Errors.Reason(Why), true
 end
 
 return table.freeze({

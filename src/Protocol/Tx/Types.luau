@@ -14,15 +14,16 @@
 --]=]
 
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
-local Reasons = require("../../Core/Reasons")
+local Reasons = require("../../Core/Constants/Reasons")
+local Transactions = require("../../Core/Constants/Transactions")
 local LogTypes = require("../../Record/Types")
 
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type Reason = Reasons.Reason
 
-export type Status = "Pending" | "Committed" | "Aborted"
+export type Status = Transactions.Status
 
-export type Opened = "Created" | "Mismatch" | "Unwritten" | "Husk"
+export type Opened = Transactions.Opened
 
 export type Marker = {
 	Status: Status,

@@ -18,7 +18,6 @@
 local Clock = require("../Util/Clock")
 local Windows = require("../Core/Constants/Windows")
 local SetInterval = require("../Util/SetInterval")
-local Errors = require("../Core/Errors")
 local Types = require("./Types")
 
 type Swept = Types.Swept
@@ -82,7 +81,7 @@ function Sweeper.Drop(self: Sweeper, Mark: string)
 	if self.Entries[Mark] == nil then
 		return
 	end
-	Errors.Holds(self.Count > 0, "the sweep is dropping a key it is following while its count says it follows none")
+	assert(self.Count > 0, "the sweep is dropping a key it is following while its count says it follows none")
 	self.Entries[Mark] = nil
 	self.Count -= 1
 end

@@ -16,6 +16,7 @@
 local Suite = require("../Suite")
 
 local Ledger = require("../../src") :: any
+local Datastore = require("../../src/Core/Constants/Datastore")
 local Mock = require("../../src/Mock")
 
 type Case = Suite.Case
@@ -72,7 +73,7 @@ Cases.Case("the mock keeps the limits the real service keeps", function(T: Case)
 	local Store = Mock.New({ Throttled = false }, T.Turn):GetDataStore("Caps")
 
 	local Long = pcall(function()
-		Store:SetAsync(string.rep("k", Mock.MAX_KEY + 1), 1)
+		Store:SetAsync(string.rep("k", Datastore.MAX_KEY + 1), 1)
 	end)
 	local Fat = pcall(function()
 		Store:SetAsync("big", { Blob = string.rep("x", Mock.MAX_VALUE) })

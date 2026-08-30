@@ -9,7 +9,7 @@
 
 	Return type: A frozen table of the ten reasons.
 	Example usage:
-		local Reasons = require("./Reasons")
+		local Reasons = require("./Constants/Reasons")
 		if Why == Reasons.Busy then Retry() end
 --]=]
 

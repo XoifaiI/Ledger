@@ -19,10 +19,10 @@
 local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
 local Observer = require("../../Util/Observer")
-local Errors = require("../../Core/Errors")
 local Windows = require("../../Core/Constants/Windows")
 local Sizes = require("../../Core/Constants/Sizes")
-local Reasons = require("../../Core/Reasons")
+local Errors = require("../../Core/Errors")
+local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
 local Measure = require("../../Encode/Measure")
 local Compact = require("../../Record/Compact")
@@ -47,7 +47,7 @@ local BEHIND = Reasons.Behind
 local FULL = Reasons.Full
 
 local function Failed(What: string, Key: string, Err: any): Reason
-	local Why = Errors.Named(Err)
+	local Why = Errors.Reason(Err)
 	if Why == CLOSED then
 		return Why
 	end
@@ -223,7 +223,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	end)
 
 	if not Landed then
-		local Named = Errors.Named(Result)
+		local Named = Errors.Reason(Result)
 		if Named == CLOSED then
 			return false, CLOSED
 		end
@@ -262,7 +262,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		end
 
 		local Took, Sure = self:Format():Certain(Settled, Op.Id)
-		Errors.Holds(Sure or TxStamp.HasPending(Settled), `the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`)
+		assert(Sure or TxStamp.HasPending(Settled), `the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`)
 		if not Sure then
 			return UNRESOLVED
 		end

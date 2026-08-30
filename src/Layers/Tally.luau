@@ -9,7 +9,7 @@
 	single key knows it. Mine picks this server's shard, Shards names them all, and the running total
 	lives in a field of Ledger's own rather than the game's.
 
-	Return type: A table with Layered, Bump, Counted, Mine, Shard, Shards, SHARDS, PART and FIELD.
+	Return type: A table with Layered, Bump, Counted, Mine, Shard and Keys.
 	Example usage:
 		local Tally = require("./Tally")
 		local Key = Tally.Shard(Name, Tally.Mine())
@@ -18,16 +18,14 @@
 local Fingerprint = require("../Encode/Fingerprint")
 local Ident = require("../Encode/Ident")
 local Validate = require("../Core/Validate")
+local Kinds = require("../Core/Constants/Kinds")
+local Shards = require("../Core/Constants/Shards")
 local Layer = require("./Layer")
 local Shapes = require("../Core/Shapes")
 
 type Op = Shapes.Op
 type Data = Shapes.Folded
 
-local BUMP = "__Bump"
-local SHARDS = 16
-local PART = "#"
-local FIELD = "_Tally"
 
 local LastNode = ""
 local LastShard = 0
@@ -69,33 +67,33 @@ local function Mine(Node: string?): number
 	local Home = Node or Ident.Home()
 	if Home ~= LastNode then
 		LastNode = Home
-		LastShard = Fingerprint.Bucket(Home, SHARDS)
+		LastShard = Fingerprint.Bucket(Home, Shards.SHARDS)
 	end
 	return LastShard
 end
 
 local function Shard(Name: string, Index: number): string
-	return `{Name}{PART}{Index}`
+	return `{Name}{Shards.PART}{Index}`
 end
 
-local function Shards(Name: string): { string }
-	local Keys: { string } = table.create(SHARDS) :: { string }
-	for Index = 1, SHARDS do
+local function Keys(Name: string): { string }
+	local Keys: { string } = table.create(Shards.SHARDS) :: { string }
+	for Index = 1, Shards.SHARDS do
 		Keys[Index] = Shard(Name, Index - 1)
 	end
 	return Keys
 end
 
 local function Bump(Field: string, Amount: number): Op
-	return { Id = Ident.Fresh(), Kind = BUMP, Field = Field, Amount = Amount } :: any
+	return { Id = Ident.Fresh(), Kind = Kinds.BUMP, Field = Field, Amount = Amount } :: any
 end
 
 local Held: Layer.Layer = {
 	Kinds = {
-		[BUMP] = Bumping,
+		[Kinds.BUMP] = Bumping,
 	},
 	Owns = {
-		{ Field = FIELD, Says = "the tally" },
+		{ Field = Shards.FIELD, Says = "the tally" },
 	},
 }
 
@@ -110,8 +108,5 @@ return table.freeze({
 	Counted = Counted,
 	Mine = Mine,
 	Shard = Shard,
-	Shards = Shards,
-	SHARDS = SHARDS,
-	PART = PART,
-	FIELD = FIELD,
+	Keys = Keys,
 })

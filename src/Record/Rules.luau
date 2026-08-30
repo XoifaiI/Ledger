@@ -18,9 +18,9 @@
 --]=]
 
 local Clock = require("../Util/Clock")
+local Kinds = require("../Core/Constants/Kinds")
 local Shapes = require("../Core/Shapes")
-local Errors = require("../Core/Errors")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
 local Windows = require("../Core/Constants/Windows")
@@ -58,7 +58,6 @@ local function Reset(Pass: Pass)
 	table.clear(Pass.Notes)
 end
 
-local ENVELOPE = Shapes.ENVELOPE
 
 local function Entombed(Record: Record): boolean
 	local At = Record.Erased
@@ -71,7 +70,11 @@ local function Readable(Key: string, Known: number?, Record: Record)
 		return
 	end
 
-	error(Errors.New(Reasons.Behind, `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`))
+error({
+		Ledger = true,
+		Why = Reasons.Behind,
+		Message = `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`,
+	})
 end
 
 local function Legible(Key: string, Known: number?): Rule
@@ -157,7 +160,11 @@ local function Capped(Key: string, Owned: boolean): Rule
 				return nil
 			end
 
-			error(Errors.New(Reasons.Full, `'{Key}' is carrying {Ceiling} bytes of ops that have not been compacted away, so this one cannot go on as well`))
+error({
+				Ledger = true,
+				Why = Reasons.Full,
+				Message = `'{Key}' is carrying {Ceiling} bytes of ops that have not been compacted away, so this one cannot go on as well`,
+			})
 		end,
 	}
 end
@@ -178,7 +185,7 @@ local function Tomb(Key: string, Owned: boolean): Rule
 	return {
 		Name = "tomb",
 		Apply = function(Record: Record): Record?
-			Record.Envelope = ENVELOPE
+			Record.Envelope = Kinds.ENVELOPE
 			if not Entombed(Record) then
 				Record.Erased = nil
 			end

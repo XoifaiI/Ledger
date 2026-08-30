@@ -15,9 +15,10 @@
 		local Ruling = Admit.Admit(Active, Op, Bytes)
 --]=]
 
+local Messages = require("../Core/Constants/Messages")
 local NoYield = require("../Util/NoYield")
 local Sizes = require("../Core/Constants/Sizes")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
 local Measure = require("../Encode/Measure")
 local Apply = require("../Record/Apply")
@@ -64,7 +65,7 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 
 	local Fine, Next = pcall(NoYield.Run, self.Shape.Reducer, self.State, Op)
 	if not Fine then
-		if string.find(tostring(Next), NoYield.YIELDED, 1, true) ~= nil then
+		if string.find(tostring(Next), Messages.YIELDED, 1, true) ~= nil then
 			error(Next, 0)
 		end
 		return Rejected(Kind, `your reducer threw: {tostring(Next)}`)

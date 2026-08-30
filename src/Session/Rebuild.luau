@@ -16,7 +16,6 @@
 --]=]
 
 local TableUtil = require("../Util/TableUtil")
-local Errors = require("../Core/Errors")
 local Shapes = require("../Core/Shapes")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
@@ -114,7 +113,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 			Missed += 1
 		end
 	end
-	Errors.Holds(Missed <= Count, "a push lost more ops than it was given, so one was counted twice")
+	assert(Missed <= Count, "a push lost more ops than it was given, so one was counted twice")
 
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= self.Fence then
 		self.Released = true
@@ -198,7 +197,7 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 	self.StateBytes = if Reach > Sizes.StateFloor then Measure(State) else Reach
 
 	for _, Op in self.Pending do
-		Errors.Holds(not Written[Op.Id], `op {Op.Id} is queued and already in the log for '{self.Key}', so it would be counted and folded twice`)
+		assert(not Written[Op.Id], `op {Op.Id} is queued and already in the log for '{self.Key}', so it would be counted and folded twice`)
 	end
 
 	return State, Accepted

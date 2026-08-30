@@ -10,7 +10,7 @@
 	A hand over marks the booking before it reaches the receiver, so the units show on both keys
 	between the two writes.
 
-	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Expired, Overdue, Owed, Granted, Delivered and the four ids.
+	Return type: A table with Layered, Book, Take, Sent, Free, Hand, Undo, Give, Terms, Entry, Late, Expired, Overdue, Owed, Granted and Delivered.
 	Example usage:
 		local Booking = require("./Booking")
 		local Op = Booking.Book("order1", "Stock", 1)
@@ -18,34 +18,19 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Clock = require("../Util/Clock")
-local Errors = require("../Core/Errors")
 local Windows = require("../Core/Constants/Windows")
 local Sizes = require("../Core/Constants/Sizes")
 local Fingerprint = require("../Encode/Fingerprint")
 local Validate = require("../Core/Validate")
+local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
+local Kinds = require("../Core/Constants/Kinds")
 local Layer = require("./Layer")
 local Shapes = require("../Core/Shapes")
 
 type Op = Shapes.Op
 type Data = Shapes.Folded
 type Kept = { [string]: Shapes.Booked }
-
-local BOOK = "__Book"
-local TAKE = "__Take"
-local SENT = "__Sent"
-local FREE = "__Free"
-local GIVEN = "__Given"
-local HAND = "__Hand"
-local UNHAND = "__Unhand"
-
-local BOOK_ID = "bk"
-local TAKE_ID = "tk"
-local SENT_ID = "sn"
-local FREE_ID = "fr"
-local GIVEN_ID = "gv"
-local HAND_ID = "hd"
-local UNHAND_ID = "uh"
 
 local function Entry(Booked: any, Rid: any): Shapes.Booked?
 	if type(Booked) ~= "table" or type(Rid) ~= "string" then
@@ -199,7 +184,7 @@ local function Refund(Data: Data, Op: Op): Data?
 	Next._Booked = TableUtil.Some(Kept)
 
 	if Next[Held.Field] < Data[Held.Field] then
-		Errors.Broke(`giving booking {tostring(Op.Rid)} back left less of '{Held.Field}' than it started with`)
+		warn(`Ledger bug: giving booking {tostring(Op.Rid)} back left less of '{Held.Field}' than it started with`)
 		return nil
 	end
 	return Next
@@ -237,21 +222,21 @@ local function Giving(Data: Data, Op: Op): Data?
 
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Received = (Data._Received or {}) :: { [string]: any }
-	if Applied.Has(Received, Applied.GRANT, Rid) then
+	if Applied.Has(Received, Tags.GRANT, Rid) then
 		return nil
 	end
 
 	local Next = table.clone(Data)
 	Next[Field] = Data[Field] + Op.Amount
-	Next._Received = Applied.Remember(Received, Applied.Key(Applied.GRANT, Rid), Op.At, Print)
+	Next._Received = Applied.Remember(Received, Applied.Key(Tags.GRANT, Rid), Op.At, Print)
 
 	return Next
 end
 
 local function Book(Rid: string, Field: string, Amount: number, Hold: number?, To: string?): Op
 	return {
-		Id = `{BOOK_ID}:{Rid}`,
-		Kind = BOOK,
+		Id = `{Kinds.BOOK_ID}:{Rid}`,
+		Kind = Kinds.BOOK,
 		Rid = Rid,
 		Field = Field,
 		Amount = Amount,
@@ -266,27 +251,27 @@ local function Named(Prefix: string, Kind: string, Rid: string): Op
 end
 
 local function Take(Rid: string): Op
-	return Named(TAKE_ID, TAKE, Rid)
+	return Named(Kinds.TAKE_ID, Kinds.TAKE, Rid)
 end
 
 local function Sent(Rid: string): Op
-	return Named(SENT_ID, SENT, Rid)
+	return Named(Kinds.SENT_ID, Kinds.SENT, Rid)
 end
 
 local function Free(Rid: string): Op
-	return Named(FREE_ID, FREE, Rid)
+	return Named(Kinds.FREE_ID, Kinds.FREE, Rid)
 end
 
 local function Hand(Rid: string): Op
-	return Named(HAND_ID, HAND, Rid)
+	return Named(Kinds.HAND_ID, Kinds.HAND, Rid)
 end
 
 local function Undo(Rid: string): Op
-	return Named(UNHAND_ID, UNHAND, Rid)
+	return Named(Kinds.UNHAND_ID, Kinds.UNHAND, Rid)
 end
 
 local function Give(Rid: string, Field: string, Amount: number, Print: string?): Op
-	return { Id = `{GIVEN_ID}:{Rid}`, Kind = GIVEN, Rid = Rid, Field = Field, Amount = Amount, At = Clock.Now(), Print = Print } :: any
+	return { Id = `{Kinds.GIVEN_ID}:{Rid}`, Kind = Kinds.GIVEN, Rid = Rid, Field = Field, Amount = Amount, At = Clock.Now(), Print = Print } :: any
 end
 
 local function Terms(From: string, Rid: string, Held: Shapes.Booked): string
@@ -300,11 +285,11 @@ local function Terms(From: string, Rid: string, Held: Shapes.Booked): string
 end
 
 local function Granted(State: any, Rid: string, Print: string?): Applied.Recalled
-	return Applied.Recall(State._Received, Applied.GRANT, Rid, Print)
+	return Applied.Recall(State._Received, Tags.GRANT, Rid, Print)
 end
 
 local function Delivered(State: any, Rid: string): boolean
-	return Applied.Has(State._Received, Applied.GRANT, Rid)
+	return Applied.Has(State._Received, Tags.GRANT, Rid)
 end
 
 local function Overdue(Data: Data, Now: number): { string }
@@ -338,13 +323,13 @@ end
 
 local Held: Layer.Layer = {
 	Kinds = {
-		[BOOK] = Booking,
-		[TAKE] = Taking,
-		[SENT] = Taking,
-		[FREE] = Freeing,
-		[GIVEN] = Giving,
-		[HAND] = Handing,
-		[UNHAND] = Unhanding,
+		[Kinds.BOOK] = Booking,
+		[Kinds.TAKE] = Taking,
+		[Kinds.SENT] = Taking,
+		[Kinds.FREE] = Freeing,
+		[Kinds.GIVEN] = Giving,
+		[Kinds.HAND] = Handing,
+		[Kinds.UNHAND] = Unhanding,
 	},
 	Owns = {
 		{ Field = "_Booked", Says = "the units set aside" },
@@ -373,8 +358,4 @@ return table.freeze({
 	Owed = Owed,
 	Granted = Granted,
 	Delivered = Delivered,
-	FREE_ID = FREE_ID,
-	SENT_ID = SENT_ID,
-	HAND_ID = HAND_ID,
-	UNHAND_ID = UNHAND_ID,
 })

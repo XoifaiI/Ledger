@@ -17,8 +17,7 @@
 
 local NoYield = require("../Util/NoYield")
 local TableUtil = require("../Util/TableUtil")
-local Errors = require("../Core/Errors")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
 local Fold = require("./Fold")
 local Reconcile = require("./Reconcile")
@@ -113,7 +112,11 @@ function Schema.Rehydrate(self: Schema<any>, Record: Record): any
 	local Held = Record.Floor
 	local Needs = if type(Held) == "number" then Held elseif Version > #Steps then Version else 0
 	if Needs > #Steps then
-		error(Errors.New(Reasons.Behind, `the record needs format version {Needs} but this server only knows {#Steps} migrations, a newer server wrote it`))
+error({
+			Ledger = true,
+			Why = Reasons.Behind,
+			Message = `the record needs format version {Needs} but this server only knows {#Steps} migrations, a newer server wrote it`,
+		})
 	end
 
 	if Version > #Steps then

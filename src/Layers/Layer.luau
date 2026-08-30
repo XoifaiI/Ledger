@@ -16,7 +16,6 @@
 --]=]
 
 local TableUtil = require("../Util/TableUtil")
-local Errors = require("../Core/Errors")
 local Shapes = require("../Core/Shapes")
 
 type Op = Shapes.Op
@@ -58,7 +57,7 @@ local function Carried(Next: any, Data: Data, Owns: { Owned }): any
 		local Ours = Data[Owned.Field]
 		local Theirs = Plain[Owned.Field]
 		if Theirs ~= nil and Theirs ~= Ours and not TableUtil.DeepEqual(Theirs, Ours) then
-			Errors.Broke(`your reducer wrote its own {Owned.Field}, so Ledger put {Owned.Says} back`)
+			warn(`Ledger bug: your reducer wrote its own {Owned.Field}, so Ledger put {Owned.Says} back`)
 		end
 		Merged[Owned.Field] = Ours
 	end

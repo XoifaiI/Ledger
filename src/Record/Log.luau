@@ -17,10 +17,11 @@
 --]=]
 
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
-local Errors = require("../Core/Errors")
 local Sizes = require("../Core/Constants/Sizes")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
+local Kinds = require("../Core/Constants/Kinds")
 local Shapes = require("../Core/Shapes")
+local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Measure = require("../Encode/Measure")
 local Storable = require("../Encode/Storable")
@@ -47,7 +48,6 @@ export type Verdict = Types.Verdict
 export type Prepared = Types.Prepared
 export type Fated = Types.Fated
 
-local ENVELOPE = Shapes.ENVELOPE
 
 local OWNED = "Owned" :: "Owned"
 local DEAD = "Dead" :: "Dead"
@@ -66,8 +66,12 @@ local function Materialize(Value: any): Record
 		return { Ops = {}, Seen = {} }
 	end
 
-	if type(Value.Envelope) == "number" and Value.Envelope > ENVELOPE then
-		error(Errors.New(Reasons.Behind, `the record envelope is format {Value.Envelope} but this server only knows {ENVELOPE}, a newer framework wrote it`))
+	if type(Value.Envelope) == "number" and Value.Envelope > Kinds.ENVELOPE then
+error({
+			Ledger = true,
+			Why = Reasons.Behind,
+			Message = `the record envelope is format {Value.Envelope} but this server only knows {Kinds.ENVELOPE}, a newer framework wrote it`,
+		})
 	end
 
 	local Ops: { Op } = {}
@@ -148,11 +152,11 @@ local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?
 	end
 
 	if type(Op.Tx) == "string" and type(Op.TxTerms) == "string" then
-		local Recalled = Applied.Recall(Held(Record, Format, Folded)._Received, Applied.TX, Op.Tx, Op.TxTerms)
-		if Recalled == Applied.OTHER then
+		local Recalled = Applied.Recall(Held(Record, Format, Folded)._Received, Tags.TX, Op.Tx, Op.TxTerms)
+		if Recalled == Tags.OTHER then
 			return VERDICT.Spent
 		end
-		if Recalled == Applied.SAME then
+		if Recalled == Tags.SAME then
 			return VERDICT.Settled
 		end
 	end
@@ -167,7 +171,7 @@ local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?
 		return nil
 	end
 
-	if Applied.Has(Held(Record, Format, Folded)._Received, Applied.TX, Op.Tx) then
+	if Applied.Has(Held(Record, Format, Folded)._Received, Tags.TX, Op.Tx) then
 		return VERDICT.Settled
 	end
 	return nil
@@ -230,8 +234,8 @@ function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 		error(Value)
 	end
 
-	Errors.Holds(Before ~= nil, `the write to '{Key}' reported success without ever running its transform`)
-	Errors.Holds(Wrote == (Value ~= nil), `the write to '{Key}' disagreed with the datastore about whether it happened`)
+	assert(Before ~= nil, `the write to '{Key}' reported success without ever running its transform`)
+	assert(Wrote == (Value ~= nil), `the write to '{Key}' disagreed with the datastore about whether it happened`)
 
 	if Value == nil then
 		return { Before = Before, After = Before, Changed = false }
@@ -258,7 +262,7 @@ end
 function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string })
 	local Owned = false
 	for _, Op in Ops do
-		Errors.Holds(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
+		assert(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
 		if not Storable.Reserved(Op.Kind) then
 			Owned = true
 		end
@@ -287,13 +291,17 @@ function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Recor
 	return self:Update(Key, function(Record: Record): Record?
 		self:Legible(Key, Record)
 		if TxStamp.HasPending(Record) then
-			error(Errors.New(Reasons.Busy, `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`))
+error({
+				Ledger = true,
+				Why = Reasons.Busy,
+				Message = `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`,
+			})
 		end
 
 		local Body: Record = if Bury ~= nil then Bury(Record) else { Ops = {}, Seen = {} }
 		Body.Ops = {}
 		Body.Seen = {}
-		Body.Envelope = ENVELOPE
+		Body.Envelope = Kinds.ENVELOPE
 		Body.Erased = At
 		return Body
 	end).Before
@@ -304,7 +312,7 @@ function Log.AppendUnlessPending(self: Log, Key: string, Ops: { Op }): Record
 end
 
 function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepared
-	Errors.Holds(type(Op.Tx) == "string", "a transaction leg is being prepared without the transaction it belongs to")
+	assert(type(Op.Tx) == "string", "a transaction leg is being prepared without the transaction it belongs to")
 
 	local Verdict: Prepared = VERDICT.Rejected
 	local Outcome = self:Update(Key, function(Record: Record): Record?
@@ -346,7 +354,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 			return nil
 		end
 
-		Record.Envelope = ENVELOPE
+		Record.Envelope = Kinds.ENVELOPE
 		if type(self.Floor) == "number" and self.Floor > (Record.Floor or 0) then
 			Record.Floor = self.Floor
 		end
@@ -355,7 +363,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 	end)
 
 	if Verdict == VERDICT.Prepared then
-		Errors.Holds(TxStamp.Holds(Outcome.After, Op.Id), `leg {Op.Id} reported as prepared but is not on '{Key}', so the transaction would wait on nothing`)
+		assert(TxStamp.Holds(Outcome.After, Op.Id), `leg {Op.Id} reported as prepared but is not on '{Key}', so the transaction would wait on nothing`)
 	end
 	return Verdict
 end
@@ -401,15 +409,15 @@ function Log.Resolve(self: Log, Key: string, Verdicts: { [string]: Verdict }): R
 			return nil
 		end
 
-		Errors.Holds(#Kept <= #Record.Ops, "resolving a transaction leg left more ops on the key than it started with")
+		assert(#Kept <= #Record.Ops, "resolving a transaction leg left more ops on the key than it started with")
 		Record.Ops = Kept
-		Record.Envelope = ENVELOPE
+		Record.Envelope = Kinds.ENVELOPE
 		return Record
 	end)
 
 	for Txid in Counts do
 		for _, Op in Result.After.Ops do
-			Errors.Holds(Op.Tx ~= Txid, `transaction '{Txid}' was resolved on '{Key}' but a leg is still stamped with it, so the key stays busy forever`)
+			assert(Op.Tx ~= Txid, `transaction '{Txid}' was resolved on '{Key}' but a leg is still stamped with it, so the key stays busy forever`)
 		end
 	end
 
@@ -426,7 +434,7 @@ function Log.Compact(self: Log, Key: string, Format: Schema<any>): Record
 		return Result.After
 	end
 
-	Errors.Holds(
+	assert(
 		#Result.After.Ops == 0 or #Result.After.Ops < #Result.Before.Ops,
 		`compacting '{Key}' left {#Result.After.Ops} op(s) behind, which is no fewer than the {#Result.Before.Ops} it started with`
 	)

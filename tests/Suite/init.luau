@@ -9,7 +9,7 @@
 	bench down and collects what broke. A case that breaks several checks reports them all. Cases run
 	in the order they are written, and a filter runs only the ones whose name holds a fragment.
 
-	Return type: A table with File, Run, Heard, Fault, Reducers, Entries, Reasons and Horizons.
+	Return type: A table with File, Run, Heard, Fault, Reducers, Reasons and Horizons.
 	Example usage:
 		local Cases = Suite.File("Once")
 		Cases.Case("a replay under the same name changes nothing", function(T) end)
@@ -143,7 +143,6 @@ return table.freeze({
 
 	Fault = require("../src/Hooks/Memory"),
 	Reducers = Reducers,
-	Entries = require("../src/Core/Applied"),
-	Reasons = require("../src/Core/Reasons"),
+	Reasons = require("../src/Core/Constants/Reasons"),
 	Horizons = require("../src/Core/Constants/Windows"),
 })

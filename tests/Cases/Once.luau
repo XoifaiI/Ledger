@@ -15,7 +15,7 @@
 
 local Suite = require("../Suite")
 
-local Entries = Suite.Entries
+local Tags = require("../../src/Core/Constants/Tags")
 
 type Case = Suite.Case
 
@@ -191,14 +191,14 @@ Cases.Case("ClearDelivered forgets every name older than the horizon", function(
 	Bank.Store:Transfer("a", "b", 100, "tip1"):Wait()
 	Bank.Store:Edit("b", "Fund", { Amount = 7, Once = "grant1" }):Wait()
 
-	T:Is("the transfer entry before the prune", Bank:Knows("b", Entries.TRANSFER, "tip1"), true)
-	T:Is("the Once entry before the prune", Bank:Knows("b", Entries.ONCE, "grant1"), true)
+	T:Is("the transfer entry before the prune", Bank:Knows("b", Tags.TRANSFER, "tip1"), true)
+	T:Is("the Once entry before the prune", Bank:Knows("b", Tags.ONCE, "grant1"), true)
 
 	T:Advance(PAST_PRUNE)
 	Bank.Store:ClearDelivered("b"):Wait()
 
-	T:Is("the transfer entry after the prune", Bank:Knows("b", Entries.TRANSFER, "tip1"), false)
-	T:Is("the Once entry after the prune, which ages out on the same rule", Bank:Knows("b", Entries.ONCE, "grant1"), false)
+	T:Is("the transfer entry after the prune", Bank:Knows("b", Tags.TRANSFER, "tip1"), false)
+	T:Is("the Once entry after the prune, which ages out on the same rule", Bank:Knows("b", Tags.ONCE, "grant1"), false)
 
 	T:Is("a replay a month after the name was applied", (Bank.Store:Edit("b", "Fund", { Amount = 7, Once = "grant1" }):Wait()), true)
 	T:Is("gold after the prune and replay", Bank:Amount("b"), 114)
@@ -215,10 +215,10 @@ Cases.Case("ClearDelivered keeps a transaction id it used to drop", function(T: 
 			{ Key = "b", Kind = "Fund", Fields = { Amount = 100 } },
 		})
 		:Wait()
-	T:Is("the transaction id before the prune", Bank:Knows("b", Entries.TX, "deal1"), true)
+	T:Is("the transaction id before the prune", Bank:Knows("b", Tags.TX, "deal1"), true)
 
 	Bank.Store:ClearDelivered("b"):Wait()
-	T:Is("the transaction id after the prune", Bank:Knows("b", Entries.TX, "deal1"), true)
+	T:Is("the transaction id after the prune", Bank:Knows("b", Tags.TX, "deal1"), true)
 end)
 
 Cases.Case("a transaction id is forgotten once it is older than the prune horizon", function(T: Case)
@@ -240,7 +240,7 @@ Cases.Case("a transaction id is forgotten once it is older than the prune horizo
 	Bank.Store:Edit("a", "Fund", { Amount = 0, Once = "later" }):Wait()
 	Bank.Store:Edit("b", "Fund", { Amount = 0, Once = "later2" }):Wait()
 
-	local Known = Bank:Knows("a", Entries.TX, "deal")
+	local Known = Bank:Knows("a", Tags.TX, "deal")
 	local Again = (Bank.Store:Tx("deal", Legs):Wait())
 
 	T:Is("the transaction id, once it is older than the horizon", Known, false)
@@ -270,10 +270,10 @@ Cases.Case("a forged OnceAt cannot erase delivery evidence", function(T: Case)
 	Bank:Seed("b", { Gold = 0 })
 
 	Bank.Store:Transfer("a", "b", 40, "tip"):Wait()
-	local Before = Bank:Knows("b", Entries.TRANSFER, "tip")
+	local Before = Bank:Knows("b", Tags.TRANSFER, "tip")
 
 	Bank.Store:Edit("b", "Fund", { Amount = 1, Once = "grant", OnceAt = T:Now() + 400 * DAY }):Wait()
-	local After = Bank:Knows("b", Entries.TRANSFER, "tip")
+	local After = Bank:Knows("b", Tags.TRANSFER, "tip")
 
 	Bank:Append("b", {
 		{ Id = "del2:tip", Kind = "__TransferDeliver", Tid = "tip", Amount = 40, At = T:Now() } :: any,
@@ -323,8 +323,8 @@ Cases.Case("a forged OnceAt on a hand built op cannot erase delivery evidence", 
 		OnceAt = T:Now() + 400 * DAY,
 	} :: any):Wait()
 
-	T:Is("the delivery is still remembered", Bank:Knows("b", Entries.TRANSFER, "tip"), true)
-	T:Is("the earlier Once name is still remembered", Bank:Knows("b", Entries.ONCE, "grant"), true)
+	T:Is("the delivery is still remembered", Bank:Knows("b", Tags.TRANSFER, "tip"), true)
+	T:Is("the earlier Once name is still remembered", Bank:Knows("b", Tags.ONCE, "grant"), true)
 
 	Bank:Append("b", {
 		{ Id = "del2:tip", Kind = "__TransferDeliver", Tid = "tip", Amount = 40, At = T:Now() } :: any,
@@ -349,7 +349,7 @@ Cases.Case("a backdated OnceAt past the floor is refused", function(T: Case)
 
 	T:Is("a commit stamped a minute past the floor", Took, false)
 	T:Is("the reason", Why, "Invalid")
-	T:Is("the name it would have been written under", Bank:Knows("a", Entries.ONCE, "gift"), false)
+	T:Is("the name it would have been written under", Bank:Knows("a", Tags.ONCE, "gift"), false)
 	T:Is("gold, so nothing was granted under it", Bank:Amount("a"), 5)
 	T:Warns("it said the stamp was too far back", "further back than the", 1)
 end)
@@ -371,7 +371,7 @@ Cases.Case("a name stamped at the floor still turns a retry away a margin later"
 	Bank.Store:Edit("a", "Fund", { Amount = 5, Once = "fresh" }):Wait()
 
 	T:Is("a commit stamped at the oldest the floor allows", Took, true)
-	T:Is("the name once a later write carried one of its own", Bank:Knows("a", Entries.ONCE, "gift"), true)
+	T:Is("the name once a later write carried one of its own", Bank:Knows("a", Tags.ONCE, "gift"), true)
 	T:Is("the same name offered again", (Bank.Store:Edit("a", "Fund", { Amount = 1, Once = "gift" }):Wait()), false)
 	T:Is("gold, granted one time", Bank:Amount("a"), 6)
 end)
@@ -401,8 +401,8 @@ Cases.Case("a Once name older than the prune horizon is forgotten and pays again
 	T:Advance(PAST_PRUNE)
 	Bank.Store:Edit("a", "Fund", { Amount = 5, Once = "new" }):Wait()
 
-	T:Is("the name from before the horizon", Bank:Knows("a", Entries.ONCE, "old"), false)
-	T:Is("the name from after it", Bank:Knows("a", Entries.ONCE, "new"), true)
+	T:Is("the name from before the horizon", Bank:Knows("a", Tags.ONCE, "old"), false)
+	T:Is("the name from after it", Bank:Knows("a", Tags.ONCE, "new"), true)
 	T:Is("what the store knows of the older name", (Bank.Store:DidApply("a", "old"):Wait()), false)
 
 	local Replayed = Bank.Store:Edit("a", "Fund", { Amount = 1, Once = "old" }):Wait()

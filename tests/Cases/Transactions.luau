@@ -15,13 +15,13 @@
 
 local Suite = require("../Suite")
 
+local Transactions = require("../../src/Core/Constants/Transactions")
+
 local Windows = require("../../src/Core/Constants/Windows")
 local Mark = require("../../src/Encode/Mark")
 local Storable = require("../../src/Encode/Storable")
 local TxStamp = require("../../src/Record/TxStamp")
 local Cleanup = require("../../src/Protocol/Tx/Cleanup")
-local Coordinator = require("../../src/Protocol/Tx/Coordinator")
-local Reap = require("../../src/Protocol/Tx/Reap")
 local Session = require("../../src/Session/Session")
 local Registry = require("../../src/Store/Registry")
 local Sweep = require("../../src/Store/Registry").Sweep()
@@ -345,7 +345,7 @@ Cases.Case("a finished marker behind a shard full of stuck cleanup keys is still
 	local Bank = T:Bank()
 	local Victim = "zzz-victim"
 	local Shard = Cleanup.Shard(Victim)
-	local Wall = Reap.REAP_PAGE + 6
+	local Wall = Transactions.REAP_PAGE + 6
 
 	for Index = 1, Wall do
 		local Try = 0
@@ -370,7 +370,7 @@ Cases.Case("a finished marker behind a shard full of stuck cleanup keys is still
 	end
 
 	T:Is("the finished marker sitting past a whole page of cleanup keys", Reaped, 1)
-	T:Is("the passes it took to rotate round to it", Passes <= Wall // Reap.REAP_LOOKS + 2, true)
+	T:Is("the passes it took to rotate round to it", Passes <= Wall // Transactions.REAP_LOOKS + 2, true)
 	T:Is("nothing is left of it", Bank:Mark(Victim), nil)
 	T:Is("the stuck ones are all still there", #Bank:Marks(), Wall)
 end)
@@ -392,8 +392,8 @@ Cases.Case("a pass costs the same however many markers are stuck", function(T: C
 
 	T:Is("none of them can be reaped", Reaped, 0)
 	T:Is("the pass costs less than one call for each stuck marker", Cost < Stuck, true)
-	T:Is("and no more per shard than a list, a roll key, its looks and the two writes that carry the rest on", Cost <= Cleanup.SHARDS * (Reap.REAP_LOOKS + 4), true)
-	T:Is("what it spent on the store the records live in", Records <= Cleanup.SHARDS * Reap.REAP_LOOKS, true)
+	T:Is("and no more per shard than a list, a roll key, its looks and the two writes that carry the rest on", Cost <= Transactions.SHARDS * (Transactions.REAP_LOOKS + 4), true)
+	T:Is("what it spent on the store the records live in", Records <= Transactions.SHARDS * Transactions.REAP_LOOKS, true)
 	T:Is("every one of them is still there", #Bank:Marks(), Stuck)
 end)
 
@@ -422,9 +422,9 @@ Cases.Case("a pass that stopped at its cap starts the next one where it stopped"
 	end
 
 	for Step = 0, Fronts - 1 do
-		Bury(Hashed((Base + Step) % Cleanup.SHARDS, Reap.REAP_LOOKS * 2, `front{Step}x`))
+		Bury(Hashed((Base + Step) % Transactions.SHARDS, Transactions.REAP_LOOKS * 2, `front{Step}x`))
 	end
-	local Last = Hashed((Base + Cleanup.SHARDS - 1) % Cleanup.SHARDS, 4, "tailx")
+	local Last = Hashed((Base + Transactions.SHARDS - 1) % Transactions.SHARDS, 4, "tailx")
 	Bury(Last)
 
 	T:Advance(Windows.REAP + 600)
@@ -474,7 +474,7 @@ Cases.Case("a roll key stops at its limit and the rest go on the next", function
 	local Slot = Cleanup.Shard("anchor")
 	local Spare = 40
 
-	local Names = Hashed(Slot, Cleanup.ROLL_LIMIT * 2 + Spare, "rollx")
+	local Names = Hashed(Slot, Transactions.ROLL_LIMIT * 2 + Spare, "rollx")
 	local Ok = Cleanup.Carry(Bank.Store.TxWrapper, Names)
 
 	local Counts: { number } = {}
@@ -502,8 +502,8 @@ Cases.Case("a roll key stops at its limit and the rest go on the next", function
 	T:Ok("every name went on the roll", Ok)
 	T:Is("names it can find again", Found, #Names)
 	T:Is("keys it took to hold them", #Counts, 3)
-	T:Is("the first key stops at the limit", Counts[1], Cleanup.ROLL_LIMIT)
-	T:Is("so does the second", Counts[2], Cleanup.ROLL_LIMIT)
+	T:Is("the first key stops at the limit", Counts[1], Transactions.ROLL_LIMIT)
+	T:Is("so does the second", Counts[2], Transactions.ROLL_LIMIT)
 	T:Is("and the rest sit on the third", Counts[3], Spare)
 	T:Is("a key an older build wrote with no part still reads", Cleanup.At("__07:0000028800"), Cleanup.At("__07:0000028800:001"))
 end)
@@ -1391,7 +1391,7 @@ Cases.Case("a leg with no marker is cleared once its window has passed", functio
 	local Txid = Craft(Bank, "loneA", "Committed", "loneg", "loneg", Born, Born)
 	Bank:Unmark(Txid)
 
-	T:Advance(Windows.LEG * Coordinator.MAX_LEGS + 1)
+	T:Advance(Windows.LEG * Transactions.MAX_LEGS + 1)
 	Bank.Store:Resettle("loneA"):Wait()
 
 	T:Is("the leg a coordinator never decided", Bank:Pending("loneA"), false)
@@ -1453,7 +1453,7 @@ Cases.Case("an orphan leg past a shrunk marker is rolled back", function(T: Case
 	local Orphan = Vault:Pending("orphB")
 	local Marker = Shop:Buried("orph1")
 
-	T:Advance(Windows.LEG * Coordinator.MAX_LEGS + 1)
+	T:Advance(Windows.LEG * Transactions.MAX_LEGS + 1)
 	Vault.Store:Resettle("orphB"):Wait()
 
 	T:Is("a transaction whose second leg landed but reported failure", Ok, false)
@@ -1713,7 +1713,7 @@ Cases.Case("a pass that reaches no key never disowns an earlier pass", function(
 	local Ok = Swap(Shop, "brickA", "brickB", 25, "brick1")
 
 	Shop:Healed()
-	T:Advance(Windows.LEG * Coordinator.MAX_LEGS + 1)
+	T:Advance(Windows.LEG * Transactions.MAX_LEGS + 1)
 	Shop.Store:Resettle("brickA"):Wait()
 	Shop.Store:Resettle("brickB"):Wait()
 

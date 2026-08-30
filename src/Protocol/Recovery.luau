@@ -17,13 +17,13 @@
 --]=]
 
 local Clock = require("../Util/Clock")
-local Errors = require("../Core/Errors")
 local Windows = require("../Core/Constants/Windows")
 local Shapes = require("../Core/Shapes")
+local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local LogTypes = require("../Record/Types")
 local Booking = require("../Layers/Booking")
-local Escrow = require("../Layers/Escrow")
+local Kinds = require("../Core/Constants/Kinds")
 local Transfer = require("./Transfer")
 
 type Op = Shapes.Op
@@ -34,13 +34,13 @@ local PASS_LIMIT = Windows.PASS_LIMIT
 
 local function Expire(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any, Age: number?)
 	local Print = Transfer.Terms(From, Entry.To, Entry.Amount)
-	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, From) == Applied.SAME then
+	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, From) == Tags.SAME then
 		Transfer.Settle(Records, From, Tid, Print)
 		return
 	end
 
 	if Age == nil or Age <= Windows.PRUNE then
-		local ExpireOp: Op = { Id = `{Escrow.EXPIRE_ID}:{Tid}`, Kind = Escrow.EXPIRE, Tid = Tid }
+		local ExpireOp: Op = { Id = `{Kinds.EXPIRE_ID}:{Tid}`, Kind = Kinds.EXPIRE, Tid = Tid }
 		Records:Append(tostring(From), { ExpireOp })
 		return
 	end
@@ -87,7 +87,7 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 		local Age = if type(Entry.At) == "number" then Now - Entry.At else nil
 		local Overdue = Age == nil or Age > Windows.REDRIVE + Windows.EXPIRE_MARGIN
 		local Fresh = if Going then not Overdue else Age ~= nil and Age <= Windows.REDRIVE
-		Errors.Holds(not (Fresh and Overdue), `transfer {Tid} counts as both still worth sending and long overdue, so recovery cannot tell whether to deliver it or give it back`)
+		assert(not (Fresh and Overdue), `transfer {Tid} counts as both still worth sending and long overdue, so recovery cannot tell whether to deliver it or give it back`)
 
 		if not Fresh and not Overdue then
 			Resting += 1
@@ -112,8 +112,8 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 		warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
 	end
 
-	Errors.Holds(Handled <= PASS_LIMIT, "one recovery pass took on more holds than its own limit allows")
-	Errors.Holds(Moved + Failures == Handled, "a recovery pass neither finished nor failed one of the holds it took on")
+	assert(Handled <= PASS_LIMIT, "one recovery pass took on more holds than its own limit allows")
+	assert(Moved + Failures == Handled, "a recovery pass neither finished nor failed one of the holds it took on")
 	return Failures == 0 and Waiting == 0 and Resting == 0, Moved > 0 or Resting > 0
 end
 
@@ -163,11 +163,11 @@ local function Bookings(Records: Log, Format: Format, Key: string, State: any, R
 			warn(`Ledger: could not check '{To}' before giving back booking {Rid}, so it waits for the next pass`)
 			continue
 		end
-		if Ruling == Applied.SAME then
+		if Ruling == Tags.SAME then
 			table.insert(Ops, Booking.Take(Rid))
 			continue
 		end
-		if Ruling == Applied.OTHER then
+		if Ruling == Tags.OTHER then
 			warn(`Ledger: '{To}' holds a booking named {Rid} that came from somewhere else, so this one never arrived. its units go back to '{Key}'`)
 			table.insert(Ops, Booking.Undo(Rid))
 			continue

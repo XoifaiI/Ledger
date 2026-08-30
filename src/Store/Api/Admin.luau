@@ -19,17 +19,18 @@
 local Future = require("../../Util/Future")
 local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
-local Errors = require("../../Core/Errors")
 local Windows = require("../../Core/Constants/Windows")
-local Reasons = require("../../Core/Reasons")
+local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
 local Log = require("../../Record/Log")
 local NewOp = require("../../Record/NewOp")
 local Schema = require("../../Record/Schema")
 local TxStamp = require("../../Record/TxStamp")
+local Kinds = require("../../Core/Constants/Kinds")
 local Booking = require("../../Layers/Booking")
 local Recovery = require("../../Protocol/Recovery")
 local Transfer = require("../../Protocol/Transfer")
+local Transactions = require("../../Core/Constants/Transactions")
 local Tx = require("../../Protocol/Tx")
 local Registry = require("../Registry")
 local Write = require("./Write")
@@ -44,7 +45,6 @@ type Store = Types.Store<any>
 
 local Players = game:GetService("Players")
 
-local RESET_KIND = "__Reset"
 
 local BUSY = Reasons.Busy
 local BEHIND = Reasons.Behind
@@ -109,7 +109,7 @@ function Store.ReapMarkers(self: Store): number
 			Node = self.Node,
 			From = self.Resume,
 			Afford = function(): boolean
-				return self:TxAffords(Reads, Tx.REAP_FLOOR) and self:Affords(Reads, Tx.REAP_FLOOR)
+				return self:TxAffords(Reads, Transactions.REAP_FLOOR) and self:Affords(Reads, Transactions.REAP_FLOOR)
 			end,
 		})
 	end)
@@ -280,7 +280,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 	local Steps = self.Migrations
 	local Known = #Steps
-	local Op = NewOp.New(RESET_KIND, { State = self.Initial, Version = Known, Floor = Schema.FloorOf(Steps) })
+	local Op = NewOp.New(Kinds.RESET, { State = self.Initial, Version = Known, Floor = Schema.FloorOf(Steps) })
 
 	return Future.New(function(): (boolean, Reason?)
 		local Looked, Before = pcall(function(): any
@@ -290,11 +290,19 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
 			if TxStamp.HasPending(Record) then
-				error(Errors.New(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`))
+error({
+					Ledger = true,
+					Why = BUSY,
+					Message = `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`,
+				})
 			end
 
 			if Booking.Owed(self:Fold(Record)._Booked) then
-				error(Errors.New(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`))
+error({
+					Ledger = true,
+					Why = BUSY,
+					Message = `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`,
+				})
 			end
 			return (Record.Version or 0) <= Known
 		end, BEHIND)

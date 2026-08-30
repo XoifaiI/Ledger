@@ -16,11 +16,11 @@
 --]=]
 
 local Shapes = require("../../Core/Shapes")
-local Errors = require("../../Core/Errors")
 local Windows = require("../../Core/Constants/Windows")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local LogTypes = require("../../Record/Types")
 local TxStamp = require("../../Record/TxStamp")
+local Transactions = require("../../Core/Constants/Transactions")
 local Marker = require("./Marker")
 
 type Record = Shapes.Record<any>
@@ -41,8 +41,8 @@ local function Settle(Records: Log, TxStore: DataStoreWrapper, Key: string, Reco
 		local Where = Marker.HomeOf(TxStore, Home)
 		Markers[Txid] = Where
 		local Status, Gen, Since = Marker.StatusOf(Where, Txid, Limit)
-		if Status == Marker.COMMITTED or Status == Marker.ABORTED then
-			Verdicts[Txid] = { Commit = Status == Marker.COMMITTED, Gen = Gen, Since = Since }
+		if Status == Transactions.COMMITTED or Status == Transactions.ABORTED then
+			Verdicts[Txid] = { Commit = Status == Transactions.COMMITTED, Gen = Gen, Since = Since }
 		end
 	end
 	if next(Verdicts) == nil then
@@ -55,7 +55,7 @@ local function Settle(Records: Log, TxStore: DataStoreWrapper, Key: string, Reco
 	for Txid, Count in Counts do
 		if Count > 0 then
 			local Where = Markers[Txid]
-			Errors.Holds(Where ~= nil, `settled a leg for transaction '{Txid}' whose marker was never read`)
+			assert(Where ~= nil, `settled a leg for transaction '{Txid}' whose marker was never read`)
 			Marker.Adopt(Where, Txid, { Mark }, Verdicts[Txid].Gen)
 		end
 	end

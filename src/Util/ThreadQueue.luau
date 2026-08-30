@@ -9,13 +9,14 @@
 	drops everything but the last task and tells each dropped caller. If the thread holding the queue
 	dies, the next caller takes it over.
 
-	Return type: A table with New and the SKIPPED message.
+	Return type: A table with New.
 	Example usage:
 		local ThreadQueue = require("./ThreadQueue")
 		local Queue = ThreadQueue.New(Scheduler)
 		local Value = Queue:SubmitAsync(Work)
 --]=]
 
+local Messages = require("../Core/Constants/Messages")
 local Engine = require("./Engine")
 
 type Entry = {
@@ -39,8 +40,6 @@ export type ThreadQueue = setmetatable<{
 	Busy: boolean,
 	Holder: thread?,
 }, ThreadQueueImpl>
-
-local SKIPPED = "ThreadQueue task skipped"
 
 local function TraceHandler(Err: any): string
 	return debug.traceback(tostring(Err), 1)
@@ -127,7 +126,7 @@ function ThreadQueue.SkipToLastEnqueued(self: ThreadQueue)
 
 	for _, Entry in Dropped do
 		if coroutine.status(Entry.Caller) == "suspended" then
-			task.spawn(Entry.Caller, false, SKIPPED)
+			task.spawn(Entry.Caller, false, Messages.SKIPPED)
 		end
 	end
 end
@@ -136,5 +135,4 @@ table.freeze(ThreadQueue)
 
 return table.freeze({
 	New = ThreadQueue.New,
-	SKIPPED = SKIPPED,
 })

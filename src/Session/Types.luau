@@ -19,7 +19,7 @@ local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Shapes = require("../Core/Shapes")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
 local LogTypes = require("../Record/Types")
 
 type Future<T...> = Future.Future<T...>

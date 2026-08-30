@@ -21,8 +21,9 @@ local Observer = require("../Util/Observer")
 local TableUtil = require("../Util/TableUtil")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Errors = require("../Core/Errors")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
+local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Windows = require("../Core/Constants/Windows")
 local Measure = require("../Encode/Measure")
@@ -94,7 +95,7 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 		end)
 		if not Ok then
 			warn(`Ledger: could not load '{Key}': {Reason}`)
-			return nil, Errors.Named(Reason)
+			return nil, Errors.Reason(Reason)
 		end
 
 		return Active, nil
@@ -126,7 +127,7 @@ end
 
 function Session.DidApply<S>(self: Session<S>, Id: string): boolean
 	assert(type(Id) == "string" and #Id > 0, "DidApply needs the same Once name the op was written under")
-	return Applied.Has((self.State :: any)._Received, Applied.ONCE, Id)
+	return Applied.Has((self.State :: any)._Received, Tags.ONCE, Id)
 end
 
 function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }?): (boolean, Reason?)
@@ -152,7 +153,7 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 		return false, REFUSED
 	end
 
-	Errors.Holds(not self.Applied[Op.Id], "an op id was accepted twice on one session, so the same change would apply again")
+	assert(not self.Applied[Op.Id], "an op id was accepted twice on one session, so the same change would apply again")
 
 	self.State = TableUtil.FreezeDelta(Ruling.Next)
 	self.Landed = if Ruling.Also ~= nil then TableUtil.FreezeDelta(Ruling.Also) else nil
@@ -162,7 +163,7 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 	self.LogBytes += OpBytes
 	self:Notify()
 
-	Errors.Holds(#self.Pending <= MAX_PENDING, "more ops are queued than the cap allows, so the backlog guard let one through")
+	assert(#self.Pending <= MAX_PENDING, "more ops are queued than the cap allows, so the backlog guard let one through")
 	return true, nil
 end
 
@@ -237,7 +238,7 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 			return true, nil
 		end
 
-		local Why = Errors.Named(Err)
+		local Why = Errors.Reason(Err)
 		if Why == BEHIND then
 			self.Released = true
 			warn(`Ledger: '{self.Key}' now needs a newer build than this server has, so this session is closed and its {#self.Pending} unsaved op(s) are not written. the player has to rejoin`)
@@ -276,7 +277,7 @@ function Session.Compact<S>(self: Session<S>): Future<boolean, Reason?>
 		end
 
 		warn(`Ledger: compaction for '{self.Key}' failed, so its log just stays long for now: {Err}`)
-		return false, Errors.Named(Err)
+		return false, Errors.Reason(Err)
 	end)
 end
 
@@ -298,7 +299,7 @@ function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 		end
 
 		warn(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
-		return false, Errors.Named(Err)
+		return false, Errors.Reason(Err)
 	end)
 end
 

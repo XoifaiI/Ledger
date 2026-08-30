@@ -9,24 +9,23 @@
 	and hands back a cursor that is a place in the listing rather than a row of it. The last page
 	carries no cursor.
 
-	Return type: A table with New and PAGE_LIMIT.
+	Return type: A table with New.
 	Example usage:
 		local Pages = require("./Pages")
 		local Book = Pages.New(Rows, 25, 25)
 --]=]
 
+local Datastore = require("../Core/Constants/Datastore")
 local Types = require("./Types")
 
 type Pages = Types.Pages
-
-local PAGE_LIMIT = 100
 
 local Pages = {} :: Types.PagesImpl
 Pages.__index = Pages
 
 function Pages.New(Rows: { any }, PageSize: number?, Fallback: number, Mark: ((At: number) -> string)?, Spend: (() -> ())?): Pages
 	local Asked = if PageSize ~= nil and PageSize > 0 then PageSize else Fallback
-	local Size = math.clamp(Asked, 1, PAGE_LIMIT)
+	local Size = math.clamp(Asked, 1, Datastore.PAGE_LIMIT)
 	local Book: Pages = setmetatable({
 		Rows = Rows,
 		At = 1,
@@ -75,5 +74,4 @@ table.freeze(Pages)
 
 return table.freeze({
 	New = Pages.New,
-	PAGE_LIMIT = PAGE_LIMIT,
 })

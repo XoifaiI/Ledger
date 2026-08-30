@@ -17,22 +17,24 @@
 
 local Future = require("../../Util/Future")
 local Clock = require("../../Util/Clock")
-local Errors = require("../../Core/Errors")
 local Windows = require("../../Core/Constants/Windows")
-local Reasons = require("../../Core/Reasons")
+local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
 local Api = require("../../Core/Api")
 local Storable = require("../../Encode/Storable")
-local Applied = require("../../Core/Applied")
+local Tags = require("../../Core/Constants/Tags")
 local Log = require("../../Record/Log")
 local NewOp = require("../../Record/NewOp")
 local TxStamp = require("../../Record/TxStamp")
+local Kinds = require("../../Core/Constants/Kinds")
 local Booking = require("../../Layers/Booking")
+local Shards = require("../../Core/Constants/Shards")
+local Datastore = require("../../Core/Constants/Datastore")
 local Tally = require("../../Layers/Tally")
 local Transfer = require("../../Protocol/Transfer")
+local Transactions = require("../../Core/Constants/Transactions")
 local Tx = require("../../Protocol/Tx")
 local Validate = require("../../Core/Validate")
-local Shared = require("../Shared")
 local Write = require("./Write")
 local Store = require("../Class")
 local Types = require("../Types")
@@ -187,21 +189,24 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: Shapes.Booked
 	end)
 
 	local Ruling = Booking.Granted(self:Fold(Landed), Rid, Print)
-	if Ruling == Applied.OTHER then
-		error(
-			Errors.New(
-				SPENT,
-				`'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`
-			)
-		)
+	if Ruling == Tags.OTHER then
+error({
+			Ledger = true,
+			Why = SPENT,
+			Message = `'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`,
+		})
 	end
-	if Ruling ~= Applied.SAME then
-		error(Errors.New(HELD, `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`))
+	if Ruling ~= Tags.SAME then
+error({
+			Ledger = true,
+			Why = HELD,
+			Message = `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`,
+		})
 	end
 
 	local Cleared = Records:Append(Key, { Booking.Sent(Rid) })
-	local Gave = TxStamp.Carries(Cleared, `{Booking.FREE_ID}:{Rid}`) or TxStamp.Carries(Cleared, `{Booking.UNHAND_ID}:{Rid}`)
-	Errors.Holds(not Gave, `booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`)
+	local Gave = TxStamp.Carries(Cleared, `{Kinds.FREE_ID}:{Rid}`) or TxStamp.Carries(Cleared, `{Kinds.UNHAND_ID}:{Rid}`)
+	assert(not Gave, `booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`)
 
 	self:Went(Key)
 	self:Went(To)
@@ -219,7 +224,11 @@ function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Rea
 				return false
 			end
 			if Booking.Late(Held, Clock.Now()) then
-				error(Errors.New(SPENT, `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`))
+error({
+					Ledger = true,
+					Why = SPENT,
+					Message = `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`,
+				})
 			end
 			assert(type(Held.To) == "string", `booking '{Rid}' was not reserved with a To, so there is nowhere to hand it to`)
 			return self:Handed(Resolved, Rid, Held)
@@ -236,8 +245,8 @@ function Store.TallyName(self: Store, Name: any, Field: any, What: string): stri
 	self:Live(What)
 	assert(self.Keys == "String", `{What} is for string keyed stores, '{self.Options.Name}' uses player keys`)
 	assert(
-		type(Name) == "string" and #Name > 0 and #Name + #Tally.PART + 2 <= Shared.MAX_KEY and utf8.len(Name) ~= nil,
-		`{What} needs a Name short enough to carry a shard number, up to {Shared.MAX_KEY - #Tally.PART - 2} characters`
+		type(Name) == "string" and #Name > 0 and #Name + #Shards.PART + 2 <= Datastore.MAX_KEY and utf8.len(Name) ~= nil,
+		`{What} needs a Name short enough to carry a shard number, up to {Datastore.MAX_KEY - #Shards.PART - 2} characters`
 	)
 	Validate.Field(self.Initial, Field, What)
 	return Name
@@ -263,7 +272,7 @@ function Store.Total(self: Store, Name: string, Field: string): Future<number?, 
 
 	return Future.New(function(): (number?, Reason?)
 		local Sum = 0
-		for _, Key in Tally.Shards(Name) do
+		for _, Key in Tally.Keys(Name) do
 			local Ok, State = pcall(function(): any
 				return self:Fold(self:ReadRecord(Key))
 			end)
@@ -331,9 +340,9 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 		type(Id) == "string" and #Id > 0 and #Id <= MAX_TX_ID and utf8.len(Id) ~= nil,
 		`Tx needs an Id first, a stable name of 1 to {MAX_TX_ID} characters derived from the thing being settled, never from the clock`
 	)
-	assert(string.sub(Id, 1, #Tx.RESERVED) ~= Tx.RESERVED, `Tx Id cannot start with '{Tx.RESERVED}', Ledger keeps that prefix for its own keys`)
+	assert(string.sub(Id, 1, #Transactions.RESERVED) ~= Transactions.RESERVED, `Tx Id cannot start with '{Transactions.RESERVED}', Ledger keeps that prefix for its own keys`)
 	assert(type(Legs) == "table", "Tx takes an array of legs after the Id")
-	assert(#Legs >= 2 and #Legs <= Tx.MAX_LEGS, `Tx takes 2 to {Tx.MAX_LEGS} legs, got {#Legs}`)
+	assert(#Legs >= 2 and #Legs <= Transactions.MAX_LEGS, `Tx takes 2 to {Transactions.MAX_LEGS} legs, got {#Legs}`)
 
 	local Mapped: { Tx.Leg } = table.create(#Legs) :: { Tx.Leg }
 	local Targets: { LegTarget } = table.create(#Legs) :: { LegTarget }
@@ -349,7 +358,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 		end
 	end
 
-	Errors.Holds(#Mapped == #Legs and #Targets == #Legs, "a transaction ended up with a different number of legs than it was given")
+	assert(#Mapped == #Legs and #Targets == #Legs, "a transaction ended up with a different number of legs than it was given")
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Committed, Why, Parked = pcall(function(): (boolean, Reason?, boolean)

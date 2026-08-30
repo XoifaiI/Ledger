@@ -9,7 +9,7 @@
 	that decision. The marker decides and not the server that asked, so a coordinator that stops
 	leaves a marker any other server can finish from.
 
-	Return type: A table with Drive, MAX_LEGS and PASSES.
+	Return type: A table with Drive, Transactions.MAX_LEGS and Transactions.PASSES.
 	Example usage:
 		local Coordinator = require("./Coordinator")
 		local Ok, Why = Coordinator.Drive(TxStore, Legs, "trade1")
@@ -18,15 +18,15 @@
 local Clock = require("../../Util/Clock")
 local TableUtil = require("../../Util/TableUtil")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
-local Errors = require("../../Core/Errors")
 local Windows = require("../../Core/Constants/Windows")
-local Reasons = require("../../Core/Reasons")
+local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
 local Fingerprint = require("../../Encode/Fingerprint")
 local Mark = require("../../Encode/Mark")
 local Storable = require("../../Encode/Storable")
 local Log = require("../../Record/Log")
 local TxStamp = require("../../Record/TxStamp")
+local Transactions = require("../../Core/Constants/Transactions")
 local Marker = require("./Marker")
 local Cleanup = require("./Cleanup")
 local Resolve = require("./Resolve")
@@ -38,8 +38,6 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type Leg = Types.Leg
 type Pass = Types.Pass
 
-local MAX_LEGS = Marker.MAX_LEGS
-local PASSES = 3
 
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
@@ -72,8 +70,8 @@ local function Stamped(Ops: { Op }, Gen: string?, Born: number, Print: string)
 end
 
 local function Adopted(Legs: { Leg }, Txid: string, Verdict: Log.Verdict, Upto: number, Tidy: boolean): ({ string }, number)
-	Errors.Holds(Upto <= #Legs, `transaction '{Txid}' is resolving more legs than it has`)
-	Errors.Holds(not Verdict.Commit or Upto == #Legs, `transaction '{Txid}' is committing without resolving every one of its legs`)
+	assert(Upto <= #Legs, `transaction '{Txid}' is resolving more legs than it has`)
+	assert(not Verdict.Commit or Upto == #Legs, `transaction '{Txid}' is committing without resolving every one of its legs`)
 
 	local Marks: { string } = {}
 	local Left = 0
@@ -101,7 +99,7 @@ local function Heal(TxStore: DataStoreWrapper, Legs: { Leg }, Txid: string, Gen:
 	local Verdict: Log.Verdict = { Commit = false, Gen = Gen, Since = Born }
 	local Marks, Left = Adopted(Legs, Txid, Verdict, #Legs, false)
 	Marker.Adopt(TxStore, Txid, Marks, Gen)
-	Marker.Decide(TxStore, Txid, Marker.ABORTED, 0, Gen)
+	Marker.Decide(TxStore, Txid, Transactions.ABORTED, 0, Gen)
 	return Left
 end
 
@@ -144,27 +142,27 @@ end
 
 local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Txid: string, Keys: string, Terms: string, Print: string, Floor: number, PerLeg: number?): Pass
 	local Created, Gen, Born, Minted = Marker.Create(TxStore, Txid, #Legs, Keys, Terms)
-	if Created == Marker.MISMATCH then
+	if Created == Transactions.MISMATCH then
 		warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount, and a name has to mean the same thing every time. nothing was applied, so pick a new name`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Floor, Parked = Floor > 0 }
 	end
-	if Created == Marker.UNWRITTEN then
+	if Created == Transactions.UNWRITTEN then
 		return { Committed = false, Why = UNRESOLVED, Again = true, Reached = Floor, Parked = Floor > 0 }
 	end
 
 	Stamped(Ops, Gen, Born, Print)
 
-	if Created == Marker.HUSK then
+	if Created == Transactions.HUSK then
 		return { Committed = false, Why = SPENT, Again = true, Reached = Floor, Parked = Heal(TxStore, Legs, Txid, Gen, Born) > 0 }
 	end
 
 	local Prepared, Settled, Cause = PrepareAll(Legs, Ops, Floor, PerLeg)
 	local Clean = Cause == nil
-	Errors.Holds(Settled <= #Legs, "more legs reported as already settled than the transaction has")
-	Errors.Holds(Prepared <= #Legs, "the transaction prepared past its own last leg")
+	assert(Settled <= #Legs, "more legs reported as already settled than the transaction has")
+	assert(Prepared <= #Legs, "the transaction prepared past its own last leg")
 
 	if Clean and Settled == #Legs then
-		Marker.Decide(TxStore, Txid, Marker.ABORTED, 0, Gen)
+		Marker.Decide(TxStore, Txid, Transactions.ABORTED, 0, Gen)
 		return { Committed = true, Why = nil, Again = false, Reached = Prepared, Parked = false }
 	end
 
@@ -172,12 +170,12 @@ local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Tx
 	local Aborting = not Clean or Split
 	local Disown = Cause == SPENT and Minted
 	local Shrink = if Aborting then (if Disown then 0 else Prepared) else nil
-	local Final = Marker.Decide(TxStore, Txid, if Aborting then Marker.ABORTED else Marker.COMMITTED, Shrink, Gen)
+	local Final = Marker.Decide(TxStore, Txid, if Aborting then Transactions.ABORTED else Transactions.COMMITTED, Shrink, Gen)
 	if Final == nil then
 		return { Committed = false, Why = UNRESOLVED, Again = true, Reached = Prepared, Parked = Prepared > 0 }
 	end
 
-	local Landed = Final == Marker.COMMITTED
+	local Landed = Final == Transactions.COMMITTED
 	local Verdict: Log.Verdict = { Commit = Landed, Gen = Gen, Since = Born }
 	local Marks, Left = Adopted(Legs, Txid, Verdict, if Landed then #Legs else Prepared, true)
 	Marker.Adopt(TxStore, Txid, Marks, Gen)
@@ -222,8 +220,8 @@ end
 
 local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLeg: number?): (boolean, Reason?, boolean)
 	assert(type(Id) == "string" and #Id > 0, "a transaction needs an Id, a stable name derived from the thing being settled")
-	assert(#Legs >= 2 and #Legs <= MAX_LEGS, `a transaction takes 2 to {MAX_LEGS} legs, got {#Legs}`)
-	assert(string.sub(Id, 1, #Cleanup.RESERVED) ~= Cleanup.RESERVED, `a transaction Id cannot start with '{Cleanup.RESERVED}', Ledger keeps that prefix for its own keys`)
+	assert(#Legs >= 2 and #Legs <= Transactions.MAX_LEGS, `a transaction takes 2 to {Transactions.MAX_LEGS} legs, got {#Legs}`)
+	assert(string.sub(Id, 1, #Transactions.RESERVED) ~= Transactions.RESERVED, `a transaction Id cannot start with '{Transactions.RESERVED}', Ledger keeps that prefix for its own keys`)
 
 	local Marks: { string } = {}
 	local Terms: { string } = {}
@@ -253,7 +251,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 	local Last: Reason = UNRESOLVED
 	local Floor = 0
 	local Parked = false
-	for _ = 1, PASSES do
+	for _ = 1, Transactions.PASSES do
 		local Attempt = RunOnce(TxStore, Legs, Ops, Id, Keys, Shape, Print, Floor, PerLeg)
 		Floor = Attempt.Reached
 		Parked = Attempt.Parked
@@ -282,6 +280,4 @@ end
 
 return table.freeze({
 	Drive = Drive,
-	MAX_LEGS = MAX_LEGS,
-	PASSES = PASSES,
 })

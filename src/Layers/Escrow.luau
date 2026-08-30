@@ -10,34 +10,23 @@
 	separate op, so each is atomic on its own key. Expire gives a hold back and Prune drops names that
 	have aged out.
 
-	Return type: A table with Layered, Entry, the five op kinds and the five id prefixes.
+	Return type: A table with Layered and Entry.
 	Example usage:
 		local Escrow = require("./Escrow")
 		local Layered = Escrow.Layered("Gold")
 --]=]
 
 local TableUtil = require("../Util/TableUtil")
-local Errors = require("../Core/Errors")
 local Validate = require("../Core/Validate")
+local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
+local Kinds = require("../Core/Constants/Kinds")
 local Layer = require("./Layer")
 local Shapes = require("../Core/Shapes")
 
 type Op = Shapes.Op
 type Data = Shapes.Folded
 type Held = Shapes.Held
-
-local RESERVE = "__TransferReserve"
-local DELIVER = "__TransferDeliver"
-local SETTLE = "__TransferSettle"
-local PRUNE = "__TransferPrune"
-local EXPIRE = "__TransferExpire"
-
-local RESERVE_ID = "res"
-local DELIVER_ID = "del"
-local SETTLE_ID = "set"
-local PRUNE_ID = "prn"
-local EXPIRE_ID = "exp"
 
 local function Entry(Held: any, Tid: any): Held?
 	if type(Held) ~= "table" or type(Tid) ~= "string" then
@@ -66,7 +55,7 @@ local function Reserving(Data: Data, Op: Op, Field: string): Data?
 	if Data._Held and Data._Held[Tid] ~= nil then
 		return nil
 	end
-	if Applied.Has(Data._Received, Applied.SENT, Tid) then
+	if Applied.Has(Data._Received, Tags.SENT, Tid) then
 		return nil
 	end
 	if Amount > (Data[Field] or 0) then
@@ -102,13 +91,13 @@ local function Delivering(Data: Data, Op: Op, Field: string): Data?
 
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
 	local Received = (Data._Received or {}) :: { [string]: any }
-	if Applied.Has(Received, Applied.TRANSFER, Tid) then
+	if Applied.Has(Received, Tags.TRANSFER, Tid) then
 		return nil
 	end
 
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) + Amount
-	Next._Received = Applied.Remember(Received, Applied.Key(Applied.TRANSFER, Tid), Op.At, Print)
+	Next._Received = Applied.Remember(Received, Applied.Key(Tags.TRANSFER, Tid), Op.At, Print)
 
 	return Next
 end
@@ -133,7 +122,7 @@ local function Expiring(Data: Data, Op: Op, Field: string): Data?
 	Next._Held = TableUtil.Some(Rest)
 
 	if Next[Field] < (Data[Field] or 0) then
-		Errors.Broke(`giving transfer {Tid} back left the sender with less than they started with`)
+		warn(`Ledger bug: giving transfer {Tid} back left the sender with less than they started with`)
 		return nil
 	end
 	return Next
@@ -158,7 +147,7 @@ local function Settling(Data: Data, Op: Op): Data?
 
 	local Next = table.clone(Data)
 	Next._Held = TableUtil.Some(Held)
-	Next._Received = Applied.Remember(Data._Received, Applied.Key(Applied.SENT, Tid), Op.At, Print)
+	Next._Received = Applied.Remember(Data._Received, Applied.Key(Tags.SENT, Tid), Op.At, Print)
 
 	return Next
 end
@@ -181,17 +170,17 @@ local function Layered(Balance: string?): Layer.Layer?
 	local Field = Balance
 	return {
 		Kinds = {
-			[RESERVE] = function(Data: Data, Op: Op): Data?
+			[Kinds.RESERVE] = function(Data: Data, Op: Op): Data?
 				return Reserving(Data, Op, Field)
 			end,
-			[DELIVER] = function(Data: Data, Op: Op): Data?
+			[Kinds.DELIVER] = function(Data: Data, Op: Op): Data?
 				return Delivering(Data, Op, Field)
 			end,
-			[EXPIRE] = function(Data: Data, Op: Op): Data?
+			[Kinds.EXPIRE] = function(Data: Data, Op: Op): Data?
 				return Expiring(Data, Op, Field)
 			end,
-			[SETTLE] = Settling,
-			[PRUNE] = Pruning,
+			[Kinds.SETTLE] = Settling,
+			[Kinds.PRUNE] = Pruning,
 		},
 		Owns = {
 			{ Field = "_Held", Says = "the money set aside" },
@@ -204,15 +193,5 @@ return table.freeze({
 	Layered = Layered,
 	Entry = Entry,
 
-	RESERVE = RESERVE,
-	DELIVER = DELIVER,
-	SETTLE = SETTLE,
-	PRUNE = PRUNE,
-	EXPIRE = EXPIRE,
 
-	RESERVE_ID = RESERVE_ID,
-	DELIVER_ID = DELIVER_ID,
-	SETTLE_ID = SETTLE_ID,
-	PRUNE_ID = PRUNE_ID,
-	EXPIRE_ID = EXPIRE_ID,
 })

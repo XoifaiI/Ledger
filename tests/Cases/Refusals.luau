@@ -15,9 +15,10 @@
 
 local Suite = require("../Suite")
 
+local Transactions = require("../../src/Core/Constants/Transactions")
+
 local Ledger = require("../../src") :: any
 local Windows = require("../../src/Core/Constants/Windows")
-local Broke = require("../../src/Core/Errors")
 local Fold = require("../../src/Record/Fold")
 local NewOp = require("../../src/Record/NewOp")
 local Schema = require("../../src/Record/Schema")
@@ -574,7 +575,7 @@ Cases.Case("the reap works its way round every store when it cannot afford them 
 	local Names: { string } = {}
 	local Found = 0
 	local Tried = 0
-	while Found < Cleanup.SHARDS do
+	while Found < Transactions.SHARDS do
 		Tried += 1
 		local Try = `husk{Tried}`
 		local Slot = Cleanup.Shard(Try) + 1
@@ -605,7 +606,7 @@ Cases.Case("the reap works its way round every store when it cannot afford them 
 	local function Left(): number
 		local Standing = 0
 		for _, Store in Stores do
-			if #Store:Marks() == Cleanup.SHARDS then
+			if #Store:Marks() == Transactions.SHARDS then
 				Standing += 1
 			end
 		end
@@ -1058,15 +1059,6 @@ Cases.Case("a guarded callback hands back every value it returned", function(T: 
 	T:Is("the first value", First, 3)
 	T:Is("the second value", Second, "two")
 	T:Is("the third value", Third, nil)
-end)
-
-Cases.Case("a guarded callback keeps the reason on a fault it raised", function(T: Case)
-	local Ran, Raised = pcall(NoYield.Run, function()
-		error(Broke.New("Busy", "a leg is parked"))
-	end)
-
-	T:Is("a callback that raised a fault", Ran, false)
-	T:Is("the reason it carried", Broke.Of(Raised), "Busy")
 end)
 
 Cases.Case("a guarded callback can guard another one inside itself", function(T: Case)

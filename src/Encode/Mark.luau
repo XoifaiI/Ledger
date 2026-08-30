@@ -9,7 +9,7 @@
 	the read. Of and Split are the pair for one mark, Pack and Unpack for a list of them. Anything
 	that does not carry its length reads back as nothing.
 
-	Return type: A table with FIELD, LIST, Of, Split, Pack and Unpack.
+	Return type: A table with Of, Split, Pack and Unpack.
 	Example usage:
 		local Mark = require("./Mark")
 		local Held = Mark.Of("Players", "1")
@@ -108,8 +108,6 @@ local function Unpack(Packed: string): { string }
 end
 
 return table.freeze({
-	FIELD = FIELD,
-	LIST = LIST,
 	Of = Of,
 	Split = Split,
 	Pack = Pack,

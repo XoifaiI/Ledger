@@ -8,7 +8,7 @@
 	It hands out stores by name and scope, and holds this server's request budget. The budget refills
 	against the scheduler's clock, so a run that owns its clock owns the refill too.
 
-	Return type: A table with New and MAX_NAME.
+	Return type: A table with New.
 	Example usage:
 		local Service = require("./Service")
 		local Fake = Service.New({ Players = 20 })
@@ -17,6 +17,7 @@
 local Engine = require("../Util/Engine")
 local Roblox = require("../Schedulers/Roblox")
 
+local Datastore = require("../Core/Constants/Datastore")
 local Budget = require("./Budget")
 local Store = require("./Store")
 local Types = require("./Types")
@@ -25,15 +26,12 @@ type Service = Types.Service
 type Options = Types.Options
 type Lane = Types.Lane
 
-local MAX_NAME = 50
-local MAX_SCOPE = 50
-
 local function CheckName(Name: string)
 	if type(Name) ~= "string" or #Name == 0 then
 		error("Ledger mock: a datastore name must be a non empty string", 0)
 	end
-	if #Name > MAX_NAME then
-		error(`Ledger mock: datastore name exceeds the {MAX_NAME} character limit`, 0)
+	if #Name > Datastore.MAX_NAME then
+		error(`Ledger mock: datastore name exceeds the {Datastore.MAX_NAME} character limit`, 0)
 	end
 end
 
@@ -72,7 +70,7 @@ function Service.Refill(self: Service, Id: string, Cap: number): number
 	local Held = math.min(Cap, self.Tokens[Id] or Cap)
 	local Since = Now - (self.Filled[Id] or Now)
 
-	Held = math.min(Cap, Held + Since * (Cap / Budget.REFILL_WINDOW))
+	Held = math.min(Cap, Held + Since * (Cap / Datastore.REFILL_WINDOW))
 	self.Tokens[Id] = Held
 	self.Filled[Id] = Now
 	return Held
@@ -100,13 +98,13 @@ function Service.Await(self: Service, Lanes: { Lane }, Cost: number)
 		return
 	end
 
-	if self.Queued >= Budget.QUEUE_LIMIT then
-		error(`Ledger mock: {Budget.THROTTLED}`, 0)
+	if self.Queued >= Datastore.QUEUE_LIMIT then
+		error(`Ledger mock: {Datastore.THROTTLED}`, 0)
 	end
 
 	self.Queued += 1
 	while not self:Ready(Lanes, Cost) do
-		self.Scheduler.Wait(Budget.QUEUE_STEP)
+		self.Scheduler.Wait(Datastore.QUEUE_STEP)
 	end
 	self.Queued -= 1
 	assert(self.Queued >= 0, "the mock let more requests off its queue than it ever put on")
@@ -129,7 +127,7 @@ function Service.Carry(self: Service, Way: string, Store: string, Key: string, B
 		return
 	end
 
-	local Cap = if Way == Budget.WRITING then Budget.WRITE_BYTES else Budget.READ_BYTES
+	local Cap = if Way == Datastore.WRITING then Datastore.WRITE_BYTES else Datastore.READ_BYTES
 	self:Await({ { Id = `{Way}\0{Store}\0{Key}`, Cap = Cap } }, math.min(Bytes, Cap))
 end
 
@@ -142,8 +140,8 @@ end
 
 function Service.GetDataStore(self: Service, Name: string, Scope: string?): Types.Store
 	CheckName(Name)
-	if Scope ~= nil and #Scope > MAX_SCOPE then
-		error(`Ledger mock: scope exceeds the {MAX_SCOPE} character limit`, 0)
+	if Scope ~= nil and #Scope > Datastore.MAX_SCOPE then
+		error(`Ledger mock: scope exceeds the {Datastore.MAX_SCOPE} character limit`, 0)
 	end
 
 	local Where = Scope or "global"
@@ -163,5 +161,4 @@ table.freeze(Service)
 
 return table.freeze({
 	New = Service.New,
-	MAX_NAME = MAX_NAME,
 })

@@ -20,8 +20,9 @@ local TableUtil = require("../Util/TableUtil")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
 local Storable = require("../Encode/Storable")
-local Errors = require("../Core/Errors")
+local Kinds = require("../Core/Constants/Kinds")
 local Shapes = require("../Core/Shapes")
+local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Schema = require("./Schema")
 local TxStamp = require("./TxStamp")
@@ -80,10 +81,10 @@ local function Accounted(State: any, Op: Op, Format: Schema<any>): boolean
 	end
 
 	local Data: any = State
-	if type(Op.Once) == "string" and Applied.Has(Data._Received, Applied.ONCE, Op.Once) then
+	if type(Op.Once) == "string" and Applied.Has(Data._Received, Tags.ONCE, Op.Once) then
 		return true
 	end
-	return type(Op.TxSticky) == "string" and Applied.Has(Data._Received, Applied.TX, Op.TxSticky)
+	return type(Op.TxSticky) == "string" and Applied.Has(Data._Received, Tags.TX, Op.TxSticky)
 end
 
 local function Absorbable(Record: Record, Format: Schema<any>): (any, number, string?)
@@ -167,7 +168,7 @@ local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 	local Ahead = Stored > #Steps
 
 	local Fresh: Record = {
-		Envelope = Shapes.ENVELOPE,
+		Envelope = Kinds.ENVELOPE,
 		Snapshot = Snapshot,
 		Bytes = Measure(Snapshot),
 		Ops = Held,
@@ -177,7 +178,7 @@ local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 		Floor = if Ahead then Record.Floor or Stored else Schema.FloorOf(Steps),
 	}
 
-	Errors.Holds((Fresh.Floor :: number) >= (Record.Floor or 0), `compacting '{Key}' lowered the version floor, so a server that cannot read it would think it can`)
+	assert((Fresh.Floor :: number) >= (Record.Floor or 0), `compacting '{Key}' lowered the version floor, so a server that cannot read it would think it can`)
 
 	return Fresh
 end

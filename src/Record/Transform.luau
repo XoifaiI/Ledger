@@ -16,8 +16,7 @@
 --]=]
 
 local Shapes = require("../Core/Shapes")
-local Errors = require("../Core/Errors")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
 local Rules = require("./Rules")
 
 type Record = Shapes.Record<any>
@@ -75,7 +74,7 @@ local function Run(Update: Update, Key: string, List: { Rule }): Outcome
 				continue
 			end
 			local Broke = After(Result.Before, Result.After, Pass)
-			Errors.Holds(Broke == nil, `the '{Held.Name}' rule on '{Key}' did not hold after the write: {tostring(Broke)}`)
+			assert(Broke == nil, `the '{Held.Name}' rule on '{Key}' did not hold after the write: {tostring(Broke)}`)
 		end
 	end
 

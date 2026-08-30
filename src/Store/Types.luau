@@ -20,7 +20,7 @@ local Observer = require("../Util/Observer")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
 local LogTypes = require("../Record/Types")
 local LiveTypes = require("../Session/Types")
 

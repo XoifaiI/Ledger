@@ -118,7 +118,7 @@ local VAULT = "CaseVault"
 local NODE = "node1"
 local SIM_NODE = "v2case00000000"
 
-local ACCUSED = "this is a bug in Ledger"
+local ACCUSED = "Ledger bug:"
 
 local STEP_CAP = 1000000
 local EPOCH = 1700000000
@@ -322,6 +322,9 @@ function Case.Throws(self: Case, Label: string, Body: () -> ()): string?
 	if Fine then
 		table.insert(self.Broken, `{Label}: it went through, and it had to throw`)
 		return nil
+	end
+	if type(Raised) == "table" and type((Raised :: any).Message) == "string" then
+		return (Raised :: any).Message
 	end
 	return tostring(Raised)
 end

@@ -9,7 +9,7 @@
 	named has forgotten its leg, and a key that cannot be read counts as still holding one. Each pass
 	reads a fixed number of names per shard and gives back where it stopped.
 
-	Return type: A table with Reap, Spent, Quiet, Anywhere and the caps. The type is Reaping.
+	Return type: A table with Reap, Spent, Quiet and Anywhere. The type is Reaping.
 	Example usage:
 		local Reap = require("./Reap")
 		local Count, Next = Reap.Reap(TxStore, Lookup)
@@ -18,6 +18,7 @@
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Shapes = require("../../Core/Shapes")
+local Transactions = require("../../Core/Constants/Transactions")
 local Windows = require("../../Core/Constants/Windows")
 local Mark = require("../../Encode/Mark")
 local Log = require("../../Record/Log")
@@ -29,11 +30,6 @@ local Types = require("./Types")
 type Record = Shapes.Record<any>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type Lookup = Types.Lookup
-
-local REAP_LIMIT = 64
-local REAP_LOOKS = 16
-local REAP_PAGE = 64
-local REAP_FLOOR = REAP_LOOKS + 2
 
 export type Reaping = {
 	Node: string?,
@@ -110,7 +106,7 @@ local function Gone(TxStore: DataStoreWrapper, Txid: string, Lookup: Lookup, Now
 	if type(Value) == "table" then
 		local Held = Value :: Types.Marker
 		local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
-		local Settled = Held.Dead == true or Held.Status == Marker.ABORTED
+		local Settled = Held.Dead == true or Held.Status == Transactions.ABORTED
 		if Now - Updated < (if Settled then Grace else Older) then
 			return false, false
 		end
@@ -189,21 +185,21 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 	local Asked: Reaping = Held or {}
 	local Older = Asked.Horizon or Windows.REAP
 	local Grace = math.min(Older, Windows.REAP_GRACE)
-	local Room = Asked.Limit or REAP_LIMIT
+	local Room = Asked.Limit or Transactions.REAP_LIMIT
 	local Afford = Asked.Afford
 	local Now = Clock.Now()
-	local Base = if type(Asked.From) == "number" then Asked.From % Cleanup.SHARDS else Cleanup.Mine(Asked.Node)
+	local Base = if type(Asked.From) == "number" then Asked.From % Transactions.SHARDS else Cleanup.Mine(Asked.Node)
 
 	local Reaped = 0
 	local Step = 0
-	while Step < Cleanup.SHARDS do
+	while Step < Transactions.SHARDS do
 		if Reaped >= Room or (Afford ~= nil and not Afford()) then
 			break
 		end
 
-		local Ok, Pages = TxStore:ListKeysAsync(Cleanup.Prefix((Base + Step) % Cleanup.SHARDS), REAP_PAGE, nil)
+		local Ok, Pages = TxStore:ListKeysAsync(Cleanup.Prefix((Base + Step) % Transactions.SHARDS), Transactions.REAP_PAGE, nil)
 		if Ok then
-			local Looks = REAP_LOOKS
+			local Looks = Transactions.REAP_LOOKS
 			local Book = Pages :: DataStoreKeyPages
 			while true do
 				local Stop = false
@@ -238,7 +234,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Step += 1
 	end
 
-	return Reaped, (Base + Step) % Cleanup.SHARDS
+	return Reaped, (Base + Step) % Transactions.SHARDS
 end
 
 return table.freeze({
@@ -246,8 +242,4 @@ return table.freeze({
 	Spent = Spent,
 	Quiet = Quiet,
 	Anywhere = Anywhere,
-	REAP_LIMIT = REAP_LIMIT,
-	REAP_LOOKS = REAP_LOOKS,
-	REAP_PAGE = REAP_PAGE,
-	REAP_FLOOR = REAP_FLOOR,
 })

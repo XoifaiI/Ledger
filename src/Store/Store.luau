@@ -21,10 +21,10 @@ local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
 local Roblox = require("../Hooks/Roblox")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
-local Errors = require("../Core/Errors")
 local Ident = require("../Encode/Ident")
 local Windows = require("../Core/Constants/Windows")
-local Reasons = require("../Core/Reasons")
+local Reasons = require("../Core/Constants/Reasons")
+local Kinds = require("../Core/Constants/Kinds")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
 local Compact = require("../Record/Compact")
@@ -63,7 +63,6 @@ local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
 
-local RESET_KIND = "__Reset"
 local TX_SUFFIX = "_Tx"
 
 local UNRESOLVED = Reasons.Unresolved
@@ -76,7 +75,7 @@ local function WrapSystem(GameReducer: Shapes.Reducer<any>, Initial: any, Steps:
 	local Known = #Steps
 
 	local function Combined(State: any, Op: Op): any?
-		if Op.Kind ~= RESET_KIND then
+		if Op.Kind ~= Kinds.RESET then
 			return GameReducer(State, Op)
 		end
 
@@ -227,7 +226,7 @@ end
 
 function Store.Save(self: Store, Active: any): Future<boolean, Reason?>
 	for UserId, Entry in self.Loaded do
-		Errors.Holds((Entry.Active :: any) ~= (Active :: any), `the session for {UserId} is being saved on the way out while the store still lists it as live`)
+		assert((Entry.Active :: any) ~= (Active :: any), `the session for {UserId} is being saved on the way out while the store still lists it as live`)
 	end
 
 	local Job = Active:Release()
@@ -271,7 +270,7 @@ function Store.Load(self: Store, Player: Player)
 		return
 	end
 
-	Errors.Holds(self.Loaded[UserId] == nil, `{Player.Name} is starting a load while they already have a live session, so two sessions would write the same key`)
+	assert(self.Loaded[UserId] == nil, `{Player.Name} is starting a load while they already have a live session, so two sessions would write the same key`)
 	self.Loads[UserId] = "Loading"
 
 	local Job = Session.Load(self:Records(), self:Format(), tostring(UserId), self.TxWrapper)
@@ -304,7 +303,7 @@ function Store.Load(self: Store, Player: Player)
 		return
 	end
 
-	Errors.Holds(self.Loads[UserId] == nil, "a load finished while this player was still marked as loading")
+	assert(self.Loads[UserId] == nil, "a load finished while this player was still marked as loading")
 
 	self.Loaded[UserId] = {
 		Active = Active,
