@@ -14,6 +14,8 @@
 
 local Suite = require("../Suite")
 
+local Json = require("../../src/Mock/Json")
+
 local Measure = require("../../src/Encode/Measure")
 local Storable = require("../../src/Encode/Storable")
 local Reconcile = require("../../src/Record/Reconcile")
@@ -204,6 +206,19 @@ Cases.Case("a buffer past the op cap is still refused", function(T: Case)
 
 	T:Is("an op whose buffer is past the per op cap", Ok, false)
 	T:Warns("it said why", "per op limit")
+end)
+
+Cases.Case("the fake datastore compresses a buffer the way a real one charges for it", function(T: Case)
+	local Size = 64 * 1024
+	local Held = buffer.create(Size)
+	for Index = 0, Size - 1 do
+		buffer.writeu8(Held, Index, 97)
+	end
+
+	local Stored = #Json.Encode({ b = Held })
+
+	T:Is("the stored value is far smaller than the raw bytes", Stored < Size // 100, true)
+	T:Is("and it still reads back as the buffer that went in", buffer.len(Json.Decode(Json.Encode({ b = Held })).b), Size)
 end)
 
 return Cases

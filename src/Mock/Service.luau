@@ -6,7 +6,8 @@
 	Service: The service half of the fake datastore.
 
 	It hands out stores by name and scope, and holds this server's request budget. The budget refills
-	against the scheduler's clock, so a run that owns its clock owns the refill too.
+	against the scheduler's clock, so a run that owns its clock owns the refill too. Conflicts counts
+	the writes that met on one key and had to run their transform again.
 
 	Return type: A table with New.
 	Example usage:
@@ -47,6 +48,7 @@ function Service.New(Options: Options?, Scheduler: Engine.Scheduler?): Service
 		Tokens = {},
 		Filled = {},
 		Queued = 0,
+		Conflicts = 0,
 		Players = Players,
 		CCU = Config.CCU or Players,
 		Throttled = Config.Throttled ~= false,
@@ -136,6 +138,7 @@ function Service.Clear(self: Service)
 	table.clear(self.Tokens)
 	table.clear(self.Filled)
 	self.Queued = 0
+	self.Conflicts = 0
 end
 
 function Service.GetDataStore(self: Service, Name: string, Scope: string?): Types.Store

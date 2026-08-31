@@ -925,7 +925,9 @@ Cases.Case("a player who leaves during the load still has their transfers picked
 	local Fake = T:Player(77)
 	Fake.Parent = nil
 	Bank.Store:Load(Fake)
-	T:Wait()
+	T:Until(function()
+		return Bank:Aside("77") == 0
+	end)
 
 	T:Is("money still set aside on the key they left", Bank:Aside("77"), 0)
 	T:Is("money the receiver got", Bank:Amount("88"), 40)

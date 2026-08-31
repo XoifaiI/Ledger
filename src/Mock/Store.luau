@@ -6,8 +6,9 @@
 	Store: One fake datastore.
 
 	It holds its keys and the versions it keeps of each. Two writes on one key can meet, so a
-	transform runs again when another write landed between its read and its write. A transform that
-	yields raises, and one that throws cancels the write silently. A listing comes back in a stable
+	transform runs again when another write landed between its read and its write, which is why the
+	read gives up its turn the way a real one does. A transform that yields raises, and one that throws
+	cancels the write silently. A listing comes back in a stable
 	order that is not the key order, since a real one gives no order to lean on.
 
 	Return type: A table with New.
@@ -206,6 +207,8 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 		local Before = if Latest then Latest.Label else nil
 
 		local Was, Info = self:Current(Key)
+		self.Service.Scheduler.Wait(0)
+
 		local Ran, Next = NoYield.Try(Transform, Was, Info)
 		if not Ran then
 			if type(Next) == "string" and string.find(Next, Messages.YIELDED, 1, true) ~= nil then
@@ -219,6 +222,7 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 
 		local Moved = Newest(self:Look(Key))
 		if (if Moved then Moved.Label else nil) ~= Before then
+			self.Service.Conflicts += 1
 			continue
 		end
 

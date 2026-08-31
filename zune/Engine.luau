@@ -64,6 +64,9 @@ local EncodingService = table.freeze({
 	CompressBuffer = function(_: any, Held: buffer, _Algorithm: any, _Level: number?): buffer
 		return Serde.zstd.compress(Held)
 	end,
+	DecompressBuffer = function(_: any, Held: buffer, _Algorithm: any): buffer
+		return Serde.zstd.decompress(Held)
+	end,
 })
 
 local HttpService = table.freeze({

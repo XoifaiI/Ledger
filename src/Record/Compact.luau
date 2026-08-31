@@ -7,8 +7,11 @@
 
 	Overgrown and Worthwhile say whether a key is worth compacting, on a share of the snapshot for a
 	large state and on a count for a small one. Packed does the fold: it absorbs the run of ops at the
-	front this build can apply, keeps the rest, and moves the absorbed ids to Seen. Hint names the
-	field taking the most room, and Blocked names the kind that stops a key compacting at all.
+	front this build can apply, keeps the rest, and moves the absorbed ids to Seen. An op taken in only
+	because a transaction was parked names those transactions, and is absorbed only while none of them
+	has left its name on the key, since one that committed leaves an ordinary op that a build which
+	cannot apply it has to hold. Hint names the field taking the most room, and Blocked names the kind
+	that stops a key compacting at all.
 
 	Return type: A table with Packed, Oversized, Overgrown, Bulk, Hint, Blocked and SEEN_LIMIT.
 	Example usage:
@@ -70,13 +73,30 @@ local function Overgrown(Record: Record): boolean
 	return Worthwhile(Count, Bytes, Bulk(Record))
 end
 
+local function Conditioned(State: any, Op: Op): boolean
+	local Needed = Op.TxOnly
+	if Needed == true then
+		return true
+	end
+	if type(Needed) ~= "table" or #Needed == 0 then
+		return false
+	end
+
+	for _, Txid in Needed :: { string } do
+		if Applied.Has((State :: any)._Received, Tags.TX, Txid) then
+			return false
+		end
+	end
+	return true
+end
+
 local function Accounted(State: any, Op: Op, Format: Schema<any>): boolean
 	local Handles = Format.Handles
 	if if Handles ~= nil then Handles[Op.Kind] == true else Storable.Reserved(Op.Kind) then
 		return true
 	end
 
-	if Op.TxOnly == true then
+	if Conditioned(State, Op) then
 		return true
 	end
 

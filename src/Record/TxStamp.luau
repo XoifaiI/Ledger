@@ -9,7 +9,7 @@
 	Unstamped takes the stamp off one, Landed takes it off every op of a transaction, and Carries looks
 	in both Ops and Seen.
 
-	Return type: A table with Unstamped, Landed, HasPending, NotPending, PendingTx, Holds, Carries and Written.
+	Return type: A table with Unstamped, Landed, HasPending, NotPending, PendingTx, PendingIds, Holds, Carries and Written.
 	Example usage:
 		local TxStamp = require("./TxStamp")
 		if TxStamp.HasPending(Record) then return end
@@ -61,6 +61,21 @@ local function PendingTx(Record: Record): { [string]: string | true }
 	return Set
 end
 
+local function PendingIds(Record: Record): { string }
+	local Seen: { [string]: boolean } = {}
+	local Found: { string } = {}
+	for _, Op in Record.Ops do
+		local Txid = Op.Tx
+		if type(Txid) ~= "string" or Seen[Txid] then
+			continue
+		end
+		Seen[Txid] = true
+		table.insert(Found, Txid)
+	end
+	table.sort(Found)
+	return Found
+end
+
 local function Find(Record: Record, Id: string): Op?
 	for _, Op in Record.Ops do
 		if Op.Id == Id then
@@ -97,6 +112,7 @@ return table.freeze({
 	HasPending = HasPending,
 	NotPending = NotPending,
 	PendingTx = PendingTx,
+	PendingIds = PendingIds,
 	Holds = Holds,
 	Carries = Carries,
 	Written = Written,

@@ -30,6 +30,18 @@ local COUNTED: any = { Gold = 0, N = 0 }
 
 local Cases = Suite.File("Logs")
 
+local function Crafter(State: any, Op: any): any?
+	if Op.Kind ~= "Craft" then
+		return Suite.Reducers.Banker(State, Op)
+	end
+
+	local Gold = State.Gold + Op.Amount
+	if Gold < 0 then
+		return nil
+	end
+	return { Gold = Gold, Touches = State.Touches }
+end
+
 local function Counter(State: any, Op: any): any?
 	if Op.Kind == "Add" then
 		return { Gold = State.Gold + Op.Amount, N = State.N + 1 }
@@ -646,6 +658,89 @@ Cases.Case("an op that holds once the leg commits is still written", function(T:
 	T:Is("gold once the leg landed", Bank:Amount("a"), 50)
 end)
 
+Cases.Case("an op taken in for a leg that committed is kept by a build that cannot apply it", function(T: Case)
+	local Newer = T:Store({ Default = Suite.Reducers.MONEY, Reducer = Crafter, Balance = "Gold" })
+	local Older = T:Bank()
+
+	Newer:Seed("forge", { Gold = 0, Touches = 0 })
+	Newer:Park("forge", {
+		Id = "tx:forge:1",
+		Kind = "Give",
+		Amount = 100,
+		Tx = "forge",
+		TxGen = "forgegen",
+		TxAt = T:Now(),
+		TxTerms = "forgeterms",
+		TxSticky = "forge",
+	})
+
+	local Ok, Why = Newer.Store:Edit("forge", "Craft", { Amount = -50 }):Wait()
+	Newer:Log():Resolve("forge", { forge = { Commit = true, Gen = "forgegen", Since = T:Now() } })
+
+	T:No("the craft, which only holds if the leg commits", Ok)
+	T:Is("the reason, which leaves it open", Why, "Unresolved")
+	T:Is("gold once the leg committed", Newer:Amount("forge"), 50)
+
+	Older:Log():Compact("forge", Older:Format())
+
+	T:Is("gold after an older build compacted the key", Newer:Amount("forge"), 50)
+	T:Warns("the older build said what it kept", "this build does not apply")
+end)
+
+Cases.Case("an op taken in for two transactions is kept while either of them committed", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("twogates", { Gold = 0, Touches = 0 })
+
+	for _, Held in { { Name = "alpha", Gen = "agen" }, { Name = "bravo", Gen = "bgen" } } do
+		Bank:Park("twogates", {
+			Id = `tx:{Held.Name}:1`,
+			Kind = "Give",
+			Amount = 100,
+			Tx = Held.Name,
+			TxGen = Held.Gen,
+			TxAt = T:Now(),
+			TxTerms = `{Held.Name}terms`,
+			TxSticky = Held.Name,
+		})
+	end
+
+	Bank.Store:Edit("twogates", "Give", { Amount = -150 }):Wait()
+	Bank:Log():Resolve("twogates", {
+		alpha = { Commit = true, Gen = "agen", Since = T:Now() },
+		bravo = { Commit = false, Gen = "bgen", Since = T:Now() },
+	})
+
+	T:Is("gold once one committed and the other went away", Bank:Amount("twogates"), 100)
+
+	Bank:Log():Compact("twogates", Bank:Format())
+
+	local Kept = false
+	for _, Op in Bank:Record("twogates").Ops do
+		if Op.Amount == -150 then
+			Kept = true
+		end
+	end
+
+	T:Ok("the op, kept because a transaction it was taken in for did commit", Kept)
+	T:Is("gold after the compaction", Bank:Amount("twogates"), 100)
+	T:Warns("the compaction said what it kept", "kept 1 op(s) through compaction")
+end)
+
+Cases.Case("an op an older build marked for a parked transaction is absorbed as before", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Write("legacy", {
+		Snapshot = { Gold = 100, Touches = 0 },
+		Ops = { { Id = "legacy1", Kind = "Give", Amount = -999, TxOnly = true } },
+		Seen = {},
+	})
+
+	Bank:Log():Compact("legacy", Bank:Format())
+
+	T:Is("ops left once the key compacted", #Bank:Record("legacy").Ops, 0)
+	T:Is("gold, counting only what applied", Bank:Amount("legacy"), 100)
+	T:Silent("nothing said the key was stuck", "cannot be compacted")
+end)
+
 Cases.Case("a compaction holds back a reserved kind this build does not handle", function(T: Case)
 	local Store = Ledgered(T)
 
@@ -803,6 +898,72 @@ Cases.Case("an op whose reducer throws never reaches the log", function(T: Case)
 	T:Is("the reason", Why, "Refused")
 	T:Is("the log is untouched by it", Kept(Bank, "thrower"), "Fund")
 	T:Is("and the key still reads", Bank:State("thrower").Gold, 15)
+end)
+
+Cases.Case("a guard that runs again judges the record its op lands on", function(T: Case)
+	local Bank = T:Bank("nodeA")
+	local Beside = T:Bank("nodeB")
+
+	Bank:Seed("recheck", { Gold = 0, Touches = 0 })
+	Bank:Park("recheck", {
+		Id = "tx:recheck:1",
+		Kind = "Give",
+		Amount = 100,
+		Tx = "recheck",
+		TxGen = "rgen",
+		TxAt = T:Now(),
+		TxTerms = "rterms",
+		TxSticky = "recheck",
+	})
+
+	T:Race({
+		function()
+			Beside:Log():Resolve("recheck", { recheck = { Commit = true, Gen = "rgen", Since = T:Now() } })
+		end,
+		function()
+			Bank.Store:Edit("recheck", "Give", { Amount = -50 }):Wait()
+		end,
+	})
+
+	local Found: any = nil
+	for _, Op in Bank:Record("recheck").Ops do
+		if Op.Amount == -50 then
+			Found = Op
+		end
+	end
+
+	T:Ok("two writes met on the key and one ran its transform again", T.Service.Conflicts > 0)
+	T:Ok("the op the second run wrote", Found ~= nil)
+	T:Is("what it was taken in for, cleared once the leg had committed", if Found ~= nil then Found.TxOnly else "no op", nil)
+	T:Is("gold once the leg committed and the op applied", Bank:Amount("recheck"), 50)
+end)
+
+Cases.Case("two servers appending one op run its transform again and write it once", function(T: Case)
+	local Bank = T:Bank("nodeA")
+	local Beside = T:Bank("nodeB")
+
+	Bank:Seed("sameop", { Gold = 0, Touches = 0 })
+	local Op = NewOp.New("Fund", { Amount = 25 })
+
+	T:Race({
+		function()
+			Bank:Append("sameop", { Op })
+		end,
+		function()
+			Beside:Append("sameop", { Op })
+		end,
+	})
+
+	local Count = 0
+	for _, Held in Bank:Record("sameop").Ops do
+		if Held.Id == Op.Id then
+			Count += 1
+		end
+	end
+
+	T:Ok("two writes met on the key and one ran its transform again", T.Service.Conflicts > 0)
+	T:Is("times the op is in the log", Count, 1)
+	T:Is("gold, counting it once", Bank:Amount("sameop"), 25)
 end)
 
 return Cases

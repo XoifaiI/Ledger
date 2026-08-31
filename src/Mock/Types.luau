@@ -124,6 +124,7 @@ export type Service = setmetatable<{
 	Tokens: { [string]: number },
 	Filled: { [string]: number },
 	Queued: number,
+	Conflicts: number,
 	Players: number,
 	CCU: number,
 	Throttled: boolean,

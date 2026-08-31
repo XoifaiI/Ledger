@@ -6,8 +6,9 @@
 	Json: The json trip a real datastore puts a value through.
 
 	Encode refuses anything json cannot hold and anything over the value cap. A buffer has no json
-	form, so it goes in and out as base64 under one reserved key. Only a table holding that key and
-	nothing else reads back as a buffer.
+	form, so it is compressed and goes in and out as base64 under one reserved key, which is what a
+	real datastore charges for one. Only a table holding that key and nothing else reads back as a
+	buffer.
 
 	Return type: A table with Encode, Decode and MAX_VALUE.
 	Example usage:
@@ -22,11 +23,14 @@ local HttpService = game:GetService("HttpService")
 
 local BLOB = "__Buffer"
 
+local ZSTD = Enum.CompressionAlgorithm.Zstd
+local ZSTD_LEVEL = 1
+
 local UNSTORABLE = "value cannot be stored, a datastore only holds json"
 
 local function Packed(Value: any): any
 	if type(Value) == "buffer" then
-		return { [BLOB] = buffer.tostring(EncodingService:Base64Encode(Value)) }
+		return { [BLOB] = buffer.tostring(EncodingService:Base64Encode(EncodingService:CompressBuffer(Value, ZSTD, ZSTD_LEVEL))) }
 	end
 	if type(Value) ~= "table" then
 		return Value
@@ -46,7 +50,7 @@ local function Unpacked(Value: any): any
 
 	local Blob = Value[BLOB]
 	if type(Blob) == "string" and next(Value, next(Value) :: any) == nil then
-		return EncodingService:Base64Decode(buffer.fromstring(Blob))
+		return EncodingService:DecompressBuffer(EncodingService:Base64Decode(buffer.fromstring(Blob)), ZSTD)
 	end
 
 	local Out: { [any]: any } = {}

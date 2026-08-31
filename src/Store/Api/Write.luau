@@ -9,7 +9,9 @@
 	reason. It runs the caller's guard, asks whether the op still applies, appends, settles and trims
 	the record, then reads back whether the op really took. Shows is for a caller whose op can land and
 	still leave nothing behind, because a later op undid it: it is asked once of the settled record and
-	names the reason. It also adds a key to the sweep when that key is left holding money mid move.
+	names the reason. An op that only holds because a transaction is parked carries which ones, so a
+	later compaction can tell a commit from an abandonment. It also adds a key to the sweep when that
+	key is left holding money mid move.
 
 	Return type: A table with Failed. It writes Stale, Went, Watch, WatchHeld, Append, Swelling, Starved, Maintain, Applies, Swollen and Written onto the class.
 	Example usage:
@@ -214,9 +216,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 			if not Applied then
 				return false
 			end
-			if Only then
-				(Op :: any).TxOnly = true
-			end
+			(Op :: any).TxOnly = if Only then TxStamp.PendingIds(Record) else nil
 
 			Swollen = self:Swollen(Op, Record)
 			return not Swollen

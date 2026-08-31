@@ -2059,4 +2059,35 @@ Cases.Case("a transaction lands on an erased key once its tomb has run out", fun
 	T:Silent("it did not say the key was turned away", "was erased and is turned away")
 end)
 
+Cases.Case("a roll write that met another still puts every name on the list", function(T: Case)
+	local Bank = T:Bank("nodeA")
+	local Beside = T:Bank("nodeB")
+
+	local Slot = Cleanup.Shard("anchor")
+	Cleanup.Carry(Bank.Store.TxWrapper, Hashed(Slot, Transactions.ROLL_LIMIT - 3, "rollfill"))
+
+	local Mine = Hashed(Slot, 3, "rollmine")
+	local Theirs = Hashed(Slot, 2, "rollyours")
+
+	T:Race({
+		function()
+			Cleanup.Carry(Beside.Store.TxWrapper, Theirs)
+		end,
+		function()
+			Cleanup.Carry(Bank.Store.TxWrapper, Mine)
+		end,
+	})
+
+	local Rolled = Bank:Rolled()
+	local Missing = 0
+	for _, Txid in Mine do
+		if not Rolled[Txid] then
+			Missing += 1
+		end
+	end
+
+	T:Ok("two writes met on the roll key and one ran its transform again", T.Service.Conflicts > 0)
+	T:Is("names of its own the write left off the list", Missing, 0)
+end)
+
 return Cases
