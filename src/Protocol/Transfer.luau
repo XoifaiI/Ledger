@@ -53,7 +53,7 @@ local function Stopped(Why: Reason): Reserved
 end
 
 local function Spent(Tid: string): Reserved
-	warn(`Ledger: transfer {Tid} already went through for a different amount or a different key, and a name has to mean the same thing every time. nothing was sent, so pick a new name`)
+	warn(`Ledger: transfer {Tid} already went through for a different amount or a different key. nothing was sent, pick a new name`)
 	return Stopped(SPENT)
 end
 
@@ -114,13 +114,13 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	local Escrowed = Escrow.Entry(State._Held, Tid)
 	if Escrowed ~= nil then
 		if Escrowed.To ~= To or Escrowed.Amount ~= Amount then
-			warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}, so that is what it pays out, not the {Amount} to {To} you just asked for`)
+			warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}. it pays out that, not the {Amount} to {To} you asked for`)
 		end
 
 		local At = Escrowed.At
 		if At ~= nil and Clock.Now() - At > Windows.REDRIVE then
 			warn(
-				`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again, so recovery owns it now and this call left it alone. it is finished or given back on its own`
+				`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again. recovery owns it now and this call left it alone. it is finished or given back on its own`
 			)
 			return Stopped(HELD)
 		end
@@ -177,13 +177,13 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 	if Landing == Tags.OTHER then
 		Errors.Raise(
 			SPENT,
-			`transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back, and a transfer name belongs to one sender`
+			`transfer {Tid} cannot be delivered to '{To}', a different transfer already went through under that name. the {Amount} stays set aside on '{From}' until it is given back. a transfer name belongs to one sender`
 		)
 	end
 	if Landing == Tags.UNSEEN then
 		Errors.Raise(
 			HELD,
-			`transfer {Tid} cannot be shown to have reached '{To}'. its delivery was folded into the snapshot and the name has aged out, so the {Amount} stays set aside on '{From}' rather than settle against a delivery that may belong to someone else`
+			`transfer {Tid} cannot be shown to have reached '{To}', the record of it has aged out. the {Amount} stays set aside on '{From}' rather than settle against a delivery that may belong to someone else`
 		)
 	end
 

@@ -8,8 +8,9 @@
 	A rule has a check, a change and a test that must hold after the write, and each part is optional.
 	A pass is what a rule remembers between those parts, and it is cleared at the start of every run.
 	The rules are: legible refuses a record a newer build wrote, allowed runs the caller's guard, fresh
-	adds only the ops the record lacks, capped refuses once the log is too long, format raises the
-	version floor, and tomb stamps the envelope.
+	adds only the ops the record lacks and lets a sift turn one away or hold one back for a later
+	write, capped refuses once the log is too long, format raises the version floor, and tomb stamps
+	the envelope.
 
 	Return type: A table with New, Reset, Readable, Entombed and the six rules. The types are Pass, Rule and Sift.
 	Example usage:
@@ -43,7 +44,7 @@ export type Rule = {
 	After: ((Before: Record, After: Record, Pass: Pass) -> string?)?,
 }
 
-export type Sift = (Record: Record) -> (Op: Op) -> boolean
+export type Sift = (Record: Record) -> (Op: Op) -> boolean?
 
 local function Quiet(Pass: Pass)
 	Pass.Silent = true
@@ -70,7 +71,7 @@ local function Readable(Key: string, Known: number?, Record: Record)
 		return
 	end
 
-	Errors.Raise(Reasons.Behind, `'{Key}' needs format version {Floor} and this server only knows {Known} migrations, so a newer server wrote it and this one must not add to it`)
+	Errors.Raise(Reasons.Behind, `'{Key}' was written by a newer build with more migrations than this server has, so this server must not add to it. finish the deploy`)
 end
 
 local function Legible(Key: string, Known: number?): Rule
@@ -112,20 +113,29 @@ local function Fresh(Ops: { Op }, Sift: Sift?): Rule
 
 			local Take = if Sift ~= nil then Sift(Record) else nil
 			local Turned: { string } = {}
+			local Waiting: { string } = {}
 
 			local Had = #Record.Ops
 			for _, Op in Ops do
 				if Wanted[Op.Id] then
 					Wanted[Op.Id] = nil
-					if Take ~= nil and not Take(Op) then
-						table.insert(Turned, Op.Id)
-						continue
+					if Take ~= nil then
+						local Taken = Take(Op)
+						if Taken == nil then
+							table.insert(Waiting, Op.Id)
+							continue
+						end
+						if not Taken then
+							table.insert(Turned, Op.Id)
+							continue
+						end
 					end
 					table.insert(Record.Ops, Op)
 				end
 			end
 
 			Pass.Notes.Turned = Turned
+			Pass.Notes.Waiting = Waiting
 			if #Record.Ops == Had then
 				return nil
 			end
@@ -156,7 +166,7 @@ local function Capped(Key: string, Owned: boolean): Rule
 				return nil
 			end
 
-			return Errors.Raise(Reasons.Full, `'{Key}' is carrying {Ceiling} bytes of ops that have not been compacted away, so this one cannot go on as well`)
+			return Errors.Raise(Reasons.Full, `'{Key}' holds more than {Ceiling} bytes of unsaved ops, so it cannot take this one`)
 		end,
 	}
 end
@@ -173,7 +183,7 @@ local function Format(Floor: number?): Rule
 	}
 end
 
-local function Tomb(Key: string, Owned: boolean): Rule
+local function Tomb(): Rule
 	return {
 		Name = "tomb",
 		Apply = function(Record: Record): Record?
@@ -182,14 +192,6 @@ local function Tomb(Key: string, Owned: boolean): Rule
 				Record.Erased = nil
 			end
 			return Record
-		end,
-		After = function(_: Record, After: Record): string?
-			if Owned and Entombed(After) then
-				warn(
-					`Ledger: '{Key}' was erased and something wrote to it anyway, so a session on another server is still live on that key. it keeps turning away transfers until the tomb runs out. get the player off every server before erasing them`
-				)
-			end
-			return nil
 		end,
 	}
 end

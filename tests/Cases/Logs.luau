@@ -628,6 +628,106 @@ Cases.Case("an op taken in for a leg that aborted stops holding the log open", f
 	T:Silent("nothing said the key was stuck", "cannot be compacted")
 end)
 
+local function Parked(Bank: Fixture, Key: string, Txid: string)
+	Bank:Marker(Txid, { Status = "Pending", Total = 2, Gen = `{Txid}gen`, At = 0, Adopted = {} })
+	Bank:Park(Key, {
+		Id = `tx:{Txid}:1`,
+		Kind = "Give",
+		Amount = -50,
+		Tx = Txid,
+		TxGen = `{Txid}gen`,
+		TxAt = 0,
+		TxTerms = `{Txid}terms`,
+		TxSticky = Txid,
+	})
+end
+
+local function Landed(Record: any, Amount: number): boolean
+	for _, Op in Record.Ops do
+		if Op.Tx == nil and Op.Amount == Amount then
+			return true
+		end
+	end
+	return false
+end
+
+Cases.Case("an edit that only holds if the parked leg aborts is not written", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("unless", { Gold = 60, Touches = 0 })
+	Parked(Bank, "unless", "takes")
+
+	local Ok, Why = Bank.Store:Edit("unless", "Give", { Amount = -30 }):Wait()
+	local Written = Landed(Bank:Record("unless"), -30)
+
+	Bank:Log():Resolve("unless", { takes = { Commit = true, Gen = "takesgen", Since = 1 } })
+	for _ = 1, 3 do
+		Bank.Store:Edit("unless", "Fund", { Amount = 1 }):Wait()
+		Bank:Log():Compact("unless", Bank:Format())
+	end
+
+	T:Is("the edit, which held on the plain state only", Ok, false)
+	T:Is("the reason, which leaves it open", Why, "Unresolved")
+	T:Is("the op, kept out of the log", Written, false)
+	T:Is("gold once the leg committed and three funds landed", Bank:Amount("unless"), 13)
+	T:Is("ops left after three compactions", #Bank:Record("unless").Ops, 0)
+	T:Warns("it said the op only holds if the transaction does not go through", "only holds if it does not go through")
+	T:Silent("nothing said the key was stuck", "cannot be compacted")
+end)
+
+Cases.Case("an apply that only holds if a leg parked after it aborts waits for the leg to commit", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("waits", { Gold = 60, Touches = 0 })
+
+	local Active: any = Bank:Session("waits")
+	local Ok = Active:Apply("Give", { Amount = -30 })
+	Parked(Bank, "waits", "later")
+
+	local Flushed = Active:Flush():Wait()
+	local Held = #Active.Pending
+	local Early = Landed(Bank:Record("waits"), -30)
+
+	Bank:Log():Resolve("waits", { later = { Commit = true, Gen = "latergen", Since = 1 } })
+	local Again, Why = Active:Flush():Wait()
+	local Folded = Active:Get().Gold
+	for _ = 1, 3 do
+		Bank.Store:Edit("waits", "Fund", { Amount = 1 }):Wait()
+		Bank:Log():Compact("waits", Bank:Format())
+	end
+
+	T:Is("the hopeful apply", Ok, true)
+	T:Is("the flush while the leg was parked", Flushed, true)
+	T:Is("the op, still queued", Held, 1)
+	T:Is("the op, kept out of the log meanwhile", Early, false)
+	T:Is("the flush once the leg had committed, which turned the op away", Again, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("ops still queued", #Active.Pending, 0)
+	T:Is("gold the session folds without it", Folded, 10)
+	T:Is("gold on disk after three funds", Bank:Amount("waits"), 13)
+	T:Is("ops left after three compactions", #Bank:Record("waits").Ops, 0)
+	T:Silent("nothing said the key was stuck", "cannot be compacted")
+end)
+
+Cases.Case("an apply that only holds if a leg parked after it aborts lands once it does", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("lands", { Gold = 60, Touches = 0 })
+
+	local Active: any = Bank:Session("lands")
+	Active:Apply("Give", { Amount = -30 })
+	Parked(Bank, "lands", "gone")
+
+	Active:Flush():Wait()
+	local Early = Landed(Bank:Record("lands"), -30)
+
+	Bank:Log():Resolve("lands", { gone = { Commit = false, Gen = "gonegen", Since = 1 } })
+	local Again = Active:Flush():Wait()
+
+	T:Is("the op, kept out of the log while the leg was parked", Early, false)
+	T:Is("the flush once the leg had aborted", Again, true)
+	T:Is("the op, landed", Landed(Bank:Record("lands"), -30), true)
+	T:Is("gold on disk", Bank:Amount("lands"), 30)
+	T:Is("ops still queued", #Active.Pending, 0)
+end)
+
 Cases.Case("an op that holds once the leg commits is still written", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 0 })

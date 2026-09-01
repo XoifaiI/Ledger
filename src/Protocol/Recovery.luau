@@ -46,7 +46,7 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 	end
 
 	warn(
-		`Ledger: transfer {Tid} from {From} has been stuck over {Windows.PRUNE // 86400} days and the receiver has no record of it. a refund could pay them twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
+		`Ledger: transfer {Tid} from {From} has been stuck over {Windows.PRUNE // 86400} days. the receiver has no record of it and giving it back could pay twice, so it is written off. check the audit log and pay {Entry.Amount} back by hand if it never arrived`
 	)
 	Transfer.Settle(Records, From, Tid, Print)
 end
@@ -123,7 +123,7 @@ local function Unreadable(Booked: any, Key: string)
 			continue
 		end
 		warn(
-			`Ledger: '{Key}' holds a reservation named '{tostring(Rid)}' that Ledger cannot read. nothing will ever settle it and its units stay out of circulation. check the audit log and put them back by hand`
+			`Ledger: '{Key}' holds a reservation named '{tostring(Rid)}' that Ledger cannot read. nothing will settle it and its units stay held. check the audit log and put them back by hand`
 		)
 	end
 end

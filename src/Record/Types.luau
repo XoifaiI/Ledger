@@ -58,7 +58,7 @@ export type LogImpl = {
 	Update: (self: Log, Key: string, Apply: (Record<any>) -> Record<any>?) -> Outcome,
 	Read: (self: Log, Key: string) -> Record<any>,
 	ReadVersion: (self: Log, Key: string, Version: string) -> Record<any>,
-	Append: (self: Log, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?, Sift: ((Record<any>) -> (Op) -> boolean)?) -> (Record<any>, { string }),
+	Append: (self: Log, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?, Sift: ((Record<any>) -> (Op) -> boolean?)?) -> (Record<any>, { string }, { string }),
 	AppendUnlessPending: (self: Log, Key: string, Ops: { Op }) -> Record<any>,
 	Entomb: (self: Log, Key: string, At: number, Bury: ((Record<any>) -> Record<any>)?) -> Record<any>,
 	Prepare: (self: Log, Key: string, Op: Op, Format: Shape<any>) -> Prepared,

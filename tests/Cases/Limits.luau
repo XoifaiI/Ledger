@@ -371,4 +371,30 @@ Cases.Case("a record that cannot compact says what is blocking it", function(T: 
 	T:Warns("it names the transaction holding it", "saidso1")
 end)
 
+Cases.Case("a session filled to the log cap can still flush what it took", function(T: Case)
+	Sizes.Set({ Log = 999 })
+
+	local Bank = T:Bank()
+	Bank:Seed("brim", { Gold = 0, Touches = 0 })
+	local Active = Bank:Session("brim")
+
+	local Taken, Why = 0, nil
+	for _ = 1, 200 do
+		local Ok, Reason = Active:Apply("Touch")
+		if not Ok then
+			Why = Reason
+			break
+		end
+		Taken += 1
+	end
+
+	local Flushed, FlushWhy = Active:Flush():Wait()
+
+	T:Is("the apply the cap refused", Why, "Backlog")
+	T:Is("the flush of everything the cap let in", Flushed, true)
+	T:Is("no reason", FlushWhy, nil)
+	T:Is("ops on disk", #Bank:Record("brim").Ops, Taken)
+	T:Is("ops still pending", #Active.Pending, 0)
+end)
+
 return Cases

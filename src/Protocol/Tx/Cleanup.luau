@@ -106,7 +106,7 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
 			if type(Current) == "string" and #Current > 0 and #Held == 0 then
 				warn(
-					`Ledger: the cleanup list key '{Named(Slot, When, Part)}' holds something that is not a list of names, so it is left alone rather than written over and this transaction goes on the next key of the minute. whatever was on it cannot be read back`
+					`Ledger: the cleanup list key '{Named(Slot, When, Part)}' is not a list of names, so it is left alone. this transaction goes on the next key. whatever was on it cannot be read back`
 				)
 				return nil
 			end

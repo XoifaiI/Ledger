@@ -480,4 +480,42 @@ Cases.Case("a migration cannot take Ledger's own bookkeeping with it", function(
 	T:Accuses("it named what the migration dropped", "dropped Ledger's own")
 end)
 
+local function Copied(Value: any): any
+	if type(Value) ~= "table" then
+		return Value
+	end
+	local Out = {}
+	for Key, Inner in Value do
+		Out[Key] = Copied(Inner)
+	end
+	return Out
+end
+
+Cases.Case("a migration that copies the state is not accused of dropping the bookkeeping", function(T: Case)
+	local Store = T:Store({
+		Default = Suite.Reducers.MONEY,
+		Reducer = Suite.Reducers.Banker,
+		Balance = "Gold",
+		Migrations = {
+			function(State: any): any
+				local Next = Copied(State)
+				Next.Touches = Next.Touches or 0
+				return Next
+			end,
+		},
+	})
+	Store:Write("copied", {
+		Snapshot = { Gold = 10, _Held = { t1 = { To = "x", Amount = 5, At = T:Now() } } },
+		Ops = {},
+		Seen = {},
+		Version = 0,
+	})
+
+	local State = Store:State("copied")
+
+	T:Is("gold", State.Gold, 10)
+	T:Is("the hold, still there", Store:Aside("copied"), 5)
+	T:Silent("no accusation over a field the migration kept", "dropped Ledger's own")
+end)
+
 return Cases

@@ -7,9 +7,12 @@
 
 	Push reads back which ops actually landed rather than trusting the call that returned. Append
 	carries the fence, the erase mark the key had at load, so a write lands only while that mark is
-	unchanged. Rebuild folds the record that came back and puts the still queued ops on top.
+	unchanged or has run out, and Fenced is what drops a mark that has. The sift folds the record with
+	and without any parked leg, and an op that holds one way but not the other stays queued until the
+	leg settles. Rebuild folds the record that came back and puts the still queued ops on top, and
+	counts the log the way the record's own cap counts it, an array with a separator after each op.
 
-	Return type: A table with Append, Push, Rebuild, ApplyPending and SumBytes.
+	Return type: A table with Fenced, Append, Push, Rebuild, ApplyPending, SumBytes and SEPARATOR.
 	Example usage:
 		local Rebuild = require("./Rebuild")
 		local Stored, Whole = Rebuild.Push(Active)
@@ -20,6 +23,7 @@ local Shapes = require("../Core/Shapes")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
 local Compact = require("../Record/Compact")
+local Rules = require("../Record/Rules")
 local Fold = require("../Record/Fold")
 local Schema = require("../Record/Schema")
 local TxStamp = require("../Record/TxStamp")
@@ -32,10 +36,12 @@ type Session<S> = Types.Session<S>
 
 local AUDITING = game:GetService("RunService"):IsStudio()
 
+local SEPARATOR = 1
+
 local function SumBytes(Ops: { Op }): number
 	local Total = 0
 	for _, Op in Ops do
-		Total += Measure(Op)
+		Total += Measure(Op) + SEPARATOR
 	end
 	return Total
 end
@@ -54,13 +60,29 @@ local function ApplyPending<S>(self: Session<S>, State: S, Applied: { [string]: 
 	return State
 end
 
-local function Sifted<S>(self: Session<S>): (Record) -> (Op) -> boolean
+local function Sifted<S>(self: Session<S>): (Record) -> (Op) -> boolean?
 	local Format = self.Shape
 
 	return function(Record: Record)
 		local State = Format:Fold(Schema.Detached(Record))
-		return function(Op: Op): boolean
+		local Landed: S? = nil
+		if TxStamp.HasPending(Record) then
+			local Committed = Schema.Detached(Record)
+			Committed.Ops = TxStamp.Landed(Record.Ops, nil)
+			Landed = Format:Fold(Committed)
+		end
+
+		return function(Op: Op): boolean?
 			local Next = Apply(Format.Reducer, State, Op)
+			if Landed ~= nil then
+				local Also = Apply(Format.Reducer, Landed, Op)
+				if (Next == nil) ~= (Also == nil) then
+					return nil
+				end
+				if Also ~= nil then
+					Landed = Also
+				end
+			end
 			if Next == nil then
 				return false
 			end
@@ -70,10 +92,17 @@ local function Sifted<S>(self: Session<S>): (Record) -> (Op) -> boolean
 	end
 end
 
-local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string })
+local function Fenced(Erased: number?): number?
+	if Erased == nil or not Rules.Entombed({ Ops = {}, Seen = {}, Erased = Erased }) then
+		return nil
+	end
+	return Erased
+end
+
+local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string })
 	local Fence = self.Fence
 	return self.Log:Append(self.Key, Ops, function(Record: Record): boolean
-		return Record.Erased == Fence
+		return Record.Erased == Fence or (not Rules.Entombed(Record) and Fenced(Fence) == nil)
 	end, Sifted(self))
 end
 
@@ -84,7 +113,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	end
 
 	local Batch = table.move(self.Pending, 1, Count, 1, {})
-	local Stored, Turned = Append(self, Batch)
+	local Stored, Turned, Waiting = Append(self, Batch)
 
 	local Landed: { [string]: boolean } = {}
 	for _, Op in Stored.Ops do
@@ -93,10 +122,14 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	for _, Id in Stored.Seen do
 		Landed[Id] = true
 	end
-
 	local Dropped: { [string]: boolean } = {}
 	for _, Id in Turned do
 		Dropped[Id] = true
+	end
+
+	local Held: { [string]: boolean } = {}
+	for _, Id in Waiting do
+		Held[Id] = true
 	end
 
 	local Kept: { Op } = {}
@@ -109,7 +142,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 
 	local Missed = 0
 	for _, Op in Batch do
-		if not Landed[Op.Id] then
+		if not Landed[Op.Id] and not Held[Op.Id] then
 			Missed += 1
 		end
 	end
@@ -166,6 +199,7 @@ local function CheckPurity<S>(self: Session<S>, Stored: Record, Base: S, Folded:
 end
 
 local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, boolean)
+	self.Fence = Fenced(self.Fence)
 	local Base: S = self.Shape:Rehydrate(Stored)
 	local State, Accepted = Fold(Base, Stored.Ops, self.Shape.Reducer, Mark)
 	local Applied: { [string]: boolean } = {}
@@ -191,7 +225,7 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 	self.Landed = if Parked == 1 then TableUtil.FreezeDelta(ApplyPending(self, Fold(Base, TxStamp.Landed(Stored.Ops, next(Waiting) :: string), self.Shape.Reducer), {})) else nil
 	self.Applied = Applied
 	self.LogSize = #Stored.Ops
-	self.LogBytes = SumBytes(Stored.Ops) + SumBytes(self.Pending)
+	self.LogBytes = Measure(Stored.Ops) + SumBytes(self.Pending)
 
 	local Reach = Compact.Bulk(Stored) + self.LogBytes
 	self.StateBytes = if Reach > Sizes.StateFloor then Measure(State) else Reach
@@ -204,9 +238,11 @@ local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, 
 end
 
 return table.freeze({
+	Fenced = Fenced,
 	Append = Append,
 	Push = Push,
 	Rebuild = Rebuild,
 	ApplyPending = ApplyPending,
 	SumBytes = SumBytes,
+	SEPARATOR = SEPARATOR,
 })

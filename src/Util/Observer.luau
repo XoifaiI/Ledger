@@ -109,7 +109,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 		end
 
 		self.Said = Now
-		warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. it holds a thread for as long as it runs, so one that never returns leaks a thread for every value pushed`)
+		warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. a listener that never returns leaks a thread for every value pushed`)
 	end)
 
 	local Ok, Err = pcall(Listener, Value)

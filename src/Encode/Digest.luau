@@ -5,8 +5,8 @@
 
 	Digest: Deterministically encodes values and derives short hashes and buckets.
 
-	Canon produces a stable representation of a value. Of hashes that representation into a short
-	identifier. Bucket maps a value evenly into a fixed number of buckets. Two servers given the same
+	Canon produces a stable representation of a value, and a buffer goes in by its bytes rather than
+	by where it lives. Of hashes that representation into a short identifier. Bucket maps a value evenly into a fixed number of buckets. Two servers given the same
 	input get the same answer.
 
 	Return type: A table with Canon, Of and Bucket.
@@ -26,6 +26,9 @@ local function Compare(Left: any, Right: any): boolean
 end
 
 local function Canon(Value: any): string
+	if type(Value) == "buffer" then
+		return `buffer:{buffer.tostring(EncodingService:Base64Encode(Value))}`
+	end
 	if type(Value) ~= "table" then
 		return `{typeof(Value)}:{Value}`
 	end

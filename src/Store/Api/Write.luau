@@ -10,8 +10,9 @@
 	the record, then reads back whether the op really took. Shows is for a caller whose op can land and
 	still leave nothing behind, because a later op undid it: it is asked once of the settled record and
 	names the reason. An op that only holds because a transaction is parked carries which ones, so a
-	later compaction can tell a commit from an abandonment. It also adds a key to the sweep when that
-	key is left holding money mid move.
+	later compaction can tell a commit from an abandonment, and one that only holds if the transaction
+	does not go through is not written at all, since once the leg lands it could never fold or compact.
+	It also adds a key to the sweep when that key is left holding money mid move.
 
 	Return type: A table with Failed. It writes Stale, Went, Watch, WatchHeld, Append, Swelling, Starved, Maintain, Applies, Swollen and Written onto the class.
 	Example usage:
@@ -108,7 +109,7 @@ function Store.Swelling(self: Store, Key: string, Record: Record)
 	end
 
 	warn(
-		`Ledger: '{Key}' is carrying {#Record.Ops} ops it cannot compact away because {Blocking} is still parked on it, so the record keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`
+		`Ledger: '{Key}' holds {#Record.Ops} ops it cannot compact away while {Blocking} is parked on it. it keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`
 	)
 
 	Meter.Swollen = 0
@@ -146,7 +147,7 @@ function Store.Maintain(self: Store, Key: string, Record: Record): Record
 		if Ok then
 			Settled = Resolution
 		else
-			warn(`Ledger: could not settle a pending transaction leg on '{Key}' during a write, so it stays pending: {Resolution}`)
+			warn(`Ledger: a transaction parked on '{Key}' could not be settled during a write, so it stays parked: {Resolution}`)
 		end
 	end
 
@@ -158,28 +159,30 @@ function Store.Maintain(self: Store, Key: string, Record: Record): Record
 	return Settled
 end
 
-function Store.Applies(self: Store, Op: Op, Record: Record): (boolean, boolean)
+function Store.Applies(self: Store, Op: Op, Record: Record): (boolean, boolean, boolean)
 	if TxStamp.Carries(Record, Op.Id) then
-		return true, false
+		return true, false, false
 	end
 
-	local Read, Holds, Only = pcall(function(): (boolean, boolean)
+	local Read, Holds, Only, Doubt = pcall(function(): (boolean, boolean, boolean)
 		local Format = self:Format()
-		if Apply(Format.Reducer, Format:Fold(Schema.Detached(Record)), Op) ~= nil then
-			return true, false
-		end
+		local Plain = Apply(Format.Reducer, Format:Fold(Schema.Detached(Record)), Op) ~= nil
 		if not TxStamp.HasPending(Record) then
-			return false, false
+			return Plain, false, false
 		end
 
 		local Committed = Schema.Detached(Record)
 		Committed.Ops = TxStamp.Landed(Record.Ops, nil)
-		return Apply(Format.Reducer, Format:Fold(Committed), Op) ~= nil, true
+		local Landed = Apply(Format.Reducer, Format:Fold(Committed), Op) ~= nil
+		if Plain == Landed then
+			return Plain, false, false
+		end
+		return Landed, Landed, Plain
 	end)
 	if not Read then
-		return true, false
+		return true, false, false
 	end
-	return Holds, Holds and Only
+	return Holds, Only, Doubt
 end
 
 function Store.Swollen(self: Store, Op: Op, Record: Record): boolean
@@ -204,15 +207,16 @@ end
 function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?, Shows: ((Record) -> Reason?)?): (boolean, Reason?)
 	local Applied = true
 	local Swollen = false
+	local Doubt = false
 	local Landed, Result = pcall(function(): Record
 		return self:Append(Key, Op, function(Record: Record): boolean
-			Applied, Swollen = true, false
+			Applied, Swollen, Doubt = true, false, false
 			if Guard ~= nil and not Guard(Record) then
 				return false
 			end
 
 			local Only
-			Applied, Only = self:Applies(Op, Record)
+			Applied, Only, Doubt = self:Applies(Op, Record)
 			if not Applied then
 				return false
 			end
@@ -251,6 +255,10 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	if Swollen then
 		warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {Sizes.State} byte state cap and this would make it bigger`)
 		return false, FULL
+	end
+	if Doubt then
+		warn(`Ledger: {What} on '{Key}' was not written, a transaction is parked on that key and this op only holds if it does not go through. ask again once it settles`)
+		return false, UNRESOLVED
 	end
 	if not Applied then
 		return false, REFUSED

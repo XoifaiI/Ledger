@@ -154,8 +154,9 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 end
 
 function Store.HeldOn(self: Store, Key: string): (boolean, any)
+	local Record = self:ReadRecord(Key)
 	return pcall(function(): any
-		return self:Fold(self:ReadRecord(Key))._Held
+		return self:Fold(Record)._Held
 	end)
 end
 
@@ -177,7 +178,7 @@ end
 function Store.HandOver(self: Store, Key: string): (number, number)
 	local Read, Held = self:HeldOn(Key)
 	if not Read then
-		warn(`Ledger: could not check '{Key}' for unfinished transfers before erasing it, so any money still being sent is gone for good: {Held}`)
+		warn(`Ledger: could not read what '{Key}' holds before erasing it, so any unfinished transfers on it are gone for good: {Held}`)
 		return 0, 0
 	end
 	if not TableUtil.Occupied(Held) then
@@ -193,18 +194,19 @@ function Store.HandOver(self: Store, Key: string): (number, number)
 
 	local Again, Left = self:HeldOn(Key)
 	if not Again then
-		warn(`Ledger: could not check '{Key}' again after finishing its transfers, so anything still being sent is gone for good: {Left}`)
+		warn(`Ledger: could not read what '{Key}' holds after finishing its transfers, so anything still being sent is gone for good: {Left}`)
 		return 0, 0
 	end
 	return CountHeld(Left)
 end
 
 function Store.HandBooked(self: Store, Key: string)
+	local Record = self:ReadRecord(Key)
 	local Read, State = pcall(function(): any
-		return self:Fold(self:ReadRecord(Key))
+		return self:Fold(Record)
 	end)
 	if not Read or type(State) ~= "table" then
-		warn(`Ledger: could not check '{Key}' for units set aside for another key before erasing it, so any that were owed go with it: {State}`)
+		warn(`Ledger: could not read what '{Key}' holds before erasing it, so any units owed to another key go with it: {State}`)
 		return
 	end
 
@@ -291,7 +293,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
 			if TxStamp.HasPending(Record) then
-				Errors.Raise(BUSY, `'{Resolved}' has a transaction parked on it, so a reset now would overwrite a leg the transaction still counts as committed`)
+				Errors.Raise(BUSY, `'{Resolved}' has a transaction parked on it, so it cannot be reset yet. wait for that to settle`)
 			end
 
 			if Booking.Owed(self:Fold(Record)._Booked) then
@@ -313,7 +315,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 			end)
 			if Read and Held ~= nil then
 				warn(
-					`Ledger: '{Resolved}' was reset but its oldest op is still a '{Held}' this build does not apply, so the log cannot be compacted and the key stops taking writes once it fills up. a reset cannot clear that, only a build that applies '{Held}' or erasing the key can`
+					`Ledger: '{Resolved}' was reset but its oldest op is still a '{Held}' this build does not apply. the log cannot be compacted and the key stops taking writes once it fills up. a reset cannot clear that, only a build that applies '{Held}' or erasing the key can`
 				)
 			end
 		end
@@ -325,15 +327,21 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Erase")
 
 	if self.Keys == "Player" and Players:GetPlayerByUserId(tonumber(Resolved) or 0) ~= nil then
-		warn(`Ledger: erasing {Resolved} while they are still in this server, so their session writes part of the record back`)
+		warn(`Ledger: erasing {Resolved} while they are still in this server. their session closes on its next save and its unsaved ops are not written, so send them somewhere or kick them`)
 	end
 
 	return Future.New(function(): (boolean, Reason?)
-		local Holds, Amount = 0, 0
-		if self.Options.Balance then
-			Holds, Amount = self:HandOver(Resolved)
+		local Checked, Holds, Amount = pcall(function(): (number, number)
+			local Holds, Amount = 0, 0
+			if self.Options.Balance then
+				Holds, Amount = self:HandOver(Resolved)
+			end
+			self:HandBooked(Resolved)
+			return Holds, Amount
+		end)
+		if not Checked then
+			return false, Failed("erase", Resolved, Holds)
 		end
-		self:HandBooked(Resolved)
 
 		local Steps = self.Migrations
 		local Ok, Replaced = pcall(function(): Record

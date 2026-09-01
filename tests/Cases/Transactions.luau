@@ -190,7 +190,7 @@ Cases.Case("an edit whose verdict hangs on a stuck leg is unresolved", function(
 	T:Advance(Windows.TX + 1)
 	Bank.Store:Resettle("hungA"):Wait()
 
-	T:Is("gold once the leg aborts and the edit folds final", Bank:Amount("hungA"), 0)
+	T:Is("gold once the leg aborts, the edit having been turned away to ask again", Bank:Amount("hungA"), 50)
 	T:Is("anything left pending", Bank:Pending("hungA"), false)
 end)
 
@@ -2088,6 +2088,27 @@ Cases.Case("a roll write that met another still puts every name on the list", fu
 
 	T:Ok("two writes met on the roll key and one ran its transform again", T.Service.Conflicts > 0)
 	T:Is("names of its own the write left off the list", Missing, 0)
+end)
+
+local function Blobbed(): { any }
+	return {
+		{ Key = "blobA", Kind = "Stamp", Fields = { Blob = buffer.fromstring("hello") } },
+		{ Key = "blobB", Kind = "Stamp", Fields = {} },
+	}
+end
+
+Cases.Case("a transaction whose leg carries a buffer is the same transaction when it is asked again", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("blobA", { Gold = 10, Touches = 0 })
+	Bank:Seed("blobB", { Gold = 10, Touches = 0 })
+
+	local First = Bank.Store:Tx("blobbed", Blobbed()):Wait()
+	local Again, Why = Bank.Store:Tx("blobbed", Blobbed()):Wait()
+
+	T:Is("the first run", First, true)
+	T:Is("the same run again with an equal buffer", Again, true)
+	T:Is("no reason", Why, nil)
+	T:Silent("no claim the name was used for different terms", "already used for different keys")
 end)
 
 return Cases

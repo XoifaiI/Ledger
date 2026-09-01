@@ -203,6 +203,76 @@ Cases.Case("a session that loaded after an erase writes normally", function(T: C
 	T:Is("gold on disk", Bank:Amount("afterwards"), 7)
 	T:Is("the session, still live", Active.Released, false)
 	T:Is("the tombstone, which the write did not cancel", Bank:Record("afterwards").Erased ~= nil, true)
+	T:Silent("nobody blamed a session on another server", "something wrote to it anyway")
+end)
+
+Cases.Case("a session loaded after the tomb ran out keeps saving past its first save", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("lapsed", { Gold = 100 })
+	Bank.Store:Erase("lapsed"):Wait()
+	T:Advance(Windows.TOMB + 1)
+
+	local Active = Bank:Session("lapsed")
+	Active:Apply("Fund", { Amount = 5 })
+	local First = Active:Flush():Wait()
+	local Cleared = Bank:Record("lapsed").Erased
+
+	Active:Apply("Fund", { Amount = 5 })
+	local Second, Why = Active:Flush():Wait()
+
+	T:Is("the first save", First, true)
+	T:Is("the erase mark, cleared by that save", Cleared, nil)
+	T:Is("the second save", Second, true)
+	T:Is("no reason", Why, nil)
+	T:Is("gold on disk", Bank:Amount("lapsed"), 10)
+	T:Is("the session, still live", Active.Released, false)
+	T:Silent("nobody said the key was erased under the session", "was erased while this session was live")
+end)
+
+Cases.Case("a session that outlives the tomb keeps saving once the mark has run out", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("outlived", { Gold = 100 })
+	Bank.Store:Erase("outlived"):Wait()
+	T:Advance(Windows.TOMB - 60)
+
+	local Active = Bank:Session("outlived")
+	Active:Apply("Fund", { Amount = 5 })
+	local Inside = Active:Flush():Wait()
+
+	T:Advance(120)
+	Active:Apply("Fund", { Amount = 5 })
+	local Clearing = Active:Flush():Wait()
+
+	Active:Apply("Fund", { Amount = 5 })
+	local After, Why = Active:Flush():Wait()
+
+	T:Is("the save inside the tomb", Inside, true)
+	T:Is("the save that cleared the mark", Clearing, true)
+	T:Is("the save after that", After, true)
+	T:Is("no reason", Why, nil)
+	T:Is("gold on disk", Bank:Amount("outlived"), 15)
+	T:Is("the session, still live", Active.Released, false)
+end)
+
+Cases.Case("a fresh erase still fences a session whose earlier tomb ran out", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("refenced", { Gold = 100 })
+	Bank.Store:Erase("refenced"):Wait()
+	T:Advance(Windows.TOMB + 1)
+
+	local Active = Bank:Session("refenced")
+	Active:Apply("Fund", { Amount = 5 })
+	Active:Flush():Wait()
+
+	Bank.Store:Erase("refenced"):Wait()
+	Active:Apply("Fund", { Amount = 5 })
+	local Flushed, Why = Active:Flush():Wait()
+
+	T:Is("a flush the new fence stopped", Flushed, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("ops on the erased key", #Bank:Record("refenced").Ops, 0)
+	T:Is("the session, which cannot write any more", Active.Released, true)
+	T:Warns("it says why", "was erased while this session was live", 1)
 end)
 
 Cases.Case("flushing the same ops again applies them once", function(T: Case)
@@ -1254,6 +1324,61 @@ Cases.Case("a server whose write budget has run out says so rather than piling o
 	T:Warns("it named the autosaves it could not afford", "autosave(s) skipped on", 1)
 	T:Is("nothing was written to the key", #Bank:Record("65").Ops, 0)
 	T:Is("and the session still reads what it applied", Live:Get().Gold, 105)
+end)
+
+Cases.Case("a commit that only holds if the parked leg aborts waits for the leg and lands once it does", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("waitcommit", { Gold = 60, Touches = 0 })
+
+	local Active = Bank:Session("waitcommit")
+	Bank:Marker("stall", { Status = "Pending", Total = 2, Gen = "stallgen", At = T:Now(), Adopted = {} })
+	Bank:Park("waitcommit", {
+		Id = "tx:stall:1",
+		Kind = "Give",
+		Amount = -50,
+		Tx = "stall",
+		TxGen = "stallgen",
+		TxAt = T:Now(),
+		TxTerms = "stallterms",
+		TxSticky = "stall",
+	})
+
+	local Started = T:Now()
+	local Ok, Why = Active:Commit("Give", { Amount = -30 }):Wait()
+
+	T:Is("the commit, once the leg had timed out and aborted", Ok, true)
+	T:Is("no reason", Why, nil)
+	T:Ok("it waited on the leg rather than answering at once", T:Now() - Started >= Windows.TX)
+	T:Is("gold on disk", Bank:Amount("waitcommit"), 30)
+	T:Is("gold the session folds", Active:Get().Gold, 30)
+	T:Is("anything left pending", Bank:Pending("waitcommit"), false)
+end)
+
+Cases.Case("a commit held back by a leg that settles on the same read is written straight after", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("quickcommit", { Gold = 60, Touches = 0 })
+
+	local Active = Bank:Session("quickcommit")
+	Bank:Marker("gone", { Status = "Aborted", Total = 2, Gen = "gonegen", At = T:Now(), Adopted = {} })
+	Bank:Park("quickcommit", {
+		Id = "tx:gone:1",
+		Kind = "Give",
+		Amount = -50,
+		Tx = "gone",
+		TxGen = "gonegen",
+		TxAt = T:Now(),
+		TxTerms = "goneterms",
+		TxSticky = "gone",
+	})
+
+	local Started = T:Now()
+	local Ok, Why = Active:Commit("Give", { Amount = -30 }):Wait()
+
+	T:Is("the commit", Ok, true)
+	T:Is("no reason", Why, nil)
+	T:Ok("it did not wait for a poll, the leg was already decided", T:Now() - Started < Windows.POLL)
+	T:Is("gold on disk", Bank:Amount("quickcommit"), 30)
+	T:Is("anything left pending", Bank:Pending("quickcommit"), false)
 end)
 
 return Cases

@@ -22,6 +22,7 @@ local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
 local Measure = require("../Encode/Measure")
 local Apply = require("../Record/Apply")
+local Rebuild = require("./Rebuild")
 local Types = require("./Types")
 
 type Op = Shapes.Op
@@ -56,7 +57,7 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		return Refused(Kind, CLOSED, `that session closed when the player left`)
 	end
 
-	if self.LogBytes + OpBytes > Sizes.Log then
+	if self.LogBytes + OpBytes + Rebuild.SEPARATOR > Sizes.Log then
 		if self.Parked > 0 then
 			return Refused(Kind, BUSY, `'{Key}' has hit the {Sizes.Log} byte cap and cannot shrink while a transaction is parked on it. it clears once that settles`)
 		end

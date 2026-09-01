@@ -56,7 +56,7 @@ local function Materialize(Value: any): Record
 	end
 
 	if type(Value.Envelope) == "number" and Value.Envelope > Kinds.ENVELOPE then
-		Errors.Raise(Reasons.Behind, `the record envelope is format {Value.Envelope} but this server only knows {Kinds.ENVELOPE}, a newer framework wrote it`)
+		Errors.Raise(Reasons.Behind, `a newer Ledger than this server runs wrote this record, so this server cannot read it. finish the deploy`)
 	end
 
 	local Ops: { Op } = {}
@@ -244,7 +244,7 @@ function Log.ReadVersion(self: Log, Key: string, Version: string): Record
 	return Materialize(Value)
 end
 
-function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string })
+function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string })
 	local Owned = false
 	for _, Op in Ops do
 		assert(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
@@ -264,19 +264,19 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Ru
 			Rules.Fresh(Ops, Sift),
 			Rules.Capped(Key, Owned),
 			Rules.Format(self.Floor),
-			Rules.Tomb(Key, Owned),
+			Rules.Tomb(),
 		}
 	)
 
-	local Turned = Outcome.Notes.Turned
-	return Outcome.After, if type(Turned) == "table" then Turned else {}
+	local Turned, Waiting = Outcome.Notes.Turned, Outcome.Notes.Waiting
+	return Outcome.After, if type(Turned) == "table" then Turned else {}, if type(Waiting) == "table" then Waiting else {}
 end
 
 function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record
 	return self:Update(Key, function(Record: Record): Record?
 		self:Legible(Key, Record)
 		if TxStamp.HasPending(Record) then
-			Errors.Raise(Reasons.Busy, `'{Key}' has a transaction parked on it, so erasing it now would drop a leg the transaction still counts as committed`)
+			Errors.Raise(Reasons.Busy, `'{Key}' has a transaction parked on it, so it cannot be erased yet. wait for that to settle`)
 		end
 
 		local Body: Record = if Bury ~= nil then Bury(Record) else { Ops = {}, Seen = {} }

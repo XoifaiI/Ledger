@@ -54,7 +54,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		local Stamp, At, Print = StampOf(Op)
 		if Stamp ~= nil then
 			if type(At) ~= "number" then
-				warn(`Ledger bug: op '{tostring(Op.Kind)}' carries a name with no time on it, so the name could never be aged out`)
+				warn(`Ledger bug: op '{tostring(Op.Kind)}' carries a name with no time on it. Ledger turned the op away, please report this`)
 				return nil
 			end
 			local Marked = table.clone(Plain)
@@ -68,7 +68,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		end
 
 		if Plain._Received ~= nil and not TableUtil.DeepEqual(Plain._Received, Data._Received) then
-			warn(`Ledger bug: your reducer wrote its own _Received on op '{tostring(Op.Kind)}', so Ledger put the applied names back`)
+			warn(`Ledger: your reducer wrote its own _Received on op '{tostring(Op.Kind)}'. Ledger put the applied names back, leave fields starting with an underscore alone`)
 		end
 
 		local Kept = table.clone(Plain)

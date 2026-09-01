@@ -374,4 +374,126 @@ Cases.Case("a fault on one server while another races it still leaves the money 
 	T:Is("nothing is left parked on the receiver", Two:Pending("crossB"), false)
 end)
 
+Cases.Case("a coordinator starved past the leg timeout while another server resettles leaves the money on one side", function(T: Case)
+	local Coordinator, Bystander = Pair(T)
+	Funded(Coordinator, "slowA", "slowB")
+
+	local Spec = Coordinator:Fault(Fault.Updates():Stall(Windows.LEG + 5))
+
+	local Ok: boolean? = nil
+	local Drive = T:Spawn(function()
+		Ok = Move(Coordinator, "slowA", "slowB", MOVED, "slow1")
+	end)
+
+	local Rounds = 0
+	while coroutine.status(Drive) ~= "dead" and Rounds < 200 do
+		Rounds += 1
+		T:Wait(Windows.POLL)
+		Bystander.Store:Resettle("slowA"):Wait()
+		Bystander.Store:Resettle("slowB"):Wait()
+	end
+	Coordinator:Healed()
+
+	local Passes = Quiet(T, Bystander, { "slowA", "slowB" })
+	local Left, Right = Gold(Bystander, "slowA"), Gold(Bystander, "slowB")
+
+	T:Ok("the drive finished", coroutine.status(Drive) == "dead")
+	T:Ok("the stall fired on every pass", Spec.Fired >= 3)
+	T:Is("the coordinator lost every pass to the timeout", Ok, false)
+	T:Warns("and said the name was spent", "that name is spent now")
+	T:Is("recovery got there", Passes <= TRIES, true)
+	T:Is("the money adds up", Left + Right, START)
+	T:Ok("both keys are on one side of it", (Left == START and Right == 0) or (Left == START - MOVED and Right == MOVED))
+	if Ok then
+		T:Is("a yes means the money moved", Right, MOVED)
+	end
+	T:Is("nothing is left parked on the sender", Bystander:Pending("slowA"), false)
+	T:Is("nothing is left parked on the receiver", Bystander:Pending("slowB"), false)
+end)
+
+local function Send(Held: Fixture, From: string, To: string, Amount: number, Id: string?): (boolean, any)
+	return Held.Store:Transfer(From, To, Amount, Id):Wait()
+end
+
+Cases.Case("two servers spending one sender at once move only what it has", function(T: Case)
+	local Left, Right = Pair(T)
+	Left:Seed("payer", { Gold = 60, Touches = 0 })
+	Left:Seed("shopL", { Gold = 0, Touches = 0 })
+	Left:Seed("shopR", { Gold = 0, Touches = 0 })
+
+	local Mine, Theirs
+	T:Race({
+		function()
+			Mine = Send(Left, "payer", "shopL", 40, "buyL")
+		end,
+		function()
+			Theirs = Send(Right, "payer", "shopR", 40, "buyR")
+		end,
+	})
+	Quiet(T, Left, { "payer", "shopL", "shopR" })
+
+	local Payer, ShopL, ShopR = Gold(Left, "payer"), Gold(Left, "shopL"), Gold(Left, "shopR")
+
+	T:Is("the money adds up", Payer + ShopL + ShopR, 60)
+	T:Is("exactly one of the two went through", (if Mine then 1 else 0) + (if Theirs then 1 else 0), 1)
+	T:Is("the one that went through was paid in full", math.max(ShopL, ShopR), 40)
+	T:Is("nothing is set aside afterwards", Left:Aside("payer"), 0)
+end)
+
+Cases.Case("two servers retrying one transfer id at once move the money once", function(T: Case)
+	local Left, Right = Pair(T)
+	Left:Seed("twiceA", { Gold = 100, Touches = 0 })
+	Left:Seed("twiceB", { Gold = 0, Touches = 0 })
+
+	local Mine, Theirs
+	T:Race({
+		function()
+			Mine = Send(Left, "twiceA", "twiceB", 10, "tip1")
+		end,
+		function()
+			Theirs = Send(Right, "twiceA", "twiceB", 10, "tip1")
+		end,
+	})
+	Quiet(T, Left, { "twiceA", "twiceB" })
+
+	T:Is("the sender", Gold(Left, "twiceA"), 90)
+	T:Is("the receiver, paid once", Gold(Left, "twiceB"), 10)
+	T:Is("both servers said yes", Mine and Theirs, true)
+	T:Is("nothing is set aside afterwards", Left:Aside("twiceA"), 0)
+end)
+
+local function ResetUnder(T: Case, Label: string, Key: string, Call: number, PaidByThen: number)
+	local Left, Right = Pair(T)
+	local A, B = `{Label}A`, `{Label}B`
+	Left:Seed(A, { Gold = 100, Touches = 0 })
+	Left:Seed(B, { Gold = 0, Touches = 0 })
+
+	local Wiped, Carried, Paid = nil, 0, 0
+	local Spec = Left:Fault(Fault.Updates():OnKey(`{Label}{Key}`):Only(Call):Meddle(function()
+		Wiped = Right.Store:Reset(A):Wait()
+		Carried, Paid = Left:Aside(A), Left:Amount(B)
+	end))
+
+	local Sent = Send(Left, A, B, 10, Label)
+	Left:Healed()
+	Quiet(T, Left, { A, B })
+
+	T:Is("the reset ran inside the transfer", Spec.Fired, 1)
+	T:Is("the reset went through", Wiped, true)
+	T:Is("the hold, carried across the reset", Carried, 10)
+	T:Is("the receiver at the moment of the reset", Paid, PaidByThen)
+	T:Is("the transfer went through", Sent, true)
+	T:Is("the receiver, paid once", Gold(Left, B), 10)
+	T:Is("the sender, reset and holding nothing", Gold(Left, A), 0)
+	T:Is("nothing is set aside afterwards", Left:Aside(A), 0)
+end
+
+Cases.Case("a reset from another server before the delivery lands neither strands nor doubles the money", function(T: Case)
+	ResetUnder(T, "early", "B", 1, 0)
+end)
+
+Cases.Case("a reset from another server between the delivery and the settle neither strands nor doubles the money", function(T: Case)
+	ResetUnder(T, "late", "A", 2, 10)
+end)
+
 return Cases

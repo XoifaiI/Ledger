@@ -57,7 +57,7 @@ local function Carried(Next: any, Data: Data, Owns: { Owned }): any
 		local Ours = Data[Owned.Field]
 		local Theirs = Plain[Owned.Field]
 		if Theirs ~= nil and Theirs ~= Ours and not TableUtil.DeepEqual(Theirs, Ours) then
-			warn(`Ledger bug: your reducer wrote its own {Owned.Field}, so Ledger put {Owned.Says} back`)
+			warn(`Ledger: your reducer wrote its own {Owned.Field}. Ledger put {Owned.Says} back, leave fields starting with an underscore alone`)
 		end
 		Merged[Owned.Field] = Ours
 	end

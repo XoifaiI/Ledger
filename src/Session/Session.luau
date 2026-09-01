@@ -7,7 +7,8 @@
 
 	Apply is hopeful: it folds against live state, answers at once, and queues the op. Commit writes
 	before it answers. Flush pushes what is queued, Compact folds the log into a snapshot, and Release
-	is the last save on the way out. The fence is taken once, on load.
+	is the last save on the way out. The fence is taken on load and dropped once the erase it marks
+	has run out.
 
 	Return type: A table with Load and MAX_PENDING.
 	Example usage:
@@ -90,7 +91,7 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 		local Active: Session<S> = setmetatable(Body :: any, Session) :: any
 		local Ok, Reason = pcall(function()
 			local Stored = Active:Settled(Records:Read(Key))
-			Active.Fence = Stored.Erased
+			Active.Fence = Rebuild.Fenced(Stored.Erased)
 			Rebuild.Rebuild(Active, Stored)
 		end)
 		if not Ok then
@@ -109,7 +110,7 @@ function Session.Settled<S>(self: Session<S>, Stored: Record): Record
 	if Ok then
 		return Resolved
 	end
-	warn(`Ledger: could not settle a pending transaction leg on '{self.Key}', so this fold leaves it out for now: {Resolved}`)
+	warn(`Ledger: a transaction parked on '{self.Key}' could not be settled, so this read leaves it out for now: {Resolved}`)
 	return Stored
 end
 
@@ -160,7 +161,7 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 	self.StateBytes = Ruling.Bytes or self.StateBytes + OpBytes
 	self.Applied[Op.Id] = true
 	table.insert(self.Pending, Op)
-	self.LogBytes += OpBytes
+	self.LogBytes += OpBytes + Rebuild.SEPARATOR
 	self:Notify()
 
 	assert(#self.Pending <= MAX_PENDING, "more ops are queued than the cap allows, so the backlog guard let one through")
@@ -188,16 +189,26 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		local Ok, Accepted, Stuck = pcall(function(): (boolean, boolean)
 			Rebuild.Push(self)
 
-			local Stored = self:Settled((Rebuild.Append(self, { Op })))
+			local Written, _, Waiting = Rebuild.Append(self, { Op })
+			local Stored = self:Settled(Written)
 			local Deadline = Clock.Now() + Windows.TX + Windows.POLL
-			while TxStamp.HasPending(Stored) and Clock.Now() < Deadline do
+			while true do
+				local Pending = TxStamp.HasPending(Stored)
+				if not Pending and #Waiting > 0 and Clock.Now() < Deadline then
+					Written, _, Waiting = Rebuild.Append(self, { Op })
+					Stored = self:Settled(Written)
+					continue
+				end
+				if not Pending or Clock.Now() >= Deadline then
+					break
+				end
 				Clock.Wait(Windows.POLL)
 				Stored = self:Settled(self.Log:Read(self.Key))
 			end
 
 			local Blocked = TxStamp.HasPending(Stored)
 			if Blocked then
-				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on the record, so this answer can change once that clears`)
+				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on '{self.Key}'. this answer can change once that clears`)
 			end
 
 			local _, Took = Rebuild.Rebuild(self, Stored, Op.Id)
@@ -269,7 +280,7 @@ function Session.Compact<S>(self: Session<S>): Future<boolean, Reason?>
 			self.Parked = 0
 			self.StateBytes = Measure(self.State)
 			self.LogSize = 0
-			self.LogBytes = Rebuild.SumBytes(self.Pending)
+			self.LogBytes = Measure(Stored.Ops) + Rebuild.SumBytes(self.Pending)
 			self:Notify()
 		end)
 		if Ok then
@@ -294,6 +305,9 @@ function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 			if not Whole then
 				warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
 				return false, REFUSED
+			end
+			if #self.Pending > 0 then
+				warn(`Ledger: final save for '{self.Key}' left {#self.Pending} op(s) unwritten. they were waiting on a transaction parked on that key and die with this server`)
 			end
 			return true, nil
 		end

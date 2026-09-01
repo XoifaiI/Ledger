@@ -55,7 +55,8 @@ local function Restored(Snapshot: any, Kept: { [string]: any }?, Index: number):
 
 	local Next = Snapshot
 	for Key, Value in Kept do
-		if Next[Key] == Value then
+		local Theirs = Next[Key]
+		if Theirs == Value then
 			continue
 		end
 
@@ -63,8 +64,11 @@ local function Restored(Snapshot: any, Kept: { [string]: any }?, Index: number):
 			Next = table.clone(Snapshot)
 		end
 		Next[Key] = Value
+		if TableUtil.DeepEqual(Theirs, Value) then
+			continue
+		end
 		warn(
-			`Ledger bug: migration {Index} dropped Ledger's own '{Key}', so Ledger put it back. a migration changes the game's own fields and leaves anything starting with an underscore alone`
+			`Ledger: migration {Index} dropped Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`
 		)
 	end
 	return Next
@@ -149,7 +153,7 @@ function Schema.Rehydrate(self: Schema<any>, Record: Record): any
 	local Held = Record.Floor
 	local Needs = if type(Held) == "number" then Held elseif Version > #Steps then Version else 0
 	if Needs > #Steps then
-		Errors.Raise(Reasons.Behind, `the record needs format version {Needs} but this server only knows {#Steps} migrations, a newer server wrote it`)
+		Errors.Raise(Reasons.Behind, `this record needs {Needs} migrations and this server has {#Steps}, a newer build wrote it. finish the deploy`)
 	end
 
 	if Version > #Steps then

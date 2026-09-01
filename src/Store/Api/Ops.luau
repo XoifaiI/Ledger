@@ -160,7 +160,7 @@ local function Standing(self: Store, Key: KeyLike, Id: string, What: string, Mak
 
 		if Why == HELD then
 			warn(
-				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to {Wanted}. a grant that did not answer may already have delivered them, and only recovery can tell. leave it to the sweep`
+				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to {Wanted}. a grant that did not answer may already have delivered them. leave it to the sweep`
 			)
 		end
 		return Ok, Why
@@ -202,7 +202,7 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: Shapes.Booked
 	if Ruling == Tags.OTHER then
 		Errors.Raise(
 			SPENT,
-			`'{To}' already took a booking named {Rid} from somewhere else, and a name has to mean the same thing every time. nothing was handed over, so release this one and pick a new name`
+			`'{To}' already took a booking named {Rid} from somewhere else. nothing was handed over, release this one and pick a new name`
 		)
 	end
 	if Ruling ~= Tags.SAME then

@@ -123,17 +123,17 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 			return Prepared, Settled, BUSY
 		elseif Verdict == "Spent" then
 			warn(
-				`Ledger: transaction '{Ops[Index].Tx}' was already used for different keys or a different amount, and a name has to mean the same thing every time. nothing was applied, so pick a new name`
+				`Ledger: transaction '{Ops[Index].Tx}' was already used for different keys or a different amount. nothing was applied, pick a new name`
 			)
 			return Prepared, Settled, SPENT
 		elseif Verdict == "Rejected" then
 			return Prepared, Settled, REFUSED
 		elseif Verdict == "Full" then
-			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key is carrying more ops than it can hold until it compacts. nothing was applied`)
+			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key holds more unsaved ops than it can take. nothing was applied`)
 			return Prepared, Settled, FULL
 		elseif Verdict == "Erased" then
 			warn(
-				`Ledger: transaction '{Ops[Index].Tx}' cannot put a leg on '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`
+				`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`
 			)
 			return Prepared, Settled, REFUSED
 		else
@@ -148,7 +148,7 @@ end
 local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Txid: string, Keys: string, Terms: string, Print: string, Floor: number, PerLeg: number?): Pass
 	local Created, Gen, Born, Minted = Marker.Create(TxStore, Txid, #Legs, Keys, Terms)
 	if Created == Transactions.MISMATCH then
-		warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount, and a name has to mean the same thing every time. nothing was applied, so pick a new name`)
+		warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Floor, Parked = Floor > 0 }
 	end
 	if Created == Transactions.UNWRITTEN then
@@ -193,7 +193,7 @@ local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Tx
 		return { Committed = false, Why = SPENT, Again = true, Reached = Prepared, Parked = Stranded }
 	end
 	if Split then
-		warn(`Ledger: transaction '{Txid}' is only half remembered across its keys, so Ledger cancelled it rather than applying it to some keys and not others`)
+		warn(`Ledger: transaction '{Txid}' had already gone through on some of its keys and not others, so Ledger cancelled it`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Prepared, Parked = Stranded }
 	end
 	return { Committed = false, Why = Cause, Again = Cause == UNRESOLVED, Reached = Prepared, Parked = Stranded }
@@ -249,7 +249,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 
 	local Added = Clock.Now()
 	if not Cleanup.Add(TxStore, Id) then
-		warn(`Ledger: transaction '{Id}' was not started, Ledger could not add it to the cleanup list. nothing was applied, try again`)
+		warn(`Ledger: transaction '{Id}' was not started, Ledger could not write it down first. nothing was applied, try again`)
 		return false, UNRESOLVED, false
 	end
 

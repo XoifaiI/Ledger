@@ -16,6 +16,7 @@
 local Suite = require("../Suite")
 
 local Ledger = require("../../src") :: any
+local Windows = require("../../src/Core/Constants/Windows")
 local SetInterval = require("../../src/Util/SetInterval")
 local Sweep = require("../../src/Store/Registry").Sweep()
 
@@ -339,6 +340,64 @@ Cases.Case("CloseAll stops the sweep following stranded keys", function(T: Case)
 	Ledger.CloseAll()
 
 	T:Is("keys still followed after the shutdown", Sweep.Count, 0)
+end)
+
+Cases.Case("CloseAll in the middle of a transaction leaves the money on one side", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("txA", { Gold = 100, Touches = 0 })
+	Bank:Seed("txB", { Gold = 0, Touches = 0 })
+
+	Bank:Fault(Fault.Updates():OnKey("txA"):Only(1):Stall(1))
+
+	local Moved: boolean? = nil
+	local Drive = T:Spawn(function()
+		Moved = Bank.Store
+			:Tx("shut", {
+				{ Key = "txA", Kind = "Give", Fields = { Amount = -30 } },
+				{ Key = "txB", Kind = "Give", Fields = { Amount = 30 } },
+			})
+			:Wait()
+	end)
+
+	local Edits: { { Ok: boolean, Why: any } } = {}
+	for Index = 1, 2 do
+		T:Spawn(function()
+			local Ok, Why = Bank.Store:Edit("txA", "Fund", { Amount = 1 }):Wait()
+			Edits[Index] = { Ok = Ok, Why = Why }
+		end)
+	end
+	Lined(T, Bank, "txA", 2)
+
+	Ledger.CloseAll()
+
+	T:Until(function(): boolean
+		return coroutine.status(Drive) == "dead" and Edits[1] ~= nil and Edits[2] ~= nil
+	end)
+	Bank:Healed()
+	T:Advance(Windows.TX + 1)
+	Bank.Store:Resettle("txA"):Wait()
+	Bank.Store:Resettle("txB"):Wait()
+
+	local Funded = 0
+	local Skipped = 0
+	for _, Held in Edits do
+		if Held.Ok then
+			Funded += 1
+		elseif Held.Why == "Closed" then
+			Skipped += 1
+		end
+	end
+	local Left, Right = Bank:Amount("txA"), Bank:Amount("txB")
+
+	T:Is("the money adds up", Left + Right - Funded, 100)
+	T:Ok("both keys are on one side of the transaction", (Right == 0 and Left == 100 + Funded) or (Right == 30 and Left == 70 + Funded))
+	if Moved then
+		T:Is("a yes means the money moved", Right, 30)
+	end
+	T:Is("edits the shutdown skipped", Skipped, 1)
+	T:Is("edits that went through", Funded, 1)
+	T:Is("nothing is left parked on the sender", Bank:Pending("txA"), false)
+	T:Is("nothing is left parked on the receiver", Bank:Pending("txB"), false)
 end)
 
 return Cases

@@ -552,6 +552,26 @@ Cases.Case("erasing a key hands over its holds first", function(T: Case)
 	T:Is("gold left on the erased key", Store:Amount("eraseA"), 0)
 end)
 
+Cases.Case("an erase that cannot read what a key holds refuses rather than burying it", function(T: Case)
+	local Store = Purse(T, "CaseEraseBlind")
+
+	Store:Append("blindA", { NewOp.New("Add", { Amount = 100 }) })
+	Store:Append("blindA", {
+		{ Id = "res:blind", Kind = "__TransferReserve", To = "blindB", Amount = 40, Tid = "blind", At = T:Now() } :: any,
+	})
+	Store:Fault(Fault.Reads():OnKey("blindA"))
+
+	local Ok, Why = Store.Store:Erase("blindA"):Wait()
+	Store:Healed()
+
+	T:Is("the erase", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Is("the hold, still on the key", Store:Aside("blindA"), 40)
+	T:Is("the key, not buried", Store:Record("blindA").Erased, nil)
+	T:Is("gold on the receiver", Store:Amount("blindB"), 0)
+	T:Silent("nothing was written off", "gone for good")
+end)
+
 Cases.Case("erasing a key with an undeliverable hold says so", function(T: Case)
 	local Store = Purse(T, "CaseEraseMargin")
 
@@ -1143,7 +1163,7 @@ Cases.Case("a write it cannot read back is unresolved rather than landed", funct
 	T:Is("the op is in the log even so", #Store:Record("blind").Ops, 1)
 end)
 
-Cases.Case("an erase that cannot check its holds a second time says the money is gone", function(T: Case)
+Cases.Case("an erase that cannot check its holds a second time keeps the key and what it handed over", function(T: Case)
 	local Store = Purse(T, "CaseEraseRecheck")
 
 	Store:Append("recheck", { NewOp.New("Add", { Amount = 100 }) })
@@ -1153,10 +1173,16 @@ Cases.Case("an erase that cannot check its holds a second time says the money is
 
 	Store:NoRetries()
 	Store:Fault(Fault.Reads():OnKey("recheck"):After(1))
-	Store.Store:Erase("recheck"):Wait()
+	local Ok, Why = Store.Store:Erase("recheck"):Wait()
 	Store:Healed()
 
-	T:Warns("it said it could not look again", "again after finishing its transfers")
+	T:Is("the erase", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Is("the key, not buried", Store:Record("recheck").Erased, nil)
+	T:Is("gold handed over before the read failed", Store:Amount("elsewhere"), 40)
+	T:Is("gold left on the key", Store:Amount("recheck"), 60)
+	T:Is("nothing still set aside", Store:Aside("recheck"), 0)
+	T:Silent("nothing was written off", "gone for good")
 end)
 
 Cases.Case("a reducer cannot plant applied names on a key that has none", function(T: Case)
