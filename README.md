@@ -65,6 +65,13 @@ Ledger = "xoifaii/ledger@4.5.0"
 
 **Model file**: insert the [Ledger](https://github.com/XoifaiI/Ledger/releases) module anywhere server side.
 
+**roblox-ts**
+
+```
+npm install @xoifail/ledger
+```
+[Using Ledger from TypeScript](https://xoifaii.github.io/LedgerDocs/docs/guides/typescript).
+
 ## License
 
 This project is licensed under the [MIT License](https://github.com/XoifaiI/Ledger/blob/main/LICENSE).

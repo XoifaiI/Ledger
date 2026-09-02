@@ -1,7 +1,23 @@
 {
-	"name": "ledger-typings",
-	"private": true,
-	"description": "Type checking for Ledger's roblox-ts declaration.",
+	"name": "@xoifail/ledger",
+	"version": "4.5.0",
+	"description": "Lock-free event-sourced player data for Roblox. State is a fold over validated ops, no session locks.",
+	"main": "src/init.luau",
+	"types": "index.d.ts",
+	"files": [
+		"src/**/*.luau",
+		"index.d.ts"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/XoifaiI/Ledger.git"
+	},
+	"homepage": "https://xoifaii.github.io/LedgerDocs/",
+	"author": "XoifaiI",
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"check": "tsc --noEmit -p tsconfig.json"
 	},
