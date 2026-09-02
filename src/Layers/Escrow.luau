@@ -40,15 +40,24 @@ local function Entry(Held: any, Tid: any): Held?
 	if Found.At ~= nil and type(Found.At) ~= "number" then
 		return nil
 	end
+	if Found.Field ~= nil and type(Found.Field) ~= "string" then
+		return nil
+	end
 
 	local To = Found.To
 	return if type(To) == "string" or type(To) == "number" then Found else nil
 end
 
-local function Reserving(Data: Data, Op: Op, Field: string): Data?
+local function Named(Op: Op, Balance: string?): string?
+	local Field = Op.Field
+	return if type(Field) == "string" then Field else Balance
+end
+
+local function Reserving(Data: Data, Op: Op, Balance: string?): Data?
 	local Tid = Op.Tid
 	local Amount = Validate.Number(Op.Amount)
-	if type(Tid) ~= "string" or Amount == nil then
+	local Field = Named(Op, Balance)
+	if type(Tid) ~= "string" or Amount == nil or Field == nil then
 		return nil
 	end
 
@@ -69,7 +78,7 @@ local function Reserving(Data: Data, Op: Op, Field: string): Data?
 	end
 
 	local Holds: { [string]: Held } = table.clone(Data._Held or {})
-	Holds[Tid] = { To = To, Amount = Amount, At = At }
+	Holds[Tid] = { To = To, Amount = Amount, At = At, Field = if type(Op.Field) == "string" then Op.Field else nil }
 
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) - Amount
@@ -78,10 +87,11 @@ local function Reserving(Data: Data, Op: Op, Field: string): Data?
 	return Next
 end
 
-local function Delivering(Data: Data, Op: Op, Field: string): Data?
+local function Delivering(Data: Data, Op: Op, Balance: string?): Data?
 	local Tid = Op.Tid
 	local Amount = Op.Amount
-	if type(Tid) ~= "string" or type(Amount) ~= "number" then
+	local Field = Named(Op, Balance)
+	if type(Tid) ~= "string" or type(Amount) ~= "number" or Field == nil then
 		return nil
 	end
 
@@ -102,7 +112,7 @@ local function Delivering(Data: Data, Op: Op, Field: string): Data?
 	return Next
 end
 
-local function Expiring(Data: Data, Op: Op, Field: string): Data?
+local function Expiring(Data: Data, Op: Op, Balance: string?): Data?
 	local Tid = Op.Tid
 	if type(Tid) ~= "string" then
 		return nil
@@ -111,6 +121,10 @@ local function Expiring(Data: Data, Op: Op, Field: string): Data?
 	local Held = Data._Held
 	local Found = Entry(Held, Tid)
 	if Held == nil or Found == nil then
+		return nil
+	end
+	local Field = Found.Field or Balance
+	if Field == nil then
 		return nil
 	end
 
@@ -164,20 +178,16 @@ local function Pruning(Data: Data, Op: Op): Data?
 end
 
 local function Layered(Balance: string?): Layer.Layer?
-	if Balance == nil then
-		return nil
-	end
-	local Field = Balance
 	return {
 		Kinds = {
 			[Kinds.RESERVE] = function(Data: Data, Op: Op): Data?
-				return Reserving(Data, Op, Field)
+				return Reserving(Data, Op, Balance)
 			end,
 			[Kinds.DELIVER] = function(Data: Data, Op: Op): Data?
-				return Delivering(Data, Op, Field)
+				return Delivering(Data, Op, Balance)
 			end,
 			[Kinds.EXPIRE] = function(Data: Data, Op: Op): Data?
-				return Expiring(Data, Op, Field)
+				return Expiring(Data, Op, Balance)
 			end,
 			[Kinds.SETTLE] = Settling,
 			[Kinds.PRUNE] = Pruning,

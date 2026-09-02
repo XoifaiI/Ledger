@@ -25,7 +25,11 @@
 
 local Future = require("../../Util/Future")
 local Clock = require("../../Util/Clock")
+local TableUtil = require("../../Util/TableUtil")
+local MemoryStoreWrapper = require("../../Util/MemoryStoreWrapper")
 local Windows = require("../../Core/Constants/Windows")
+local Sizes = require("../../Core/Constants/Sizes")
+local Bookings = require("../../Core/Constants/Bookings")
 local Errors = require("../../Core/Errors")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
@@ -58,6 +62,11 @@ type HoldOptions = Api.HoldOptions
 type Reason = Reasons.Reason
 type Store = Types.Store<any>
 type LegTarget = { Store: Store, Key: string }
+type MemoryStoreWrapper = MemoryStoreWrapper.MemoryStoreWrapper
+type Reserved = Types.Reserved
+type Dropped = Types.Dropped
+type Hold = { Field: string, Amount: number, Ends: number }
+type Holding = { Holds: { [string]: Hold }, Stock: { [string]: number } }
 
 local MAX_TRANSFER_ID = 64
 local MAX_TX_ID = 50
@@ -125,6 +134,49 @@ local function Remember(Held: Tally.Recent, Sum: number, At: number, Seen: numbe
 	return Sum + Over(Held)
 end
 
+local function Holdings(Value: any): Holding?
+	if type(Value) ~= "table" or type(Value.Holds) ~= "table" or type(Value.Stock) ~= "table" then
+		return nil
+	end
+	return Value
+end
+
+local function Unexpired(Item: Holding, Now: number): ({ [string]: Hold }, { [string]: number }, number)
+	local Fresh: { [string]: Hold } = {}
+	local Sums: { [string]: number } = {}
+	local Longest = Now
+	for Rid, Held in Item.Holds do
+		if type(Held) ~= "table" or type(Held.Field) ~= "string" or type(Held.Amount) ~= "number" or type(Held.Ends) ~= "number" or Held.Ends <= Now then
+			continue
+		end
+		Fresh[Rid] = Held
+		Sums[Held.Field] = (Sums[Held.Field] or 0) + Held.Amount
+		Longest = math.max(Longest, Held.Ends)
+	end
+	return Fresh, Sums, Longest
+end
+
+local function Rewritten(Held: MemoryStoreWrapper, Slot: string, Now: number, Change: (Holding?) -> Holding?): boolean
+	local Longest = Now
+	local Ok, Written = Held:UpdateAsync(Slot, function(Current: any): any
+		Longest = Now
+		local Next = Change(Holdings(Current))
+		if Next == nil then
+			return nil
+		end
+		local _, _, Latest = Unexpired(Next, Now)
+		Longest = Latest
+		return Next
+	end, Windows.BOOK)
+
+	if Ok and Written ~= nil and Longest > Now + Windows.BOOK then
+		Held:UpdateAsync(Slot, function(Current: any): any
+			return Current
+		end, Longest - Now)
+	end
+	return Ok
+end
+
 function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Edit")
 
@@ -141,17 +193,26 @@ function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: an
 	end)
 end
 
-function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number, Id: string?): Future<boolean, Reason?>
-	self:ExpectBalance("Transfer")
+function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number, Id: string?, Field: string?): Future<boolean, Reason?>
 	local FromKey = self:Resolve(From, "Transfer")
 	local ToKey = self:Resolve(To, "Transfer")
 	assert(FromKey ~= ToKey, `Transfer needs two different keys, both resolved to '{FromKey}'`)
 	Validate.Amount(Amount, "Transfer")
 	Validate.Maybe(Id, MAX_TRANSFER_ID, "Transfer Id")
 
+	local Named: string? = nil
+	if Field ~= nil then
+		Named = Validate.Field(self.Initial, Field, "Transfer")
+	else
+		self:ExpectBalance("Transfer")
+	end
+	if Named == self.Options.Balance then
+		Named = nil
+	end
+
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Moved, Why, Follow = pcall(function(): (boolean, Reason?, boolean?)
-			return Transfer.Drive(self:Records(), self:Format(), FromKey, ToKey, Amount, Id)
+			return Transfer.Drive(self:Records(), self:Format(), FromKey, ToKey, Amount, Id, Named)
 		end)
 		if not Ok then
 			warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
@@ -169,6 +230,98 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 	end)
 end
 
+function Store.Unbooked(self: Store, What: string)
+	local Meter = self.Meter
+	local Now = Clock.Now()
+	if Now - Meter.Unbooked < Windows.AUTOSAVE then
+		return
+	end
+
+	Meter.Unbooked = Now
+	warn(`Ledger: {What} on '{self.Options.Name}' needs a MemoryStore and this store has none, so nothing was set aside`)
+end
+
+function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?): (Reserved, number?)
+	local Held = self.Bookings
+	if Held == nil then
+		return "Unknown", nil
+	end
+
+	local Answer: Reserved = "Unknown"
+	local Known: number? = nil
+	local Ok = Rewritten(Held, Slot, Now, function(Item: Holding?): Holding?
+		Answer, Known = "Unknown", nil
+		local Base: Holding = Item or { Holds = {}, Stock = {} }
+		if Stock ~= nil then
+			Base.Stock[Field] = Stock
+		end
+
+		local Have = Base.Stock[Field]
+		if type(Have) ~= "number" then
+			Answer = "Cold"
+			return nil
+		end
+		Known = Have
+
+		local Fresh, Sums = Unexpired(Base, Now)
+		if Fresh[Rid] ~= nil then
+			Answer = "Taken"
+			return nil
+		end
+		if TableUtil.Count(Fresh) >= Sizes.Booked then
+			Answer = "Full"
+			return nil
+		end
+		if (Sums[Field] or 0) + Amount > Have then
+			Answer = "Refused"
+			return if Stock ~= nil then { Holds = Fresh, Stock = Base.Stock } else nil
+		end
+
+		Fresh[Rid] = { Field = Field, Amount = Amount, Ends = Ends }
+		Answer = "Taken"
+		return { Holds = Fresh, Stock = Base.Stock }
+	end)
+
+	if not Ok then
+		return "Unknown", nil
+	end
+	return Answer, Known
+end
+
+function Store.Dropped(self: Store, Slot: string, Rid: string, State: any): Dropped
+	local Held = self.Bookings
+	if Held == nil then
+		return "Absent"
+	end
+
+	local Answer: Dropped = "Unknown"
+	local Now = Clock.Now()
+	local Ok = Rewritten(Held, Slot, Now, function(Item: Holding?): Holding?
+		Answer = "Absent"
+		if Item == nil then
+			return nil
+		end
+
+		local Fresh = Unexpired(Item, Now)
+		local Mine = Fresh[Rid]
+		if Mine == nil then
+			return nil
+		end
+
+		Fresh[Rid] = nil
+		if type(State) == "table" and type(State[Mine.Field]) == "number" then
+			Item.Stock[Mine.Field] = State[Mine.Field]
+		end
+		Answer = "Dropped"
+		return { Holds = Fresh, Stock = Item.Stock }
+	end)
+
+	if not Ok then
+		return "Unknown"
+	end
+	return Answer
+end
+
 function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number, Id: string, Options: HoldOptions?): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Reserve")
 	Validate.Field(self.Initial, Field, "Reserve")
@@ -177,28 +330,50 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 
 	local Extra: HoldOptions = Options or {}
 	assert(type(Extra) == "table", "Reserve takes an options table after the Id when you pass one")
+	assert((Extra :: any).To == nil, "Reserve does not take To. a hold stays on its key, hand units to another key with Transfer and a Field")
 
 	local Hold = Extra.Hold
-	assert(Hold == nil or (type(Hold) == "number" and Hold > 0 and Hold < math.huge), `Reserve Hold must be a positive number of seconds when given, got {tostring(Hold)}`)
+	assert(Hold == nil or (type(Hold) == "number" and Hold > 0 and Hold <= Windows.HOLD_CAP), `Reserve Hold must be a number of seconds up to {Windows.HOLD_CAP} when given, got {tostring(Hold)}`)
 
-	local To: string? = nil
-	if Extra.To ~= nil then
-		To = self:Resolve(Extra.To, "Reserve To")
-		assert(To ~= Resolved, `Reserve needs To to be a different key, both resolved to '{Resolved}'`)
-		assert(Hold == nil or Hold <= Windows.HOLD_CAP, `Reserve Hold must be {Windows.HOLD_CAP} seconds or less when you give a To, got {Hold}. a longer hold is written off instead of given back`)
-	end
-
-	local Op = Booking.Book(Rid, Field, Amount, Hold, To)
+	local Slot = Mark.Cached({ self.Wrapper.Name, Resolved })
 
 	return Future.New(function(): (boolean, Reason?)
-		return self:Written(Resolved, Op, `reserve {Amount} {Field}`, nil, nil, function(Record: Record): Reason?
-			if Booking.Entry(self:Fold(Record)._Booked, Rid) ~= nil then
-				return nil
+		if self.Bookings == nil then
+			self:Unbooked("Reserve")
+			return false, UNRESOLVED
+		end
+
+		local Now = Clock.Now()
+		local Ends = Now + (Hold or Windows.BOOK)
+		local Answer, Known = self:Holding(Slot, Rid, Field, Amount, Now, Ends, nil)
+		if Answer == "Cold" or Answer == "Refused" then
+			local Read, State = pcall(function(): any
+				return self:Fold(self:ReadRecord(Resolved))
+			end)
+			if not Read then
+				return false, Failed(`read the {Field} on`, Resolved, State)
 			end
 
-			warn(`Ledger: booking '{Rid}' on '{Resolved}' was used before and its units have gone, so nothing was set aside. that name cannot be used again, pick a new one`)
-			return SPENT
-		end)
+			local Stock = if type(State) == "table" then State[Field] else nil
+			if type(Stock) ~= "number" then
+				return false, REFUSED
+			end
+			if Answer == "Cold" or Stock ~= Known then
+				Answer, Known = self:Holding(Slot, Rid, Field, Amount, Now, Ends, Stock)
+			end
+		end
+
+		if Answer == "Taken" then
+			return true, nil
+		end
+		if Answer == "Refused" then
+			return false, REFUSED
+		end
+		if Answer == "Full" then
+			warn(`Ledger: '{Resolved}' already holds {Sizes.Booked} reservations, so '{Rid}' was not set aside`)
+			return false, REFUSED
+		end
+		return false, UNRESOLVED
 	end)
 end
 
@@ -223,12 +398,95 @@ local function Standing(self: Store, Key: KeyLike, Id: string, What: string, Mak
 	end)
 end
 
-function Store.Confirm(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
-	return Standing(self, Key, Id, "Confirm", Booking.Take, "spend")
+function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
+	local Resolved = self:Resolve(Key, "Confirm")
+	local Rid = Validate.Name(Id, MAX_BOOKING_ID, "Confirm")
+	assert(type(Kind) == "string" and #Kind > 0, "Confirm needs the Kind of the op that spends the units, after the Id")
+	assert(Fields == nil or type(Fields) == "table", `Confirm '{Kind}' Fields must be a table when given`)
+	assert(Fields == nil or (Fields :: any).Once == nil, "Confirm takes no Once. the booking Id already makes the op land once")
+
+	local Op = NewOp.New(Kind, Fields)
+	Op.Id = `{Bookings.CONFIRM_ID}:{Rid}`
+	local Fine, Wrong = NewOp.Check(Op)
+	if not Fine then
+		warn(`Ledger: Confirm rejected op '{Kind}', {Wrong}`)
+		return Rejected(INVALID)
+	end
+
+	local Slot = Mark.Cached({ self.Wrapper.Name, Resolved })
+
+	return Future.New(function(): (boolean, Reason?)
+		local State: any = nil
+		local Ok, Why = self:Written(
+			Resolved,
+			Op,
+			`confirm booking '{Rid}' with '{Kind}'`,
+			function(Record: Record): boolean
+				return Booking.Entry(self:Fold(Record)._Booked, Rid) == nil
+			end,
+			HELD,
+			function(Settled: Record): Reason?
+				State = self:Fold(Settled)
+				return nil
+			end
+		)
+
+		if not Ok and Why == HELD then
+			return Standing(self, Resolved, Rid, "Confirm", Booking.Take, "spend"):Wait()
+		end
+		if Ok then
+			self:Dropped(Slot, Rid, State)
+		end
+		return Ok, Why
+	end)
 end
 
 function Store.Release(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
-	return Standing(self, Key, Id, "Release", Booking.Free, "give back")
+	local Resolved = self:Resolve(Key, "Release")
+	local Rid = Validate.Name(Id, MAX_BOOKING_ID, "Release")
+	local Slot = Mark.Cached({ self.Wrapper.Name, Resolved })
+
+	return Future.New(function(): (boolean, Reason?)
+		local Gone = self:Dropped(Slot, Rid, nil)
+		if Gone == "Dropped" then
+			return true, nil
+		end
+
+		local Ok, Why = Standing(self, Resolved, Rid, "Release", Booking.Free, "give back"):Wait()
+		if Gone == "Unknown" and Why == REFUSED then
+			return false, UNRESOLVED
+		end
+		return Ok, Why
+	end)
+end
+
+function Store.Holds(self: Store, Key: KeyLike, Field: string): Future<number?, Reason?>
+	local Resolved = self:Resolve(Key, "Holds")
+	Validate.Field(self.Initial, Field, "Holds")
+	local Slot = Mark.Cached({ self.Wrapper.Name, Resolved })
+
+	return Future.New(function(): (number?, Reason?)
+		local Held = self.Bookings
+		if Held == nil then
+			self:Unbooked("Holds")
+			return nil, UNRESOLVED
+		end
+
+		local Read, Value = Held:GetAsync(Slot)
+		if not Read then
+			return nil, UNRESOLVED
+		end
+		if Value == nil then
+			return 0, nil
+		end
+
+		local Item = Holdings(Value)
+		if Item == nil then
+			return nil, UNRESOLVED
+		end
+		local _, Sums = Unexpired(Item, Clock.Now())
+		return Sums[Field] or 0, nil
+	end)
 end
 
 function Store.Handed(self: Store, Key: string, Rid: string, Held: Shapes.Booked): boolean

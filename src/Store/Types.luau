@@ -48,6 +48,10 @@ export type Allow = (Record) -> boolean
 
 export type Claimed = TxTypes.Claimed
 
+export type Reserved = "Taken" | "Cold" | "Refused" | "Full" | "Unknown"
+
+export type Dropped = "Dropped" | "Absent" | "Unknown"
+
 export type Swept = {
 	read Mark: (Key: string) -> string,
 	read Affords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
@@ -102,6 +106,7 @@ export type Meter = {
 	Markers: number,
 	Swollen: number,
 	Said: number,
+	Unbooked: number,
 }
 
 export type Fields<D> = {
@@ -112,6 +117,7 @@ export type Fields<D> = {
 	Tallies: MemoryStoreWrapper?,
 	Leases: MemoryStoreWrapper?,
 	Flags: MemoryStoreWrapper?,
+	Bookings: MemoryStoreWrapper?,
 	Idle: Idle,
 	Recent: Lru.Lru<Tally.Recent>,
 	Bumped: number,
@@ -170,6 +176,9 @@ export type StoreImpl<D> = {
 	HandBooked: (self: Store<D>, Key: string) -> (),
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
 	Kept: (self: Store<D>, Slot: string, Now: number) -> Tally.Recent,
+	Unbooked: (self: Store<D>, What: string) -> (),
+	Holding: (self: Store<D>, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?) -> (Reserved, number?),
+	Dropped: (self: Store<D>, Slot: string, Rid: string, State: any) -> Dropped,
 	Leased: (self: Store<D>, Targets: { { Name: string, Key: string } }) -> ({ () -> () }, boolean),
 	Claim: (self: Store<D>, Key: string, Ttl: number) -> Claimed,
 	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
@@ -197,12 +206,13 @@ export type StoreImpl<D> = {
 	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
 	PeekVersion: (self: Store<D>, Key: KeyLike, Version: string) -> Future<D?, Reason?>,
 	Edit: (self: Store<D>, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
-	Transfer: (self: Store<D>, From: KeyLike, To: KeyLike, Amount: number, Id: string?) -> Future<boolean, Reason?>,
+	Transfer: (self: Store<D>, From: KeyLike, To: KeyLike, Amount: number, Id: string?, Field: string?) -> Future<boolean, Reason?>,
 	Bump: (self: Store<D>, Name: string, Field: string, Amount: number) -> Future<boolean, Reason?>,
 	Total: (self: Store<D>, Name: string, Field: string, MaxAge: number?) -> Future<number?, Reason?>,
 	Reserve: (self: Store<D>, Key: KeyLike, Field: string, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
-	Confirm: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
+	Confirm: (self: Store<D>, Key: KeyLike, Id: string, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Release: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
+	Holds: (self: Store<D>, Key: KeyLike, Field: string) -> Future<number?, Reason?>,
 	Grant: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Tx: (self: Store<D>, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 	Resettle: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,

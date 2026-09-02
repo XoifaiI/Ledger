@@ -25,6 +25,7 @@ local Schema = require("../../src/Record/Schema")
 local Recovery = require("../../src/Protocol/Recovery")
 local Cleanup = require("../../src/Protocol/Tx/Cleanup")
 local TableUtil = require("../../src/Util/TableUtil")
+local Booking = require("../../src/Layers/Booking")
 local Future = require("../../src/Util/Future")
 local NoYield = require("../../src/Util/NoYield")
 local RetryAsync = require("../../src/Util/RetryAsync")
@@ -189,14 +190,14 @@ Cases.Case("Transfer refuses terms it cannot honour", function(T: Case)
 	end)
 end)
 
-Cases.Case("a store with no balance refuses the money api", function(T: Case)
+Cases.Case("a store with no balance refuses a transfer that names no field", function(T: Case)
 	local Store = Plain(T, "Player")
 
-	T:Throws("transferring without a Balance field", function()
+	T:Throws("transferring without a Balance field or a Field", function()
 		Store.Store:Transfer(11, 12, 10)
 	end)
-	T:Throws("recovering transfers without one", function()
-		Store.Store:RecoverTransfers(11)
+	T:Holds("transferring a field the Default has", function()
+		Store.Store:Transfer(11, 12, 10, nil, "Gold"):Wait()
 	end)
 end)
 
@@ -1220,7 +1221,7 @@ Cases.Case("a reducer that deep copies the state is not accused of writing bookk
 	})
 
 	Store.Store:Edit("k", "Add", { Once = "one" }):Wait()
-	Store.Store:Reserve("k", "Gold", 1, "book1"):Wait()
+	Store:Append("k", { Booking.Book("book1", "Gold", 1) })
 	Store.Store:Edit("k", "Add"):Wait()
 
 	T:Is("the applied names it copied are still there", Store.Store:DidApply("k", "one"):Wait(), true)
@@ -1244,7 +1245,8 @@ Cases.Case("a reducer that empties a copied field is still caught", function(T: 
 	})
 
 	Store.Store:Edit("k", "Add"):Wait()
-	T:Is("the reservation it is about to try to drop", Store.Store:Reserve("k", "Gold", 1, "book2"):Wait(), true)
+	Store:Append("k", { Booking.Book("book2", "Gold", 1) })
+	T:Is("the old booking it is about to try to drop", Store:Booked("k"), 1)
 	Store.Store:Edit("k", "Wipe"):Wait()
 
 	T:Accuses("it named itself for a mistake the reducer made", "your reducer wrote its own _Booked")

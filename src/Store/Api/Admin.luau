@@ -252,7 +252,6 @@ function Store.Resettle(self: Store, Key: KeyLike): Future<boolean, Reason?>
 end
 
 function Store.RecoverTransfers(self: Store, Key: KeyLike): Future<boolean, Reason?>
-	self:ExpectBalance("RecoverTransfers")
 	local Resolved = self:Resolve(Key, "RecoverTransfers")
 
 	return Future.New(function(): (boolean, Reason?)
@@ -268,7 +267,6 @@ function Store.RecoverTransfers(self: Store, Key: KeyLike): Future<boolean, Reas
 end
 
 function Store.ClearDelivered(self: Store, Key: KeyLike): Future<boolean, Reason?>
-	self:ExpectBalance("ClearDelivered")
 	local Resolved = self:Resolve(Key, "ClearDelivered")
 
 	return Future.New(function(): (boolean, Reason?)
@@ -336,10 +334,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 	return Future.New(function(): (boolean, Reason?)
 		local Checked, Holds, Amount = pcall(function(): (number, number)
-			local Holds, Amount = 0, 0
-			if self.Options.Balance then
-				Holds, Amount = self:HandOver(Resolved)
-			end
+			local Holds, Amount = self:HandOver(Resolved)
 			self:HandBooked(Resolved)
 			return Holds, Amount
 		end)
@@ -381,6 +376,11 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 		local Before = Replaced :: Record
 		self:Buried(Resolved, Before)
+
+		local Held = self.Bookings
+		if Held ~= nil then
+			Held:RemoveAsync(Mark.Cached({ self.Wrapper.Name, Resolved }))
+		end
 
 		if Before.Erased ~= nil and not Log.Entombed(Before) then
 			local Reached, Gone, Cause = pcall(function(): (boolean, any)

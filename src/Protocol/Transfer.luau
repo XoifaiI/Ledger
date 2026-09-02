@@ -57,8 +57,8 @@ local function Spent(Tid: string): Reserved
 	return Stopped(SPENT)
 end
 
-local function Terms(From: number | string, To: number | string, Amount: number): string
-	return Digest.Of(Digest.Canon({ From = tostring(From), To = tostring(To), Amount = Amount }))
+local function Terms(From: number | string, To: number | string, Amount: number, Field: string?): string
+	return Digest.Of(Digest.Canon({ From = tostring(From), To = tostring(To), Amount = Amount, Field = Field }))
 end
 
 local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, From: (number | string)?): Applied.Recalled
@@ -83,13 +83,13 @@ local function Delivered(Records: Log, Format: Format, To: number | string, Tid:
 	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print, From)
 end
 
-local function Reserve(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): Reserved
+local function Reserve(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?, Field: string?): Reserved
 	if not Validate.Positive(Amount) then
 		return Stopped(REFUSED)
 	end
 
 	local Tid = Id or Ids.Fresh()
-	local Print = Terms(From, To, Amount)
+	local Print = Terms(From, To, Amount, Field)
 
 	if Id ~= nil then
 		local Already = Delivered(Records, Format, To, Tid, Print, From)
@@ -101,7 +101,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		end
 	end
 
-	local ReserveOp: Op = { Id = `{Kinds.RESERVE_ID}:{Tid}`, Kind = Kinds.RESERVE, To = To, Amount = Amount, Tid = Tid, At = Clock.Now() }
+	local ReserveOp: Op = { Id = `{Kinds.RESERVE_ID}:{Tid}`, Kind = Kinds.RESERVE, To = To, Amount = Amount, Tid = Tid, At = Clock.Now(), Field = Field }
 
 	local Record = Records:Append(tostring(From), { ReserveOp }, function(Stored: Record): boolean
 		if TxStamp.HasPending(Stored) then
@@ -113,7 +113,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 	local Escrowed = Escrow.Entry(State._Held, Tid)
 	if Escrowed ~= nil then
-		if Escrowed.To ~= To or Escrowed.Amount ~= Amount then
+		if Escrowed.To ~= To or Escrowed.Amount ~= Amount or Escrowed.Field ~= Field then
 			warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}. it pays out that, not the {Amount} to {To} you asked for`)
 		end
 
@@ -152,12 +152,12 @@ local function Sound(At: number?): boolean
 	return type(At) ~= "number" or Clock.Now() - At <= Windows.REDRIVE + Windows.EXPIRE_MARGIN
 end
 
-local function Post(Records: Log, Format: Format, From: number | string, Tid: string, To: number | string, Amount: number, At: number?)
+local function Post(Records: Log, Format: Format, From: number | string, Tid: string, To: number | string, Amount: number, At: number?, Field: string?)
 	assert(tostring(From) ~= tostring(To), `transfer {Tid} is being delivered to the key it came from, so the money would be counted twice`)
 	assert(Amount > 0, `transfer {Tid} is being delivered with nothing in it`)
 
-	local Print = Terms(From, To, Amount)
-	local DeliverOp: Op = { Id = `{Kinds.DELIVER_ID}:{Tid}`, Kind = Kinds.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print }
+	local Print = Terms(From, To, Amount, Field)
+	local DeliverOp: Op = { Id = `{Kinds.DELIVER_ID}:{Tid}`, Kind = Kinds.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print, Field = Field }
 	local Landed = Records:Append(tostring(To), { DeliverOp }, function(Record: Record): boolean
 		return Sound(At) and Log.NotEntombed(Record)
 	end)
@@ -197,8 +197,8 @@ local function Prune(Records: Log, UserId: number | string)
 	Records:Append(tostring(UserId), { PruneOp })
 end
 
-local function Drive(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): (boolean, Reason?, boolean?)
-	local Fine, Ruling = pcall(Reserve, Records, Format, From, To, Amount, Id)
+local function Drive(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?, Field: string?): (boolean, Reason?, boolean?)
+	local Fine, Ruling = pcall(Reserve, Records, Format, From, To, Amount, Id, Field)
 	if not Fine then
 		return false, Errors.Reason(Ruling), nil
 	end
@@ -216,7 +216,7 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 
 	local Tid, Hold = Ruling.Tid, Ruling.Hold
 	local Handed, Why = pcall(function()
-		Post(Records, Format, From, Tid, Hold.To, Hold.Amount, Hold.At)
+		Post(Records, Format, From, Tid, Hold.To, Hold.Amount, Hold.At, Hold.Field)
 	end)
 	if Handed then
 		return true, nil, nil

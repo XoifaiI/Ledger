@@ -54,6 +54,7 @@ local PASS_LIMIT = 32
 assert(TOMB < PRUNE, "a delivery id has to outlive the tomb of the key it was delivered to, or a refund could pay twice")
 assert(BOOK + BOOK_MARGIN < REDRIVE, "a reservation has to run out before a transfer does, or stock would be held longer than money")
 assert(HOLD_CAP > BOOK, "a game has to be able to ask for a hold at least as long as the one Ledger uses by default")
+assert(HOLD_CAP <= MemoryStore.MAX_EXPIRY, "a hold cannot outlive the MemoryStore item it lives in")
 assert(REAP_GRACE < REAP, "a marker that is already finished goes on the shorter window, and one that is still being decided goes on the longer one")
 assert(
 	STUCK > REAP,

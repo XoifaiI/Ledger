@@ -33,7 +33,7 @@ type Format = LogTypes.Shape<any>
 local PASS_LIMIT = Windows.PASS_LIMIT
 
 local function Expire(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any, Age: number?)
-	local Print = Transfer.Terms(From, Entry.To, Entry.Amount)
+	local Print = Transfer.Terms(From, Entry.To, Entry.Amount, Entry.Field)
 	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, From) == Tags.SAME then
 		Transfer.Settle(Records, From, Tid, Print)
 		return
@@ -53,7 +53,7 @@ end
 
 local function Redeliver(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any): boolean
 	local Ok, Reason = pcall(function()
-		Transfer.Post(Records, Format, From, Tid, Entry.To, Entry.Amount, Entry.At)
+		Transfer.Post(Records, Format, From, Tid, Entry.To, Entry.Amount, Entry.At, Entry.Field)
 	end)
 	if not Ok then
 		warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)

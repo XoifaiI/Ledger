@@ -65,7 +65,7 @@ function Store.ExpectPlayers(self: Store, What: string)
 end
 
 function Store.ExpectBalance(self: Store, What: string)
-	assert(self.Options.Balance, `{What} needs the store to name a Balance field, like Balance = "Gold"`)
+	assert(self.Options.Balance, `{What} needs a Field, or the store to name a Balance field, like Balance = "Gold"`)
 end
 
 function Store.Affords(self: Store, Kind: Enum.DataStoreRequestType, Floor: number): boolean

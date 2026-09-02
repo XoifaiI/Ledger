@@ -153,6 +153,7 @@ end
 
 local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler): Faulted
 	local Specs: { Spec } = {}
+	local Cache: ((Name: string) -> Engine.Map)? = (Hook :: any).Cache
 
 	return table.freeze({
 		Service = Hook.Service,
@@ -162,9 +163,11 @@ local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler): Faulted
 			return Proxy(Specs, Scheduler, Name, Hook.Open(Name), STORE_METHODS)
 		end,
 
-		Cache = function(Name: string): Engine.Map
-			return Proxy(Specs, Scheduler, Name, Hook.Cache(Name), MAP_METHODS)
-		end,
+		Cache = if Cache == nil
+			then nil
+			else function(Name: string): Engine.Map
+				return Proxy(Specs, Scheduler, Name, Cache(Name), MAP_METHODS)
+			end,
 
 		Fail = function(Given: Spec): Spec
 			table.insert(Specs, Given)
@@ -174,7 +177,7 @@ local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler): Faulted
 		Clear = function()
 			table.clear(Specs)
 		end,
-	})
+	}) :: any
 end
 
 function Spec.OnStore(self: Spec, Name: string): Spec

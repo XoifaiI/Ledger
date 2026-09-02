@@ -29,6 +29,7 @@ local Mark = require("../Encode/Mark")
 local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
+local Bookings = require("../Core/Constants/Bookings")
 local Sessions = require("../Core/Constants/Sessions")
 local Shards = require("../Core/Constants/Shards")
 local Transactions = require("../Core/Constants/Transactions")
@@ -131,8 +132,9 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	local Tallies = if Cached then MemoryStoreWrapper.New(Shards.MAP, Turn, Hook) else nil
 	local Leases = if Cached then MemoryStoreWrapper.New(Transactions.LEASE_MAP, Turn, Hook) else nil
 	local Flags = if Cached and Keys == "Player" then MemoryStoreWrapper.New(Sessions.FLAG_MAP, Turn, Hook) else nil
+	local Holds = if Cached then MemoryStoreWrapper.New(Bookings.MAP, Turn, Hook) else nil
 	if Tallies == nil then
-		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards and transactions on one key race rather than queue`)
+		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards, transactions on one key race rather than queue, and nothing can be reserved`)
 	end
 
 	local Layers: { Layer.Layer } = {}
@@ -157,6 +159,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Tallies = Tallies,
 		Leases = Leases,
 		Flags = Flags,
+		Bookings = Holds,
 		Idle = { Misses = 0, Quiet = 0 },
 		Recent = Lru.New(RECENT_TALLIES),
 		Bumped = 0,
@@ -174,7 +177,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Sweep = Registry.Sweep(),
 		Sweeping = nil,
 		Staleness = Observer.New(true) :: Observer.Subject<string>,
-		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
+		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0, Unbooked = 0 },
 		Resume = nil,
 		Closed = false,
 	}

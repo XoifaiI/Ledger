@@ -47,7 +47,7 @@ type FixtureImpl = {
 	Stored: (self: Fixture, Key: string) -> any,
 	State: (self: Fixture, Key: string) -> any,
 	Amount: (self: Fixture, Key: string, Field: string?) -> number,
-	Aside: (self: Fixture, Key: string) -> number,
+	Aside: (self: Fixture, Key: string, Field: string?) -> number,
 	Booked: (self: Fixture, Key: string) -> number,
 	Names: (self: Fixture, Key: string) -> { [string]: any },
 	Knows: (self: Fixture, Key: string, Tag: string, Id: string) -> boolean,
@@ -111,15 +111,15 @@ local function Live(Held: Fake): { string }
 	return Found
 end
 
-local function Sum(Held: any, Field: string): number
+local function Sum(Held: any, Field: string?): number
 	if type(Held) ~= "table" then
 		return 0
 	end
 
 	local Total = 0
 	for _, Entry in Held do
-		if type(Entry) == "table" and type(Entry[Field]) == "number" then
-			Total += Entry[Field]
+		if type(Entry) == "table" and type(Entry.Amount) == "number" and Entry.Field == Field then
+			Total += Entry.Amount
 		end
 	end
 	return Total
@@ -247,8 +247,8 @@ function Fixture.Amount(self: Fixture, Key: string, Field: string?): number
 	return if type(Value) == "number" then Value else 0
 end
 
-function Fixture.Aside(self: Fixture, Key: string): number
-	return Sum(self:Stored(Key)._Held, "Amount")
+function Fixture.Aside(self: Fixture, Key: string, Field: string?): number
+	return Sum(self:Stored(Key)._Held, Field)
 end
 
 function Fixture.Booked(self: Fixture, Key: string): number

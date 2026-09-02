@@ -62,7 +62,6 @@ declare namespace Ledger {
 
 	interface HoldOptions {
 		readonly Hold?: number;
-		readonly To?: KeyLike;
 	}
 
 	interface TxLeg {
@@ -140,12 +139,12 @@ declare namespace Ledger {
 		DidApply(key: KeyLike, id: string): Future<[boolean | undefined, Reason | undefined]>;
 		History(key: KeyLike, limit?: number): Future<[ReadonlyArray<HistoryEntry> | undefined, Reason | undefined]>;
 		PeekVersion(key: KeyLike, version: string): Future<[D | undefined, Reason | undefined]>;
-		Transfer(from: KeyLike, to: KeyLike, amount: number, id?: string): Future<[boolean, Reason | undefined]>;
+		Transfer(from: KeyLike, to: KeyLike, amount: number, id?: string, field?: NumberKeys<D>): Future<[boolean, Reason | undefined]>;
 		Bump(name: string, field: NumberKeys<D>, amount: number): Future<[boolean, Reason | undefined]>;
 		Total(name: string, field: NumberKeys<D>, maxAge?: number): Future<[number | undefined, Reason | undefined]>;
 		Reserve(key: KeyLike, field: NumberKeys<D>, amount: number, id: string, options?: HoldOptions): Future<[boolean, Reason | undefined]>;
-		Confirm(key: KeyLike, id: string): Future<[boolean, Reason | undefined]>;
 		Release(key: KeyLike, id: string): Future<[boolean, Reason | undefined]>;
+		Holds(key: KeyLike, field: NumberKeys<D>): Future<[number | undefined, Reason | undefined]>;
 		Grant(key: KeyLike, id: string): Future<[boolean, Reason | undefined]>;
 		Resettle(key: KeyLike): Future<[boolean, Reason | undefined]>;
 		RecoverTransfers(key: KeyLike): Future<[boolean, Reason | undefined]>;
@@ -161,6 +160,7 @@ declare namespace Ledger {
 		Expect(player: Player): Session<D>;
 		WaitForLoaded(player: Player): Session<D> | undefined;
 		Edit<F extends object>(key: KeyLike, kind: string, fields?: Fields<F>): Future<[boolean, Reason | undefined]>;
+		Confirm<F extends object>(key: KeyLike, id: string, kind: string, fields?: Fields<F>): Future<[boolean, Reason | undefined]>;
 		Tx(id: string, legs: ReadonlyArray<TxLeg>): Future<[boolean, Reason | undefined]>;
 	}
 
@@ -169,6 +169,7 @@ declare namespace Ledger {
 		Expect(player: Player): TypedSession<D, O>;
 		WaitForLoaded(player: Player): TypedSession<D, O> | undefined;
 		Edit<K extends keyof O & string>(key: KeyLike, kind: K, fields: Fields<O[K]>): Future<[boolean, Reason | undefined]>;
+		Confirm<K extends keyof O & string>(key: KeyLike, id: string, kind: K, fields: Fields<O[K]>): Future<[boolean, Reason | undefined]>;
 		Tx(id: string, legs: ReadonlyArray<TxLeg>): Future<[boolean, Reason | undefined]>;
 	}
 

@@ -1102,11 +1102,11 @@ Cases.Case("a delivery that arrives after the hold may be given back is turned a
 	T:Is("money is conserved", Bank:Amount("lateA") + Bank:Amount("lateB") + Bank:Aside("lateA"), 1000)
 end)
 
-Cases.Case("clearing delivered transfers needs the store to name a Balance", function(T: Case)
+Cases.Case("clearing delivered transfers works on a store whether or not it names a Balance", function(T: Case)
 	local Shelf = T:Shelf()
 
-	T:Throws("clearing on a store with no Balance", function()
-		Shelf.Store:ClearDelivered("shelf")
+	T:Holds("clearing on a store with no Balance", function()
+		T:Ok("and it says it ran", (Shelf.Store:ClearDelivered("shelf"):Wait()))
 	end)
 
 	local Bank = T:Bank()
@@ -1187,14 +1187,14 @@ Cases.Case("giving back a hold that would take money away accuses Ledger instead
 	T:Accuses("it named itself rather than shrinking the balance", "left the sender with less")
 end)
 
-Cases.Case("moving money needs the store to name a Balance", function(T: Case)
+Cases.Case("moving money needs a Field or a Balance, and recovering it needs neither", function(T: Case)
 	local Shelf = T:Shelf()
 
-	T:Throws("transferring on a store with no Balance", function()
+	T:Throws("transferring on a store with no Balance and no Field", function()
 		Shelf.Store:Transfer("a", "b", 5)
 	end)
-	T:Throws("recovering transfers on a store with no Balance", function()
-		Shelf.Store:RecoverTransfers("a")
+	T:Holds("recovering transfers on a store with no Balance", function()
+		T:Ok("and it finds nothing to do", (Shelf.Store:RecoverTransfers("a"):Wait()))
 	end)
 
 	local Bank = T:Bank()

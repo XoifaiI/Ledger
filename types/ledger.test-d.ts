@@ -130,7 +130,15 @@ export function Positives(): void {
 	session.Commit("Sell", { Item: "Sword" }).Wait();
 	session.CommitOp({ Id: "op-1", Kind: "Buy", Item: "Shield", Once: "receipt:1" });
 	shop.Edit(1, "AddGold", { Amount: 5 }).Wait();
-	shop.Reserve(1, "Gold", 5, "cart:1", { Hold: 60, To: 2 });
+	shop.Reserve(1, "Gold", 5, "cart:1", { Hold: 60 });
+	shop.Confirm(1, "cart:1", "Buy", { Item: "Sword" });
+	shop.Release(1, "cart:1");
+	shop.Transfer(1, 2, 5, "tip:1", "Gold");
+	const [holding, holdingWhy] = shop.Holds(1, "Gold").Wait();
+	const heldUnits: number | undefined = holding;
+	const heldWhy: Ledger.Reason | undefined = holdingWhy;
+	void heldUnits;
+	void heldWhy;
 
 	const open = bank.Expect(player);
 	open.Apply("AddGold", { Amount: 5 });
@@ -138,6 +146,8 @@ export function Positives(): void {
 	open.Commit("ProductGrant", { ProductId: 1, Once: "receipt:1" });
 	open.CommitOp({ Id: "op-2", Kind: "AddGold", Amount: 5 });
 	bank.Edit("42", "AddGold", { Amount: 5 });
+	bank.Confirm("42", "cart:2", "AddGold", { Amount: 1 });
+	bank.Confirm("42", "cart:3", "Ping");
 
 	const [state, peeked] = bank.Peek(1).Wait();
 	const held: Profile | undefined = state;
@@ -220,6 +230,16 @@ export function Negatives(): void {
 
 	// @ts-expect-error Items is not a number field
 	shop.Reserve(1, "Items", 5, "cart:1");
+	// @ts-expect-error a hold stays on its key, To is gone
+	shop.Reserve(1, "Gold", 5, "cart:1", { To: 2 });
+	// @ts-expect-error Confirm names a kind the store has
+	shop.Confirm(1, "cart:1", "Byu", { Item: "Sword" });
+	// @ts-expect-error a confirm takes the kind's own fields
+	shop.Confirm(1, "cart:1", "Buy", { Amount: 5 });
+	// @ts-expect-error Items is not a number field
+	shop.Transfer(1, 2, 5, "tip:1", "Items");
+	// @ts-expect-error Items is not a number field
+	shop.Holds(1, "Items");
 	// @ts-expect-error Balance names a number field
 	Ledger.New<Profile>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Balance: "Items" });
 	// @ts-expect-error the Default has to be the reducer's state

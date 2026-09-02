@@ -106,12 +106,19 @@ local function Vaulter(State: any, Op: any): any?
 end
 
 local function Shopkeeper(State: any, Op: any): any?
-	if Op.Kind ~= "Sell" then
+	local Count = if type(Op.Count) == "number" then Op.Count else 1
+	if Op.Kind == "Restock" then
+		local Next = table.clone(State)
+		Next.Stock += Count
+		return Next
+	end
+	if Op.Kind ~= "Sell" or State.Stock < Count then
 		return nil
 	end
 
 	local Next = table.clone(State)
-	Next.Sold += 1
+	Next.Stock -= Count
+	Next.Sold += Count
 	return Next
 end
 
