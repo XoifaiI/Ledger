@@ -3,11 +3,11 @@
 
 --[=[
 
-	Mock: A datastore in memory that keeps the limits of the real one.
+	Mock: A datastore and a MemoryStore in memory that keep the limits of the real ones.
 
-	Key and name caps, the value size cap, kept versions, the request budget and the queues, so a
-	test writes against the same refusals a live game meets. It sees bytes and identity only, never
-	the record format.
+	Key and name caps, the value size caps, kept versions, expiry, the request budget, the queues
+	and the request units, so a test writes against the same refusals a live game meets. It sees
+	bytes and identity only, never the record format.
 
 	Return type: A table with New and MAX_VALUE.
 	Example usage:
@@ -22,6 +22,7 @@ local Types = require("@self/Types")
 export type Options = Types.Options
 export type Service = Types.Service
 export type Store = Types.Store
+export type HashMap = Types.HashMap
 export type Pages = Types.Pages
 export type KeyInfo = Types.KeyInfo
 

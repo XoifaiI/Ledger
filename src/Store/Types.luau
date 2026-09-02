@@ -18,14 +18,18 @@
 local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
+local Lru = require("../Util/Lru")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
 local Reasons = require("../Core/Constants/Reasons")
 local LogTypes = require("../Record/Types")
+local Tally = require("../Layers/Tally")
 local LiveTypes = require("../Session/Types")
 
 type Future<T...> = Future.Future<T...>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
+type MemoryStoreWrapper = MemoryStoreWrapper.MemoryStoreWrapper
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
 type Reducer<S> = Shapes.Reducer<S>
@@ -96,6 +100,9 @@ export type Fields<D> = {
 	Reducer: Reducer<D>,
 	Wrapper: DataStoreWrapper,
 	TxWrapper: DataStoreWrapper,
+	Tallies: MemoryStoreWrapper?,
+	Recent: Lru.Lru<Tally.Recent>,
+	Bumped: number,
 	Initial: D,
 	Migrations: { Migration },
 	Handles: { [string]: boolean },
@@ -150,6 +157,7 @@ export type StoreImpl<D> = {
 	HandOver: (self: Store<D>, Key: string) -> (number, number),
 	HandBooked: (self: Store<D>, Key: string) -> (),
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
+	Kept: (self: Store<D>, Slot: string, Now: number) -> Tally.Recent,
 	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
 	ReapMarkers: (self: Store<D>) -> number,
 	Buried: (self: Store<D>, Key: string, Replaced: Record) -> (),
@@ -176,7 +184,7 @@ export type StoreImpl<D> = {
 	Edit: (self: Store<D>, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Transfer: (self: Store<D>, From: KeyLike, To: KeyLike, Amount: number, Id: string?) -> Future<boolean, Reason?>,
 	Bump: (self: Store<D>, Name: string, Field: string, Amount: number) -> Future<boolean, Reason?>,
-	Total: (self: Store<D>, Name: string, Field: string) -> Future<number?, Reason?>,
+	Total: (self: Store<D>, Name: string, Field: string, MaxAge: number?) -> Future<number?, Reason?>,
 	Reserve: (self: Store<D>, Key: KeyLike, Field: string, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
 	Confirm: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Release: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,

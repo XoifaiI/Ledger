@@ -109,6 +109,12 @@ local DataStoreService = table.freeze({
 	end,
 })
 
+local MemoryStoreService = table.freeze({
+	GetHashMap = function(_: any, Name: string): any
+		error(`Ledger under Zune: something asked for the real MemoryStore map '{Name}'. hand the store a hook instead`, 0)
+	end,
+})
+
 local Random = {}
 Random.__index = Random
 
@@ -139,6 +145,7 @@ local Services: { [string]: any } = {
 	RunService = RunService,
 	Players = Players,
 	DataStoreService = DataStoreService,
+	MemoryStoreService = MemoryStoreService,
 }
 
 local Game = table.freeze({

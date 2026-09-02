@@ -22,10 +22,13 @@ local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
 local Roblox = require("../Hooks/Roblox")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
+local Lru = require("../Util/Lru")
 local Ids = require("../Encode/Ids")
 local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
+local Shards = require("../Core/Constants/Shards")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
 local Compact = require("../Record/Compact")
@@ -62,6 +65,7 @@ local IDLE_EVERY = 4
 local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
+local RECENT_TALLIES = 256
 
 local TX_SUFFIX = "_Tx"
 
@@ -117,6 +121,11 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end
 
+	local Tallies = if Hook.Cache ~= nil then MemoryStoreWrapper.New(Shards.MAP, Turn, Hook) else nil
+	if Tallies == nil then
+		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards`)
+	end
+
 	local Layers: { Layer.Layer } = {}
 	for _, Feature in { Escrow.Layered, Booking.Layered, Tally.Layered } do
 		local Made = Feature(Config.Balance)
@@ -136,6 +145,9 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Reducer = WrapSystem(Base, Initial, Steps),
 		Wrapper = DataStoreWrapper.New(Config.Name, Turn, Hook),
 		TxWrapper = DataStoreWrapper.New(Marked, Turn, Hook),
+		Tallies = Tallies,
+		Recent = Lru.New(RECENT_TALLIES),
+		Bumped = 0,
 		Initial = Initial,
 		Migrations = Steps,
 		Handles = Handled,

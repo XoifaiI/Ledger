@@ -5,15 +5,17 @@
 
 	Windows: Every window Ledger keeps something for.
 
-	Windows in seconds, the longest hold a game may ask for, and the cap on one pass of background
-	work. Anything that follows from another window is derived here, and asserts hold the order they
-	have to keep.
+	Windows in seconds, the longest hold a game may ask for, how long a cached total is trusted, and
+	the cap on one pass of background work. Anything that follows from another window is derived
+	here, and asserts hold the order they have to keep.
 
 	Return type: A table of the windows in seconds, the longest hold a game may ask for, and the cap on one pass.
 	Example usage:
 		local Windows = require("./Windows")
 		if Now - At > Windows.PRUNE then Drop() end
 --]=]
+
+local MemoryStore = require("./MemoryStore")
 
 local DAY = 86400
 local HOUR = 3600
@@ -31,6 +33,9 @@ local LEG = 30
 local POLL = 5
 local SWEEP = MINUTE
 local AUTOSAVE = 30
+local TALLY_CACHE = MINUTE
+local TALLY_CLAIM = 15
+local TALLY_KEEP = 10 * MINUTE
 
 local TOMB = REDRIVE + EXPIRE_MARGIN
 local ONCE_MARGIN = REDRIVE
@@ -60,6 +65,12 @@ assert(
 	BUCKET < REAP_GRACE,
 	"a cleanup list key has to stop being written to before a reaper may judge it, or a name added late lands on a key the reaper has already emptied and its marker is left with nothing pointing at it"
 )
+assert(
+	TALLY_CLAIM > 0 and TALLY_CLAIM < TALLY_CACHE,
+	"a claim on refilling a total has to run out well inside the window the total is trusted for, or a crashed refiller leaves it stale for longer than the window promises"
+)
+assert(TALLY_KEEP > TALLY_CACHE + TALLY_CLAIM, "a stale total has to outlive the claim on it, or there is nothing to answer while one server refills it")
+assert(TALLY_KEEP <= MemoryStore.MAX_EXPIRY, "a cached total cannot be kept longer than a MemoryStore item may live")
 
 return table.freeze({
 	PRUNE = PRUNE,
@@ -74,6 +85,9 @@ return table.freeze({
 	POLL = POLL,
 	SWEEP = SWEEP,
 	AUTOSAVE = AUTOSAVE,
+	TALLY_CACHE = TALLY_CACHE,
+	TALLY_CLAIM = TALLY_CLAIM,
+	TALLY_KEEP = TALLY_KEEP,
 
 	TOMB = TOMB,
 	ONCE_MARGIN = ONCE_MARGIN,

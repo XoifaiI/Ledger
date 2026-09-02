@@ -142,7 +142,7 @@ declare namespace Ledger {
 		PeekVersion(key: KeyLike, version: string): Future<[D | undefined, Reason | undefined]>;
 		Transfer(from: KeyLike, to: KeyLike, amount: number, id?: string): Future<[boolean, Reason | undefined]>;
 		Bump(name: string, field: NumberKeys<D>, amount: number): Future<[boolean, Reason | undefined]>;
-		Total(name: string, field: NumberKeys<D>): Future<[number | undefined, Reason | undefined]>;
+		Total(name: string, field: NumberKeys<D>, maxAge?: number): Future<[number | undefined, Reason | undefined]>;
 		Reserve(key: KeyLike, field: NumberKeys<D>, amount: number, id: string, options?: HoldOptions): Future<[boolean, Reason | undefined]>;
 		Confirm(key: KeyLike, id: string): Future<[boolean, Reason | undefined]>;
 		Release(key: KeyLike, id: string): Future<[boolean, Reason | undefined]>;

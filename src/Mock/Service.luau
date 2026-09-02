@@ -5,9 +5,12 @@
 
 	Service: The service half of the fake datastore.
 
-	It hands out stores by name and scope, and holds this server's request budget. The budget refills
-	against the scheduler's clock, so a run that owns its clock owns the refill too. Conflicts counts
-	the writes that met on one key and had to run their transform again.
+	It hands out stores by name and scope and hash maps by name, and holds this server's request
+	budget and the experience's MemoryStore units. The budget refills against the scheduler's clock,
+	so a run that owns its clock owns the refill too. A datastore call short of budget queues, and a
+	MemoryStore call short of units is refused at once, since that is what each service does.
+	Conflicts counts the writes that met on one key and had to run their transform again, and Units
+	counts every unit a map spent whether or not the quota is enforced.
 
 	Return type: A table with New.
 	Example usage:
@@ -19,7 +22,9 @@ local Engine = require("../Util/Engine")
 local Roblox = require("../Schedulers/Roblox")
 
 local Datastore = require("../Core/Constants/Datastore")
+local MemoryStore = require("../Core/Constants/MemoryStore")
 local Budget = require("./Budget")
+local HashMap = require("./HashMap")
 local Store = require("./Store")
 local Types = require("./Types")
 
@@ -27,12 +32,23 @@ type Service = Types.Service
 type Options = Types.Options
 type Lane = Types.Lane
 
+local UNITS = "m\0units"
+
 local function CheckName(Name: string)
 	if type(Name) ~= "string" or #Name == 0 then
 		error("Ledger mock: a datastore name must be a non empty string", 0)
 	end
 	if #Name > Datastore.MAX_NAME then
 		error(`Ledger mock: datastore name exceeds the {Datastore.MAX_NAME} character limit`, 0)
+	end
+end
+
+local function CheckMapName(Name: string)
+	if type(Name) ~= "string" or #Name == 0 then
+		error("Ledger mock: a MemoryStore map name must be a non empty string", 0)
+	end
+	if #Name > MemoryStore.MAX_NAME then
+		error(`Ledger mock: MemoryStore map name exceeds the {MemoryStore.MAX_NAME} character limit`, 0)
 	end
 end
 
@@ -45,10 +61,12 @@ function Service.New(Options: Options?, Scheduler: Engine.Scheduler?): Service
 	return setmetatable({
 		Scheduler = Scheduler or Roblox.New(),
 		Stores = {},
+		Maps = {},
 		Tokens = {},
 		Filled = {},
 		Queued = 0,
 		Conflicts = 0,
+		Units = 0,
 		Players = Players,
 		CCU = Config.CCU or Players,
 		Throttled = Config.Throttled ~= false,
@@ -124,6 +142,19 @@ function Service.Spend(self: Service, Kind: Enum.DataStoreRequestType)
 	self:Await(self:LanesFor(Kind), 1)
 end
 
+function Service.Charge(self: Service, Cost: number)
+	self.Units += Cost
+	if not self.Throttled then
+		return
+	end
+
+	local Lanes: { Lane } = { { Id = UNITS, Cap = MemoryStore.QUOTA_BASE + MemoryStore.QUOTA_PER_USER * self.CCU } }
+	if not self:Ready(Lanes, Cost) then
+		error(`Ledger mock: {MemoryStore.THROTTLED}`, 0)
+	end
+	self:Take(Lanes, Cost)
+end
+
 function Service.Carry(self: Service, Way: string, Store: string, Key: string, Bytes: number)
 	if not self.Throttled or Bytes <= 0 then
 		return
@@ -135,10 +166,12 @@ end
 
 function Service.Clear(self: Service)
 	table.clear(self.Stores)
+	table.clear(self.Maps)
 	table.clear(self.Tokens)
 	table.clear(self.Filled)
 	self.Queued = 0
 	self.Conflicts = 0
+	self.Units = 0
 end
 
 function Service.GetDataStore(self: Service, Name: string, Scope: string?): Types.Store
@@ -157,6 +190,19 @@ function Service.GetDataStore(self: Service, Name: string, Scope: string?): Type
 
 	local Fresh = Store.New(Name, Where, self)
 	self.Stores[Id] = Fresh
+	return Fresh
+end
+
+function Service.GetHashMap(self: Service, Name: string): Types.HashMap
+	CheckMapName(Name)
+
+	local Found = self.Maps[Name]
+	if Found ~= nil then
+		return Found
+	end
+
+	local Fresh = HashMap.New(Name, self)
+	self.Maps[Name] = Fresh
 	return Fresh
 end
 

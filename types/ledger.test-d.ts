@@ -39,6 +39,7 @@ export type WaitIsColonCalled = Expect<Equal<ThisParameterType<Ledger.Future<[bo
 export type ReadAnswersTheState = Expect<Equal<ReturnType<Ledger.Store<Profile>["Read"]>, Profile | undefined>>;
 export type PeekAnswersAValueAndAReason = Expect<Equal<ReturnType<Ledger.Store<Profile>["Peek"]>, Ledger.Future<[Profile | undefined, Ledger.Reason | undefined]>>>;
 export type NumberKeysNamesTheNumbers = Expect<Equal<Ledger.NumberKeys<Profile>, "Gold">>;
+export type TotalTakesAnOptionalAge = Expect<Equal<Parameters<Ledger.Store<Profile>["Total"]>, [name: string, field: "Gold", maxAge?: number | undefined]>>;
 export type OpenOpIsTheDefault = Expect<Equal<Ledger.Op, Ledger.OpenOp>>;
 export type OpOfNamesOneKind = Expect<Equal<Ledger.OpOf<Ops, "Buy">["Kind"], "Buy">>;
 export type OpUnionHasEveryKind = Expect<Equal<Ledger.Op<Ops>["Kind"], "Buy" | "Sell" | "AddGold" | "Ping">>;

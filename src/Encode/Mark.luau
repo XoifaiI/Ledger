@@ -7,17 +7,24 @@
 
 	Each part carries its own length in front of it, so a delimiter byte inside a part cannot break
 	the read. Of and Split are the pair for one mark, Pack and Unpack for a list of them. Anything
-	that does not carry its length reads back as nothing.
+	that does not carry its length reads back as nothing. Cached is the form a MemoryStore key takes:
+	every part's length up front with a printable separator, since a MemoryStore key holds no byte
+	below a space, then the parts, and a digest once it would pass the cap. A digest holds no
+	separator, so it cannot read as a mark.
 
-	Return type: A table with Of, Split, Pack and Unpack.
+	Return type: A table with Of, Split, Pack, Unpack and Cached.
 	Example usage:
 		local Mark = require("./Mark")
 		local Held = Mark.Of("Players", "1")
 		local Store, Key = Mark.Split(Held)
 --]=]
 
+local MemoryStore = require("../Core/Constants/MemoryStore")
+local Digest = require("./Digest")
+
 local FIELD = "\0"
 local LIST = "\1"
+local CACHE = ":"
 
 local ZERO = 48
 local NINE = 57
@@ -107,9 +114,23 @@ local function Unpack(Packed: string): { string }
 	return Parts
 end
 
+local function Cached(Parts: { string }): string
+	local Heads: { string } = table.create(#Parts) :: { string }
+	for Index, Part in Parts do
+		Heads[Index] = `{#Part}`
+	end
+
+	local Held = `{table.concat(Heads, CACHE)}{CACHE}{table.concat(Parts)}`
+	if #Held <= MemoryStore.MAX_KEY then
+		return Held
+	end
+	return Digest.Of(Held)
+end
+
 return table.freeze({
 	Of = Of,
 	Split = Split,
 	Pack = Pack,
 	Unpack = Unpack,
+	Cached = Cached,
 })

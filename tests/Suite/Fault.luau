@@ -152,6 +152,7 @@ local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler): Faulted
 	return table.freeze({
 		Service = Hook.Service,
 		Budget = Hook.Budget,
+		Cache = Hook.Cache,
 
 		Open = function(Name: string): Engine.Store
 			return Proxy(Specs, Scheduler, Name, Hook.Open(Name))

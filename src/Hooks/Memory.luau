@@ -3,10 +3,10 @@
 
 --[=[
 
-	Memory: The datastore Ledger writes to in a test.
+	Memory: The datastore and the MemoryStore Ledger writes to in a test.
 
 	The mock behind the shape the real one takes, so a store cannot tell which it was handed. Two
-	hooks over one service are two servers on one datastore.
+	hooks over one service are two servers on one datastore and one MemoryStore.
 
 	Return type: A table with New. The type is Memory.
 	Example usage:
@@ -21,6 +21,7 @@ local Roblox = require("../Schedulers/Roblox")
 export type Memory = {
 	read Open: (Name: string) -> Engine.Store,
 	read Budget: (Kind: Enum.DataStoreRequestType) -> number,
+	read Cache: (Name: string) -> Engine.Map,
 	read Service: Mock.Service,
 }
 
@@ -37,6 +38,10 @@ local function New(Scheduler: Engine.Scheduler?, Options: Mock.Options?, Shared:
 
 		Budget = function(Kind: Enum.DataStoreRequestType): number
 			return Service:GetRequestBudgetForRequestType(Kind)
+		end,
+
+		Cache = function(Name: string): Engine.Map
+			return Service:GetHashMap(Name) :: any
 		end,
 	})
 end

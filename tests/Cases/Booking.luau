@@ -566,10 +566,11 @@ Cases.Case("a bump that carries no Default is counted like any other", function(
 	local Moved = Shelf.Store:Total("pot", "Gold"):Wait()
 
 	Shelf:Append(Shard, { { Id = "old:2", Kind = "__Bump", Field = "Gold", Amount = 7 } :: any })
+	T:Advance(Suite.Horizons.TALLY_CACHE + 1)
 
 	T:Is("a bump that names no Default, read on its own", Alone, 10)
 	T:Is("the tally once another bump lands on it", Moved, 15)
-	T:Is("a third bump landing after those two", Shelf.Store:Total("pot", "Gold"):Wait(), 22)
+	T:Is("a third bump landing after those two, once the cached sum has run out", Shelf.Store:Total("pot", "Gold"):Wait(), 22)
 end)
 
 Cases.Case("a reset says which reservations it destroyed", function(T: Case)
@@ -981,6 +982,7 @@ Cases.Case("a total refuses rather than under reporting when a shard cannot be r
 
 	T:Is("the total while every shard is readable", (Shelf.Store:Total("part", "Gold"):Wait()), 30)
 
+	T:Advance(Suite.Horizons.TALLY_CACHE + 1)
 	Shelf:Fault(Fault.Reads():OnKey(Tally.Shard("part", 0)))
 	Shelf:NoRetries()
 	local Sum, Why = Shelf.Store:Total("part", "Gold"):Wait()

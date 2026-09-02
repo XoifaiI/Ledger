@@ -84,7 +84,7 @@ type StoreCommon<D, F> = {
 	PeekVersion: (self: any, Key: KeyLike, Version: string) -> Future<D?, Reason?>,
 	Transfer: (self: any, From: KeyLike, To: KeyLike, Amount: number, Id: string?) -> Future<boolean, Reason?>,
 	Bump: (self: any, Name: string, Field: F, Amount: number) -> Future<boolean, Reason?>,
-	Total: (self: any, Name: string, Field: F) -> Future<number?, Reason?>,
+	Total: (self: any, Name: string, Field: F, MaxAge: number?) -> Future<number?, Reason?>,
 	Reserve: (self: any, Key: KeyLike, Field: F, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
 	Confirm: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Release: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,

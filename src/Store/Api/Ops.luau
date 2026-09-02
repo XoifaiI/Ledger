@@ -7,9 +7,13 @@
 
 	Edit, Reserve, Confirm, Release and Bump each check their arguments, build one op and hand it to
 	Written. Transfer, Grant and Tx are the ones that touch more than one key, so they run a protocol
-	instead and add the keys to the sweep if they cannot finish.
+	instead and add the keys to the sweep if they cannot finish. A total is read from the MemoryStore
+	cache while the sum there is inside its window. Once it is stale, one server claims the refill
+	and reads the shards while every other server answers the stale sum, so the minute never turns
+	into every server reading every shard at once. A bump writes nothing to MemoryStore: this server
+	lays its own bumps over whatever sum it answers, and other servers see them at the next refill.
 
-	Return type: An empty table. It writes Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, TallyName, Bump, Total and Tx onto the class.
+	Return type: An empty table. It writes Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, TallyName, Kept, Bump, Total and Tx onto the class.
 	Example usage:
 		local Ops = require("./Ops")
 		local Ok, Why = self:Edit(1, "Add", { Amount = 5 }):Wait()
@@ -65,6 +69,55 @@ local Failed = Write.Failed
 
 local function Rejected(Why: Reason?): Future<boolean, Reason?>
 	return Future.Completed(false, Why)
+end
+
+local function Trimmed(Held: Tally.Recent, Now: number)
+	local Floor = Now - Windows.TALLY_KEEP
+	local Bumps = Held.Bumps
+	local Kept = 0
+	for _, Bucket in Bumps do
+		if Bucket.At >= Floor then
+			Kept += 1
+			Bumps[Kept] = Bucket
+		end
+	end
+	for Index = #Bumps, Kept + 1, -1 do
+		Bumps[Index] = nil
+	end
+end
+
+local function Over(Held: Tally.Recent): number
+	local Mark = Held.Mark
+	local Sum = 0
+	for _, Bucket in Held.Bumps do
+		if if Mark ~= nil then Bucket.Seq > Mark else Bucket.At > Held.At then
+			Sum += Bucket.Amount
+		end
+	end
+	return Sum
+end
+
+local function Bumped(Held: Tally.Recent, Seq: number, Now: number, Amount: number)
+	local Bumps = Held.Bumps
+	local Last = Bumps[#Bumps]
+	local Mark = Held.Mark
+	if Last ~= nil and Last.At == Now and (Mark == nil or Last.Seq > Mark) then
+		Last.Amount += Amount
+		return
+	end
+	table.insert(Bumps, { Seq = Seq, At = Now, Amount = Amount })
+end
+
+local function Remember(Held: Tally.Recent, Sum: number, At: number, Seen: number, Mark: number?): number
+	Held.Sum = Sum
+	Held.At = At
+	Held.Seen = Seen
+	Held.Mark = if Mark ~= nil then Mark elseif At == Held.OwnAt then Held.OwnMark else nil
+	if Mark ~= nil then
+		Held.OwnAt = At
+		Held.OwnMark = Mark
+	end
+	return Sum + Over(Held)
 end
 
 function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
@@ -253,6 +306,17 @@ function Store.TallyName(self: Store, Name: any, Field: any, What: string): stri
 	return Name
 end
 
+function Store.Kept(self: Store, Slot: string, Now: number): Tally.Recent
+	local Held = self.Recent:Get(Slot)
+	if Held ~= nil then
+		Trimmed(Held, Now)
+		return Held
+	end
+
+	local Fresh: Tally.Recent = { Sum = 0, At = 0, Seen = 0, Bumps = {} }
+	return self.Recent:Put(Slot, Fresh)
+end
+
 function Store.Bump(self: Store, Name: string, Field: string, Amount: number): Future<boolean, Reason?>
 	self:TallyName(Name, Field, "Bump")
 	assert(
@@ -262,16 +326,56 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 
 	local Key = Tally.Shard(Name, Tally.Mine(self.Node))
 	local Op = Tally.Bump(Field, Amount)
+	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field)
 
 	return Future.New(function(): (boolean, Reason?)
-		return self:Written(Key, Op, `add {Amount} to '{Name}'`)
+		local Ok, Why = self:Written(Key, Op, `add {Amount} to '{Name}'`)
+		if Ok then
+			local Now = Clock.Now()
+			local Held = self:Kept(Slot, Now)
+			self.Bumped += 1
+			Bumped(Held, self.Bumped, Now, Amount)
+		end
+		return Ok, Why
 	end)
 end
 
-function Store.Total(self: Store, Name: string, Field: string): Future<number?, Reason?>
+function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?): Future<number?, Reason?>
 	self:TallyName(Name, Field, "Total")
+	assert(MaxAge == nil or (type(MaxAge) == "number" and MaxAge >= 0 and MaxAge < math.huge), `Total MaxAge must be a number of seconds when given, got {tostring(MaxAge)}`)
+
+	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field)
 
 	return Future.New(function(): (number?, Reason?)
+		local Now = Clock.Now()
+		local Held = self:Kept(Slot, Now)
+		if MaxAge ~= nil and Held.Seen > 0 and Now - Held.Seen <= MaxAge then
+			return Held.Sum + Over(Held), nil
+		end
+
+		local Tallies = self.Tallies
+		if Tallies ~= nil then
+			local Read, Value = Tallies:GetAsync(Slot)
+			local Item = if Read then Tally.Read(Value) else nil
+			if Item ~= nil then
+				if Tally.Fresh(Item, Now) or Tally.Claimed(Item, Now) then
+					return Remember(Held, Item.Sum, Item.At, Now), nil
+				end
+
+				local Won, Claim = Tallies:UpdateAsync(Slot, function(Current: any): any
+					local Stale = Tally.Read(Current)
+					if Stale == nil or Tally.Fresh(Stale, Now) or Tally.Claimed(Stale, Now) then
+						return nil
+					end
+					return { Sum = Stale.Sum, At = Stale.At, Claimed = Now }
+				end, Windows.TALLY_KEEP)
+				if not Won or Claim == nil then
+					return Remember(Held, Item.Sum, Item.At, Now), nil
+				end
+			end
+		end
+
+		local Mark = self.Bumped
 		local Sum = 0
 		for _, Key in Tally.Keys(Name) do
 			local Ok, State = pcall(function(): any
@@ -283,7 +387,17 @@ function Store.Total(self: Store, Name: string, Field: string): Future<number?, 
 
 			Sum += Tally.Counted(State, Field)
 		end
-		return Sum, nil
+
+		if Tallies ~= nil then
+			Tallies:UpdateAsync(Slot, function(Current: any): any
+				local Newer = Tally.Read(Current)
+				if Newer ~= nil and Newer.At > Now then
+					return nil
+				end
+				return { Sum = Sum, At = Now }
+			end, Windows.TALLY_KEEP)
+		end
+		return Remember(Held, Sum, Now, Now, Mark), nil
 	end)
 end
 
