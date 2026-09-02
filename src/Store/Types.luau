@@ -6,7 +6,7 @@
 	Types: The store declarations.
 
 	These are private to this folder. This file holds declarations, and never logic. Swept is the store
-	as the sweep sees it: five plain functions carrying no self, the same shape the scheduler and the
+	as the sweep sees it: six plain functions carrying no self, the same shape the scheduler and the
 	hook take.
 
 	Return type: An empty table. The types are Allow, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Fields, StoreImpl and Store.
@@ -25,6 +25,7 @@ local Api = require("../Core/Api")
 local Reasons = require("../Core/Constants/Reasons")
 local LogTypes = require("../Record/Types")
 local Tally = require("../Layers/Tally")
+local TxTypes = require("../Protocol/Tx/Types")
 local LiveTypes = require("../Session/Types")
 
 type Future<T...> = Future.Future<T...>
@@ -45,12 +46,15 @@ type Session<S> = LiveTypes.Session<S>
 
 export type Allow = (Record) -> boolean
 
+export type Claimed = TxTypes.Claimed
+
 export type Swept = {
 	read Mark: (Key: string) -> string,
 	read Affords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	read TxAffords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	read Repair: (Key: string) -> (boolean, boolean),
 	read ReapMarkers: () -> number,
+	read Claim: (Key: string, Ttl: number) -> Claimed,
 }
 
 export type Stranded = { Store: Swept, Key: string, Tries: number }
@@ -101,6 +105,7 @@ export type Fields<D> = {
 	Wrapper: DataStoreWrapper,
 	TxWrapper: DataStoreWrapper,
 	Tallies: MemoryStoreWrapper?,
+	Leases: MemoryStoreWrapper?,
 	Recent: Lru.Lru<Tally.Recent>,
 	Bumped: number,
 	Initial: D,
@@ -158,6 +163,8 @@ export type StoreImpl<D> = {
 	HandBooked: (self: Store<D>, Key: string) -> (),
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
 	Kept: (self: Store<D>, Slot: string, Now: number) -> Tally.Recent,
+	Leased: (self: Store<D>, Targets: { { Name: string, Key: string } }) -> ({ () -> () }, boolean),
+	Claim: (self: Store<D>, Key: string, Ttl: number) -> Claimed,
 	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
 	ReapMarkers: (self: Store<D>) -> number,
 	Buried: (self: Store<D>, Key: string, Replaced: Record) -> (),

@@ -5,9 +5,9 @@
 
 	Windows: Every window Ledger keeps something for.
 
-	Windows in seconds, the longest hold a game may ask for, how long a cached total is trusted, and
-	the cap on one pass of background work. Anything that follows from another window is derived
-	here, and asserts hold the order they have to keep.
+	Windows in seconds, the longest hold a game may ask for, how long a cached total is trusted,
+	how long a lease on a transaction's keys lasts, and the cap on one pass of background work. Anything
+	that follows from another window is derived here, and asserts hold the order they have to keep.
 
 	Return type: A table of the windows in seconds, the longest hold a game may ask for, and the cap on one pass.
 	Example usage:
@@ -36,6 +36,8 @@ local AUTOSAVE = 30
 local TALLY_CACHE = MINUTE
 local TALLY_CLAIM = 15
 local TALLY_KEEP = 10 * MINUTE
+local TX_LEASE = 10
+local PASS_LEASE = SWEEP
 
 local TOMB = REDRIVE + EXPIRE_MARGIN
 local ONCE_MARGIN = REDRIVE
@@ -71,6 +73,11 @@ assert(
 )
 assert(TALLY_KEEP > TALLY_CACHE + TALLY_CLAIM, "a stale total has to outlive the claim on it, or there is nothing to answer while one server refills it")
 assert(TALLY_KEEP <= MemoryStore.MAX_EXPIRY, "a cached total cannot be kept longer than a MemoryStore item may live")
+assert(
+	PASS_LEASE >= SWEEP and PASS_LEASE < REAP_GRACE,
+	"a shard walked or a key repaired stays held through the next pass, or every server repeats the work, and runs out well inside the grace a settled marker waits, or the shard stalls for longer than the marker waits to be judged"
+)
+assert(TX_LEASE > 0 and TX_LEASE < LEG, "a lease on a transaction's keys has to run out before the legs a crashed holder parked would, or the lease blocks a key for longer than the marker does")
 
 return table.freeze({
 	PRUNE = PRUNE,
@@ -88,6 +95,8 @@ return table.freeze({
 	TALLY_CACHE = TALLY_CACHE,
 	TALLY_CLAIM = TALLY_CLAIM,
 	TALLY_KEEP = TALLY_KEEP,
+	TX_LEASE = TX_LEASE,
+	PASS_LEASE = PASS_LEASE,
 
 	TOMB = TOMB,
 	ONCE_MARGIN = ONCE_MARGIN,

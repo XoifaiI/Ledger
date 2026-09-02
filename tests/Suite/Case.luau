@@ -5,13 +5,14 @@
 
 	Case: One rule, its bench, and everything it is allowed to say.
 
-	A case gets a world of its own: a fresh datastore, a clock starting at the same second, no faults
-	until it asks for some, and a warn that is recorded rather than printed. The datastore is the mock
-	src ships and the clock is the scheduler src ships. The case body runs as a thread on that
+	A case gets a world of its own: a fresh datastore and MemoryStore, a clock starting at the same
+	second, no faults until it asks for some, and a warn that is recorded rather than printed. Both are
+	the mock src ships and the clock is the scheduler src ships. The case body runs as a thread on that
 	scheduler and the bench steps it, so a case crossing a thirty day horizon costs what its work
-	costs. Closing takes down every store this server holds.
+	costs. Closing takes down every store this server holds. UseCache runs every bench after it with
+	the MemoryStore absent or failing every call, which is how the suite proves nothing leans on it.
 
-	Return type: A table with Open, Close, Judge and Heard, and the names a bench builds under. The types are Case, Spec and Entry.
+	Return type: A table with Open, Close, Judge, Heard and UseCache, and the names a bench builds under. The types are Case, Spec, Entry and CacheMode.
 	Example usage:
 		local Bank = T:Bank()
 		T:Is("gold after the transfer", Bank:Amount("a"), 50)
@@ -19,6 +20,8 @@
 
 local Fixture = require("./Fixture")
 local Reducers = require("./Reducers")
+
+local Engine = require("../../src/Util/Engine")
 
 local Ledger = require("../../src") :: any
 local Sizes = require("../../src/Core/Constants/Sizes")
@@ -35,6 +38,8 @@ export type Entry = {
 	Says: string,
 	Count: number,
 }
+
+export type CacheMode = "absent" | "failing"
 
 local Spoken: { Entry } = {}
 
@@ -130,6 +135,51 @@ Case.__index = Case
 Registry.Sweep():Stop()
 
 local Claimed = 0
+local CacheMode: CacheMode? = nil
+
+local function Down(): any
+	error("Ledger memory hook: the MemoryStore is failing every call", 0)
+end
+
+local BROKEN: Engine.Map = table.freeze({
+	GetAsync = function(_: any, _Key: string): any
+		return Down()
+	end,
+	SetAsync = function(_: any, _Key: string, _Value: any, _Expiry: number): any
+		return Down()
+	end,
+	UpdateAsync = function(_: any, _Key: string, _Transform: (any) -> any, _Expiry: number): any
+		return Down()
+	end,
+	RemoveAsync = function(_: any, _Key: string)
+		Down()
+	end,
+})
+
+local function Hooked(Turn: Virtual.Virtual, Service: Mock.Service): Fault.Faulted
+	local Held = Memory.New(Turn, nil, Service)
+	if CacheMode == "absent" then
+		local Bare: any = { Open = Held.Open, Budget = Held.Budget, Service = Held.Service }
+		return Fault.Wrap(Bare, Turn)
+	end
+	if CacheMode == "failing" then
+		local Broken: any = {
+			Open = Held.Open,
+			Budget = Held.Budget,
+			Service = Held.Service,
+			Cache = function(_Name: string): Engine.Map
+				return BROKEN
+			end,
+		}
+		return Fault.Wrap(Broken, Turn)
+	end
+	return Fault.Wrap(Held, Turn)
+end
+
+local function UseCache(Mode: CacheMode?)
+	assert(Mode == nil or Mode == "absent" or Mode == "failing", `the cache can run as it is, absent or failing, not '{tostring(Mode)}'`)
+	CacheMode = Mode
+end
 
 local function Quicken(Wrapper: any)
 	Wrapper.Attempts = 3
@@ -168,7 +218,7 @@ function Case.Open(Name: string): Case
 		Turn = Turn,
 		Broken = {},
 		Service = Service,
-		Hook = Fault.Wrap(Memory.New(Turn, nil, Service), Turn),
+		Hook = Hooked(Turn, Service),
 		Built = {},
 		Records = Spoken,
 		Expect = {},
@@ -241,7 +291,7 @@ function Case.Store(self: Case, Held: Spec): Fixture.Fixture
 	local Node = Held.Node or NODE
 
 	local Turn = self.Turn
-	local Hook = Fault.Wrap(Memory.New(Turn, nil, self.Service), Turn)
+	local Hook = Hooked(Turn, self.Service)
 	local Built = Ledger.New({
 		Name = `V2case{Claimed}`,
 		Hook = Hook,
@@ -496,6 +546,7 @@ return table.freeze({
 	Open = Case.Open,
 	Close = Case.Close,
 	Heard = Catch,
+	UseCache = UseCache,
 	Drive = Case.Drive,
 	Judge = Case.Judge,
 

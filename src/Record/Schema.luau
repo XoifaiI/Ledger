@@ -42,7 +42,7 @@ local function Bookkeeping(Snapshot: any): { [string]: any }?
 	for Key, Value in Snapshot do
 		if type(Key) == "string" and Storable.Bookkeeping(Key) then
 			Kept = Kept or {}
-			;(Kept :: { [string]: any })[Key] = Value
+			(Kept :: { [string]: any })[Key] = Value
 		end
 	end
 	return Kept
@@ -67,9 +67,7 @@ local function Restored(Snapshot: any, Kept: { [string]: any }?, Index: number):
 		if TableUtil.DeepEqual(Theirs, Value) then
 			continue
 		end
-		warn(
-			`Ledger: migration {Index} dropped Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`
-		)
+		warn(`Ledger: migration {Index} dropped Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`)
 	end
 	return Next
 end

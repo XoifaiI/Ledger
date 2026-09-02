@@ -6,7 +6,7 @@
 	Shared: What each other half of the store needs first.
 
 	Resolving a key and saying what a key may look like, the log and the schema this store folds with,
-	the request budget, and the five plain functions the sweep sees a store as. The log handle is kept
+	the request budget, and the six plain functions the sweep sees a store as. The log handle is kept
 	against the wrapper that built it.
 
 	Return type: An empty table. It writes Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Affords, TxAffords, Swept, Records, Format, Fold and ReadRecord onto the class.
@@ -97,6 +97,9 @@ function Store.Swept(self: Store): Types.Swept
 		end,
 		ReapMarkers = function(): number
 			return self:ReapMarkers()
+		end,
+		Claim = function(Key: string, Ttl: number): Types.Claimed
+			return self:Claim(Mark.Cached({ "sweep", self.Wrapper.Name, Key }), Ttl)
 		end,
 	})
 	self.Sweeping = Held

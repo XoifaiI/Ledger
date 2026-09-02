@@ -108,9 +108,7 @@ function Store.Swelling(self: Store, Key: string, Record: Record)
 		break
 	end
 
-	warn(
-		`Ledger: '{Key}' holds {#Record.Ops} ops it cannot compact away while {Blocking} is parked on it. it keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`
-	)
+	warn(`Ledger: '{Key}' holds {#Record.Ops} ops it cannot compact away while {Blocking} is parked on it. it keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`)
 
 	Meter.Swollen = 0
 	Meter.Said = Now

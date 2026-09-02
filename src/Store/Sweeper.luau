@@ -144,9 +144,17 @@ function Sweeper.Pass(self: Sweeper)
 			continue
 		end
 
+		local Claim = Entry.Store.Claim(Entry.Key, Windows.PASS_LEASE)
+		if Claim.Outcome == "Held" then
+			continue
+		end
+
 		local Ok, Clean, Moved = pcall(function(): (boolean, boolean)
 			return Entry.Store.Repair(Entry.Key)
 		end)
+		if Claim.Outcome == "Taken" and not Ok then
+			Claim.Release()
+		end
 		if Ok and Clean then
 			self:Drop(Mark)
 			continue

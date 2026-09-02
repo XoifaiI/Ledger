@@ -119,9 +119,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 		local At = Escrowed.At
 		if At ~= nil and Clock.Now() - At > Windows.REDRIVE then
-			warn(
-				`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again. recovery owns it now and this call left it alone. it is finished or given back on its own`
-			)
+			warn(`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again. recovery owns it now and this call left it alone. it is finished or given back on its own`)
 			return Stopped(HELD)
 		end
 

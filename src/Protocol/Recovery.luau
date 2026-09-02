@@ -122,9 +122,7 @@ local function Unreadable(Booked: any, Key: string)
 		if Booking.Entry(Booked, Rid) ~= nil then
 			continue
 		end
-		warn(
-			`Ledger: '{Key}' holds a reservation named '{tostring(Rid)}' that Ledger cannot read. nothing will settle it and its units stay held. check the audit log and put them back by hand`
-		)
+		warn(`Ledger: '{Key}' holds a reservation named '{tostring(Rid)}' that Ledger cannot read. nothing will settle it and its units stay held. check the audit log and put them back by hand`)
 	end
 end
 

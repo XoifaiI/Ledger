@@ -7,9 +7,11 @@
 
 	File collects the cases of one file, and Run gives each a bench of its own, runs it, takes the
 	bench down and collects what broke. A case that breaks several checks reports them all. Cases run
-	in the order they are written, and a filter runs only the ones whose name holds a fragment.
+	in the order they are written, a filter runs only the ones whose name holds a fragment, and a file
+	tagged with something in Skip is left out, which is how the cache cases stay out of a run whose
+	cache is absent or failing.
 
-	Return type: A table with File, Run, Heard, Fault, Reducers, Reasons and Horizons.
+	Return type: A table with File, Run, Heard, Cache, Fault, Reducers, Reasons and Horizons.
 	Example usage:
 		local Cases = Suite.File("Once")
 		Cases.Case("a replay under the same name changes nothing", function(T) end)
@@ -73,7 +75,20 @@ export type Report = {
 
 export type Options = {
 	Match: string?,
+	Skip: { string }?,
 }
+
+local function Skipped(Book: File, Skip: { string }?): boolean
+	if Skip == nil then
+		return false
+	end
+	for _, Tag in Book.Tags do
+		if table.find(Skip, Tag) ~= nil then
+			return true
+		end
+	end
+	return false
+end
 
 local function Wanted(File: string, Named: string, Match: string?): boolean
 	if Match == nil or Match == "" then
@@ -92,6 +107,9 @@ local function Run(Files: { File }, Options: Options?): Report
 	local Ran, Failed = 0, 0
 
 	for _, Book in Files do
+		if Skipped(Book, Held.Skip) then
+			continue
+		end
 		for _, Written in Book.Cases do
 			if not Wanted(Book.Name, Written.Name, Held.Match) then
 				continue
@@ -141,6 +159,7 @@ return table.freeze({
 	File = File,
 	Run = Run,
 	Heard = Case.Heard,
+	Cache = Case.UseCache,
 
 	Fault = Fault,
 	Reducers = Reducers,

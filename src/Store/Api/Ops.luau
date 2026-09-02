@@ -12,8 +12,12 @@
 	and reads the shards while every other server answers the stale sum, so the minute never turns
 	into every server reading every shard at once. A bump writes nothing to MemoryStore: this server
 	lays its own bumps over whatever sum it answers, and other servers see them at the next refill.
+	A transaction leases each of its keys in MemoryStore before it drives, in one fixed order so two
+	coordinators cannot wait on each other, and lets go on every exit. A lease only orders who tries:
+	the marker still decides, a lease that cannot be taken or read means drive as today, and a lease
+	somebody else holds is waited on a few short moments and then driven past into today's Busy.
 
-	Return type: An empty table. It writes Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, TallyName, Kept, Bump, Total and Tx onto the class.
+	Return type: An empty table. It writes Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, TallyName, Kept, Bump, Total, Leased, Claim and Tx onto the class.
 	Example usage:
 		local Ops = require("./Ops")
 		local Ok, Why = self:Edit(1, "Add", { Amount = 5 }):Wait()
@@ -35,6 +39,7 @@ local Kinds = require("../../Core/Constants/Kinds")
 local Booking = require("../../Layers/Booking")
 local Shards = require("../../Core/Constants/Shards")
 local Datastore = require("../../Core/Constants/Datastore")
+local Mark = require("../../Encode/Mark")
 local Tally = require("../../Layers/Tally")
 local Transfer = require("../../Protocol/Transfer")
 local Transactions = require("../../Core/Constants/Transactions")
@@ -191,9 +196,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 				return nil
 			end
 
-			warn(
-				`Ledger: booking '{Rid}' on '{Resolved}' was used before and its units have gone, so nothing was set aside. that name cannot be used again, pick a new one`
-			)
+			warn(`Ledger: booking '{Rid}' on '{Resolved}' was used before and its units have gone, so nothing was set aside. that name cannot be used again, pick a new one`)
 			return SPENT
 		end)
 	end)
@@ -253,10 +256,7 @@ function Store.Handed(self: Store, Key: string, Rid: string, Held: Shapes.Booked
 
 	local Ruling = Booking.Granted(self:Fold(Landed), Rid, Print)
 	if Ruling == Tags.OTHER then
-		Errors.Raise(
-			SPENT,
-			`'{To}' already took a booking named {Rid} from somewhere else. nothing was handed over, release this one and pick a new name`
-		)
+		Errors.Raise(SPENT, `'{To}' already took a booking named {Rid} from somewhere else. nothing was handed over, release this one and pick a new name`)
 	end
 	if Ruling ~= Tags.SAME then
 		Errors.Raise(HELD, `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`)
@@ -449,6 +449,73 @@ local function Follow(Targets: { LegTarget })
 	end
 end
 
+local function Freed(Taken: { () -> () })
+	for _, Release in Taken do
+		Release()
+	end
+end
+
+function Store.Leased(self: Store, Targets: { { Name: string, Key: string } }): ({ () -> () }, boolean)
+	local Taken: { () -> () } = {}
+	if self.Leases == nil or not self:Affords(Enum.DataStoreRequestType.UpdateAsync, Transactions.LEASE_BUDGET) then
+		return Taken, false
+	end
+
+	local Keys: { string } = table.create(#Targets) :: { string }
+	for Index, Target in Targets do
+		Keys[Index] = Mark.Cached({ "tx", Target.Name, Target.Key })
+	end
+	table.sort(Keys)
+
+	for _, Key in Keys do
+		local Claim = self:Claim(Key, Windows.TX_LEASE)
+		if Claim.Outcome == "Taken" then
+			table.insert(Taken, Claim.Release)
+			continue
+		end
+
+		Freed(Taken)
+		return {}, Claim.Outcome == "Held"
+	end
+	return Taken, false
+end
+
+function Store.Claim(self: Store, Key: string, Ttl: number): Types.Claimed
+	local Leases = self.Leases
+	if Leases == nil then
+		return { Outcome = "Unknown" }
+	end
+
+	local Node = self.Node
+	local Read, Holder = Leases:GetAsync(Key)
+	if not Read then
+		return { Outcome = "Unknown" }
+	end
+	if Holder ~= nil and Holder ~= Node then
+		return { Outcome = "Held" }
+	end
+
+	local Ok, Won = Leases:UpdateAsync(Key, function(Current: any): any
+		if Current ~= nil and Current ~= Node then
+			return nil
+		end
+		return Node
+	end, Ttl)
+
+	if not Ok then
+		return { Outcome = "Unknown" }
+	end
+	if Won == nil then
+		return { Outcome = "Held" }
+	end
+	return {
+		Outcome = "Taken",
+		Release = function()
+			Leases:RemoveAsync(Key)
+		end,
+	}
+end
+
 function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Reason?>
 	self:Live("Tx")
 	assert(
@@ -475,10 +542,21 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 
 	assert(#Mapped == #Legs and #Targets == #Legs, "a transaction ended up with a different number of legs than it was given")
 
+	local Leasing: { { Name: string, Key: string } } = table.create(#Legs) :: { { Name: string, Key: string } }
+	for Index, Target in Targets do
+		Leasing[Index] = { Name = Target.Store.Wrapper.Name, Key = Target.Key }
+	end
+
 	return Future.New(function(): (boolean, Reason?)
+		local Taken, Held = self:Leased(Leasing)
+		if Held then
+			return false, BUSY
+		end
+
 		local Ok, Committed, Why, Parked = pcall(function(): (boolean, Reason?, boolean)
 			return Tx.Drive(self.TxWrapper, Mapped, Id)
 		end)
+		Freed(Taken)
 
 		if not Ok then
 			warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)

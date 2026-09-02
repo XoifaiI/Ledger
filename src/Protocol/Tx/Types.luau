@@ -7,7 +7,7 @@
 
 	These are private to this folder. This file holds declarations, and never logic.
 
-	Return type: An empty table. The types are Status, Opened, Marker, Leg, Pass and Lookup.
+	Return type: An empty table. The types are Status, Opened, Marker, Leg, Pass, Lookup and Claimed.
 	Example usage:
 		local Types = require("./Types")
 		type Leg = Types.Leg
@@ -54,5 +54,7 @@ export type Pass = {
 }
 
 export type Lookup = (Name: string) -> LogTypes.Log?
+
+export type Claimed = { read Outcome: "Taken", read Release: () -> () } | { read Outcome: "Held" } | { read Outcome: "Unknown" }
 
 return table.freeze({})

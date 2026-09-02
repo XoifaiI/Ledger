@@ -25,7 +25,7 @@ local Tally = require("../../src/Layers/Tally")
 
 type Case = Suite.Case
 
-local Cases = Suite.File("Totals")
+local Cases = Suite.File("Totals", { "cache" })
 
 local Reducers = Suite.Reducers
 local Fault = Suite.Fault

@@ -24,7 +24,7 @@ local Mock = require("../../src/Mock")
 
 type Case = Suite.Case
 
-local Cases = Suite.File("Cached")
+local Cases = Suite.File("Cached", { "cache" })
 
 local MINUTE = 60
 
@@ -430,6 +430,32 @@ Cases.Case("the wrapper calls once, and keeps writes to one key in order", funct
 
 	T:Is("the item once both writes queued on the key", Queued, "second")
 	T:Is("the item when the calls went straight through", Direct, "first")
+end)
+
+Cases.Case("a cache call inside a reducer is refused as a yield, which is the guard", function(T: Case)
+	local Suite = Suite
+	local Reducers = Suite.Reducers
+	local Store = T:Store({
+		Default = Reducers.COINS,
+		Field = "Coins",
+		Reducer = function(State: any, Op: any): any
+			if Op.Kind == "Peek" then
+				T.Hook.Cache("Ledger_Lease"):GetAsync("k")
+			end
+			return Reducers.Vaulter(State, Op)
+		end,
+	})
+
+	local Ok, Why = Store.Store:Edit("k", "Peek"):Wait()
+	local Active = Store:Session("k")
+	local Says = T:Throws("a hopeful apply whose reducer reaches the cache", function()
+		Active:Apply("Peek")
+	end)
+
+	T:No("an edit whose reducer reaches the cache", Ok)
+	T:Is("the reason", Why, Suite.Reasons.Refused)
+	T:Ok("the apply named the yield", Says ~= nil and string.find(Says :: string, "without yielding", 1, true) ~= nil)
+	T:Is("the key, untouched", Store:Amount("k", "Coins"), 0)
 end)
 
 return Cases

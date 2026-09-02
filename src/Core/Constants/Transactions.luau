@@ -9,7 +9,7 @@
 	is spread over shards, each key holding up to a limit before the next part of that minute takes
 	the rest, and a reap pass is bounded by how many markers it looks at and takes off.
 
-	Return type: A table with the caps, the three statuses and the four openings. The types are Status and Opened.
+	Return type: A table with the caps, the three statuses, the four openings and the lease numbers. The types are Status and Opened.
 	Example usage:
 		local Transactions = require("./Transactions")
 		if #Legs > Transactions.MAX_LEGS then Refuse() end
@@ -42,4 +42,7 @@ return table.freeze({
 	REAP_LOOKS = 16,
 	REAP_PAGE = 50,
 	REAP_FLOOR = 18,
+
+	LEASE_MAP = "Ledger_Lease",
+	LEASE_BUDGET = 8,
 })

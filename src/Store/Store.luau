@@ -29,6 +29,7 @@ local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
 local Shards = require("../Core/Constants/Shards")
+local Transactions = require("../Core/Constants/Transactions")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
 local Compact = require("../Record/Compact")
@@ -122,8 +123,9 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	end
 
 	local Tallies = if Hook.Cache ~= nil then MemoryStoreWrapper.New(Shards.MAP, Turn, Hook) else nil
+	local Leases = if Hook.Cache ~= nil then MemoryStoreWrapper.New(Transactions.LEASE_MAP, Turn, Hook) else nil
 	if Tallies == nil then
-		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards`)
+		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards and transactions on one key race rather than queue`)
 	end
 
 	local Layers: { Layer.Layer } = {}
@@ -146,6 +148,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Wrapper = DataStoreWrapper.New(Config.Name, Turn, Hook),
 		TxWrapper = DataStoreWrapper.New(Marked, Turn, Hook),
 		Tallies = Tallies,
+		Leases = Leases,
 		Recent = Lru.New(RECENT_TALLIES),
 		Bumped = 0,
 		Initial = Initial,

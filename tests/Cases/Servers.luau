@@ -103,11 +103,7 @@ local function Swept(T: Case, Label: string, Marked: boolean, Made: () -> any): 
 
 		local Left, Right = Gold(Bank, A), Gold(Bank, B)
 		T:Is(`broken at call {Call}, the money adds up`, Left + Right, START)
-		T:Is(
-			`broken at call {Call}, both keys are on one side of it`,
-			(Left == START and Right == 0) or (Left == START - MOVED and Right == MOVED),
-			true
-		)
+		T:Is(`broken at call {Call}, both keys are on one side of it`, (Left == START and Right == 0) or (Left == START - MOVED and Right == MOVED), true)
 		if Ok then
 			T:Is(`broken at call {Call}, a yes means the money moved`, Right, MOVED)
 		end
@@ -363,11 +359,7 @@ Cases.Case("a fault on one server while another races it still leaves the money 
 
 	T:Is("recovery got there", Passes <= TRIES, true)
 	T:Is("the money adds up", Left + Right, START)
-	T:Is(
-		"the keys are on one side of whichever of the two went through",
-		(Left == START and Right == 0) or (Left == START - 30 and Right == 30) or (Left == START - 40 and Right == 40),
-		true
-	)
+	T:Is("the keys are on one side of whichever of the two went through", (Left == START and Right == 0) or (Left == START - 30 and Right == 30) or (Left == START - 40 and Right == 40), true)
 	T:Is("both servers were not told yes", First == true and Second == true, false)
 	T:Is("the faulted server was not told yes", First, false)
 	T:Is("nothing is left parked on the sender", Two:Pending("crossA"), false)

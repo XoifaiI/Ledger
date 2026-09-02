@@ -1298,9 +1298,13 @@ Cases.Case("the autosave writes what a session has been holding", function(T: Ca
 	T:Is("what is on the key before the autosave comes round", #Bank:Record("64").Ops, 0)
 
 	T:Advance(Windows.AUTOSAVE + 1)
-	T:Is("the autosave came round", T:Until(function(): boolean
-		return #Bank:Record("64").Ops > 0
-	end), true)
+	T:Is(
+		"the autosave came round",
+		T:Until(function(): boolean
+			return #Bank:Record("64").Ops > 0
+		end),
+		true
+	)
 
 	T:Is("what it wrote", #Bank:Record("64").Ops, 1)
 	T:Is("the gold it saved", Bank:Stored("64").Gold, 105)
@@ -1317,9 +1321,13 @@ Cases.Case("a server whose write budget has run out says so rather than piling o
 	end)
 
 	T:Advance(Windows.AUTOSAVE + 1)
-	T:Is("the autosave asked what it could afford", T:Until(function(): boolean
-		return Asked > 0
-	end), true)
+	T:Is(
+		"the autosave asked what it could afford",
+		T:Until(function(): boolean
+			return Asked > 0
+		end),
+		true
+	)
 
 	T:Warns("it named the autosaves it could not afford", "autosave(s) skipped on", 1)
 	T:Is("nothing was written to the key", #Bank:Record("65").Ops, 0)

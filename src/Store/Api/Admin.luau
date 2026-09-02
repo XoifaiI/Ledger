@@ -23,6 +23,7 @@ local Windows = require("../../Core/Constants/Windows")
 local Errors = require("../../Core/Errors")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
+local Mark = require("../../Encode/Mark")
 local Compact = require("../../Record/Compact")
 local Log = require("../../Record/Log")
 local NewOp = require("../../Record/NewOp")
@@ -111,6 +112,9 @@ function Store.ReapMarkers(self: Store): number
 			From = self.Resume,
 			Afford = function(): boolean
 				return self:TxAffords(Reads, Transactions.REAP_FLOOR) and self:Affords(Reads, Transactions.REAP_FLOOR)
+			end,
+			Claim = function(Shard: number): Types.Claimed
+				return self:Claim(Mark.Cached({ "reap", self.TxWrapper.Name, tostring(Shard) }), Windows.PASS_LEASE)
 			end,
 		})
 	end)
