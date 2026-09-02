@@ -8,7 +8,7 @@
 	Reserve sets the money aside on the sender, Post delivers it to the receiver, and Settle clears
 	the hold. Each leg is one op, atomic on its own key, and the transfer id makes each apply once.
 	The money arrives before the hold clears, so a server that stops leaves it set aside for recovery.
-
+	
 	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms and LandedOn.
 	Example usage:
 		local Transfer = require("./Transfer")
@@ -41,7 +41,7 @@ type Format = LogTypes.Shape<any>
 
 export type Hold = Shapes.Held
 
-export type Reserved = { read Outcome: "Finished" } | { read Outcome: "Escrowed", read Tid: string, read Hold: Hold } | { read Outcome: "Stopped", read Why: Reason }
+export type Reserved = { read Outcome: "Finished", read Follow: boolean? } | { read Outcome: "Escrowed", read Tid: string, read Hold: Hold } | { read Outcome: "Stopped", read Why: Reason }
 
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
@@ -94,7 +94,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	if Id ~= nil then
 		local Already = Delivered(Records, Format, To, Tid, Print, From)
 		if Already == Tags.SAME then
-			return { Outcome = "Finished" }
+			return { Outcome = "Finished", Follow = true }
 		end
 		if Already == Tags.OTHER then
 			return Spent(Tid)
@@ -206,7 +206,7 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 	end
 
 	if Ruling.Outcome == "Finished" then
-		return true, nil, nil
+		return true, nil, Ruling.Follow
 	end
 	if Ruling.Outcome == "Stopped" then
 		return false, Ruling.Why, nil

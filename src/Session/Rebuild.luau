@@ -20,6 +20,8 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Shapes = require("../Core/Shapes")
+local Errors = require("../Core/Errors")
+local Reasons = require("../Core/Constants/Reasons")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
 local Compact = require("../Record/Compact")
@@ -106,6 +108,21 @@ local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { 
 	end, Sifted(self))
 end
 
+local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string })
+	local Ok, Stored, Turned, Waiting = pcall(function(): (Record, { string }, { string })
+		return Append(self, Batch)
+	end)
+	if Ok then
+		return Stored, Turned, Waiting
+	end
+	if Errors.Reason(Stored) ~= Reasons.Full then
+		error(Stored, 0)
+	end
+
+	self.Log:Compact(self.Key, self.Shape)
+	return Append(self, Batch)
+end
+
 local function Push<S>(self: Session<S>): (Record?, boolean?)
 	local Count = #self.Pending
 	if Count == 0 then
@@ -113,7 +130,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	end
 
 	local Batch = table.move(self.Pending, 1, Count, 1, {})
-	local Stored, Turned, Waiting = Append(self, Batch)
+	local Stored, Turned, Waiting = Roomed(self, Batch)
 
 	local Landed: { [string]: boolean } = {}
 	for _, Op in Stored.Ops do

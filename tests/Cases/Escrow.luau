@@ -422,6 +422,33 @@ Cases.Case("a retry finishes an escrow left behind", function(T: Case)
 	T:Is("money is conserved", Bank:Amount("leftA") + Bank:Amount("leftB") + Bank:Aside("leftA"), 100)
 end)
 
+Cases.Case("a retry answered by the receiver alone hands the sender's hold to the sweep", function(T: Case)
+	local Bank = Funded(T, { crashA = 100, crashB = 0 })
+
+	Reserve(Bank, "crashA", "crashB", 40, "crash1")
+	Bank:Append("crashB", {
+		{ Id = "del:crash1", Kind = "__TransferDeliver", From = "crashA", Tid = "crash1", Amount = 40, At = T:Now(), Print = Transfer.Terms("crashA", "crashB", 40) } :: any,
+	})
+
+	T:Is("gold the receiver got before the settle died", Bank:Amount("crashB"), 40)
+	T:Is("the hold the settle left behind", Bank:Aside("crashA"), 40)
+
+	local Spent = Bank.Store.Wrapper.Spent
+	local Retried, Why = Bank.Store:Transfer("crashA", "crashB", 40, "crash1"):Wait()
+
+	T:Is("the retry under the same name", Retried, true)
+	T:Is("the reason", Why, nil)
+	T:Is("requests the retry spent, the receiver read and nothing else", Bank.Store.Wrapper.Spent - Spent, 1)
+	T:Is("the hold, still there after the retry", Bank:Aside("crashA"), 40)
+
+	T:Sweep()
+
+	T:Is("the hold once the sweep ran", Bank:Aside("crashA"), 0)
+	T:Is("gold on the sender", Bank:Amount("crashA"), 60)
+	T:Is("gold on the receiver, paid once", Bank:Amount("crashB"), 40)
+	T:Is("money is conserved", Bank:Amount("crashA") + Bank:Amount("crashB") + Bank:Aside("crashA"), 100)
+end)
+
 Cases.Case("the same transfer name moves the money once", function(T: Case)
 	local Bank = Funded(T, { onceA = 100, onceB = 0 })
 

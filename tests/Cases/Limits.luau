@@ -397,4 +397,36 @@ Cases.Case("a session filled to the log cap can still flush what it took", funct
 	T:Is("ops still pending", #Active.Pending, 0)
 end)
 
+Cases.Case("a session whose key another writer filled compacts it and flushes", function(T: Case)
+	Sizes.Set({ Log = 999 })
+
+	local Bank = T:Bank()
+	Bank:Seed("crowded", { Gold = 0, Touches = 0 })
+	local Active = Bank:Session("crowded")
+
+	local Taken = 0
+	for _ = 1, 200 do
+		if not Active:Apply("Touch") then
+			break
+		end
+		Taken += 1
+	end
+
+	for _ = 1, 3 do
+		Bank.Store:Edit("crowded", "Touch"):Wait()
+	end
+	local OnDisk = #Bank:Record("crowded").Ops
+
+	local Flushed, Why = Active:Flush():Wait()
+
+	T:Is("ops the cap let the session take", Taken > 0, true)
+	T:Is("ops another writer put on disk meanwhile", OnDisk, 3)
+	T:Is("the flush", Flushed, true)
+	T:Is("no reason", Why, nil)
+	T:Is("ops still pending", #Active.Pending, 0)
+	T:Is("ops on disk, the other writer's folded away", #Bank:Record("crowded").Ops, Taken)
+	T:Is("every touch counted once", Bank:Amount("crowded", "Touches"), Taken + 3)
+	T:Is("the final save", (Active:Release():Wait()), true)
+end)
+
 return Cases

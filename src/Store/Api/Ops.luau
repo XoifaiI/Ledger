@@ -145,7 +145,7 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 	Validate.Maybe(Id, MAX_TRANSFER_ID, "Transfer Id")
 
 	return Future.New(function(): (boolean, Reason?)
-		local Ok, Moved, Why, Escrowed = pcall(function(): (boolean, Reason?, boolean?)
+		local Ok, Moved, Why, Follow = pcall(function(): (boolean, Reason?, boolean?)
 			return Transfer.Drive(self:Records(), self:Format(), FromKey, ToKey, Amount, Id)
 		end)
 		if not Ok then
@@ -153,7 +153,7 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 			return false, UNRESOLVED
 		end
 
-		if Why == BUSY or Why == HELD or Escrowed then
+		if Why == BUSY or Why == HELD or Follow then
 			self.Sweep:Add(self:Swept(), FromKey)
 		end
 		if Moved then
