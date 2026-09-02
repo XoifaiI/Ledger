@@ -112,7 +112,7 @@ function Store.Records(self: Store): LogTypes.Log
 		return Books
 	end
 
-	Books = Log.New(self.Wrapper, #self.Migrations, Schema.FloorOf(self.Migrations))
+	Books = Log.New(self.Wrapper, #self.Migrations, Schema.FloorOf(self.Migrations), self.Flags)
 	self.Books = Books
 	return Books
 end
@@ -133,7 +133,7 @@ function Store.Fold(self: Store, Record: Record): any
 end
 
 function Store.ReadRecord(self: Store, Key: string): Record
-	return self:Records():Read(Key)
+	return (self:Records():Read(Key))
 end
 
 return table.freeze({})

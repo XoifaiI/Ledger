@@ -101,19 +101,19 @@ local function Fenced(Erased: number?): number?
 	return Erased
 end
 
-local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string })
+local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string }, string?)
 	local Fence = self.Fence
 	return self.Log:Append(self.Key, Ops, function(Record: Record): boolean
 		return Record.Erased == Fence or (not Rules.Entombed(Record) and Fenced(Fence) == nil)
 	end, Sifted(self))
 end
 
-local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string })
-	local Ok, Stored, Turned, Waiting = pcall(function(): (Record, { string }, { string })
+local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string }, string?)
+	local Ok, Stored, Turned, Waiting, Revision = pcall(function(): (Record, { string }, { string }, string?)
 		return Append(self, Batch)
 	end)
 	if Ok then
-		return Stored, Turned, Waiting
+		return Stored, Turned, Waiting, Revision
 	end
 	if Errors.Reason(Stored) ~= Reasons.Full then
 		error(Stored, 0)
@@ -123,14 +123,14 @@ local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, 
 	return Append(self, Batch)
 end
 
-local function Push<S>(self: Session<S>): (Record?, boolean?)
+local function Push<S>(self: Session<S>): (Record?, boolean?, string?)
 	local Count = #self.Pending
 	if Count == 0 then
-		return nil, true
+		return nil, true, nil
 	end
 
 	local Batch = table.move(self.Pending, 1, Count, 1, {})
-	local Stored, Turned, Waiting = Roomed(self, Batch)
+	local Stored, Turned, Waiting, Revision = Roomed(self, Batch)
 
 	local Landed: { [string]: boolean } = {}
 	for _, Op in Stored.Ops do
@@ -171,7 +171,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	end
 
 	self.LogSize = #Stored.Ops
-	return Stored, Missed == 0
+	return Stored, Missed == 0, Revision
 end
 
 local function Diverged(Live: any, Folded: any, Path: string): string?

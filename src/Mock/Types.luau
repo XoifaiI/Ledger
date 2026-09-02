@@ -31,6 +31,7 @@ export type KeyInfo = {
 export type Entry = {
 	Text: string?,
 	Written: number,
+	At: number,
 	Deleted: boolean,
 	Label: string,
 }

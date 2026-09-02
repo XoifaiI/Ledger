@@ -101,7 +101,7 @@ local function Quiet(Walk: Walk, Txid: string, Keys: any, Gen: string?, Born: nu
 		end
 
 		local Read, Record = pcall(function(): Record
-			return Anywhere(Walk, Store):Read(Key :: string)
+			return (Anywhere(Walk, Store):Read(Key :: string))
 		end)
 		if not Read or not Spent(Record, Txid, Gen, Born) then
 			return false, true

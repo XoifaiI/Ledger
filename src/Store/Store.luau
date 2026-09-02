@@ -25,13 +25,16 @@ local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
 local Lru = require("../Util/Lru")
 local Ids = require("../Encode/Ids")
+local Mark = require("../Encode/Mark")
 local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
+local Sessions = require("../Core/Constants/Sessions")
 local Shards = require("../Core/Constants/Shards")
 local Transactions = require("../Core/Constants/Transactions")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
+local Log = require("../Record/Log")
 local Compact = require("../Record/Compact")
 local Reconcile = require("../Record/Reconcile")
 local Schema = require("../Record/Schema")
@@ -62,7 +65,8 @@ type Store = Types.Store<any>
 
 local Players = game:GetService("Players")
 
-local IDLE_EVERY = 4
+local IDLE_EVERY = Sessions.IDLE_EVERY
+local IDLE_MISSES = Sessions.IDLE_MISSES
 local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
@@ -122,8 +126,11 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end
 
-	local Tallies = if Hook.Cache ~= nil then MemoryStoreWrapper.New(Shards.MAP, Turn, Hook) else nil
-	local Leases = if Hook.Cache ~= nil then MemoryStoreWrapper.New(Transactions.LEASE_MAP, Turn, Hook) else nil
+	local Keys = (Config.Keys or "Player") :: Shapes.KeysMode
+	local Cached = Hook.Cache ~= nil
+	local Tallies = if Cached then MemoryStoreWrapper.New(Shards.MAP, Turn, Hook) else nil
+	local Leases = if Cached then MemoryStoreWrapper.New(Transactions.LEASE_MAP, Turn, Hook) else nil
+	local Flags = if Cached and Keys == "Player" then MemoryStoreWrapper.New(Sessions.FLAG_MAP, Turn, Hook) else nil
 	if Tallies == nil then
 		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards and transactions on one key race rather than queue`)
 	end
@@ -149,6 +156,8 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		TxWrapper = DataStoreWrapper.New(Marked, Turn, Hook),
 		Tallies = Tallies,
 		Leases = Leases,
+		Flags = Flags,
+		Idle = { Misses = 0, Quiet = 0 },
 		Recent = Lru.New(RECENT_TALLIES),
 		Bumped = 0,
 		Initial = Initial,
@@ -156,7 +165,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Handles = Handled,
 		Books = nil,
 		Shaped = nil,
-		Keys = (Config.Keys or "Player") :: Shapes.KeysMode,
+		Keys = Keys,
 		Loaded = {},
 		Waiters = {},
 		Loads = {},
@@ -208,6 +217,33 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 	return true
 end
 
+function Store.Flagged(self: Store, Active: any): boolean
+	local Flags = self.Flags
+	if Flags == nil then
+		return false
+	end
+
+	local Idle = self.Idle
+	local Now = Clock.Now()
+	if Now < Idle.Quiet then
+		return false
+	end
+
+	local Read, Flag = Flags:GetAsync(Mark.Cached({ self.Wrapper.Name, Active.Key }))
+	if not Read then
+		Idle.Misses += 1
+		if Idle.Misses >= IDLE_MISSES then
+			Idle.Misses = 0
+			Idle.Quiet = Now + Windows.IDLE_FALLBACK
+		end
+		return false
+	end
+
+	Idle.Misses = 0
+	local Revision = Log.Flagged(Flag)
+	return Revision ~= nil and Revision ~= Active.Revision
+end
+
 function Store.Autosave(self: Store, UserId: number)
 	local Entry = self.Loaded[UserId]
 	if Entry == nil then
@@ -218,7 +254,7 @@ function Store.Autosave(self: Store, UserId: number)
 	local Writing = #Active.Pending > 0 or Compact.Oversized(Active.LogSize, Active.LogBytes, Active.StateBytes)
 
 	Entry.Ticks += 1
-	if not Writing and Active.Parked == 0 and Entry.Ticks % IDLE_EVERY ~= 0 then
+	if not Writing and Active.Parked == 0 and Entry.Ticks % IDLE_EVERY ~= 0 and not self:Flagged(Active) then
 		return
 	end
 

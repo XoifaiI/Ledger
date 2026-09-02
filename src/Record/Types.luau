@@ -14,6 +14,7 @@
 --]=]
 
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
 local Verdicts = require("../Core/Constants/Verdicts")
 local Shapes = require("../Core/Shapes")
 
@@ -22,8 +23,9 @@ type Record<S> = Shapes.Record<S>
 type Reducer<S> = Shapes.Reducer<S>
 type Migration = Shapes.Migration
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
+type MemoryStoreWrapper = MemoryStoreWrapper.MemoryStoreWrapper
 
-export type Outcome = { Before: Record<any>, After: Record<any>, Changed: boolean }
+export type Outcome = { Before: Record<any>, After: Record<any>, Changed: boolean, Revision: string? }
 
 export type Resolution = { Record: Record<any>, Counts: { [string]: number } }
 
@@ -53,17 +55,18 @@ export type Shape<S> = setmetatable<{
 export type LogImpl = {
 	__index: LogImpl,
 
-	New: (Wrapper: DataStoreWrapper, Known: number?, Floor: number?) -> Log,
+	New: (Wrapper: DataStoreWrapper, Known: number?, Floor: number?, Flags: MemoryStoreWrapper?) -> Log,
 	Legible: (self: Log, Key: string, Record: Record<any>) -> (),
+	Flag: (self: Log, Key: string, Info: DataStoreKeyInfo?) -> (),
 	Update: (self: Log, Key: string, Apply: (Record<any>) -> Record<any>?) -> Outcome,
-	Read: (self: Log, Key: string) -> Record<any>,
+	Read: (self: Log, Key: string) -> (Record<any>, string?),
 	ReadVersion: (self: Log, Key: string, Version: string) -> Record<any>,
-	Append: (self: Log, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?, Sift: ((Record<any>) -> (Op) -> boolean?)?) -> (Record<any>, { string }, { string }),
+	Append: (self: Log, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?, Sift: ((Record<any>) -> (Op) -> boolean?)?) -> (Record<any>, { string }, { string }, string?),
 	AppendUnlessPending: (self: Log, Key: string, Ops: { Op }) -> Record<any>,
 	Entomb: (self: Log, Key: string, At: number, Bury: ((Record<any>) -> Record<any>)?) -> Record<any>,
 	Prepare: (self: Log, Key: string, Op: Op, Format: Shape<any>) -> Prepared,
 	Resolve: (self: Log, Key: string, Rulings: { [string]: Verdict }) -> Resolution,
-	Compact: (self: Log, Key: string, Format: Shape<any>) -> Record<any>,
+	Compact: (self: Log, Key: string, Format: Shape<any>) -> (Record<any>, string?),
 	Trim: (self: Log, Key: string, Format: Shape<any>, Record: Record<any>) -> Record<any>,
 }
 
@@ -71,6 +74,7 @@ export type Log = setmetatable<{
 	read Wrapper: DataStoreWrapper,
 	read Known: number?,
 	read Floor: number?,
+	read Flags: MemoryStoreWrapper?,
 }, LogImpl>
 
 return table.freeze({})

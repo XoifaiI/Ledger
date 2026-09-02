@@ -24,6 +24,7 @@ local Suite = require("../tests/Suite")
 local Case = require("../tests/Suite/Case")
 local Ledger = require("../src") :: any
 local Wrapper = require("../src/Util/DataStoreWrapper")
+local Sessions = require("../src/Core/Constants/Sessions")
 local Shards = require("../src/Core/Constants/Shards")
 local Sweeper = require("../src/Store/Sweeper")
 local Transactions = require("../src/Core/Constants/Transactions")
@@ -44,6 +45,8 @@ local CHAOS_SERVERS = 200
 local CHAOS_DROP = 0.03
 local CHAOS_STALL = 0.02
 local CHAOS_TX = 3
+local IDLE_MINUTES = 10
+local IDLE_WRITES = 200
 local ACCUSED = "Ledger bug:"
 
 type Fixture = Suite.Fixture
@@ -66,6 +69,14 @@ local function Fleet(T: Suite.Case, Count: number): { Fixture }
 	local Servers: { Fixture } = {}
 	for Index = 1, Count do
 		Servers[Index] = T:Bank(`n{Index}`)
+	end
+	return Servers
+end
+
+local function Homes(T: Suite.Case, Count: number): { Fixture }
+	local Servers: { Fixture } = {}
+	for Index = 1, Count do
+		Servers[Index] = T:Store({ Keys = "Player", Default = Suite.Reducers.MONEY, Reducer = Suite.Reducers.Banker, Balance = "Gold", Node = `n{Index}` })
 	end
 	return Servers
 end
@@ -110,7 +121,7 @@ end
 local function Chaos(Held: Fixture)
 	local Turn = Held.Store.Wrapper.Scheduler
 	for _, Method in { "GetAsync", "UpdateAsync", "RemoveAsync", "ListKeysAsync", "SetAsync" } do
-		for _, Name in { Held.Data, Held.Marked, Transactions.LEASE_MAP, Shards.MAP } do
+		for _, Name in { Held.Data, Held.Marked, Transactions.LEASE_MAP, Shards.MAP, Sessions.FLAG_MAP } do
 			Held.Hook.Fail(Fault.On(Method):OnStore(Name):Meddle(function()
 				local Roll = math.random()
 				if Roll < CHAOS_DROP then
@@ -206,6 +217,128 @@ Bench("sweep", function(T: Suite.Case)
 
 	local Spent = Calls(Servers) - Before
 	Row(`sweeping one key every server follows, {MINUTES} passes each`, Spent, T.Service.Units - Units, string.format("%.2f repairs per key per minute", Spent / MINUTES))
+end)
+
+Bench("idle", function(T: Suite.Case)
+	local Servers = Homes(T, SERVERS)
+	for Index, Held in Servers do
+		Held:Seed(tostring(Index), { Gold = START, Touches = 0 })
+		Held.Store:Load(T:Player(Index))
+	end
+
+	local Before, Units = Calls(Servers), T.Service.Units
+	for _ = 1, MINUTES do
+		T:Wait(Windows.SWEEP)
+	end
+	local Spent, SpentUnits = Calls(Servers) - Before, T.Service.Units - Units
+
+	local Sessions: { any } = {}
+	for Index, Held in Servers do
+		Sessions[Index] = Held.Store:Expect(T:Player(Index))
+	end
+	T:Wait(Windows.AUTOSAVE)
+	local Written = 0
+	for Index = 2, SERVERS do
+		if Servers[1].Store:Edit(Index, "Fund", { Amount = 5 }):Wait() then
+			Written += 1
+		end
+	end
+	local Started = T:Now()
+	local Seen: { number } = {}
+	local Left = SERVERS - 1
+	T:Until(function(): boolean
+		local Now = T:Now()
+		for Index = 2, SERVERS do
+			if Seen[Index] == nil and Sessions[Index]:Get().Gold == START + 5 then
+				Seen[Index] = Now - Started
+				Left -= 1
+			end
+		end
+		return Left == 0
+	end)
+	local Total, Worst = 0, 0
+	for _, Took in Seen do
+		Total += Took
+		Worst = math.max(Worst, Took)
+	end
+
+	Row(
+		`an idle player on every server for {MINUTES} minutes`,
+		Spent,
+		SpentUnits,
+		string.format("%.2f reads and %.2f units per player per minute", Spent / SERVERS / MINUTES, SpentUnits / SERVERS / MINUTES)
+	)
+	print(string.format("    %d writes from another server were seen by the idle sessions after %.1fs on average and %.1fs at worst", Written, Total / math.max(#Seen, 1), Worst))
+end)
+
+Bench("idle chaos", function(T: Suite.Case)
+	local Servers = Homes(T, SERVERS)
+	local Lives: { any } = {}
+	for Index, Held in Servers do
+		Held:Seed(tostring(Index), { Gold = START, Touches = 0 })
+		Held.Store:Load(T:Player(Index))
+		Lives[Index] = Held.Store:Expect(T:Player(Index))
+		Chaos(Held)
+	end
+
+	local Want: { number } = table.create(SERVERS, 0)
+	local Since: { number } = {}
+	local Worst, Writes, Landed = 0, 0, 0
+	local Before, Units = Calls(Servers), T.Service.Units
+	for Half = 1, IDLE_MINUTES * 2 do
+		if Half % 2 == 1 then
+			for _ = 1, IDLE_WRITES do
+				local Target = math.random(SERVERS)
+				Writes += 1
+				if Servers[math.random(SERVERS)].Store:Edit(Target, "Fund", { Amount = 1 }):Wait() then
+					Landed += 1
+					Want[Target] += 1
+					if Since[Target] == nil then
+						Since[Target] = T:Now()
+					end
+				end
+			end
+		end
+		T:Wait(Windows.AUTOSAVE)
+
+		local Now = T:Now()
+		for Index, Live in Lives do
+			local Gold = Live:Get().Gold
+			if Gold > START + Want[Index] then
+				Want[Index] = Gold - START
+			end
+			local Started = Since[Index]
+			if Started ~= nil and Gold >= START + Want[Index] then
+				Worst = math.max(Worst, Now - Started)
+				Since[Index] = nil
+			end
+		end
+	end
+	local Spent, SpentUnits = Calls(Servers) - Before, T.Service.Units - Units
+
+	for _, Held in Servers do
+		Held:Healed()
+	end
+	T:Wait(Windows.IDLE_FALLBACK + Windows.AUTOSAVE * 2)
+
+	local Stored, Wrong = 0, 0
+	for Index, Held in Servers do
+		local Gold = Held:Amount(tostring(Index))
+		Stored += Gold
+		if Lives[Index]:Get().Gold ~= Gold then
+			Wrong += 1
+		end
+	end
+	local Floor, Ceiling = START * SERVERS + Landed, START * SERVERS + Writes
+
+	Row(
+		`{SERVERS} idle players under {IDLE_MINUTES} minutes of {math.floor(CHAOS_DROP * 100)}% drops and {math.floor(CHAOS_STALL * 100)}% stalls`,
+		Spent,
+		SpentUnits,
+		string.format("%.2f reads and %.2f units per player per minute", Spent / SERVERS / IDLE_MINUTES, SpentUnits / SERVERS / IDLE_MINUTES)
+	)
+	print(`    money: {Stored} on the keys against {Landed} of {Writes} writes told yes, {if Stored >= Floor and Stored <= Ceiling then "whole" else "WRONG"}`)
+	print(`    sessions that do not match their key once settled: {Wrong} of {SERVERS}, worst lag between a write and the session showing it {Worst}s`)
 end)
 
 Bench("totals", function(T: Suite.Case)

@@ -17,6 +17,8 @@
 --]=]
 
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
+local Windows = require("../Core/Constants/Windows")
 local Sizes = require("../Core/Constants/Sizes")
 local Errors = require("../Core/Errors")
 local Reasons = require("../Core/Constants/Reasons")
@@ -25,6 +27,7 @@ local Kinds = require("../Core/Constants/Kinds")
 local Shapes = require("../Core/Shapes")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
+local Mark = require("../Encode/Mark")
 local Measure = require("../Encode/Measure")
 local Storable = require("../Encode/Storable")
 local Transform = require("./Transform")
@@ -38,6 +41,7 @@ local Types = require("./Types")
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
+type MemoryStoreWrapper = MemoryStoreWrapper.MemoryStoreWrapper
 
 type Allow = (Record) -> boolean
 type Transform = (Record) -> Record?
@@ -112,6 +116,13 @@ local function NotEntombed(Record: Record): boolean
 	return not Entombed(Record)
 end
 
+local function Flagged(Value: any): string?
+	if type(Value) ~= "table" or type(Value.Version) ~= "string" then
+		return nil
+	end
+	return Value.Version
+end
+
 local function Meant(Held: any, Wanted: any): boolean
 	return type(Held) ~= "string" or type(Wanted) ~= "string" or Held == Wanted
 end
@@ -182,12 +193,34 @@ end
 local Log = {} :: Types.LogImpl
 Log.__index = Log
 
-function Log.New(Wrapper: DataStoreWrapper, Known: number?, Floor: number?): Log
-	return setmetatable({ Wrapper = Wrapper, Known = Known, Floor = Floor }, Log) :: any
+function Log.New(Wrapper: DataStoreWrapper, Known: number?, Floor: number?, Flags: MemoryStoreWrapper?): Log
+	return setmetatable({ Wrapper = Wrapper, Known = Known, Floor = Floor, Flags = Flags }, Log) :: any
 end
 
 function Log.Legible(self: Log, Key: string, Record: Record)
 	Rules.Readable(Key, self.Known, Record)
+end
+
+function Log.Flag(self: Log, Key: string, Info: DataStoreKeyInfo?)
+	local Flags = self.Flags
+	if Flags == nil or Info == nil then
+		return
+	end
+
+	local Revision, At = Info.Version, Info.UpdatedTime
+	if type(Revision) ~= "string" or type(At) ~= "number" then
+		return
+	end
+
+	local Slot = Mark.Cached({ self.Wrapper.Name, Key })
+	self.Wrapper.Scheduler.Spawn(function()
+		Flags:UpdateAsync(Slot, function(Current: any): any
+			if type(Current) == "table" and type(Current.At) == "number" and Current.At > At then
+				return nil
+			end
+			return { Version = Revision, At = At }
+		end, Windows.IDLE_FLAG)
+	end)
 end
 
 function Log.Update(self: Log, Key: string, Change: Transform): Outcome
@@ -195,7 +228,7 @@ function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 	local Wrote = false
 	local Raised: any = nil
 
-	local Ok, Value = self.Wrapper:UpdateAsync(Key, function(Current: any): Record?
+	local Ok, Value, Info = self.Wrapper:UpdateAsync(Key, function(Current: any): Record?
 		Wrote = false
 		Raised = nil
 
@@ -225,15 +258,18 @@ function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 	if Value == nil then
 		return { Before = Before, After = Before, Changed = false }
 	end
-	return { Before = Before, After = Materialize(Value), Changed = true }
+
+	local Revision = if Info ~= nil then (Info :: DataStoreKeyInfo).Version else nil
+	self:Flag(Key, Info)
+	return { Before = Before, After = Materialize(Value), Changed = true, Revision = Revision }
 end
 
-function Log.Read(self: Log, Key: string): Record
-	local Ok, Value = self.Wrapper:GetAsync(Key)
+function Log.Read(self: Log, Key: string): (Record, string?)
+	local Ok, Value, Info = self.Wrapper:GetAsync(Key)
 	if not Ok then
 		error(Value)
 	end
-	return Materialize(Value)
+	return Materialize(Value), if Info ~= nil then (Info :: DataStoreKeyInfo).Version else nil
 end
 
 function Log.ReadVersion(self: Log, Key: string, Version: string): Record
@@ -244,7 +280,7 @@ function Log.ReadVersion(self: Log, Key: string, Version: string): Record
 	return Materialize(Value)
 end
 
-function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string })
+function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string }, string?)
 	local Owned = false
 	for _, Op in Ops do
 		assert(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
@@ -269,7 +305,7 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Ru
 	)
 
 	local Turned, Waiting = Outcome.Notes.Turned, Outcome.Notes.Waiting
-	return Outcome.After, if type(Turned) == "table" then Turned else {}, if type(Waiting) == "table" then Waiting else {}
+	return Outcome.After, if type(Turned) == "table" then Turned else {}, if type(Waiting) == "table" then Waiting else {}, Outcome.Revision
 end
 
 function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record
@@ -412,14 +448,14 @@ function Log.Resolve(self: Log, Key: string, Rulings: { [string]: Verdict }): Re
 	return { Record = Result.After, Counts = Counts }
 end
 
-function Log.Compact(self: Log, Key: string, Format: Schema<any>): Record
+function Log.Compact(self: Log, Key: string, Format: Schema<any>): (Record, string?)
 	local Result = self:Update(Key, function(Record: Record): Record?
 		self:Legible(Key, Record)
 		return Compact.Packed(Key, Record, Format)
 	end)
 
 	if not Result.Changed then
-		return Result.After
+		return Result.After, nil
 	end
 
 	assert(
@@ -440,7 +476,7 @@ function Log.Compact(self: Log, Key: string, Format: Schema<any>): Record
 			else "take out what the game no longer reads, or spread it over more keys"
 		warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Sizes.State}{Said}. {Fix}`)
 	end
-	return Result.After
+	return Result.After, Result.Revision
 end
 
 function Log.Trim(self: Log, Key: string, Format: Schema<any>, Record: Record): Record
@@ -448,7 +484,9 @@ function Log.Trim(self: Log, Key: string, Format: Schema<any>, Record: Record): 
 		return Record
 	end
 
-	local Ok, Packed = pcall(self.Compact, self, Key, Format)
+	local Ok, Packed = pcall(function(): Record
+		return (self:Compact(Key, Format))
+	end)
 	if Ok then
 		return Packed
 	end
@@ -463,4 +501,5 @@ return table.freeze({
 	New = Log.New,
 	Entombed = Entombed,
 	NotEntombed = NotEntombed,
+	Flagged = Flagged,
 })

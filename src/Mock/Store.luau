@@ -47,11 +47,11 @@ local function NoMeta(_self: KeyInfo): { [string]: any }
 	return {}
 end
 
-local function MakeInfo(Label: string, Written: number): KeyInfo
+local function MakeInfo(Label: string, At: number): KeyInfo
 	return table.freeze({
 		Version = Label,
-		CreatedTime = Written * 1000,
-		UpdatedTime = Written * 1000,
+		CreatedTime = At,
+		UpdatedTime = At,
 		GetUserIds = NoIds,
 		GetMetadata = NoMeta,
 	})
@@ -152,9 +152,12 @@ function Store.Commit(self: Store, Key: string, Text: string?, Deleted: boolean)
 	local Slot = self:Held(Key)
 	self.Ticket += 1
 
+	local Written = Clock.Now()
+	local Previous = Newest(Slot)
 	local Fresh: Entry = {
 		Text = Text,
-		Written = Clock.Now(),
+		Written = Written,
+		At = math.max(Written * 1000, if Previous ~= nil then Previous.At + 1 else 0),
 		Deleted = Deleted,
 		Label = `{self.Ticket}`,
 	}
@@ -183,7 +186,7 @@ function Store.Current(self: Store, Key: string): (any, KeyInfo?)
 	end
 
 	self.Service:Carry("r", self.Name, Key, #Text)
-	return Json.Decode(Text), MakeInfo(Mark.Label, Mark.Written)
+	return Json.Decode(Text), MakeInfo(Mark.Label, Mark.At)
 end
 
 function Store.Put(self: Store, Key: string, Value: any): Entry
@@ -229,7 +232,7 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 		local Fresh = self:Put(Key, Next)
 		local Read = Json.Decode(Fresh.Text)
 		assert(Read ~= nil, "the mock stored a transform result it cannot read back, so a round trip loses data")
-		return Read, MakeInfo(Fresh.Label, Fresh.Written)
+		return Read, MakeInfo(Fresh.Label, Fresh.At)
 	end
 
 	error(`Ledger mock: UpdateAsync on '{Key}' could not settle, too many conflicting writes`, 0)
@@ -261,7 +264,7 @@ function Store.GetVersionAsync(self: Store, Key: string, Version: string): (any,
 	local Slot = self:Look(Key)
 	for _, Mark in if Slot == nil then {} else Slot.Entries do
 		if Mark.Label == Version then
-			return Json.Decode(Mark.Text), MakeInfo(Mark.Label, Mark.Written)
+			return Json.Decode(Mark.Text), MakeInfo(Mark.Label, Mark.At)
 		end
 	end
 
@@ -275,7 +278,7 @@ function Store.ListVersionsAsync(self: Store, Key: string, Direction: Enum.SortD
 	local Slot = self:Look(Key)
 	local Rows: { any } = {}
 	for _, Mark in if Slot == nil then {} else Slot.Entries do
-		local Stamp = Mark.Written * 1000
+		local Stamp = Mark.At
 		if MinDate ~= nil and Stamp < MinDate then
 			continue
 		end

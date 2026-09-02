@@ -90,6 +90,11 @@ export type LoadedEntry<D> = {
 
 export type LoadPhase = "Loading" | "Leaving"
 
+export type Idle = {
+	Misses: number,
+	Quiet: number,
+}
+
 export type Meter = {
 	Skipped: number,
 	At: number,
@@ -106,6 +111,8 @@ export type Fields<D> = {
 	TxWrapper: DataStoreWrapper,
 	Tallies: MemoryStoreWrapper?,
 	Leases: MemoryStoreWrapper?,
+	Flags: MemoryStoreWrapper?,
+	Idle: Idle,
 	Recent: Lru.Lru<Tally.Recent>,
 	Bumped: number,
 	Initial: D,
@@ -172,6 +179,7 @@ export type StoreImpl<D> = {
 	Wake: (self: Store<D>, UserId: number, Active: Session<D>?) -> (),
 	PickUp: (self: Store<D>, Active: Session<D>, UserId: number) -> (),
 	Handled: (self: Store<D>, Player: Player, Why: Reason) -> boolean,
+	Flagged: (self: Store<D>, Active: Session<D>) -> boolean,
 	Autosave: (self: Store<D>, UserId: number) -> (),
 	Save: (self: Store<D>, Active: Session<D>) -> Future<boolean, Reason?>,
 	Handed: (self: Store<D>, Key: string, Rid: string, Held: Shapes.Booked) -> boolean,

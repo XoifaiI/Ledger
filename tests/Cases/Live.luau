@@ -18,6 +18,7 @@ local Suite = require("../Suite")
 local Ledger = require("../../src") :: any
 local NewOp = require("../../src/Record/NewOp")
 local Session = require("../../src/Session/Session")
+local Sessions = require("../../src/Core/Constants/Sessions")
 local Windows = require("../../src/Core/Constants/Windows")
 local Registry = require("../../src/Store/Registry")
 local Observer = require("../../src/Util/Observer")
@@ -1308,6 +1309,24 @@ Cases.Case("the autosave writes what a session has been holding", function(T: Ca
 
 	T:Is("what it wrote", #Bank:Record("64").Ops, 1)
 	T:Is("the gold it saved", Bank:Stored("64").Gold, 105)
+end)
+
+Cases.Case("an idle session reads its key on every fourth tick and on no other", function(T: Case)
+	local Bank = Ticking(T, 66)
+	local Entry = Bank.Store.Loaded[66]
+
+	local Reads: { number } = {}
+	for Index = 1, Sessions.IDLE_EVERY * 2 do
+		local Was = Entry.Ticks
+		local Before = Bank.Store.Wrapper.Spent
+		T:Until(function(): boolean
+			return Entry.Ticks > Was
+		end)
+		T:Wait(1)
+		Reads[Index] = Bank.Store.Wrapper.Spent - Before
+	end
+
+	T:Is("reads over eight ticks", table.concat(Reads, ","), "0,0,0,1,0,0,0,1")
 end)
 
 Cases.Case("a server whose write budget has run out says so rather than piling ops up quietly", function(T: Case)
