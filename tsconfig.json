@@ -1,0 +1,25 @@
+{
+	"compilerOptions": {
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true,
+		"noPropertyAccessFromIndexSignature": true,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"verbatimModuleSyntax": true,
+		"isolatedDeclarations": true,
+		"declaration": true,
+		"erasableSyntaxOnly": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"target": "esnext",
+		"noLib": true,
+		"typeRoots": ["node_modules/@rbxts"],
+		"types": ["types", "compiler-types"]
+	},
+	"include": ["index.d.ts", "types/**/*.ts"]
+}

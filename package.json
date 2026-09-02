@@ -1,0 +1,13 @@
+{
+	"name": "ledger-typings",
+	"private": true,
+	"description": "Type checking for Ledger's roblox-ts declaration.",
+	"scripts": {
+		"check": "tsc --noEmit -p tsconfig.json"
+	},
+	"devDependencies": {
+		"@rbxts/compiler-types": "^3.0.0-types.0",
+		"@rbxts/types": "^1.0.0",
+		"typescript": "^7.0.2"
+	}
+}

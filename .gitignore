@@ -7,3 +7,5 @@
 sourcemap.json
 Packages/
 internal/
+node_modules/
+package-lock.json
