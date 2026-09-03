@@ -55,6 +55,6 @@ export type Pass = {
 
 export type Lookup = (Name: string) -> LogTypes.Log?
 
-export type Claimed = { read Outcome: "Taken", read Release: () -> () } | { read Outcome: "Held" } | { read Outcome: "Unknown" }
+export type Claimed = { read Outcome: "Taken", read Release: () -> () } | { read Outcome: "Held" } | { read Outcome: "Unknown" } | { read Outcome: "Absent" }
 
 return table.freeze({})

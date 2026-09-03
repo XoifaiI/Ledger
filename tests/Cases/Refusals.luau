@@ -25,7 +25,6 @@ local Schema = require("../../src/Record/Schema")
 local Recovery = require("../../src/Protocol/Recovery")
 local Cleanup = require("../../src/Protocol/Tx/Cleanup")
 local TableUtil = require("../../src/Util/TableUtil")
-local Booking = require("../../src/Layers/Booking")
 local Future = require("../../src/Util/Future")
 local NoYield = require("../../src/Util/NoYield")
 local RetryAsync = require("../../src/Util/RetryAsync")
@@ -1220,12 +1219,12 @@ Cases.Case("a reducer that deep copies the state is not accused of writing bookk
 		end,
 	})
 
+	Store:Seed("k", { Gold = 5, _Held = { send1 = { To = "elsewhere", Amount = 2, At = T:Now() } } })
 	Store.Store:Edit("k", "Add", { Once = "one" }):Wait()
-	Store:Append("k", { Booking.Book("book1", "Gold", 1) })
 	Store.Store:Edit("k", "Add"):Wait()
 
 	T:Is("the applied names it copied are still there", Store.Store:DidApply("k", "one"):Wait(), true)
-	T:Is("the units it copied are still set aside", Store:Booked("k"), 1)
+	T:Is("the money it copied is still set aside", Store:Aside("k"), 2)
 	T:Silent("copying a field is not writing it", "wrote its own")
 end)
 
@@ -1238,20 +1237,19 @@ Cases.Case("a reducer that empties a copied field is still caught", function(T: 
 			local Next = TableUtil.DeepCopy(State)
 			Next.Gold = (Next.Gold or 0) + 1
 			if Op.Kind == "Wipe" then
-				Next._Booked = {}
+				Next._Held = {}
 			end
 			return Next
 		end,
 	})
 
+	Store:Seed("k", { Gold = 5, _Held = { send1 = { To = "elsewhere", Amount = 2, At = T:Now() } } })
 	Store.Store:Edit("k", "Add"):Wait()
-	Store:Append("k", { Booking.Book("book2", "Gold", 1) })
-	T:Is("the old booking it is about to try to drop", Store:Booked("k"), 1)
+	T:Is("the money it is about to try to drop", Store:Aside("k"), 2)
 	Store.Store:Edit("k", "Wipe"):Wait()
 
-	T:Accuses("it named itself for a mistake the reducer made", "your reducer wrote its own _Booked")
-	T:Is("the units it tried to drop are still set aside", Store:Booked("k"), 1)
-	T:Is("the booking can still be released", Store.Store:Release("k", "book2"):Wait(), true)
+	T:Accuses("it named itself for a mistake the reducer made", "your reducer wrote its own _Held")
+	T:Is("the money it tried to drop is still set aside", Store:Aside("k"), 2)
 end)
 
 return Cases

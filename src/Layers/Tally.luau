@@ -10,6 +10,8 @@
 	lives in a field of Ledger's own rather than the game's. A summed total is cached under Cache and
 	judged by its own At, never by the item's expiry, and while it is stale one server holds a short
 	claim on refilling it so the rest answer the stale sum rather than all reading the shards at once.
+	Down is when the map last missed on this tally, so a server that cannot reach it answers the sum
+	it already has rather than reading every shard on every poll.
 
 	Return type: A table with Layered, Bump, Counted, Mine, Shard, Keys, Cache, Read, Fresh and Claimed. The types are Cached, Bucket and Recent.
 	Example usage:
@@ -46,6 +48,7 @@ export type Recent = {
 	Sum: number,
 	At: number,
 	Seen: number,
+	Down: number?,
 	Mark: number?,
 	OwnAt: number?,
 	OwnMark: number?,

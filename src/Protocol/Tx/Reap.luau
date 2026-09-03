@@ -9,7 +9,11 @@
 	named has forgotten its leg, and a key that cannot be read counts as still holding one. Each pass
 	reads a fixed number of names per shard and gives back where it stopped. Handed a Claim, a pass
 	asks it before each shard and skips a shard somebody else holds, so a fleet reaps each shard once
-	per pass rather than once per server, and a skipped shard still counts as walked.
+	per pass rather than once per server, and a skipped shard still counts as walked. A Bounded pass
+	whose Claim cannot reach its map stops after one shard and gives back the shard it started on, so
+	a fleet that loses the map walks one shard per server per pass rather than every shard at once,
+	and every shard is still covered, since a node starts on the one it hashes to. Only the
+	background pass is bounded that way. An operator who asks for a reap gets the whole walk.
 
 	Return type: A table with Reap. The type is Reaping.
 	Example usage:
@@ -39,6 +43,7 @@ export type Reaping = {
 	From: number?,
 	Horizon: number?,
 	Limit: number?,
+	Bounded: boolean?,
 	Afford: (() -> boolean)?,
 	Claim: ((Shard: number) -> Claimed)?,
 }
@@ -53,8 +58,8 @@ type Walk = {
 	Reaped: number,
 }
 
-local UNKNOWN: Claimed = { Outcome = "Unknown" }
-table.freeze(UNKNOWN)
+local ABSENT: Claimed = { Outcome = "Absent" }
+table.freeze(ABSENT)
 
 local function Spent(Record: Record, Txid: string, Gen: string?, Born: number): boolean
 	for _, Op in Record.Ops do
@@ -257,10 +262,14 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		end
 
 		local Shard = (Base + Step) % Transactions.SHARDS
-		local Lease = if Claim ~= nil then Claim(Shard) else UNKNOWN
+		local Lease = if Claim ~= nil then Claim(Shard) else ABSENT
 		local More = Lease.Outcome ~= "Held" and Listed(Walk, Shard)
 		if Lease.Outcome == "Taken" and More then
 			Lease.Release()
+		end
+
+		if Asked.Bounded and Lease.Outcome == "Unknown" then
+			return Walk.Reaped, Base
 		end
 
 		Step += 1

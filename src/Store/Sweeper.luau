@@ -7,7 +7,10 @@
 
 	A pass repairs the keys it is following, drops one once it comes back clean, and gives up on one
 	after a few tries with a warning naming it. Every tenth pass also reaps transaction markers. It
-	checks the request budget before it starts and picks up where the last pass stopped.
+	checks the request budget before it starts and picks up where the last pass stopped. A key whose
+	lease somebody else holds is skipped, and a lease that cannot reach its map ends the pass after
+	that one key, so a fleet that loses the map repairs one key per server per pass. A skipped key
+	keeps its tries, since a skip is not a try.
 
 	Return type: A table with New. The type is Sweeper.
 	Example usage:
@@ -118,7 +121,7 @@ function Sweeper.Reap(self: Sweeper, Mine: number?)
 			self.Resume = At
 			return
 		end
-		Held.ReapMarkers()
+		Held.ReapMarkers(true)
 	end
 end
 
@@ -131,8 +134,9 @@ function Sweeper.Pass(self: Sweeper)
 		table.insert(Following, Mark)
 	end
 
+	local Degraded = false
 	for _, Mark in Following do
-		if self.Epoch ~= Mine then
+		if self.Epoch ~= Mine or Degraded then
 			return
 		end
 
@@ -148,6 +152,7 @@ function Sweeper.Pass(self: Sweeper)
 		if Claim.Outcome == "Held" then
 			continue
 		end
+		Degraded = Claim.Outcome == "Unknown"
 
 		local Ok, Clean, Moved = pcall(function(): (boolean, boolean)
 			return Entry.Store.Repair(Entry.Key)

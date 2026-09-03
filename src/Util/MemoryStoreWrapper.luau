@@ -8,8 +8,12 @@
 	Nothing here retries, since a wait on a cache stalls the thing it was meant to speed up, and a
 	caller treats a miss as the map being absent. Each key has its own queue, so two writes to one
 	key from this server land in order. A miss is counted, and said out loud at most once a window.
+	A few misses in a row stop the calls for one BREAKER, so an outage does not add a failed call to
+	every operation on every server. Any answer clears the count, so one throttled key cannot stop
+	the calls for a map that is still answering, and each map has its own wrapper, so one map
+	breaking leaves the others alone.
 
-	Return type: A table with New.
+	Return type: A table with New and Misses.
 	Example usage:
 		local Wrapper = require("./MemoryStoreWrapper")
 		local Leases = Wrapper.New("Ledger_Lease", Scheduler, Hook)
@@ -45,12 +49,15 @@ export type MemoryStoreWrapper = setmetatable<{
 	Missed: number,
 	Counted: number,
 	Said: number,
+	Row: number,
+	Quiet: number,
 	Direct: boolean?,
 	Map: Engine.Map?,
 	Queues: { [string]: ThreadQueue },
 }, MemoryStoreWrapperImpl>
 
 local SAY_EVERY = Windows.AUTOSAVE
+local MISSES_ALLOWED = 3
 
 local MemoryStoreWrapper = {} :: MemoryStoreWrapperImpl
 MemoryStoreWrapper.__index = MemoryStoreWrapper
@@ -66,6 +73,8 @@ function MemoryStoreWrapper.New(Name: string, Scheduler: Engine.Scheduler, Hook:
 		Missed = 0,
 		Counted = 0,
 		Said = 0,
+		Row = 0,
+		Quiet = 0,
 		Queues = {},
 	}, MemoryStoreWrapper) :: MemoryStoreWrapper
 end
@@ -86,6 +95,12 @@ function MemoryStoreWrapper.Miss(self: MemoryStoreWrapper, Err: any)
 	self.Counted += 1
 
 	local Now = self.Scheduler.Now()
+	self.Row += 1
+	if self.Row >= MISSES_ALLOWED then
+		self.Row = 0
+		self.Quiet = Now + Windows.BREAKER
+	end
+
 	if Now - self.Said < SAY_EVERY then
 		return
 	end
@@ -98,6 +113,10 @@ end
 function MemoryStoreWrapper.AttemptAsync(self: MemoryStoreWrapper, Key: string, Operation: (Map: Engine.Map) -> ...any): (boolean, ...any)
 	assert(type(Key) == "string", "a MemoryStore call was queued under something that is not a key")
 
+	if self.Scheduler.Now() < self.Quiet then
+		return false
+	end
+
 	local function Once(): (boolean, ...any)
 		self.Spent += 1
 		local Result = table.pack(pcall(function(): ...any
@@ -107,6 +126,7 @@ function MemoryStoreWrapper.AttemptAsync(self: MemoryStoreWrapper, Key: string, 
 			self:Miss(Result[2])
 			return false
 		end
+		self.Row = 0
 		return true, table.unpack(Result, 2, Result.n)
 	end
 
@@ -163,4 +183,5 @@ table.freeze(MemoryStoreWrapper)
 
 return table.freeze({
 	New = MemoryStoreWrapper.New,
+	Misses = MISSES_ALLOWED,
 })

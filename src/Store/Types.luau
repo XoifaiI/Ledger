@@ -57,7 +57,7 @@ export type Swept = {
 	read Affords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	read TxAffords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	read Repair: (Key: string) -> (boolean, boolean),
-	read ReapMarkers: () -> number,
+	read ReapMarkers: (Bounded: boolean) -> number,
 	read Claim: (Key: string, Ttl: number) -> Claimed,
 }
 
@@ -94,11 +94,6 @@ export type LoadedEntry<D> = {
 
 export type LoadPhase = "Loading" | "Leaving"
 
-export type Idle = {
-	Misses: number,
-	Quiet: number,
-}
-
 export type Meter = {
 	Skipped: number,
 	At: number,
@@ -118,7 +113,6 @@ export type Fields<D> = {
 	Leases: MemoryStoreWrapper?,
 	Flags: MemoryStoreWrapper?,
 	Bookings: MemoryStoreWrapper?,
-	Idle: Idle,
 	Recent: Lru.Lru<Tally.Recent>,
 	Bumped: number,
 	Initial: D,
@@ -170,10 +164,8 @@ export type StoreImpl<D> = {
 	Swelling: (self: Store<D>, Key: string, Record: Record) -> (),
 	Starved: (self: Store<D>, Pool: Enum.DataStoreRequestType) -> (),
 
-	Freed: (self: Store<D>, Key: string, State: any) -> boolean,
 	HeldOn: (self: Store<D>, Key: string) -> (boolean, any),
 	HandOver: (self: Store<D>, Key: string) -> (number, number),
-	HandBooked: (self: Store<D>, Key: string) -> (),
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
 	Kept: (self: Store<D>, Slot: string, Now: number) -> Tally.Recent,
 	Unbooked: (self: Store<D>, What: string) -> (),
@@ -182,7 +174,7 @@ export type StoreImpl<D> = {
 	Leased: (self: Store<D>, Targets: { { Name: string, Key: string } }) -> ({ () -> () }, boolean),
 	Claim: (self: Store<D>, Key: string, Ttl: number) -> Claimed,
 	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
-	ReapMarkers: (self: Store<D>) -> number,
+	ReapMarkers: (self: Store<D>, Bounded: boolean?) -> number,
 	Buried: (self: Store<D>, Key: string, Replaced: Record) -> (),
 
 	Wake: (self: Store<D>, UserId: number, Active: Session<D>?) -> (),
@@ -191,7 +183,6 @@ export type StoreImpl<D> = {
 	Flagged: (self: Store<D>, Active: Session<D>) -> boolean,
 	Autosave: (self: Store<D>, UserId: number) -> (),
 	Save: (self: Store<D>, Active: Session<D>) -> Future<boolean, Reason?>,
-	Handed: (self: Store<D>, Key: string, Rid: string, Held: Shapes.Booked) -> boolean,
 
 	Load: (self: Store<D>, Player: Player) -> (),
 	Unload: (self: Store<D>, Player: Player) -> (),
@@ -213,7 +204,6 @@ export type StoreImpl<D> = {
 	Confirm: (self: Store<D>, Key: KeyLike, Id: string, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Release: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Holds: (self: Store<D>, Key: KeyLike, Field: string) -> Future<number?, Reason?>,
-	Grant: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Tx: (self: Store<D>, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 	Resettle: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	RecoverTransfers: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,

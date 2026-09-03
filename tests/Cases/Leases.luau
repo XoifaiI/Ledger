@@ -392,23 +392,66 @@ Cases.Case("a followed key another server holds is skipped without counting as a
 	T:Ok("that pass read the key", One.Store.Wrapper.Spent > Before)
 end)
 
-Cases.Case("a claim that cannot reach the map reaps and sweeps as today", function(T: Case)
+Cases.Case("a claim that cannot reach the map holds a background reap to one shard, and an operator still gets the whole walk", function(T: Case)
 	local One = T:Bank("nodeA")
 	Funded(One, "downA", "downB")
 	Faulted(One, Fault.Updates())
 
-	local Sweep = Registry.Sweep()
-	Sweep:Add(One.Store:Swept(), "downA")
-	local Before = One.Store.Wrapper.Spent
-	T:Sweep()
-
 	local Listed = Listing(One)
+	One.Store:ReapMarkers(true)
+	local First = Listed.Count
+	local Onward = One.Store.Resume
+	One.Store:ReapMarkers(true)
+	local Second = Listed.Count - First
 	One.Store:ReapMarkers()
 
-	T:Is("the followed key, repaired clean and dropped", Sweep.Entries[One.Store:Mark("downA")], nil)
-	T:Ok("the sweep read the key", One.Store.Wrapper.Spent > Before)
-	T:Is("shards the reaper listed with the map down", Listed.Count, Transactions.SHARDS)
+	T:Is("shards a background pass listed with the map down", First, 1)
+	T:Is("the shard its next pass starts on, the one it could not tell was taken", Onward, Cleanup.Mine("nodeA"))
+	T:Is("shards the pass after that listed", Second, 1)
+	T:Is("shards an operator's reap listed", Listed.Count - First - Second, Transactions.SHARDS)
 	T:Warns("it said the map did not answer", "did not answer")
+end)
+
+Cases.Case("a claim that cannot reach the map repairs one followed key a pass and leaves the rest followed", function(T: Case)
+	local One = T:Bank("nodeA")
+	Funded(One, "downA", "downB")
+	One:Seed("downC", { Gold = 0, Touches = 0 })
+	Faulted(One, Fault.Updates())
+
+	local Sweep = Registry.Sweep()
+	local Keys = { "downA", "downB", "downC" }
+	local Marks: { string } = table.create(#Keys) :: { string }
+	for Index, Key in Keys do
+		Sweep:Add(One.Store:Swept(), Key)
+		Marks[Index] = One.Store:Mark(Key)
+	end
+
+	local function Left(): number
+		local Count = 0
+		for _, Held in Marks do
+			if Sweep.Entries[Held] ~= nil then
+				Count += 1
+			end
+		end
+		return Count
+	end
+
+	local Before = One.Store.Wrapper.Spent
+	T:Sweep()
+	local After = Left()
+	local Tries = 0
+	for _, Held in Marks do
+		local Entry = Sweep.Entries[Held]
+		Tries += if Entry ~= nil then Entry.Tries else 0
+	end
+
+	T:Ok("the pass read the one key it repaired", One.Store.Wrapper.Spent > Before)
+	T:Is("keys still followed after one pass", After, 2)
+	T:Is("tries the keys it left carry, since a skip is not a try", Tries, 0)
+	T:Sweep()
+	T:Is("keys still followed after another", Left(), 1)
+	T:Sweep()
+	T:Is("keys still followed after a third", Left(), 0)
 end)
 
 Cases.Case("a crashed holder's lease on a shard runs out and the next pass takes it", function(T: Case)

@@ -95,8 +95,8 @@ function Store.Swept(self: Store): Types.Swept
 		Repair = function(Key: string): (boolean, boolean)
 			return self:Repair(Key)
 		end,
-		ReapMarkers = function(): number
-			return self:ReapMarkers()
+		ReapMarkers = function(Bounded: boolean): number
+			return self:ReapMarkers(Bounded)
 		end,
 		Claim = function(Key: string, Ttl: number): Types.Claimed
 			return self:Claim(Mark.Cached({ "sweep", self.Wrapper.Name, Key }), Ttl)

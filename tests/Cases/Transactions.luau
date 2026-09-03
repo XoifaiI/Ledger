@@ -1601,6 +1601,7 @@ Cases.Case("a transaction that leaves a leg parked follows that key", function(T
 
 	T:Advance(Windows.TX + 60)
 	T:Sweep()
+	T:Sweep()
 
 	T:Is("anything left parked once the sweep ran on its own", Bank:Pending("a"), false)
 	T:Is("gold across both keys", Bank:Amount("a") + Bank:Amount("b"), 1000)

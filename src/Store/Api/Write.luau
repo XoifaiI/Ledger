@@ -84,7 +84,7 @@ function Store.WatchHeld(self: Store, Key: string, State: any)
 		return
 	end
 
-	if TableUtil.Occupied(State._Held) or TableUtil.Occupied(State._Booked) then
+	if TableUtil.Occupied(State._Held) then
 		self.Sweep:Add(self:Swept(), Key)
 	end
 end

@@ -29,6 +29,7 @@ local Cases = Suite.File("Totals", { "cache" })
 
 local Reducers = Suite.Reducers
 local Fault = Suite.Fault
+local Reasons = Suite.Reasons
 local CACHE = Suite.Horizons.TALLY_CACHE
 local CLAIM = Suite.Horizons.TALLY_CLAIM
 local KEEP = Suite.Horizons.TALLY_KEEP
@@ -258,7 +259,7 @@ Cases.Case("a dropped refill leaves the total right and caches nothing", functio
 	T:Is("datastore reads on the first", Cold, SHARDS)
 	T:Is("the item after a refill that dropped", Absent, nil)
 	T:Is("the second total", Second, 5)
-	T:Is("datastore reads on the second", Again, SHARDS)
+	T:Is("datastore reads on the second, which the sum this server already has answers", Again, 0)
 	T:Warns("it said the map did not answer", "did not answer", 1)
 end)
 
@@ -312,7 +313,7 @@ Cases.Case("a store with no MemoryStore reads every total from its shards and sa
 	T:Warns("it said the store has no MemoryStore", "no MemoryStore", 1)
 end)
 
-Cases.Case("a store whose MemoryStore fails every call answers every total as it did before", function(T: Case)
+Cases.Case("a store whose MemoryStore fails every call reads the shards once and answers from that sum after", function(T: Case)
 	local Store = Built(T, "CaseTotalsDown", function(Name: string): Engine.Map
 		return Passing(T.Hook.Cache(Name), function(_Method: string): boolean
 			return true
@@ -328,12 +329,49 @@ Cases.Case("a store whose MemoryStore fails every call answers every total as it
 		Second = Store:Total("pot", FIELD):Wait()
 	end)
 
+	local Later
+	T:Advance(KEEP + 1)
+	local Cooled = Reads(Store, function()
+		Later = Store:Total("pot", FIELD):Wait()
+	end)
+
 	T:Ok("the bump", Ok)
 	T:Is("the first total", First, 5)
 	T:Is("the second total", Second, 5)
 	T:Is("datastore reads on the first", Cold, SHARDS)
-	T:Is("datastore reads on the second", Again, SHARDS)
-	T:Warns("it said the map did not answer, once for the whole burst", "did not answer", 1)
+	T:Is("datastore reads on the second", Again, 0)
+	T:Is("the total once this server's own sum is too old to answer with", Later, 5)
+	T:Is("datastore reads on that one", Cooled, SHARDS)
+	T:Warns("it said the map did not answer, once for the whole burst", "did not answer")
+end)
+
+Cases.Case("a total with no sum of its own and no read budget for the shards answers Unresolved", function(T: Case)
+	local Store = Built(T, "CaseTotalsStarved", function(Name: string): Engine.Map
+		return Passing(T.Hook.Cache(Name), function(_Method: string): boolean
+			return true
+		end)
+	end)
+	local Left = SHARDS - 1
+	Store.Wrapper.Budgets = function(_Kind: Enum.DataStoreRequestType): number
+		return Left
+	end
+
+	local Sum, Why
+	local Starved = Reads(Store, function()
+		Sum, Why = Store:Total("pot", FIELD):Wait()
+	end)
+
+	Left = SHARDS
+	local Fed
+	local Afforded = Reads(Store, function()
+		Fed = Store:Total("pot", FIELD):Wait()
+	end)
+
+	T:Is("the total a starved server answers", Sum, nil)
+	T:Is("its reason", Why, Reasons.Unresolved)
+	T:Is("datastore reads it took", Starved, 0)
+	T:Is("the total once it can afford the shards", Fed, 0)
+	T:Is("datastore reads that one took", Afforded, SHARDS)
 end)
 
 Cases.Case("one shard that cannot be read still refuses the whole total, and nothing is cached from it", function(T: Case)

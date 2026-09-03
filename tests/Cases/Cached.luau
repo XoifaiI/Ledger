@@ -36,6 +36,35 @@ local function Refuses(Body: () -> ()): boolean
 	return not pcall(Body)
 end
 
+local function Down(): any
+	error("the map is down", 0)
+end
+
+local BROKEN: Engine.Map = {
+	GetAsync = function(_: any, _Key: string): any
+		return Down()
+	end,
+	SetAsync = function(_: any, _Key: string, _Value: any, _Expiry: number): any
+		return Down()
+	end,
+	UpdateAsync = function(_: any, _Key: string, _Transform: (any) -> any, _Expiry: number): any
+		return Down()
+	end,
+	RemoveAsync = function(_: any, _Key: string)
+		Down()
+	end,
+}
+
+local function Broken(T: Case): Engine.Hook
+	return {
+		Open = T.Hook.Open,
+		Budget = T.Hook.Budget,
+		Cache = function(_Name: string): Engine.Map
+			return BROKEN
+		end,
+	}
+end
+
 local function Refused(T: Case, Label: string, Body: () -> ())
 	T:Ok(Label, Refuses(Body))
 end
@@ -336,31 +365,7 @@ Cases.Case("the wrapper answers a live map and answers a miss when the map does 
 	T:Is("calls the wrapper counted", Held.Spent, 5)
 	T:Is("misses the wrapper counted", Held.Missed, 0)
 
-	local function Down(): any
-		error("the map is down", 0)
-	end
-	local Broken: Engine.Map = {
-		GetAsync = function(_: any, _Key: string): any
-			return Down()
-		end,
-		SetAsync = function(_: any, _Key: string, _Value: any, _Expiry: number): any
-			return Down()
-		end,
-		UpdateAsync = function(_: any, _Key: string, _Transform: (any) -> any, _Expiry: number): any
-			return Down()
-		end,
-		RemoveAsync = function(_: any, _Key: string)
-			Down()
-		end,
-	}
-	local Hook: Engine.Hook = {
-		Open = T.Hook.Open,
-		Budget = T.Hook.Budget,
-		Cache = function(_Name: string): Engine.Map
-			return Broken
-		end,
-	}
-	local Missing = Wrapper.New("Ledger_Lease", T.Turn, Hook)
+	local Missing = Wrapper.New("Ledger_Lease", T.Turn, Broken(T))
 
 	local Ok, Nothing = Missing:GetAsync("k")
 	local Wrote = Missing:SetAsync("k", 1, MINUTE)
@@ -374,14 +379,85 @@ Cases.Case("the wrapper answers a live map and answers a miss when the map does 
 	T:No("a set of a map that is down", Wrote)
 	T:No("an update of a map that is down", Changed)
 	T:No("a remove of a map that is down", Took)
-	T:Is("misses counted", Missing.Missed, 4)
-	T:Is("calls counted", Missing.Spent, 4)
+	T:Is("misses counted, the three it made before it stopped calling", Missing.Missed, 3)
+	T:Is("calls counted", Missing.Spent, 3)
 	T:Warns("it said the map did not answer on the first miss", "1 miss(es) since", 1)
 
-	T:Advance(Suite.Horizons.AUTOSAVE + 1)
-	Missing:GetAsync("k")
-	T:Warns("it said how many misses it swallowed since", "4 miss(es) since", 1)
+	T:Advance(Suite.Horizons.BREAKER + Suite.Horizons.AUTOSAVE + 1)
+	T:No("a read once the window has passed", (Missing:GetAsync("k")))
+	T:Is("calls counted once it tried again", Missing.Spent, 4)
+	T:Warns("it said how many misses it swallowed since", "3 miss(es) since", 1)
 	T:Warns("it said so once per window and not once per miss", "did not answer", 2)
+end)
+
+Cases.Case("a map that misses three times over is left alone until the window passes", function(T: Case)
+	local Missing = Wrapper.New("Ledger_Lease", T.Turn, Broken(T))
+
+	for _ = 1, 3 do
+		Missing:GetAsync("k")
+	end
+	local Shut = Missing.Spent
+	for _ = 1, 10 do
+		T:No("a read while the map is left alone", (Missing:GetAsync("k")))
+	end
+
+	T:Is("calls it made before it stopped", Shut, 3)
+	T:Is("calls it made after that", Missing.Spent - Shut, 0)
+
+	T:Advance(Suite.Horizons.BREAKER + 1)
+	T:No("a read once the window has passed", (Missing:GetAsync("k")))
+	T:Is("calls it made once it tried again", Missing.Spent - Shut, 1)
+end)
+
+Cases.Case("an answer between misses keeps a map being called", function(T: Case)
+	local Turns = 0
+	local Flaky: Engine.Map = {
+		GetAsync = function(_: any, _Key: string): any
+			Turns += 1
+			if Turns % 2 == 1 then
+				error("the map is down", 0)
+			end
+			return Turns
+		end,
+		SetAsync = function(_: any, _Key: string, _Value: any, _Expiry: number): any
+			return nil
+		end,
+		UpdateAsync = function(_: any, _Key: string, _Transform: (any) -> any, _Expiry: number): any
+			return nil
+		end,
+		RemoveAsync = function(_: any, _Key: string) end,
+	}
+	local Held = Wrapper.New("Ledger_Lease", T.Turn, {
+		Open = T.Hook.Open,
+		Budget = T.Hook.Budget,
+		Cache = function(_Name: string): Engine.Map
+			return Flaky
+		end,
+	})
+
+	for _ = 1, 20 do
+		Held:GetAsync("k")
+	end
+
+	T:Is("calls it made, every one of them", Held.Spent, 20)
+	T:Is("misses among them", Held.Missed, 10)
+end)
+
+Cases.Case("a map that is left alone leaves the other maps alone", function(T: Case)
+	local Down = Broken(T)
+	local Live = Wrapper.New("Ledger_Tally", T.Turn, T.Hook)
+	local Missing = Wrapper.New("Ledger_Lease", T.Turn, Down)
+
+	for _ = 1, 3 do
+		Missing:GetAsync("k")
+	end
+	T:No("a read of the map that is down", (Missing:GetAsync("k")))
+	T:Ok("a read of the map beside it", (Live:GetAsync("k")))
+	T:Ok("a write to the map beside it", Live:SetAsync("k", 1, MINUTE))
+
+	T:Is("calls the map that is down made", Missing.Spent, 3)
+	T:Is("calls the map beside it made", Live.Spent, 2)
+	T:Is("misses the map beside it counted", Live.Missed, 0)
 end)
 
 Cases.Case("the wrapper calls once, and keeps writes to one key in order", function(T: Case)

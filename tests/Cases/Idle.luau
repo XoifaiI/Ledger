@@ -20,6 +20,7 @@ local Suite = require("../Suite")
 local Mark = require("../../src/Encode/Mark")
 local Log = require("../../src/Record/Log")
 local Sessions = require("../../src/Core/Constants/Sessions")
+local Wrapper = require("../../src/Util/MemoryStoreWrapper")
 
 local Fault = Suite.Fault
 local Reducers = Suite.Reducers
@@ -31,7 +32,7 @@ local Cases = Suite.File("Idle", { "cache" })
 
 local MAP = Sessions.FLAG_MAP
 local EVERY = Sessions.IDLE_EVERY
-local MISSES = Sessions.IDLE_MISSES
+local MISSES = Wrapper.Misses
 
 local function Bank(T: Case, Node: string): Fixture
 	return T:Store({ Keys = "Player", Default = Reducers.MONEY, Reducer = Reducers.Banker, Balance = "Gold", Node = Node })
@@ -135,7 +136,7 @@ Cases.Case("a flag check that cannot reach the map reads on the fallback tick as
 	T:Warns("it said the map did not answer", "did not answer")
 end)
 
-Cases.Case("after a run of misses the check rests for the fallback window, and the first answer starts it again", function(T: Case)
+Cases.Case("after a run of misses the flag map is left alone for a window, and the first answer starts it again", function(T: Case)
 	local A, B = Pair(T)
 	B:Seed("74", { Gold = 100, Touches = 0 })
 	local Live = Loaded(T, B, 74)
@@ -155,10 +156,9 @@ Cases.Case("after a run of misses the check rests for the fallback window, and t
 	T:Wait()
 	local Woken = Tick(T, B, 74)
 
-	T:Is("misses before it rested", Asked, MISSES)
-	T:Is("asks while it rested", Resting - Asked, 0)
-	T:Is("misses the store counts while it rests", B.Store.Idle.Misses, 0)
-	T:Is("reads on the first tick after the rest", Woken, 1)
+	T:Is("misses before it stopped asking", Asked, MISSES)
+	T:Is("asks while the map was left alone", Resting - Asked, 0)
+	T:Is("reads on the first tick after that", Woken, 1)
 	T:Is("gold the session reads", Live:Get().Gold, 105)
 	T:Is("checks once the map answered", Checks(B), MISSES + 1)
 end)

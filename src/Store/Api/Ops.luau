@@ -5,19 +5,23 @@
 
 	Ops: The writes a game asks for by name.
 
-	Edit, Reserve, Confirm, Release and Bump each check their arguments, build one op and hand it to
-	Written. Transfer, Grant and Tx are the ones that touch more than one key, so they run a protocol
+	Edit, Confirm and Bump each check their arguments, build one op and hand it to Written. Reserve,
+	Release and Holds are the MemoryStore half, and never touch the key. Transfer and Tx are the ones
+	that touch more than one key, so they run a protocol
 	instead and add the keys to the sweep if they cannot finish. A total is read from the MemoryStore
 	cache while the sum there is inside its window. Once it is stale, one server claims the refill
 	and reads the shards while every other server answers the stale sum, so the minute never turns
-	into every server reading every shard at once. A bump writes nothing to MemoryStore: this server
-	lays its own bumps over whatever sum it answers, and other servers see them at the next refill.
-	A transaction leases each of its keys in MemoryStore before it drives, in one fixed order so two
-	coordinators cannot wait on each other, and lets go on every exit. A lease only orders who tries:
-	the marker still decides, a lease that cannot be taken or read means drive as today, and a lease
-	somebody else holds is waited on a few short moments and then driven past into today's Busy.
+	into every server reading every shard at once. A map that does not answer holds a total to the
+	sum this server already has, for as long as that sum is kept, so an outage does not turn every
+	poll into sixteen reads on every server. A server with no sum of its own reads the shards when it
+	can afford them and answers Unresolved when it cannot. A bump writes nothing to MemoryStore: this
+	server lays its own bumps over whatever sum it answers, and other servers see them at the next
+	refill. A transaction leases each of its keys in MemoryStore before it drives, in one fixed order
+	so two coordinators cannot wait on each other, and lets go on every exit. A lease only orders who
+	tries: the marker still decides, a lease that cannot be taken or read means drive as today, and a
+	key somebody else holds answers Busy at once, with no drive and no wait.
 
-	Return type: An empty table. It writes Edit, Transfer, Reserve, Confirm, Release, Grant, Handed, TallyName, Kept, Bump, Total, Leased, Claim and Tx onto the class.
+	Return type: An empty table. It writes Edit, Transfer, Unbooked, Holding, Dropped, Reserve, Confirm, Release, Holds, TallyName, Kept, Bump, Total, Leased, Claim and Tx onto the class.
 	Example usage:
 		local Ops = require("./Ops")
 		local Ok, Why = self:Edit(1, "Add", { Amount = 5 }):Wait()
@@ -30,17 +34,11 @@ local MemoryStoreWrapper = require("../../Util/MemoryStoreWrapper")
 local Windows = require("../../Core/Constants/Windows")
 local Sizes = require("../../Core/Constants/Sizes")
 local Bookings = require("../../Core/Constants/Bookings")
-local Errors = require("../../Core/Errors")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
 local Api = require("../../Core/Api")
 local Storable = require("../../Encode/Storable")
-local Tags = require("../../Core/Constants/Tags")
-local Log = require("../../Record/Log")
 local NewOp = require("../../Record/NewOp")
-local TxStamp = require("../../Record/TxStamp")
-local Kinds = require("../../Core/Constants/Kinds")
-local Booking = require("../../Layers/Booking")
 local Shards = require("../../Core/Constants/Shards")
 local Datastore = require("../../Core/Constants/Datastore")
 local Mark = require("../../Encode/Mark")
@@ -77,7 +75,6 @@ local INVALID = Reasons.Invalid
 local UNRESOLVED = Reasons.Unresolved
 local BUSY = Reasons.Busy
 local HELD = Reasons.Held
-local SPENT = Reasons.Spent
 
 local Failed = Write.Failed
 
@@ -141,40 +138,23 @@ local function Holdings(Value: any): Holding?
 	return Value
 end
 
-local function Unexpired(Item: Holding, Now: number): ({ [string]: Hold }, { [string]: number }, number)
+local function Unexpired(Item: Holding, Now: number): ({ [string]: Hold }, { [string]: number })
 	local Fresh: { [string]: Hold } = {}
 	local Sums: { [string]: number } = {}
-	local Longest = Now
 	for Rid, Held in Item.Holds do
 		if type(Held) ~= "table" or type(Held.Field) ~= "string" or type(Held.Amount) ~= "number" or type(Held.Ends) ~= "number" or Held.Ends <= Now then
 			continue
 		end
 		Fresh[Rid] = Held
 		Sums[Held.Field] = (Sums[Held.Field] or 0) + Held.Amount
-		Longest = math.max(Longest, Held.Ends)
 	end
-	return Fresh, Sums, Longest
+	return Fresh, Sums
 end
 
-local function Rewritten(Held: MemoryStoreWrapper, Slot: string, Now: number, Change: (Holding?) -> Holding?): boolean
-	local Longest = Now
-	local Ok, Written = Held:UpdateAsync(Slot, function(Current: any): any
-		Longest = Now
-		local Next = Change(Holdings(Current))
-		if Next == nil then
-			return nil
-		end
-		local _, _, Latest = Unexpired(Next, Now)
-		Longest = Latest
-		return Next
-	end, Windows.BOOK)
-
-	if Ok and Written ~= nil and Longest > Now + Windows.BOOK then
-		Held:UpdateAsync(Slot, function(Current: any): any
-			return Current
-		end, Longest - Now)
-	end
-	return Ok
+local function Rewritten(Held: MemoryStoreWrapper, Slot: string, Change: (Holding?) -> Holding?): boolean
+	return (Held:UpdateAsync(Slot, function(Current: any): any
+		return Change(Holdings(Current))
+	end, Windows.BOOK))
 end
 
 function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
@@ -249,7 +229,7 @@ function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Am
 
 	local Answer: Reserved = "Unknown"
 	local Known: number? = nil
-	local Ok = Rewritten(Held, Slot, Now, function(Item: Holding?): Holding?
+	local Ok = Rewritten(Held, Slot, function(Item: Holding?): Holding?
 		Answer, Known = "Unknown", nil
 		local Base: Holding = Item or { Holds = {}, Stock = {} }
 		if Stock ~= nil then
@@ -264,9 +244,14 @@ function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Am
 		Known = Have
 
 		local Fresh, Sums = Unexpired(Base, Now)
-		if Fresh[Rid] ~= nil then
+		local Mine = Fresh[Rid]
+		if Mine ~= nil then
 			Answer = "Taken"
-			return nil
+			if Mine.Ends >= Ends then
+				return nil
+			end
+			Fresh[Rid] = { Field = Mine.Field, Amount = Mine.Amount, Ends = Ends }
+			return { Holds = Fresh, Stock = Base.Stock }
 		end
 		if TableUtil.Count(Fresh) >= Sizes.Booked then
 			Answer = "Full"
@@ -296,7 +281,7 @@ function Store.Dropped(self: Store, Slot: string, Rid: string, State: any): Drop
 
 	local Answer: Dropped = "Unknown"
 	local Now = Clock.Now()
-	local Ok = Rewritten(Held, Slot, Now, function(Item: Holding?): Holding?
+	local Ok = Rewritten(Held, Slot, function(Item: Holding?): Holding?
 		Answer = "Absent"
 		if Item == nil then
 			return nil
@@ -333,7 +318,10 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 	assert((Extra :: any).To == nil, "Reserve does not take To. a hold stays on its key, hand units to another key with Transfer and a Field")
 
 	local Hold = Extra.Hold
-	assert(Hold == nil or (type(Hold) == "number" and Hold > 0 and Hold <= Windows.HOLD_CAP), `Reserve Hold must be a number of seconds up to {Windows.HOLD_CAP} when given, got {tostring(Hold)}`)
+	assert(
+		Hold == nil or (type(Hold) == "number" and Hold > 0 and Hold <= Windows.BOOK),
+		`Reserve Hold must be a number of seconds up to {Windows.BOOK} when given, got {tostring(Hold)}. reserve again under the same Id to keep a hold alive for longer`
+	)
 
 	local Slot = Mark.Cached({ self.Wrapper.Name, Resolved })
 
@@ -377,27 +365,6 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 	end)
 end
 
-local function Standing(self: Store, Key: KeyLike, Id: string, What: string, Make: (string) -> Op, Wanted: string): Future<boolean, Reason?>
-	local Resolved = self:Resolve(Key, What)
-	local Rid = Validate.Name(Id, MAX_BOOKING_ID, What)
-	local Doing = string.lower(What)
-	local Op = Make(Rid)
-
-	return Future.New(function(): (boolean, Reason?)
-		local Ok, Why = self:Written(Resolved, Op, `{Doing} booking '{Rid}'`, function(Record: Record): boolean
-			local Booked = Booking.Entry(self:Fold(Record)._Booked, Rid)
-			return Booked == nil or Booked.Handing ~= true
-		end, HELD)
-
-		if Why == HELD then
-			warn(
-				`Ledger: booking '{Rid}' on '{Resolved}' is being handed to another key, so its units are not here to {Wanted}. a grant that did not answer may already have delivered them. leave it to the sweep`
-			)
-		end
-		return Ok, Why
-	end)
-end
-
 function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Confirm")
 	local Rid = Validate.Name(Id, MAX_BOOKING_ID, "Confirm")
@@ -417,23 +384,11 @@ function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fiel
 
 	return Future.New(function(): (boolean, Reason?)
 		local State: any = nil
-		local Ok, Why = self:Written(
-			Resolved,
-			Op,
-			`confirm booking '{Rid}' with '{Kind}'`,
-			function(Record: Record): boolean
-				return Booking.Entry(self:Fold(Record)._Booked, Rid) == nil
-			end,
-			HELD,
-			function(Settled: Record): Reason?
-				State = self:Fold(Settled)
-				return nil
-			end
-		)
+		local Ok, Why = self:Written(Resolved, Op, `confirm booking '{Rid}' with '{Kind}'`, nil, nil, function(Settled: Record): Reason?
+			State = self:Fold(Settled)
+			return nil
+		end)
 
-		if not Ok and Why == HELD then
-			return Standing(self, Resolved, Rid, "Confirm", Booking.Take, "spend"):Wait()
-		end
 		if Ok then
 			self:Dropped(Slot, Rid, State)
 		end
@@ -451,12 +406,10 @@ function Store.Release(self: Store, Key: KeyLike, Id: string): Future<boolean, R
 		if Gone == "Dropped" then
 			return true, nil
 		end
-
-		local Ok, Why = Standing(self, Resolved, Rid, "Release", Booking.Free, "give back"):Wait()
-		if Gone == "Unknown" and Why == REFUSED then
-			return false, UNRESOLVED
+		if Gone == "Absent" then
+			return false, REFUSED
 		end
-		return Ok, Why
+		return false, UNRESOLVED
 	end)
 end
 
@@ -486,70 +439,6 @@ function Store.Holds(self: Store, Key: KeyLike, Field: string): Future<number?, 
 		end
 		local _, Sums = Unexpired(Item, Clock.Now())
 		return Sums[Field] or 0, nil
-	end)
-end
-
-function Store.Handed(self: Store, Key: string, Rid: string, Held: Shapes.Booked): boolean
-	local To = Held.To
-	if type(To) ~= "string" then
-		return false
-	end
-
-	local Records = self:Records()
-
-	local Marked = Records:Append(Key, { Booking.Hand(Rid) })
-	local Mine = Booking.Entry(self:Fold(Marked)._Booked, Rid)
-	if Mine == nil or not Mine.Handing then
-		return false
-	end
-
-	local Print = Booking.Terms(Key, Rid, Held)
-	local Given = Booking.Give(Rid, Held.Field, Held.Amount, Print)
-	local Landed = Records:Append(To, { Given }, function(Record: Record): boolean
-		if Booking.Expired(Held, Clock.Now()) then
-			return false
-		end
-		return Log.NotEntombed(Record) and self:Applies(Given, Record)
-	end)
-
-	local Ruling = Booking.Granted(self:Fold(Landed), Rid, Print)
-	if Ruling == Tags.OTHER then
-		Errors.Raise(SPENT, `'{To}' already took a booking named {Rid} from somewhere else. nothing was handed over, release this one and pick a new name`)
-	end
-	if Ruling ~= Tags.SAME then
-		Errors.Raise(HELD, `'{To}' would not take booking {Rid}. the {Held.Amount} has already left '{Key}' and stays set aside until it is given back`)
-	end
-
-	local Cleared = Records:Append(Key, { Booking.Sent(Rid) })
-	local Gave = TxStamp.Carries(Cleared, `{Kinds.FREE_ID}:{Rid}`) or TxStamp.Carries(Cleared, `{Kinds.UNHAND_ID}:{Rid}`)
-	assert(not Gave, `booking {Rid} was handed to '{To}' but '{Key}' had already given the same units back, so they are on both keys`)
-
-	self:Went(Key)
-	self:Went(To)
-	return true
-end
-
-function Store.Grant(self: Store, Key: KeyLike, Id: string): Future<boolean, Reason?>
-	local Resolved = self:Resolve(Key, "Grant")
-	local Rid = Validate.Name(Id, MAX_BOOKING_ID, "Grant")
-
-	return Future.New(function(): (boolean, Reason?)
-		local Ok, Gave = pcall(function(): boolean
-			local Held = Booking.Entry(self:Fold(self:ReadRecord(Resolved))._Booked, Rid)
-			if Held == nil then
-				return false
-			end
-			if Booking.Late(Held, Clock.Now()) then
-				Errors.Raise(SPENT, `booking '{Rid}' on '{Resolved}' has run past its hold, so it cannot be handed over now. its units go back on their own, reserve them again`)
-			end
-			assert(type(Held.To) == "string", `booking '{Rid}' was not reserved with a To, so there is nowhere to hand it to`)
-			return self:Handed(Resolved, Rid, Held)
-		end)
-		if not Ok then
-			self.Sweep:Add(self:Swept(), Resolved)
-			return false, Failed(`hand over booking '{Rid}' on`, Resolved, Gave)
-		end
-		return Gave, if Gave then nil else REFUSED
 	end)
 end
 
@@ -614,9 +503,12 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 		local Tallies = self.Tallies
 		if Tallies ~= nil then
 			local Read, Value = Tallies:GetAsync(Slot)
+			Held.Down = if Read then Held.Down else Now
+
 			local Item = if Read then Tally.Read(Value) else nil
 			if Item ~= nil then
 				if Tally.Fresh(Item, Now) or Tally.Claimed(Item, Now) then
+					Held.Down = nil
 					return Remember(Held, Item.Sum, Item.At, Now), nil
 				end
 
@@ -627,9 +519,20 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 					end
 					return { Sum = Stale.Sum, At = Stale.At, Claimed = Now }
 				end, Windows.TALLY_KEEP)
+
+				Held.Down = if Won then nil else Now
 				if not Won or Claim == nil then
 					return Remember(Held, Item.Sum, Item.At, Now), nil
 				end
+			end
+		end
+
+		if Held.Down ~= nil and Now - Held.Down <= Windows.TALLY_KEEP then
+			if Held.Seen > 0 and Now - Held.Seen <= Windows.TALLY_KEEP then
+				return Held.Sum + Over(Held), nil
+			end
+			if not self:Affords(Enum.DataStoreRequestType.GetAsync, Shards.SHARDS) then
+				return nil, UNRESOLVED
 			end
 		end
 
@@ -647,13 +550,14 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 		end
 
 		if Tallies ~= nil then
-			Tallies:UpdateAsync(Slot, function(Current: any): any
+			local Wrote = Tallies:UpdateAsync(Slot, function(Current: any): any
 				local Newer = Tally.Read(Current)
 				if Newer ~= nil and Newer.At > Now then
 					return nil
 				end
 				return { Sum = Sum, At = Now }
 			end, Windows.TALLY_KEEP)
+			Held.Down = if Wrote then nil else Now
 		end
 		return Remember(Held, Sum, Now, Now, Mark), nil
 	end)
@@ -741,7 +645,7 @@ end
 function Store.Claim(self: Store, Key: string, Ttl: number): Types.Claimed
 	local Leases = self.Leases
 	if Leases == nil then
-		return { Outcome = "Unknown" }
+		return { Outcome = "Absent" }
 	end
 
 	local Node = self.Node

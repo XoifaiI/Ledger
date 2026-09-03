@@ -40,7 +40,6 @@ local Compact = require("../Record/Compact")
 local Reconcile = require("../Record/Reconcile")
 local Schema = require("../Record/Schema")
 local Layer = require("../Layers/Layer")
-local Booking = require("../Layers/Booking")
 local Escrow = require("../Layers/Escrow")
 local Names = require("../Layers/Names")
 local Tally = require("../Layers/Tally")
@@ -67,7 +66,6 @@ type Store = Types.Store<any>
 local Players = game:GetService("Players")
 
 local IDLE_EVERY = Sessions.IDLE_EVERY
-local IDLE_MISSES = Sessions.IDLE_MISSES
 local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
@@ -138,7 +136,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	end
 
 	local Layers: { Layer.Layer } = {}
-	for _, Feature in { Escrow.Layered, Booking.Layered, Tally.Layered } do
+	for _, Feature in { Escrow.Layered, Tally.Layered } do
 		local Made = Feature(Config.Balance)
 		if Made ~= nil then
 			table.insert(Layers, Made)
@@ -160,7 +158,6 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Leases = Leases,
 		Flags = Flags,
 		Bookings = Holds,
-		Idle = { Misses = 0, Quiet = 0 },
 		Recent = Lru.New(RECENT_TALLIES),
 		Bumped = 0,
 		Initial = Initial,
@@ -226,23 +223,11 @@ function Store.Flagged(self: Store, Active: any): boolean
 		return false
 	end
 
-	local Idle = self.Idle
-	local Now = Clock.Now()
-	if Now < Idle.Quiet then
-		return false
-	end
-
 	local Read, Flag = Flags:GetAsync(Mark.Cached({ self.Wrapper.Name, Active.Key }))
 	if not Read then
-		Idle.Misses += 1
-		if Idle.Misses >= IDLE_MISSES then
-			Idle.Misses = 0
-			Idle.Quiet = Now + Windows.IDLE_FALLBACK
-		end
 		return false
 	end
 
-	Idle.Misses = 0
 	local Revision = Log.Flagged(Flag)
 	return Revision ~= nil and Revision ~= Active.Revision
 end

@@ -180,7 +180,7 @@ Bench("reap", function(T: Suite.Case)
 	local Batch = math.ceil(SERVERS / MINUTES)
 	for Minute = 1, MINUTES do
 		for Index = (Minute - 1) * Batch + 1, math.min(Minute * Batch, SERVERS) do
-			Servers[Index].Store:ReapMarkers()
+			Servers[Index].Store:ReapMarkers(true)
 		end
 		T:Advance(Windows.SWEEP)
 	end

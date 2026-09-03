@@ -10,7 +10,7 @@
 	that throw data away, so each says what went with it. The first erase leaves a tombstone, and only
 	an erase that finds an old one removes the key.
 
-	Return type: A table with Failed. It writes Freed, Repair, ReapMarkers, Buried, HeldOn, HandOver, HandBooked, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
+	Return type: A table with Failed. It writes Repair, ReapMarkers, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:
 		local Admin = require("./Admin")
 		local Ok, Why = self:Erase(1):Wait()
@@ -30,7 +30,6 @@ local NewOp = require("../../Record/NewOp")
 local Schema = require("../../Record/Schema")
 local TxStamp = require("../../Record/TxStamp")
 local Kinds = require("../../Core/Constants/Kinds")
-local Booking = require("../../Layers/Booking")
 local Recovery = require("../../Protocol/Recovery")
 local Transfer = require("../../Protocol/Transfer")
 local Transactions = require("../../Core/Constants/Transactions")
@@ -53,49 +52,21 @@ local BEHIND = Reasons.Behind
 
 local Failed = Write.Failed
 
-local function Aside(Booked: any): (number, { [string]: number })
-	local Fields: { [string]: number } = {}
-	local Count = 0
-	if type(Booked) ~= "table" then
-		return Count, Fields
-	end
-
-	for Rid in Booked do
-		local Entry = Booking.Entry(Booked, Rid)
-		if Entry ~= nil then
-			Fields[Entry.Field] = (Fields[Entry.Field] or 0) + Entry.Amount
-			Count += 1
-		end
-	end
-	return Count, Fields
-end
-
-function Store.Freed(self: Store, Key: string, State: any): boolean
-	return Recovery.Bookings(self:Records(), self:Format(), Key, State, function(To: string): any
-		return self:Fold(self:ReadRecord(To))
-	end)
-end
-
 function Store.Repair(self: Store, Key: string): (boolean, boolean)
 	local Record = Tx.Settle(self:Records(), self.TxWrapper, Key, self:ReadRecord(Key))
 	if TxStamp.HasPending(Record) then
 		return false, false
 	end
 
-	local State = self:Fold(Record)
-	local Gave = self:Freed(Key, State)
-	local Waiting = TableUtil.Occupied(State._Booked)
-
-	local Held = State._Held
+	local Held = self:Fold(Record)._Held
 	if not TableUtil.Occupied(Held) then
-		return not Waiting, Gave or Waiting
+		return true, false
 	end
 
-	local Clean, Moved = Recovery.Transfers(self:Records(), self:Format(), Key, Held)
-	return Clean and not Waiting, Moved or Gave or Waiting
+	return Recovery.Transfers(self:Records(), self:Format(), Key, Held)
 end
 
-function Store.ReapMarkers(self: Store): number
+function Store.ReapMarkers(self: Store, Bounded: boolean?): number
 	local Name = self.Wrapper.Name
 	local Reads = Enum.DataStoreRequestType.GetAsync
 
@@ -110,6 +81,7 @@ function Store.ReapMarkers(self: Store): number
 		end, {
 			Node = self.Node,
 			From = self.Resume,
+			Bounded = Bounded,
 			Afford = function(): boolean
 				return self:TxAffords(Reads, Transactions.REAP_FLOOR) and self:Affords(Reads, Transactions.REAP_FLOOR)
 			end,
@@ -137,11 +109,6 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 	end
 	if type(State) ~= "table" then
 		return
-	end
-
-	local Count, Fields = Aside(State._Booked)
-	for Named, Amount in Fields do
-		warn(`Ledger: erasing '{Key}' destroyed {Count} reservation(s) holding {Amount} {Named}. anything already handed to another key stays there, and nothing else is given back`)
 	end
 
 	local Field = self.Options.Balance
@@ -204,39 +171,6 @@ function Store.HandOver(self: Store, Key: string): (number, number)
 	return CountHeld(Left)
 end
 
-function Store.HandBooked(self: Store, Key: string)
-	local Record = self:ReadRecord(Key)
-	local Read, State = pcall(function(): any
-		return self:Fold(Record)
-	end)
-	if not Read or type(State) ~= "table" then
-		warn(`Ledger: could not read what '{Key}' holds before erasing it, so any units owed to another key go with it: {State}`)
-		return
-	end
-
-	local Booked = State._Booked
-	if not TableUtil.Occupied(Booked) then
-		return
-	end
-
-	for Rid in Booked do
-		local Held = Booking.Entry(Booked, Rid)
-		if Held == nil or type(Held.To) ~= "string" then
-			continue
-		end
-
-		local Gave, Moved = pcall(function(): boolean
-			return self:Handed(Key, Rid, Held)
-		end)
-		if Gave and Moved then
-			continue
-		end
-
-		local Says = if Gave then "the booking could not be marked as leaving" else tostring(Moved)
-		warn(`Ledger: could not hand booking '{Rid}' on '{Key}' over to '{Held.To}' before erasing it, so its {Held.Amount} {Held.Field} goes with the key: {Says}`)
-	end
-end
-
 function Store.Resettle(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Resettle")
 
@@ -288,30 +222,14 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	local Op = NewOp.New(Kinds.RESET, { State = self.Initial, Version = Known, Floor = Schema.FloorOf(Steps) })
 
 	return Future.New(function(): (boolean, Reason?)
-		local Looked, Before = pcall(function(): any
-			return self:Fold(self:ReadRecord(Resolved))
-		end)
-		local Dropping: any = if Looked and type(Before) == "table" then Before._Booked else nil
-
 		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
 			if TxStamp.HasPending(Record) then
 				Errors.Raise(BUSY, `'{Resolved}' has a transaction parked on it, so it cannot be reset yet. wait for that to settle`)
-			end
-
-			if Booking.Owed(self:Fold(Record)._Booked) then
-				Errors.Raise(BUSY, `'{Resolved}' has units set aside for another key, so a reset now could leave them on both. hand them over or release them first`)
 			end
 			return (Record.Version or 0) <= Known
 		end, BEHIND)
 
 		if Ok then
-			local Count, Fields = Aside(Dropping)
-			for Named, Amount in Fields do
-				warn(
-					`Ledger: resetting '{Resolved}' destroyed {Count} reservation(s) holding {Amount} {Named}. Confirm and Release on those ids are refused from here on, so tell whoever is holding them`
-				)
-			end
-
 			local Read, Held = pcall(function(): string?
 				return Compact.Blocked(self:ReadRecord(Resolved), self:Format())
 			end)
@@ -334,9 +252,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 	return Future.New(function(): (boolean, Reason?)
 		local Checked, Holds, Amount = pcall(function(): (number, number)
-			local Holds, Amount = self:HandOver(Resolved)
-			self:HandBooked(Resolved)
-			return Holds, Amount
+			return self:HandOver(Resolved)
 		end)
 		if not Checked then
 			return false, Failed("erase", Resolved, Holds)

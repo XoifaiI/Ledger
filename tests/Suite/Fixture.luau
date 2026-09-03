@@ -20,7 +20,6 @@ local Applied = require("../../src/Core/Applied")
 local Mark = require("../../src/Encode/Mark")
 local Cleanup = require("../../src/Protocol/Tx/Cleanup")
 local TxStamp = require("../../src/Record/TxStamp")
-local Booking = require("../../src/Layers/Booking")
 local Log = require("../../src/Record/Log")
 local Wrapper = require("../../src/Util/DataStoreWrapper")
 local Session = require("../../src/Session/Session")
@@ -48,7 +47,6 @@ type FixtureImpl = {
 	State: (self: Fixture, Key: string) -> any,
 	Amount: (self: Fixture, Key: string, Field: string?) -> number,
 	Aside: (self: Fixture, Key: string, Field: string?) -> number,
-	Booked: (self: Fixture, Key: string) -> number,
 	Names: (self: Fixture, Key: string) -> { [string]: any },
 	Knows: (self: Fixture, Key: string, Tag: string, Id: string) -> boolean,
 	Pending: (self: Fixture, Key: string) -> boolean,
@@ -123,20 +121,6 @@ local function Sum(Held: any, Field: string?): number
 		end
 	end
 	return Total
-end
-
-local function Bookings(Held: any): number
-	if type(Held) ~= "table" then
-		return 0
-	end
-
-	local Count = 0
-	for Rid in Held do
-		if Booking.Entry(Held, Rid) ~= nil then
-			Count += 1
-		end
-	end
-	return Count
 end
 
 function Fixture.New(Store: any, Hook: Fault.Faulted, Service: Service, Data: string, Marked: string, Node: string, Field: string?): Fixture
@@ -249,10 +233,6 @@ end
 
 function Fixture.Aside(self: Fixture, Key: string, Field: string?): number
 	return Sum(self:Stored(Key)._Held, Field)
-end
-
-function Fixture.Booked(self: Fixture, Key: string): number
-	return Bookings(self:Stored(Key)._Booked)
 end
 
 function Fixture.Names(self: Fixture, Key: string): { [string]: any }

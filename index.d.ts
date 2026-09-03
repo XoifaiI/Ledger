@@ -145,7 +145,6 @@ declare namespace Ledger {
 		Reserve(key: KeyLike, field: NumberKeys<D>, amount: number, id: string, options?: HoldOptions): Future<[boolean, Reason | undefined]>;
 		Release(key: KeyLike, id: string): Future<[boolean, Reason | undefined]>;
 		Holds(key: KeyLike, field: NumberKeys<D>): Future<[number | undefined, Reason | undefined]>;
-		Grant(key: KeyLike, id: string): Future<[boolean, Reason | undefined]>;
 		Resettle(key: KeyLike): Future<[boolean, Reason | undefined]>;
 		RecoverTransfers(key: KeyLike): Future<[boolean, Reason | undefined]>;
 		ClearDelivered(key: KeyLike): Future<[boolean, Reason | undefined]>;

@@ -87,7 +87,6 @@ type StoreCommon<D, F> = {
 	Reserve: (self: any, Key: KeyLike, Field: F, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
 	Release: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Holds: (self: any, Key: KeyLike, Field: F) -> Future<number?, Reason?>,
-	Grant: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Resettle: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
 	RecoverTransfers: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
 	ClearDelivered: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
