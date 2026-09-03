@@ -5,8 +5,9 @@
 
 	Escrow: One rule per case for the money path, reserve deliver settle.
 
-	A transfer as three writes on two keys, what happens when a server stops between any two of them,
-	what recovery decides afterwards, and what a transfer meets when the key it is sent to was erased.
+	A transfer as three writes on two keys, and what happens when a server stops between any two of
+	them. What recovery decides afterwards. What a transfer meets when the key it is sent to was
+	erased.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau
@@ -420,6 +421,33 @@ Cases.Case("a retry finishes an escrow left behind", function(T: Case)
 	T:Is("gold on the receiver", Bank:Amount("leftB"), 40)
 	T:Is("anything still set aside", Bank:Aside("leftA"), 0)
 	T:Is("money is conserved", Bank:Amount("leftA") + Bank:Amount("leftB") + Bank:Aside("leftA"), 100)
+end)
+
+Cases.Case("a retry answered by the receiver alone hands the sender's hold to the sweep", function(T: Case)
+	local Bank = Funded(T, { crashA = 100, crashB = 0 })
+
+	Reserve(Bank, "crashA", "crashB", 40, "crash1")
+	Bank:Append("crashB", {
+		{ Id = "del:crash1", Kind = "__TransferDeliver", From = "crashA", Tid = "crash1", Amount = 40, At = T:Now(), Print = Transfer.Terms("crashA", "crashB", 40) } :: any,
+	})
+
+	T:Is("gold the receiver got before the settle died", Bank:Amount("crashB"), 40)
+	T:Is("the hold the settle left behind", Bank:Aside("crashA"), 40)
+
+	local Spent = Bank.Store.Wrapper.Spent
+	local Retried, Why = Bank.Store:Transfer("crashA", "crashB", 40, "crash1"):Wait()
+
+	T:Is("the retry under the same name", Retried, true)
+	T:Is("the reason", Why, nil)
+	T:Is("requests the retry spent, the receiver read and nothing else", Bank.Store.Wrapper.Spent - Spent, 1)
+	T:Is("the hold, still there after the retry", Bank:Aside("crashA"), 40)
+
+	T:Sweep()
+
+	T:Is("the hold once the sweep ran", Bank:Aside("crashA"), 0)
+	T:Is("gold on the sender", Bank:Amount("crashA"), 60)
+	T:Is("gold on the receiver, paid once", Bank:Amount("crashB"), 40)
+	T:Is("money is conserved", Bank:Amount("crashA") + Bank:Amount("crashB") + Bank:Aside("crashA"), 100)
 end)
 
 Cases.Case("the same transfer name moves the money once", function(T: Case)
@@ -1075,11 +1103,11 @@ Cases.Case("a delivery that arrives after the hold may be given back is turned a
 	T:Is("money is conserved", Bank:Amount("lateA") + Bank:Amount("lateB") + Bank:Aside("lateA"), 1000)
 end)
 
-Cases.Case("clearing delivered transfers needs the store to name a Balance", function(T: Case)
+Cases.Case("clearing delivered transfers works on a store whether or not it names a Balance", function(T: Case)
 	local Shelf = T:Shelf()
 
-	T:Throws("clearing on a store with no Balance", function()
-		Shelf.Store:ClearDelivered("shelf")
+	T:Holds("clearing on a store with no Balance", function()
+		T:Ok("and it says it ran", (Shelf.Store:ClearDelivered("shelf"):Wait()))
 	end)
 
 	local Bank = T:Bank()
@@ -1160,14 +1188,14 @@ Cases.Case("giving back a hold that would take money away accuses Ledger instead
 	T:Accuses("it named itself rather than shrinking the balance", "left the sender with less")
 end)
 
-Cases.Case("moving money needs the store to name a Balance", function(T: Case)
+Cases.Case("moving money needs a Field or a Balance, and recovering it needs neither", function(T: Case)
 	local Shelf = T:Shelf()
 
-	T:Throws("transferring on a store with no Balance", function()
+	T:Throws("transferring on a store with no Balance and no Field", function()
 		Shelf.Store:Transfer("a", "b", 5)
 	end)
-	T:Throws("recovering transfers on a store with no Balance", function()
-		Shelf.Store:RecoverTransfers("a")
+	T:Holds("recovering transfers on a store with no Balance", function()
+		T:Ok("and it finds nothing to do", (Shelf.Store:RecoverTransfers("a"):Wait()))
 	end)
 
 	local Bank = T:Bank()
@@ -1184,6 +1212,50 @@ Cases.Case("clearing delivered names goes through even when none have aged out",
 	T:Is("clearing them", (Bank.Store:ClearDelivered("young"):Wait()), true)
 	T:Is("the name it kept, since it is still inside its window", Bank:Knows("young", Tags.ONCE, "young1"), true)
 	T:Is("the gold it did not touch", Bank:Amount("young"), 5)
+end)
+
+Cases.Case("the sweep gives up on a key that never comes clean and names it", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("stuckA", { Gold = 100, Touches = 0 })
+	Bank:Seed("stuckB", { Gold = 0, Touches = 0 })
+
+	Bank:Fault(Fault.Updates():OnKey("stuckB"))
+	Bank.Store:Transfer("stuckA", "stuckB", 40, "stuck1"):Wait()
+	T:Is("the money is set aside", Bank:Aside("stuckA"), 40)
+
+	for _ = 1, 5 do
+		T:Sweep()
+	end
+
+	T:Is("the money is still set aside", Bank:Aside("stuckA"), 40)
+	T:Is("money is conserved", Bank:Amount("stuckA") + Bank:Amount("stuckB") + Bank:Aside("stuckA"), 100)
+	T:Warns("it names the key it gave up on", "gave up retrying 'stuckA'")
+	T:Warns("and it says who has to finish the job", "call Resettle on it yourself")
+end)
+
+Cases.Case("a transfer that runs out of request budget part way leaves the money set aside", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("starveA", { Gold = 100, Touches = 0 })
+	Bank:Seed("starveB", { Gold = 0, Touches = 0 })
+	Bank:NoRetries()
+
+	Bank:Fault(Fault.Updates():OnKey("starveB"):Meddle(function()
+		T:Starve(Enum.DataStoreRequestType.UpdateAsync)
+	end))
+
+	local Ok, Why = Bank.Store:Transfer("starveA", "starveB", 30, "starve1"):Wait()
+	T:Fed()
+
+	T:No("the transfer did not finish", Ok)
+	T:Is("and nobody knows whether it landed", Why, Suite.Reasons.Unresolved)
+	T:Is("the money is set aside on the sender", Bank:Aside("starveA"), 30)
+	T:Is("the receiver got nothing", Bank:Amount("starveB"), 0)
+
+	Bank:Healed()
+	T:Is("recovery finishes it once the budget is back", (Bank.Store:RecoverTransfers("starveA"):Wait()), true)
+	T:Is("the receiver was paid once", Bank:Amount("starveB"), 30)
+	T:Is("money is conserved", Bank:Amount("starveA") + Bank:Amount("starveB"), 100)
+	T:Warns("it says it took the money and could not hand it over", "could not hand it over")
 end)
 
 return Cases

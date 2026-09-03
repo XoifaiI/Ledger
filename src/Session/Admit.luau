@@ -5,9 +5,9 @@
 
 	Admit: Rules on one op against the live state.
 
-	The only place that decides whether an op may join a session, and it answers with a reason rather
-	than a boolean. It runs the reducer against live state, checks the op against the log and state
-	caps, and turns one away while a parked transaction could settle either way.
+	This is the only place that decides whether an op may join a session. It answers with a reason
+	rather than a boolean. It runs the reducer against live state, and checks the op against the log
+	and state caps. It turns an op away while a parked transaction could settle either way.
 
 	Return type: A table with Admit.
 	Example usage:

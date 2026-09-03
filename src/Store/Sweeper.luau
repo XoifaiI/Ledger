@@ -5,9 +5,13 @@
 
 	Sweeper: Retries each key a failed write left unfinished.
 
-	A pass repairs the keys it is following, drops one once it comes back clean, and gives up on one
-	after a few tries with a warning naming it. Every tenth pass also reaps transaction markers. It
-	checks the request budget before it starts and picks up where the last pass stopped.
+	A pass repairs the keys it is following, and drops one once it comes back clean. It gives up on a
+	key after a few tries, with a warning naming it. Every tenth pass also reaps transaction markers.
+	It checks the request budget before it starts.
+
+	A pass starts after the key the last one reached, so no key waits behind another that never comes
+	clean. It skips a key whose lease another server holds. A lease that cannot reach its map ends the
+	pass after that one key. A skipped key keeps its tries, since a skip is not a try.
 
 	Return type: A table with New. The type is Sweeper.
 	Example usage:
@@ -17,6 +21,7 @@
 
 local Clock = require("../Util/Clock")
 local Windows = require("../Core/Constants/Windows")
+local Transactions = require("../Core/Constants/Transactions")
 local SetInterval = require("../Util/SetInterval")
 local Types = require("./Types")
 
@@ -43,7 +48,7 @@ local Sweeper = {} :: SweeperImpl
 Sweeper.__index = Sweeper
 
 function Sweeper.New(): Sweeper
-	local Built: Sweeper = setmetatable({ Entries = {}, Stores = {}, Count = 0, Passes = 0, Resume = 1, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
+	local Built: Sweeper = setmetatable({ Entries = {}, Stores = {}, Count = 0, Passes = 0, Resume = 1, Cursor = nil, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
 	Built.Ticker = SetInterval(Clock.Held(), Windows.SWEEP, function()
 		Built:Pass()
 	end)
@@ -118,7 +123,7 @@ function Sweeper.Reap(self: Sweeper, Mine: number?)
 			self.Resume = At
 			return
 		end
-		Held.ReapMarkers()
+		Held.ReapMarkers(true)
 	end
 end
 
@@ -130,11 +135,27 @@ function Sweeper.Pass(self: Sweeper)
 	for Mark in self.Entries do
 		table.insert(Following, Mark)
 	end
+	table.sort(Following)
 
-	for _, Mark in Following do
-		if self.Epoch ~= Mine then
+	local Start = 1
+	local Cursor = self.Cursor
+	if Cursor ~= nil then
+		for Index, Mark in Following do
+			if Mark > Cursor then
+				Start = Index
+				break
+			end
+			Start = Index + 1
+		end
+	end
+
+	local Degraded = false
+	for Step = 0, #Following - 1 do
+		local Mark = Following[(Start + Step - 1) % #Following + 1]
+		if self.Epoch ~= Mine or Degraded then
 			return
 		end
+		self.Cursor = Mark
 
 		local Entry = self.Entries[Mark]
 		if Entry == nil then
@@ -144,9 +165,18 @@ function Sweeper.Pass(self: Sweeper)
 			continue
 		end
 
+		local Claim = Entry.Store.Claim(Entry.Key, Windows.PASS_LEASE)
+		if Claim.Outcome == Transactions.HELD then
+			continue
+		end
+		Degraded = Claim.Outcome == Transactions.UNKNOWN
+
 		local Ok, Clean, Moved = pcall(function(): (boolean, boolean)
 			return Entry.Store.Repair(Entry.Key)
 		end)
+		if Claim.Outcome == Transactions.TAKEN and not Ok then
+			Claim.Release()
+		end
 		if Ok and Clean then
 			self:Drop(Mark)
 			continue

@@ -5,9 +5,9 @@
 
 	Pages: A page walker that behaves like a real one.
 
-	It refuses to advance past the end, reads a page size of zero as the usual size rather than none,
-	and hands back a cursor that is a place in the listing rather than a row of it. The last page
-	carries no cursor.
+	It refuses to advance past the end. It reads a page size of zero as the usual size rather than
+	none. A cursor names a place in the listing rather than a row of it. The last page carries no
+	cursor.
 
 	Return type: A table with New.
 	Example usage:

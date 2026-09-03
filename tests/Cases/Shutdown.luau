@@ -318,6 +318,7 @@ Cases.Case("a store with no budget does not starve the rest of the sweep", funct
 	T:Is("the sweep is following every key", Sweep.Count, 26)
 
 	Sweep:Pass()
+	Sweep:Pass()
 
 	local Left = 0
 	for _, Entry in Sweep.Entries do

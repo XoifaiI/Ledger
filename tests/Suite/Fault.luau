@@ -5,12 +5,15 @@
 
 	Fault: The failures a case asks a datastore for, and which call each one takes.
 
-	A fault names the call it watches and what happens to it: dropped never reached the datastore,
-	swallowed landed and lost its answer, stalled arrives late, and meddled goes through after running
-	something first. An ordinal aims one at the Nth matching call. Wrap puts a memory hook behind the
-	faults a case adds to it, so the store Ledger is handed cannot tell it is being lied to.
+	A fault names the call it watches and what happens to it. Dropped never reached the service.
+	Swallowed landed and lost its answer. Stalled arrives late. Meddled goes through after running
+	something first. An ordinal aims one at the Nth matching call.
 
-	Return type: A table with Wrap, On and the four builders. The types are Spec, Effect and Faulted.
+	Wrap puts a memory hook behind the faults a case adds to it, over its datastores and its
+	MemoryStore maps alike. The store Ledger is handed cannot tell it is being lied to. A map and a
+	datastore share method names, so a fault meant for one names it with OnStore.
+
+	Return type: A table with Wrap, On and the five builders. The types are Spec, Effect and Faulted.
 	Example usage:
 		local Hook = Fault.Wrap(Memory.New(Turn, nil, Service), Turn)
 		Hook.Fail(Fault.Updates():OnKey("42"):After(2):Swallow())
@@ -27,13 +30,16 @@ local STALL: Effect = "Stall"
 local MEDDLE: Effect = "Meddle"
 
 local READ = "GetAsync"
+local SET = "SetAsync"
 local UPDATE = "UpdateAsync"
 local REMOVE = "RemoveAsync"
 local VERSION = "GetVersionAsync"
 local VERSIONS = "ListVersionsAsync"
 local LISTED = "ListKeysAsync"
 
-local METHODS: { string } = { READ, UPDATE, REMOVE, VERSION, VERSIONS, LISTED }
+local STORE_METHODS: { string } = { READ, UPDATE, REMOVE, VERSION, VERSIONS, LISTED }
+local MAP_METHODS: { string } = { READ, SET, UPDATE, REMOVE }
+local METHODS: { string } = { READ, SET, UPDATE, REMOVE, VERSION, VERSIONS, LISTED }
 
 local DOWN = "Ledger memory hook: the request never reached the datastore"
 local SWALLOWED = "Ledger memory hook: the write landed and the answer was lost"
@@ -111,10 +117,10 @@ local function Fire(Held: Spec, Scheduler: Engine.Scheduler, Inner: any, Method:
 	error(SWALLOWED, 0)
 end
 
-local function Proxy(Specs: { Spec }, Scheduler: Engine.Scheduler, Name: string, Inner: any): Engine.Store
+local function Proxy(Specs: { Spec }, Scheduler: Engine.Scheduler, Name: string, Inner: any, Methods: { string }): any
 	local Held = {}
 
-	for _, Method in METHODS do
+	for _, Method in Methods do
 		Held[Method] = function(_: any, ...: any): ...any
 			local Key = if Method == LISTED then "" else tostring((...))
 			local Firing = Chosen(Specs, Name, Method, Key)
@@ -148,14 +154,21 @@ end
 
 local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler): Faulted
 	local Specs: { Spec } = {}
+	local Cache: ((Name: string) -> Engine.Map)? = (Hook :: any).Cache
 
 	return table.freeze({
 		Service = Hook.Service,
 		Budget = Hook.Budget,
 
 		Open = function(Name: string): Engine.Store
-			return Proxy(Specs, Scheduler, Name, Hook.Open(Name))
+			return Proxy(Specs, Scheduler, Name, Hook.Open(Name), STORE_METHODS)
 		end,
+
+		Cache = if Cache == nil
+			then nil
+			else function(Name: string): Engine.Map
+				return Proxy(Specs, Scheduler, Name, Cache(Name), MAP_METHODS)
+			end,
 
 		Fail = function(Given: Spec): Spec
 			table.insert(Specs, Given)
@@ -165,7 +178,7 @@ local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler): Faulted
 		Clear = function()
 			table.clear(Specs)
 		end,
-	})
+	}) :: any
 end
 
 function Spec.OnStore(self: Spec, Name: string): Spec
@@ -236,6 +249,9 @@ return table.freeze({
 	On = On,
 	Reads = function(): Spec
 		return On(READ)
+	end,
+	Sets = function(): Spec
+		return On(SET)
 	end,
 	Updates = function(): Spec
 		return On(UPDATE)

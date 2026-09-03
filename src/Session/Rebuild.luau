@@ -6,11 +6,13 @@
 	Rebuild: Pushes the queued ops to the log, and builds the state again.
 
 	Push reads back which ops actually landed rather than trusting the call that returned. Append
-	carries the fence, the erase mark the key had at load, so a write lands only while that mark is
-	unchanged or has run out, and Fenced is what drops a mark that has. The sift folds the record with
-	and without any parked leg, and an op that holds one way but not the other stays queued until the
-	leg settles. Rebuild folds the record that came back and puts the still queued ops on top, and
-	counts the log the way the record's own cap counts it, an array with a separator after each op.
+	carries the fence, which is the erase mark the key had at load. A write lands only while that mark
+	is unchanged or has run out, and Fenced drops a mark that has.
+
+	The sift folds the record with and without any parked leg. An op that holds one way but not the
+	other stays queued until the leg settles. Rebuild folds the record that came back and puts the
+	still queued ops on top. It counts the log the way the record's own cap counts it, as an array
+	with a separator after each op.
 
 	Return type: A table with Fenced, Append, Push, Rebuild, ApplyPending, SumBytes and SEPARATOR.
 	Example usage:
@@ -20,6 +22,8 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Shapes = require("../Core/Shapes")
+local Errors = require("../Core/Errors")
+local Reasons = require("../Core/Constants/Reasons")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
 local Compact = require("../Record/Compact")
@@ -106,6 +110,21 @@ local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { 
 	end, Sifted(self))
 end
 
+local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string })
+	local Ok, Stored, Turned, Waiting = pcall(function(): (Record, { string }, { string })
+		return Append(self, Batch)
+	end)
+	if Ok then
+		return Stored, Turned, Waiting
+	end
+	if Errors.Reason(Stored) ~= Reasons.Full then
+		error(Stored, 0)
+	end
+
+	self.Log:Compact(self.Key, self.Shape)
+	return Append(self, Batch)
+end
+
 local function Push<S>(self: Session<S>): (Record?, boolean?)
 	local Count = #self.Pending
 	if Count == 0 then
@@ -113,7 +132,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	end
 
 	local Batch = table.move(self.Pending, 1, Count, 1, {})
-	local Stored, Turned, Waiting = Append(self, Batch)
+	local Stored, Turned, Waiting = Roomed(self, Batch)
 
 	local Landed: { [string]: boolean } = {}
 	for _, Op in Stored.Ops do

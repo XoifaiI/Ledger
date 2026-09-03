@@ -17,6 +17,7 @@
 --]=]
 
 local Engine = require("./Engine")
+local Messages = require("../Core/Constants/Messages")
 
 local function SetInterval(Scheduler: Engine.Scheduler, Seconds: number, Callback: (Count: number) -> (), Offset: number?): thread
 	return Scheduler.Spawn(function()
@@ -30,7 +31,7 @@ local function SetInterval(Scheduler: Engine.Scheduler, Seconds: number, Callbac
 			Count += 1
 			local Ok, Err = pcall(Callback, Count)
 			if not Ok then
-				warn(`Ledger: SetInterval callback errored: {Err}`)
+				warn(`{Messages.ACCUSED} a job Ledger runs on a timer threw, and it keeps running. please report this: {Err}`)
 			end
 		end
 	end)

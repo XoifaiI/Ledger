@@ -22,6 +22,7 @@ local Types = require("@self/Types")
 export type Leg = Types.Leg
 export type Status = Types.Status
 export type Lookup = Types.Lookup
+export type Claimed = Types.Claimed
 
 return table.freeze({
 	Drive = Coordinator.Drive,

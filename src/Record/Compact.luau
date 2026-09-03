@@ -5,13 +5,15 @@
 
 	Compact: Folds the ops on a key into a new snapshot.
 
-	Overgrown and Worthwhile say whether a key is worth compacting, on a share of the snapshot for a
-	large state and on a count for a small one. Packed does the fold: it absorbs the run of ops at the
-	front this build can apply, keeps the rest, and moves the absorbed ids to Seen. An op taken in only
-	because a transaction was parked names those transactions, and is absorbed only while none of them
-	has left its name on the key, since one that committed leaves an ordinary op that a build which
-	cannot apply it has to hold. Hint names the field taking the most room, and Blocked names the kind
-	that stops a key compacting at all.
+	Overgrown and Worthwhile say whether a key is worth compacting. They read a share of the snapshot
+	for a large state and a count for a small one. Packed does the fold. It absorbs the run of ops at
+	the front this build can apply, keeps the rest, and moves the absorbed ids to Seen.
+
+	An op taken in only because a transaction was parked names those transactions. Packed absorbs it
+	only while none of them has left its name on the key. A transaction that committed leaves an
+	ordinary op, and a build that cannot apply that op has to hold it.
+
+	Hint names the field taking the most room. Blocked names the kind that stops a key compacting.
 
 	Return type: A table with Packed, Oversized, Overgrown, Bulk, Hint, Blocked and SEEN_LIMIT.
 	Example usage:

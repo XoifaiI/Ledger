@@ -6,7 +6,7 @@
 	Types: The store declarations.
 
 	These are private to this folder. This file holds declarations, and never logic. Swept is the store
-	as the sweep sees it: five plain functions carrying no self, the same shape the scheduler and the
+	as the sweep sees it: six plain functions carrying no self, the same shape the scheduler and the
 	hook take.
 
 	Return type: An empty table. The types are Allow, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Fields, StoreImpl and Store.
@@ -18,14 +18,20 @@
 local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
+local Lru = require("../Util/Lru")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
 local Reasons = require("../Core/Constants/Reasons")
+local Bookings = require("../Core/Constants/Bookings")
 local LogTypes = require("../Record/Types")
+local Tally = require("../Layers/Tally")
+local TxTypes = require("../Protocol/Tx/Types")
 local LiveTypes = require("../Session/Types")
 
 type Future<T...> = Future.Future<T...>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
+type MemoryStoreWrapper = MemoryStoreWrapper.MemoryStoreWrapper
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
 type Reducer<S> = Shapes.Reducer<S>
@@ -41,12 +47,19 @@ type Session<S> = LiveTypes.Session<S>
 
 export type Allow = (Record) -> boolean
 
+export type Claimed = TxTypes.Claimed
+
+export type Reserved = Bookings.Reserved
+
+export type Dropped = Bookings.Dropped
+
 export type Swept = {
 	read Mark: (Key: string) -> string,
 	read Affords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	read TxAffords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	read Repair: (Key: string) -> (boolean, boolean),
-	read ReapMarkers: () -> number,
+	read ReapMarkers: (Bounded: boolean) -> number,
+	read Claim: (Key: string, Ttl: number) -> Claimed,
 }
 
 export type Stranded = { Store: Swept, Key: string, Tries: number }
@@ -70,6 +83,7 @@ export type Sweeper = setmetatable<{
 	Count: number,
 	Passes: number,
 	Resume: number,
+	Cursor: string?,
 	Epoch: number,
 	Ticker: thread,
 }, SweeperImpl>
@@ -89,6 +103,7 @@ export type Meter = {
 	Markers: number,
 	Swollen: number,
 	Said: number,
+	Unbooked: number,
 }
 
 export type Fields<D> = {
@@ -96,6 +111,11 @@ export type Fields<D> = {
 	Reducer: Reducer<D>,
 	Wrapper: DataStoreWrapper,
 	TxWrapper: DataStoreWrapper,
+	Tallies: MemoryStoreWrapper?,
+	Leases: MemoryStoreWrapper?,
+	Bookings: MemoryStoreWrapper?,
+	Recent: Lru.Lru<Tally.Recent>,
+	Bumped: number,
 	Initial: D,
 	Migrations: { Migration },
 	Handles: { [string]: boolean },
@@ -145,13 +165,17 @@ export type StoreImpl<D> = {
 	Swelling: (self: Store<D>, Key: string, Record: Record) -> (),
 	Starved: (self: Store<D>, Pool: Enum.DataStoreRequestType) -> (),
 
-	Freed: (self: Store<D>, Key: string, State: any) -> boolean,
 	HeldOn: (self: Store<D>, Key: string) -> (boolean, any),
-	HandOver: (self: Store<D>, Key: string) -> (number, number),
-	HandBooked: (self: Store<D>, Key: string) -> (),
+	HandOver: (self: Store<D>, Key: string) -> (number, string),
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
+	Kept: (self: Store<D>, Slot: string, Now: number) -> Tally.Recent,
+	Unbooked: (self: Store<D>, What: string) -> (),
+	Holding: (self: Store<D>, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?) -> (Reserved, number?),
+	Dropped: (self: Store<D>, Slot: string, Rid: string, State: any) -> Dropped,
+	Leased: (self: Store<D>, Targets: { { Name: string, Key: string } }) -> ({ () -> () }, boolean),
+	Claim: (self: Store<D>, Key: string, Ttl: number) -> Claimed,
 	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
-	ReapMarkers: (self: Store<D>) -> number,
+	ReapMarkers: (self: Store<D>, Bounded: boolean?) -> number,
 	Buried: (self: Store<D>, Key: string, Replaced: Record) -> (),
 
 	Wake: (self: Store<D>, UserId: number, Active: Session<D>?) -> (),
@@ -159,7 +183,6 @@ export type StoreImpl<D> = {
 	Handled: (self: Store<D>, Player: Player, Why: Reason) -> boolean,
 	Autosave: (self: Store<D>, UserId: number) -> (),
 	Save: (self: Store<D>, Active: Session<D>) -> Future<boolean, Reason?>,
-	Handed: (self: Store<D>, Key: string, Rid: string, Held: Shapes.Booked) -> boolean,
 
 	Load: (self: Store<D>, Player: Player) -> (),
 	Unload: (self: Store<D>, Player: Player) -> (),
@@ -174,13 +197,13 @@ export type StoreImpl<D> = {
 	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
 	PeekVersion: (self: Store<D>, Key: KeyLike, Version: string) -> Future<D?, Reason?>,
 	Edit: (self: Store<D>, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
-	Transfer: (self: Store<D>, From: KeyLike, To: KeyLike, Amount: number, Id: string?) -> Future<boolean, Reason?>,
+	Transfer: (self: Store<D>, From: KeyLike, To: KeyLike, Amount: number, Id: string?, Field: string?) -> Future<boolean, Reason?>,
 	Bump: (self: Store<D>, Name: string, Field: string, Amount: number) -> Future<boolean, Reason?>,
-	Total: (self: Store<D>, Name: string, Field: string) -> Future<number?, Reason?>,
+	Total: (self: Store<D>, Name: string, Field: string, MaxAge: number?) -> Future<number?, Reason?>,
 	Reserve: (self: Store<D>, Key: KeyLike, Field: string, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
-	Confirm: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
+	Confirm: (self: Store<D>, Key: KeyLike, Id: string, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Release: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
-	Grant: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
+	Holds: (self: Store<D>, Key: KeyLike, Field: string) -> Future<number?, Reason?>,
 	Tx: (self: Store<D>, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 	Resettle: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	RecoverTransfers: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,

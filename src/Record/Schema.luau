@@ -5,11 +5,12 @@
 
 	Schema: Turns a stored record into the state a game reads.
 
-	Migrations run first, defaults are filled in second, and the ops fold on top of the snapshot last.
-	A migration is the game's code and is not trusted with Ledger's own fields, so anything starting
-	with an underscore is put back after every step and the step that dropped it is named. Certain says
-	whether a parked transaction can still change the answer. Detached copies the snapshot, so a
-	reducer cannot reach the stored record through it.
+	Migrations run first. Defaults fill in second. The ops fold on top of the snapshot last.
+
+	A migration is the game's code, and Ledger does not trust it with its own fields. Schema puts back
+	every field starting with an underscore after every step, and names the step that dropped one.
+	Certain says whether a parked transaction can still change the answer. Detached copies the
+	snapshot, so a reducer cannot reach the stored record through it.
 
 	Return type: A table with New, FloorOf, Migrate and Detached.
 	Example usage:
@@ -42,7 +43,7 @@ local function Bookkeeping(Snapshot: any): { [string]: any }?
 	for Key, Value in Snapshot do
 		if type(Key) == "string" and Storable.Bookkeeping(Key) then
 			Kept = Kept or {}
-			;(Kept :: { [string]: any })[Key] = Value
+			(Kept :: { [string]: any })[Key] = Value
 		end
 	end
 	return Kept
@@ -67,9 +68,7 @@ local function Restored(Snapshot: any, Kept: { [string]: any }?, Index: number):
 		if TableUtil.DeepEqual(Theirs, Value) then
 			continue
 		end
-		warn(
-			`Ledger: migration {Index} dropped Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`
-		)
+		warn(`Ledger: migration {Index} dropped Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`)
 	end
 	return Next
 end
@@ -143,10 +142,6 @@ function Schema.New<S>(Reducer: Shapes.Reducer<S>, Initial: S, Migrations: { Mig
 end
 
 function Schema.Rehydrate(self: Schema<any>, Record: Record): any
-	if Record.Snapshot == nil then
-		return if self.Blobbed then TableUtil.DeepCopy(self.Initial) else self.Initial
-	end
-
 	local Steps = self.Migrations
 	local Version = Record.Version or 0
 
@@ -154,6 +149,10 @@ function Schema.Rehydrate(self: Schema<any>, Record: Record): any
 	local Needs = if type(Held) == "number" then Held elseif Version > #Steps then Version else 0
 	if Needs > #Steps then
 		Errors.Raise(Reasons.Behind, `this record needs {Needs} migrations and this server has {#Steps}, a newer build wrote it. finish the deploy`)
+	end
+
+	if Record.Snapshot == nil then
+		return if self.Blobbed then TableUtil.DeepCopy(self.Initial) else self.Initial
 	end
 
 	if Version > #Steps then

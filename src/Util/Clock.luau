@@ -5,9 +5,9 @@
 
 	Clock: The scheduler for the places that have no store to be handed one.
 
-	The time written on an op, the poll a session does while a leg is stuck, the timeout on a Future,
-	and the watch on a slow listener all read this. Use points it at a scheduler and checks that one
-	reads seconds since 1970.
+	Four places read this. The time written on an op, and the poll a session does while a leg is
+	stuck. The timeout on a Future, and the watch on a slow listener. Use points it at a scheduler,
+	and checks that one reads seconds since 1970.
 
 	Return type: A table with Use, Held, Now, Wait, Delay and Cancel.
 	Example usage:
@@ -19,7 +19,8 @@
 local Engine = require("./Engine")
 local Roblox = require("../Schedulers/Roblox")
 
-local CENTURY = 100 * 31556952
+local YEAR = 31556952
+local CENTURY = 100 * YEAR
 
 local Real = Roblox.New()
 local Current: Engine.Scheduler = Real

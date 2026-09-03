@@ -5,11 +5,13 @@
 
 	Cleanup: The list of transactions whose markers still have to go.
 
-	A transaction writes its name here before it opens a marker, so no marker exists without one. Names
-	are spread over shards and buckets of time, and a key holds up to a limit before the next key of
-	that bucket takes the rest, so any one key costs a bounded read and write. A name the reaper cannot
-	clear yet is carried onto a newer key. Which part of a bucket to write to next is remembered per
-	store, since two stores keep their own keys and neither one fills the other's.
+	A transaction writes its name here before it opens a marker, so no marker exists without one.
+	Names are spread over shards and buckets of time. A key holds up to a limit, then the next key of
+	that bucket takes the rest. Any one key costs a bounded read and write. A name the reaper cannot
+	clear yet is carried onto a newer key.
+
+	Each store remembers which part of a bucket to write to next. Two stores keep their own keys, and
+	neither one fills the other's.
 
 	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add and Carry.
 	Example usage:
@@ -29,6 +31,9 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 
 local WIDTH = 10
 local PART_WIDTH = 3
+local SLOT_WIDTH = 2
+
+assert(Transactions.SHARDS <= 10 ^ SLOT_WIDTH, "a cleanup list key writes its shard in two digits, so more shards than that would write keys the reaper cannot read back")
 
 local DIGITS = string.rep("%d", WIDTH)
 local FORMAT = `{Transactions.RESERVED}%02d:%0{WIDTH}d:%0{PART_WIDTH}d`

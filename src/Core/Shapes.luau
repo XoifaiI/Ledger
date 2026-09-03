@@ -5,11 +5,10 @@
 
 	Shapes: The shapes a datastore holds.
 
-	An op, the record one key holds, and the state a fold gives back. Folded names Ledger's own four
-	fields and leaves the game's own open. Held and Booked are one entry of the money set aside and
-	the units set aside.
+	An op, the record one key holds, and the state a fold gives back. Folded names Ledger's own three
+	fields and leaves the game's own open. Held is one entry of the money set aside.
 
-	Return type: An empty table. The types are Op, Record, HistoryEntry, KeyLike, KeysMode, Reducer, Migration, Held, Booked and Folded.
+	Return type: An empty table. The types are Op, Record, HistoryEntry, KeysMode, KeyLike, Held, Folded, Reducer, Migration and Mocked.
 	Example usage:
 		local Shapes = require("./Shapes")
 		type Op = Shapes.Op
@@ -46,20 +45,11 @@ export type Held = {
 	To: KeyLike,
 	Amount: number,
 	At: number?,
-}
-
-export type Booked = {
-	Field: string,
-	Amount: number,
-	At: number,
-	Hold: number?,
-	To: string?,
-	Handing: boolean?,
+	Field: string?,
 }
 
 export type Folded = {
 	_Held: { [string]: Held }?,
-	_Booked: { [string]: Booked }?,
 	_Received: { [string]: number | string }?,
 	_Tally: { [string]: number }?,
 	[any]: any,

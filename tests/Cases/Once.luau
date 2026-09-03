@@ -5,9 +5,9 @@
 
 	Once: One rule per case for a caller named op that lands at most one time.
 
-	The same name offered again across a replay, a compaction, a fresh session, two servers at once,
-	and a key that was erased and came back. Names age out at the prune window, transaction ids
-	included.
+	The same name offered again across a replay, a compaction and a fresh session. The same name from
+	two servers at once, and on a key that was erased and came back. Names age out at the prune
+	window, transaction ids included.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau
@@ -15,6 +15,7 @@
 
 local Suite = require("../Suite")
 
+local Digest = require("../../src/Encode/Digest")
 local Tags = require("../../src/Core/Constants/Tags")
 
 type Case = Suite.Case
@@ -513,6 +514,26 @@ Cases.Case("a Once name still answers after the op that carried it was compacted
 	T:Is("writing under the same name again", Again, false)
 	T:Is("the reason, which is an answer rather than a shrug", Why, "Refused")
 	T:Is("the gold it was paid exactly once", Bank:State("receipt").Gold, 50)
+end)
+
+Cases.Case("a bucket reads a hash the same way on every build, so nothing changes shard", function(T: Case)
+	T:Is("the number the first four bytes of a hash read as", Digest.Bucket("nodeA", 2 ^ 32), 267769556)
+	T:Is("the shard a node lands on out of sixteen", Digest.Bucket("nodeA", 16), 4)
+	T:Is("the shard a tally lands on out of sixteen", Digest.Bucket("pot", 16), 13)
+	T:Is("the shard a transaction lands on out of thirty two", Digest.Bucket("trade1", 32), 14)
+end)
+
+Cases.Case("two sets of terms that differ only in the type of a key do not print the same", function(T: Case)
+	local Numbered = Digest.Of(Digest.Canon({ [1] = "a" }))
+	local Named = Digest.Of(Digest.Canon({ ["1"] = "a" }))
+	local Deep = Digest.Of(Digest.Canon({ Held = { [2] = 3 } }))
+	local Flat = Digest.Of(Digest.Canon({ Held = { ["2"] = 3 } }))
+
+	T:No("one print for a number key and a string key that read alike", Numbered == Named)
+	T:No("one print for the same pair nested a level down", Deep == Flat)
+	T:No("one print for a number key and a field named after one", Numbered == Digest.Of(Digest.Canon({ ["number:1"] = "a" })))
+	T:Is("a print for terms that really are the same", Digest.Of(Digest.Canon({ A = 1, B = "x" })), Digest.Of(Digest.Canon({ B = "x", A = 1 })))
+	T:Is("the print a plain field name has always had, so a deploy reads its own names back", Digest.Canon({ Amount = 5 }), "(Amount=number:5)")
 end)
 
 return Cases

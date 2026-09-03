@@ -8,7 +8,7 @@
 	Reserve sets the money aside on the sender, Post delivers it to the receiver, and Settle clears
 	the hold. Each leg is one op, atomic on its own key, and the transfer id makes each apply once.
 	The money arrives before the hold clears, so a server that stops leaves it set aside for recovery.
-
+	
 	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms and LandedOn.
 	Example usage:
 		local Transfer = require("./Transfer")
@@ -41,15 +41,19 @@ type Format = LogTypes.Shape<any>
 
 export type Hold = Shapes.Held
 
-export type Reserved = { read Outcome: "Finished" } | { read Outcome: "Escrowed", read Tid: string, read Hold: Hold } | { read Outcome: "Stopped", read Why: Reason }
+export type Reserved = { read Outcome: "Finished", read Follow: boolean? } | { read Outcome: "Escrowed", read Tid: string, read Hold: Hold } | { read Outcome: "Stopped", read Why: Reason }
 
 local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
 local HELD = Reasons.Held
 
+local FINISHED = "Finished" :: "Finished"
+local ESCROWED = "Escrowed" :: "Escrowed"
+local STOPPED = "Stopped" :: "Stopped"
+
 local function Stopped(Why: Reason): Reserved
-	return { Outcome = "Stopped", Why = Why }
+	return { Outcome = STOPPED, Why = Why }
 end
 
 local function Spent(Tid: string): Reserved
@@ -57,8 +61,8 @@ local function Spent(Tid: string): Reserved
 	return Stopped(SPENT)
 end
 
-local function Terms(From: number | string, To: number | string, Amount: number): string
-	return Digest.Of(Digest.Canon({ From = tostring(From), To = tostring(To), Amount = Amount }))
+local function Terms(From: number | string, To: number | string, Amount: number, Field: string?): string
+	return Digest.Of(Digest.Canon({ From = tostring(From), To = tostring(To), Amount = Amount, Field = Field }))
 end
 
 local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, From: (number | string)?): Applied.Recalled
@@ -83,25 +87,25 @@ local function Delivered(Records: Log, Format: Format, To: number | string, Tid:
 	return LandedOn(Format, Records:Read(tostring(To)), Tid, Print, From)
 end
 
-local function Reserve(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): Reserved
+local function Reserve(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?, Field: string?): Reserved
 	if not Validate.Positive(Amount) then
 		return Stopped(REFUSED)
 	end
 
 	local Tid = Id or Ids.Fresh()
-	local Print = Terms(From, To, Amount)
+	local Print = Terms(From, To, Amount, Field)
 
 	if Id ~= nil then
 		local Already = Delivered(Records, Format, To, Tid, Print, From)
 		if Already == Tags.SAME then
-			return { Outcome = "Finished" }
+			return { Outcome = FINISHED, Follow = true }
 		end
 		if Already == Tags.OTHER then
 			return Spent(Tid)
 		end
 	end
 
-	local ReserveOp: Op = { Id = `{Kinds.RESERVE_ID}:{Tid}`, Kind = Kinds.RESERVE, To = To, Amount = Amount, Tid = Tid, At = Clock.Now() }
+	local ReserveOp: Op = { Id = `{Kinds.RESERVE_ID}:{Tid}`, Kind = Kinds.RESERVE, To = To, Amount = Amount, Tid = Tid, At = Clock.Now(), Field = Field }
 
 	local Record = Records:Append(tostring(From), { ReserveOp }, function(Stored: Record): boolean
 		if TxStamp.HasPending(Stored) then
@@ -113,19 +117,17 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 	local Escrowed = Escrow.Entry(State._Held, Tid)
 	if Escrowed ~= nil then
-		if Escrowed.To ~= To or Escrowed.Amount ~= Amount then
+		if Escrowed.To ~= To or Escrowed.Amount ~= Amount or Escrowed.Field ~= Field then
 			warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}. it pays out that, not the {Amount} to {To} you asked for`)
 		end
 
 		local At = Escrowed.At
 		if At ~= nil and Clock.Now() - At > Windows.REDRIVE then
-			warn(
-				`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again. recovery owns it now and this call left it alone. it is finished or given back on its own`
-			)
+			warn(`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again. recovery owns it now and this call left it alone. it is finished or given back on its own`)
 			return Stopped(HELD)
 		end
 
-		return { Outcome = "Escrowed", Tid = Tid, Hold = Escrowed }
+		return { Outcome = ESCROWED, Tid = Tid, Hold = Escrowed }
 	end
 
 	local Spend = Applied.Recall(State._Received, Tags.SENT, Tid, Print)
@@ -133,7 +135,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		return Spent(Tid)
 	end
 	if Spend == Tags.SAME or TxStamp.Carries(Record, `{Kinds.SETTLE_ID}:{Tid}`) then
-		return { Outcome = "Finished" }
+		return { Outcome = FINISHED }
 	end
 	if TxStamp.Carries(Record, `{Kinds.EXPIRE_ID}:{Tid}`) then
 		return Stopped(SPENT)
@@ -154,12 +156,12 @@ local function Sound(At: number?): boolean
 	return type(At) ~= "number" or Clock.Now() - At <= Windows.REDRIVE + Windows.EXPIRE_MARGIN
 end
 
-local function Post(Records: Log, Format: Format, From: number | string, Tid: string, To: number | string, Amount: number, At: number?)
+local function Post(Records: Log, Format: Format, From: number | string, Tid: string, To: number | string, Amount: number, At: number?, Field: string?)
 	assert(tostring(From) ~= tostring(To), `transfer {Tid} is being delivered to the key it came from, so the money would be counted twice`)
 	assert(Amount > 0, `transfer {Tid} is being delivered with nothing in it`)
 
-	local Print = Terms(From, To, Amount)
-	local DeliverOp: Op = { Id = `{Kinds.DELIVER_ID}:{Tid}`, Kind = Kinds.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print }
+	local Print = Terms(From, To, Amount, Field)
+	local DeliverOp: Op = { Id = `{Kinds.DELIVER_ID}:{Tid}`, Kind = Kinds.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print, Field = Field }
 	local Landed = Records:Append(tostring(To), { DeliverOp }, function(Record: Record): boolean
 		return Sound(At) and Log.NotEntombed(Record)
 	end)
@@ -199,26 +201,26 @@ local function Prune(Records: Log, UserId: number | string)
 	Records:Append(tostring(UserId), { PruneOp })
 end
 
-local function Drive(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?): (boolean, Reason?, boolean?)
-	local Fine, Ruling = pcall(Reserve, Records, Format, From, To, Amount, Id)
+local function Drive(Records: Log, Format: Format, From: number | string, To: number | string, Amount: number, Id: string?, Field: string?): (boolean, Reason?, boolean?)
+	local Fine, Ruling = pcall(Reserve, Records, Format, From, To, Amount, Id, Field)
 	if not Fine then
 		return false, Errors.Reason(Ruling), nil
 	end
 
-	if Ruling.Outcome == "Finished" then
-		return true, nil, nil
+	if Ruling.Outcome == FINISHED then
+		return true, nil, Ruling.Follow
 	end
-	if Ruling.Outcome == "Stopped" then
+	if Ruling.Outcome == STOPPED then
 		return false, Ruling.Why, nil
 	end
-	if Ruling.Outcome ~= "Escrowed" then
+	if Ruling.Outcome ~= ESCROWED then
 		local Unreachable: never = Ruling
 		return false, Unreachable, nil
 	end
 
 	local Tid, Hold = Ruling.Tid, Ruling.Hold
 	local Handed, Why = pcall(function()
-		Post(Records, Format, From, Tid, Hold.To, Hold.Amount, Hold.At)
+		Post(Records, Format, From, Tid, Hold.To, Hold.Amount, Hold.At, Hold.Field)
 	end)
 	if Handed then
 		return true, nil, nil

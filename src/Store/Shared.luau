@@ -5,9 +5,9 @@
 
 	Shared: What each other half of the store needs first.
 
-	Resolving a key and saying what a key may look like, the log and the schema this store folds with,
-	the request budget, and the five plain functions the sweep sees a store as. The log handle is kept
-	against the wrapper that built it.
+	Resolving a key, and saying what a key may look like. The log and the schema this store folds
+	with, and the request budget. The six plain functions the sweep sees a store as. It keeps the log
+	handle against the wrapper that built it.
 
 	Return type: An empty table. It writes Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Affords, TxAffords, Swept, Records, Format, Fold and ReadRecord onto the class.
 	Example usage:
@@ -65,7 +65,7 @@ function Store.ExpectPlayers(self: Store, What: string)
 end
 
 function Store.ExpectBalance(self: Store, What: string)
-	assert(self.Options.Balance, `{What} needs the store to name a Balance field, like Balance = "Gold"`)
+	assert(self.Options.Balance, `{What} needs a Field, or the store to name a Balance field, like Balance = "Gold"`)
 end
 
 function Store.Affords(self: Store, Kind: Enum.DataStoreRequestType, Floor: number): boolean
@@ -95,8 +95,11 @@ function Store.Swept(self: Store): Types.Swept
 		Repair = function(Key: string): (boolean, boolean)
 			return self:Repair(Key)
 		end,
-		ReapMarkers = function(): number
-			return self:ReapMarkers()
+		ReapMarkers = function(Bounded: boolean): number
+			return self:ReapMarkers(Bounded)
+		end,
+		Claim = function(Key: string, Ttl: number): Types.Claimed
+			return self:Claim(Mark.Cached({ "sweep", self.Wrapper.Name, Key }), Ttl)
 		end,
 	})
 	self.Sweeping = Held
@@ -130,7 +133,7 @@ function Store.Fold(self: Store, Record: Record): any
 end
 
 function Store.ReadRecord(self: Store, Key: string): Record
-	return self:Records():Read(Key)
+	return (self:Records():Read(Key))
 end
 
 return table.freeze({})

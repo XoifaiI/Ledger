@@ -5,11 +5,12 @@
 
 	Marker: The one key that decides a transaction.
 
-	Create opens one, Decide commits or aborts it, StatusOf reads it and abandons one nothing has
-	touched for longer than a transaction may take, and Adopt records that a leg has reported. No
-	marker means aborted. A marker goes away only once every leg has reported. The handles it keeps
-	to other stores belong to the hook they were opened on, and so does the count of how many are
-	left, since a handle that stops being cached stops queueing its writes in order.
+	Create opens one. Decide commits or aborts it. StatusOf reads it, and abandons one nothing has
+	touched for longer than a transaction may take. Adopt records that a leg has reported. No marker
+	means aborted. A marker goes away only once every leg has reported.
+
+	The handles it keeps to other stores belong to the hook they were opened on, and so does the count
+	of how many are left. A handle that stops being cached stops queueing its writes in order.
 
 	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
 	Example usage:

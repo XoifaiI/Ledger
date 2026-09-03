@@ -5,9 +5,9 @@
 
 	Validate: Refuses each store Ledger.New cannot build.
 
-	The name, the reducer, the default state, the key mode, the migrations and the balance field are
-	all checked here, so a store that is set up wrong throws where it was built rather than behaving
-	wrongly on a key months later.
+	It checks the name, the reducer, the default state, the key mode, the migrations and the balance
+	field. A store that is set up wrong throws where it was built. It does not behave wrongly on a key
+	months later.
 
 	Return type: A function that throws, and gives back nothing.
 	Example usage:
@@ -17,10 +17,12 @@
 
 local Storable = require("../Encode/Storable")
 local Api = require("../Core/Api")
+local Datastore = require("../Core/Constants/Datastore")
+local Transactions = require("../Core/Constants/Transactions")
 
 type Config<D> = Api.Config<D>
 
-local MAX_NAME = 47
+local MAX_NAME = Datastore.MAX_NAME - #Transactions.SUFFIX
 
 local function Sized(Mock: any)
 	if type(Mock) ~= "table" then
@@ -37,7 +39,10 @@ local function Sized(Mock: any)
 end
 
 local function Named<D>(Options: Config<D>)
-	assert(type(Options.Name) == "string" and #Options.Name > 0 and #Options.Name <= MAX_NAME, `New needs Name, a datastore name of 1 to {MAX_NAME} characters (the transaction store appends _Tx)`)
+	assert(
+		type(Options.Name) == "string" and #Options.Name > 0 and #Options.Name <= MAX_NAME,
+		`New needs Name, a datastore name of 1 to {MAX_NAME} characters (the transaction store appends {Transactions.SUFFIX})`
+	)
 	assert(type(Options.Reducer) == "function", "New needs Reducer, a (State, Op) -> State? function")
 	assert(type(Options.Default) == "table", "New needs Default, the fresh state table")
 	assert(Options.Keys == nil or Options.Keys == "Player" or Options.Keys == "String", `Keys must be "Player" or "String"`)

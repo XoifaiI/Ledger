@@ -5,8 +5,8 @@
 
 	Roblox: The scheduler Ledger runs on in a live game.
 
-	The task library and the wall clock, behind the shape everything else takes. It holds no state, so
-	New hands back the same set of functions every time.
+	The task library, the wall clock and one generator for the rolls, behind the shape everything else
+	takes. It holds nothing a run can change, so New hands back the same set of functions every time.
 
 	Return type: A table with New. It answers the Scheduler shape.
 	Example usage:
@@ -18,8 +18,14 @@ local Engine = require("../Util/Engine")
 
 export type Scheduler = Engine.Scheduler
 
+local Rolls = Random.new()
+
 local function Now(): number
 	return os.time()
+end
+
+local function Roll(): number
+	return Rolls:NextNumber()
 end
 
 local function Wait(Seconds: number)
@@ -57,6 +63,7 @@ end
 
 local Held: Scheduler = table.freeze({
 	Now = Now,
+	Roll = Roll,
 	Wait = Wait,
 	Spawn = Spawn,
 	Resume = Resume,

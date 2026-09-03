@@ -5,9 +5,9 @@
 
 	NoYield: Runs a function that must not yield.
 
-	If the function yields it is stopped and the caller is told where. Run throws on a yield or a
-	throw, and Try answers with a boolean instead. Threads that finished cleanly are kept and used
-	again.
+	A function that yields is stopped, and the caller is told where. Run throws on a yield or a throw,
+	and Try answers with a boolean instead. It keeps the threads that finished cleanly and uses them
+	again. Two arguments reach the function and no more. A third would be dropped without a word.
 
 	Return type: A table with Run and Try.
 	Example usage:

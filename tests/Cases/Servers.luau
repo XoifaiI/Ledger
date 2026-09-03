@@ -6,12 +6,13 @@
 	Servers: One rule per case for two servers writing one datastore, and for a transaction broken at
 	each call it makes.
 
-	Two fixtures over one datastore name are two servers: each holds its own hook, wrapper and queues,
-	so a race between them is a real one rather than a marker written by hand. A sweep drives the same
-	transaction once per call it makes, takes that call and every one after it away, and asks the same
-	questions each time: does the money add up, is the key on one side of the transaction or the
-	other, and did anything stay parked. Each sweep counts what it actually broke, since a fault the
-	retries absorbed has tested the retries.
+	Two fixtures over one datastore name are two servers. Each holds its own hook, wrapper and queues,
+	so a race between them is a real one rather than a marker written by hand.
+
+	A sweep drives the same transaction once per call it makes, and takes that call and every one
+	after it away. It asks the same three questions each time. Does the money add up. Is the key on
+	one side of the transaction or the other. Did anything stay parked. Each sweep counts what it
+	actually broke, since a fault the retries absorbed has tested the retries.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau servers
@@ -103,11 +104,7 @@ local function Swept(T: Case, Label: string, Marked: boolean, Made: () -> any): 
 
 		local Left, Right = Gold(Bank, A), Gold(Bank, B)
 		T:Is(`broken at call {Call}, the money adds up`, Left + Right, START)
-		T:Is(
-			`broken at call {Call}, both keys are on one side of it`,
-			(Left == START and Right == 0) or (Left == START - MOVED and Right == MOVED),
-			true
-		)
+		T:Is(`broken at call {Call}, both keys are on one side of it`, (Left == START and Right == 0) or (Left == START - MOVED and Right == MOVED), true)
 		if Ok then
 			T:Is(`broken at call {Call}, a yes means the money moved`, Right, MOVED)
 		end
@@ -363,11 +360,7 @@ Cases.Case("a fault on one server while another races it still leaves the money 
 
 	T:Is("recovery got there", Passes <= TRIES, true)
 	T:Is("the money adds up", Left + Right, START)
-	T:Is(
-		"the keys are on one side of whichever of the two went through",
-		(Left == START and Right == 0) or (Left == START - 30 and Right == 30) or (Left == START - 40 and Right == 40),
-		true
-	)
+	T:Is("the keys are on one side of whichever of the two went through", (Left == START and Right == 0) or (Left == START - 30 and Right == 30) or (Left == START - 40 and Right == 40), true)
 	T:Is("both servers were not told yes", First == true and Second == true, false)
 	T:Is("the faulted server was not told yes", First, false)
 	T:Is("nothing is left parked on the sender", Two:Pending("crossA"), false)

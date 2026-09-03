@@ -45,7 +45,6 @@ export type TxLeg = {
 
 export type HoldOptions = {
 	Hold: number?,
-	To: KeyLike?,
 }
 
 type LiveCommon<S> = {
@@ -82,13 +81,12 @@ type StoreCommon<D, F> = {
 	DidApply: (self: any, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,
 	History: (self: any, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
 	PeekVersion: (self: any, Key: KeyLike, Version: string) -> Future<D?, Reason?>,
-	Transfer: (self: any, From: KeyLike, To: KeyLike, Amount: number, Id: string?) -> Future<boolean, Reason?>,
+	Transfer: (self: any, From: KeyLike, To: KeyLike, Amount: number, Id: string?, Field: F?) -> Future<boolean, Reason?>,
 	Bump: (self: any, Name: string, Field: F, Amount: number) -> Future<boolean, Reason?>,
-	Total: (self: any, Name: string, Field: F) -> Future<number?, Reason?>,
+	Total: (self: any, Name: string, Field: F, MaxAge: number?) -> Future<number?, Reason?>,
 	Reserve: (self: any, Key: KeyLike, Field: F, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
-	Confirm: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Release: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
-	Grant: (self: any, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
+	Holds: (self: any, Key: KeyLike, Field: F) -> Future<number?, Reason?>,
 	Resettle: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
 	RecoverTransfers: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
 	ClearDelivered: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
@@ -103,6 +101,7 @@ export type Store<D> = StoreCommon<D, string> & {
 	Expect: (self: any, Player: Player) -> Live<D>,
 	WaitForLoaded: (self: any, Player: Player) -> Live<D>?,
 	Edit: (self: any, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
+	Confirm: (self: any, Key: KeyLike, Id: string, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Tx: (self: any, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 }
 
@@ -111,6 +110,7 @@ export type TypedStore<D, O> = StoreCommon<D, TypeFunctions.NumberKeys<D>> & {
 	Expect: (self: any, Player: Player) -> TypedLive<D, O>,
 	WaitForLoaded: (self: any, Player: Player) -> TypedLive<D, O>?,
 	Edit: TypeFunctions.Overloads<O, (any, KeyLike) -> Future<boolean, Reason?>>,
+	Confirm: TypeFunctions.Overloads<O, (any, KeyLike, string) -> Future<boolean, Reason?>>,
 	Tx: (self: any, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 }
 

@@ -35,7 +35,7 @@ local function Banker(State: any, Op: any): any?
 	elseif Op.Kind == "Stamp" then
 		return { Gold = State.Gold, Touches = State.Touches }
 	elseif Op.Kind == "Meddle" then
-		return { Gold = State.Gold, Touches = State.Touches + 1, _Received = {}, _Held = {}, _Booked = {}, _Tally = {} }
+		return { Gold = State.Gold, Touches = State.Touches + 1, _Received = {}, _Held = {}, _Tally = {} }
 	elseif Op.Kind == "Boom" then
 		error("the game's reducer threw on a Boom op")
 	elseif Op.Kind == "Give" then
@@ -106,12 +106,19 @@ local function Vaulter(State: any, Op: any): any?
 end
 
 local function Shopkeeper(State: any, Op: any): any?
-	if Op.Kind ~= "Sell" then
+	local Count = if type(Op.Count) == "number" then Op.Count else 1
+	if Op.Kind == "Restock" then
+		local Next = table.clone(State)
+		Next.Stock += Count
+		return Next
+	end
+	if Op.Kind ~= "Sell" or State.Stock < Count then
 		return nil
 	end
 
 	local Next = table.clone(State)
-	Next.Sold += 1
+	Next.Stock -= Count
+	Next.Sold += Count
 	return Next
 end
 

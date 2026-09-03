@@ -17,6 +17,7 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Shapes = require("../Core/Shapes")
+local Messages = require("../Core/Constants/Messages")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Storable = require("../Encode/Storable")
@@ -54,7 +55,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		local Stamp, At, Print = StampOf(Op)
 		if Stamp ~= nil then
 			if type(At) ~= "number" then
-				warn(`Ledger bug: op '{tostring(Op.Kind)}' carries a name with no time on it. Ledger turned the op away, please report this`)
+				warn(`{Messages.ACCUSED} op '{tostring(Op.Kind)}' carries a name with no time on it. Ledger turned the op away, please report this`)
 				return nil
 			end
 			local Marked = table.clone(Plain)

@@ -5,10 +5,9 @@
 
 	Json: The json trip a real datastore puts a value through.
 
-	Encode refuses anything json cannot hold and anything over the value cap. A buffer has no json
-	form, so it is compressed and goes in and out as base64 under one reserved key, which is what a
-	real datastore charges for one. Only a table holding that key and nothing else reads back as a
-	buffer.
+	Encode refuses anything json cannot hold, and anything over the value cap. A buffer has no json
+	form. It goes in and out compressed, as base64 under one reserved key, which is what a real
+	datastore charges for one. Only a table holding that key and nothing else reads back as a buffer.
 
 	Return type: A table with Encode, Decode and MAX_VALUE.
 	Example usage:

@@ -18,6 +18,7 @@ local Suite = require("../Suite")
 local Transactions = require("../../src/Core/Constants/Transactions")
 
 local Windows = require("../../src/Core/Constants/Windows")
+local Sizes = require("../../src/Core/Constants/Sizes")
 local Mark = require("../../src/Encode/Mark")
 local Storable = require("../../src/Encode/Storable")
 local TxStamp = require("../../src/Record/TxStamp")
@@ -1601,6 +1602,7 @@ Cases.Case("a transaction that leaves a leg parked follows that key", function(T
 
 	T:Advance(Windows.TX + 60)
 	T:Sweep()
+	T:Sweep()
 
 	T:Is("anything left parked once the sweep ran on its own", Bank:Pending("a"), false)
 	T:Is("gold across both keys", Bank:Amount("a") + Bank:Amount("b"), 1000)
@@ -1627,6 +1629,7 @@ Cases.Case("a transaction that committed but could not resolve a leg follows tha
 	T:Is("the leg whose resolve was lost", Bank:Pending("l"), true)
 	T:Is("keys it left the sweep following", Sweep.Count, 2)
 
+	T:Sweep()
 	T:Sweep()
 	T:Is("anything left parked once the sweep ran", Bank:Pending("l"), false)
 	T:Is("gold on the key it paid", Bank:Amount("l"), 50)
@@ -2109,6 +2112,132 @@ Cases.Case("a transaction whose leg carries a buffer is the same transaction whe
 	T:Is("the same run again with an equal buffer", Again, true)
 	T:Is("no reason", Why, nil)
 	T:Silent("no claim the name was used for different terms", "already used for different keys")
+end)
+
+Cases.Case("a transaction on the most keys it may touch moves every one of them", function(T: Case)
+	local Bank = T:Bank()
+	for _, Key in { "a", "b", "c", "d" } do
+		Bank:Seed(Key, { Gold = if Key == "a" then 100 else 0, Touches = 0 })
+	end
+
+	local Legs = {
+		{ Key = "a", Kind = "Give", Fields = { Amount = -30 } },
+		{ Key = "b", Kind = "Give", Fields = { Amount = 10 } },
+		{ Key = "c", Kind = "Give", Fields = { Amount = 10 } },
+		{ Key = "d", Kind = "Give", Fields = { Amount = 10 } },
+	}
+	T:Is("this case drives the most legs a transaction may have", #Legs, Transactions.MAX_LEGS)
+	T:Is("all four legs went through", (Bank.Store:Tx("four", Legs):Wait()), true)
+
+	T:Is("the sender paid once", Bank:Amount("a"), 70)
+	T:Is("the first receiver", Bank:Amount("b"), 10)
+	T:Is("the second receiver", Bank:Amount("c"), 10)
+	T:Is("the third receiver", Bank:Amount("d"), 10)
+	T:Is("money is conserved", Bank:Amount("a") + Bank:Amount("b") + Bank:Amount("c") + Bank:Amount("d"), 100)
+	T:No("nothing is left parked", Bank:Pending("a"))
+end)
+
+Cases.Case("a transaction on four keys that the last one refuses moves none of them", function(T: Case)
+	local Bank = T:Bank()
+	for _, Key in { "a", "b", "c", "d" } do
+		Bank:Seed(Key, { Gold = if Key == "a" then 100 else 0, Touches = 0 })
+	end
+
+	local Ok = Bank.Store
+		:Tx("four", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -30 } },
+			{ Key = "b", Kind = "Give", Fields = { Amount = 10 } },
+			{ Key = "c", Kind = "Give", Fields = { Amount = 10 } },
+			{ Key = "d", Kind = "Give", Fields = { Amount = -50 } },
+		})
+		:Wait()
+
+	T:No("the transaction did not go through", Ok)
+	T:Is("the sender kept everything", Bank:Amount("a"), 100)
+	T:Is("the first receiver got nothing", Bank:Amount("b"), 0)
+	T:Is("the second receiver got nothing", Bank:Amount("c"), 0)
+	T:Is("the third receiver got nothing", Bank:Amount("d"), 0)
+	T:No("and no leg is left parked", Bank:Pending("a"))
+end)
+
+Cases.Case("a leg is turned away from a key holding more unsaved ops than it can take", function(T: Case)
+	Sizes.Set({ Log = 512 })
+
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 100, Touches = 0 })
+	Bank:Seed("fat", { Gold = 0, Touches = 0 })
+
+	local Ok, Why = Bank.Store
+		:Tx("fatleg", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -1 } },
+			{ Key = "fat", Kind = "Give", Fields = { Amount = 1, Pad = string.rep("x", 1000) } },
+		})
+		:Wait()
+
+	T:No("the transaction did not go through", Ok)
+	T:Is("it says full", Why, Suite.Reasons.Full)
+	T:Is("the sender kept its money", Bank:Amount("a"), 100)
+	T:Is("and the full key took nothing", Bank:Amount("fat"), 0)
+	T:No("no leg is left parked on the sender", Bank:Pending("a"))
+	T:Warns("it names the key that could not take the leg", "holds more unsaved ops than it can take")
+end)
+
+Cases.Case("a name reused for different terms after its marker was reaped is refused", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 100, Touches = 0 })
+	Bank:Seed("b", { Gold = 0, Touches = 0 })
+
+	T:Is("the first transaction went", (Bank.Store
+		:Tx("reuse", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "b", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait()), true)
+
+	Bank:Unmark("reuse")
+	T:Is("its marker is gone", Bank:Mark("reuse"), nil)
+
+	local Ok, Why = Bank.Store
+		:Tx("reuse", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -20 } },
+			{ Key = "b", Kind = "Give", Fields = { Amount = 20 } },
+		})
+		:Wait()
+
+	T:No("the second transaction did not go through", Ok)
+	T:Is("it says spent", Why, Suite.Reasons.Spent)
+	T:Is("the sender paid once", Bank:Amount("a"), 90)
+	T:Is("the receiver was paid once", Bank:Amount("b"), 10)
+	T:Warns("it says the name was already used for something else", "was already used for different keys or a different amount")
+end)
+
+Cases.Case("a transaction that runs out of request budget part way leaves the money whole", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 100, Touches = 0 })
+	Bank:Seed("b", { Gold = 0, Touches = 0 })
+	Bank:NoRetries()
+
+	Bank:Fault(Fault.Updates():OnKey("b"):Meddle(function()
+		T:Starve(Enum.DataStoreRequestType.UpdateAsync)
+	end))
+
+	local Ok = Bank.Store
+		:Tx("starve", {
+			{ Key = "a", Kind = "Give", Fields = { Amount = -30 } },
+			{ Key = "b", Kind = "Give", Fields = { Amount = 30 } },
+		})
+		:Wait()
+	T:Fed()
+	Bank:Healed()
+
+	T:No("the transaction did not go through", Ok)
+	T:Is("money is conserved while it is undecided", Bank:Amount("a") + Bank:Amount("b"), 100)
+
+	T:Advance(Windows.TX + Windows.LEG)
+	T:Is("resettling once the marker has run out", (Bank.Store:Resettle("a"):Wait()), true)
+	T:Is("the sender kept its money", Bank:Amount("a"), 100)
+	T:Is("the receiver got nothing", Bank:Amount("b"), 0)
+	T:Is("and no leg is left parked", Bank:Pending("a"), false)
 end)
 
 return Cases

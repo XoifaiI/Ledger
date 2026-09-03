@@ -4,9 +4,11 @@
 --[=[
 	Tags: The prefixes an applied name is stored under, and the answers to asking about one.
 
-	A name is kept under the tag of what it was, so a transfer, a transaction, a Once name, a sent
-	hold and a grant cannot collide. MEANT separates the time of a write from the mark of what the
-	name meant. Recalling a name answers Unseen, Same or Other.
+	A name lives under the tag of what it was. A transfer, a transaction, a Once name, a sent hold and
+	a grant cannot collide. MEANT separates the time of a write from the mark of what the name
+	meant, inside the value an entry holds. It reads as the same byte as Shards.PART and never meets
+	it. That one separates a tally name from its shard number, in a key rather than a value. Recalling
+	a name answers Unseen, Same or Other.
 
 	Return type: A table with the five tags, MEANT and the three recalls. The type is Recalled.
 	Example usage:
@@ -23,7 +25,7 @@ return table.freeze({
 	SENT = "s:",
 	GRANT = "g:",
 
-	MEANT = "#",
+	MEANT = "#" :: "#",
 
 	UNSEEN = "Unseen" :: Recalled,
 	SAME = "Same" :: Recalled,

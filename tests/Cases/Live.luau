@@ -35,6 +35,11 @@ local function Outside(Bank: Fixture, Key: string, Kind: string, Fields: { [any]
 	Bank:Append(Key, { NewOp.New(Kind, Fields) })
 end
 
+local function Joined(Player: any)
+	local Present: any = game:GetService("Players")
+	Present:Joins(Player)
+end
+
 local function Filler(Count: number): { number }
 	local Pad: { number } = table.create(Count, 0)
 	for Index = 1, Count do
@@ -1298,12 +1303,34 @@ Cases.Case("the autosave writes what a session has been holding", function(T: Ca
 	T:Is("what is on the key before the autosave comes round", #Bank:Record("64").Ops, 0)
 
 	T:Advance(Windows.AUTOSAVE + 1)
-	T:Is("the autosave came round", T:Until(function(): boolean
-		return #Bank:Record("64").Ops > 0
-	end), true)
+	T:Is(
+		"the autosave came round",
+		T:Until(function(): boolean
+			return #Bank:Record("64").Ops > 0
+		end),
+		true
+	)
 
 	T:Is("what it wrote", #Bank:Record("64").Ops, 1)
 	T:Is("the gold it saved", Bank:Stored("64").Gold, 105)
+end)
+
+Cases.Case("an idle session reads its key on every fourth tick and on no other", function(T: Case)
+	local Bank = Ticking(T, 66)
+	local Entry = Bank.Store.Loaded[66]
+
+	local Reads: { number } = {}
+	for Index = 1, 8 do
+		local Was = Entry.Ticks
+		local Before = Bank.Store.Wrapper.Spent
+		T:Until(function(): boolean
+			return Entry.Ticks > Was
+		end)
+		T:Wait(1)
+		Reads[Index] = Bank.Store.Wrapper.Spent - Before
+	end
+
+	T:Is("reads over eight ticks", table.concat(Reads, ","), "0,0,0,1,0,0,0,1")
 end)
 
 Cases.Case("a server whose write budget has run out says so rather than piling ops up quietly", function(T: Case)
@@ -1317,9 +1344,13 @@ Cases.Case("a server whose write budget has run out says so rather than piling o
 	end)
 
 	T:Advance(Windows.AUTOSAVE + 1)
-	T:Is("the autosave asked what it could afford", T:Until(function(): boolean
-		return Asked > 0
-	end), true)
+	T:Is(
+		"the autosave asked what it could afford",
+		T:Until(function(): boolean
+			return Asked > 0
+		end),
+		true
+	)
 
 	T:Warns("it named the autosaves it could not afford", "autosave(s) skipped on", 1)
 	T:Is("nothing was written to the key", #Bank:Record("65").Ops, 0)
@@ -1379,6 +1410,49 @@ Cases.Case("a commit held back by a leg that settles on the same read is written
 	T:Ok("it did not wait for a poll, the leg was already decided", T:Now() - Started < Windows.POLL)
 	T:Is("gold on disk", Bank:Amount("quickcommit"), 30)
 	T:Is("anything left pending", Bank:Pending("quickcommit"), false)
+end)
+
+Cases.Case("a callback that says it handled a player who is still here is told they are stranded", function(T: Case)
+	local Players = T:Store({
+		Keys = "Player",
+		Default = Reducers.PLAIN,
+		Reducer = Reducers.Keep,
+		OnLoadFailed = function(): boolean
+			return true
+		end,
+	})
+	Players:NoRetries()
+	Players:Fault(Fault.Reads():OnKey("31"))
+
+	local Player = T:Player(31)
+	Joined(Player)
+	Players.Store:Load(Player)
+
+	T:Is("the player was not kicked", Player.Kicked, 0)
+	T:No("and nothing is loaded for them", Players.Store:IsLoaded(Player))
+	T:Warns("it says the load failed", "could not load")
+	T:Warns("it says they are left with no data", "still in the server with no data")
+end)
+
+Cases.Case("erasing a key while its player is still here closes their session on the next save", function(T: Case)
+	local Players = T:Store({ Keys = "Player", Default = Reducers.PLAIN, Reducer = Reducers.Keep })
+	Players:Seed("42", { Gold = 5 })
+
+	local Player = T:Player(42)
+	Joined(Player)
+	Players.Store:Load(Player)
+	T:Ok("the session is live", Players.Store:IsLoaded(Player))
+
+	T:Ok("the erase went through", Players.Store:Erase(42):Wait())
+	T:Warns("it says the player is still in this server", "while they are still in this server")
+
+	local Active = Players.Store:Get(Player)
+	T:Ok("the session is still holding on", Active ~= nil)
+	T:Ok("and it still takes an op", (Active :: any):Apply("Keep"))
+
+	local Saved = (Active :: any):Flush():Wait()
+	T:No("but the save does not go through", Saved)
+	T:Warns("it says the key was erased under the session", "was erased while this session was live")
 end)
 
 return Cases

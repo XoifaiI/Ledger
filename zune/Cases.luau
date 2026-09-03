@@ -6,11 +6,14 @@
 
 	It puts the Roblox vocabulary in place, points warn at the bench, loads every module under
 	tests/Cases and runs them. A fragment after the file name runs only the cases whose name holds it.
+	A second word runs every bench with the MemoryStore absent, failing or partial, and leaves out the
+	files that test the cache itself.
 
 	Return type: Nothing. It prints, and sets the exit code.
 	Example usage:
 		zune run zune/Cases.luau
 		zune run zune/Cases.luau "a transfer"
+		zune run zune/Cases.luau "" failing
 --]=]
 
 local Engine = require("./Engine")
@@ -22,6 +25,7 @@ local Suite = require("../tests/Suite")
 Engine.Listen(Suite.Heard)
 
 local MATCH = zune.process.args[2] or ""
+local CACHE = zune.process.args[3]
 local SHOW_BROKEN = 40
 local SHOW_ACCUSED = 20
 
@@ -63,9 +67,12 @@ for _, File in Files do
 	Counted += #File.Cases
 end
 
-local Out = Suite.Run(Files, { Match = MATCH })
+if CACHE ~= nil then
+	Suite.Cache(CACHE :: any)
+end
+local Out = Suite.Run(Files, { Match = MATCH, Skip = if CACHE ~= nil then { "cache" } else nil })
 
-print("\n~~~~~~~~~~~~ Ledger cases, on Zune ~~~~~~~~~~~~")
+print(`\n~~~~~~~~~~~~ Ledger cases, on Zune{if CACHE ~= nil then `, MemoryStore {CACHE}` else ""} ~~~~~~~~~~~~`)
 print(`  {Out.Ran} of {Counted} case(s) in {#Files} file(s), {string.format("%.2f", Out.Seconds)}s`)
 print("")
 print(`  warnings    {Out.Warnings} total`)

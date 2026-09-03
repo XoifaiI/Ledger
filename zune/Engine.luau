@@ -4,10 +4,11 @@
 
 	Engine: The Roblox globals Ledger reads, handled by Zune.
 
-	Ledger takes its datastore, scheduler and clock as arguments, so what is left is: a hash, base64,
-	zstd, json, a guid, the request, compression and sort enums, task, workspace, Random and warn.
-	Install puts them in place, and Listen points warn at something other than the screen. The hash
-	hands back raw bytes rather than hex, since a digest cuts the first six and a shard reads the
+	Ledger takes its datastore, scheduler and clock as arguments. What is left is a hash, base64,
+	zstd, json and a guid. Then the request, compression and sort enums, task, workspace, Random and
+	warn. Install puts them in place, and Listen points warn at something other than the screen.
+
+	The hash hands back raw bytes rather than hex. A digest cuts the first six, and a bucket reads the
 	first four.
 
 	Return type: A table with Install and Listen.
@@ -94,9 +95,17 @@ local RunService = table.freeze({
 	end,
 })
 
+local Present: { [number]: any } = {}
+
 local Players = table.freeze({
-	GetPlayerByUserId = function(_: any, _UserId: number): any
-		return nil
+	GetPlayerByUserId = function(_: any, UserId: number): any
+		return Present[UserId]
+	end,
+	Joins = function(_: any, Player: any)
+		Present[Player.UserId] = Player
+	end,
+	Clear = function(_: any)
+		table.clear(Present)
 	end,
 })
 
@@ -106,6 +115,12 @@ local DataStoreService = table.freeze({
 	end,
 	GetRequestBudgetForRequestType = function(_: any, _Kind: any): number
 		return 0
+	end,
+})
+
+local MemoryStoreService = table.freeze({
+	GetHashMap = function(_: any, Name: string): any
+		error(`Ledger under Zune: something asked for the real MemoryStore map '{Name}'. hand the store a hook instead`, 0)
 	end,
 })
 
@@ -139,6 +154,7 @@ local Services: { [string]: any } = {
 	RunService = RunService,
 	Players = Players,
 	DataStoreService = DataStoreService,
+	MemoryStoreService = MemoryStoreService,
 }
 
 local Game = table.freeze({

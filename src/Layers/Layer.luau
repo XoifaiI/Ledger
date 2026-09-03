@@ -12,7 +12,7 @@
 	Return type: A table with Wrap, Stack and Handles.
 	Example usage:
 		local Layer = require("./Layer")
-		local Reducer = Layer.Stack({ Escrow, Booking }, Game)
+		local Reducer = Layer.Stack({ Escrow, Tally }, Game)
 --]=]
 
 local TableUtil = require("../Util/TableUtil")

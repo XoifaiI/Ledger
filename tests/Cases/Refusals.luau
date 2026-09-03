@@ -189,14 +189,14 @@ Cases.Case("Transfer refuses terms it cannot honour", function(T: Case)
 	end)
 end)
 
-Cases.Case("a store with no balance refuses the money api", function(T: Case)
+Cases.Case("a store with no balance refuses a transfer that names no field", function(T: Case)
 	local Store = Plain(T, "Player")
 
-	T:Throws("transferring without a Balance field", function()
+	T:Throws("transferring without a Balance field or a Field", function()
 		Store.Store:Transfer(11, 12, 10)
 	end)
-	T:Throws("recovering transfers without one", function()
-		Store.Store:RecoverTransfers(11)
+	T:Holds("transferring a field the Default has", function()
+		Store.Store:Transfer(11, 12, 10, nil, "Gold"):Wait()
 	end)
 end)
 
@@ -376,7 +376,7 @@ Cases.Case("a failed future says so rather than returning nothing", function(T: 
 
 	T:Is("what a failed job hands back", Answered, nil)
 	T:Is("whether it says it happened", Happened, false)
-	T:Warns("it named the failure", "Future callback errored")
+	T:Warns("it named the failure", "gets nothing back")
 	T:Warns("it carried the cause", "injected job failure")
 end)
 
@@ -410,7 +410,7 @@ Cases.Case("the retry cap can be lowered while it is retrying", function(T: Case
 
 	T:Is("it tried at all", Tries > 0, true)
 	T:Is("it stopped short of the original cap", Tries < 30, true)
-	T:Warns("it said why it gave up", "RetryAsync attempt")
+	T:Warns("it said why it gave up", "will be tried again")
 end)
 
 Cases.Case("recovery leaves the overflow for the next pass", function(T: Case)
@@ -587,6 +587,45 @@ Cases.Case("erasing a key with an undeliverable hold says so", function(T: Case)
 	T:Is("gold to a receiver that was erased before the sender", Store:Amount("marginB"), 0)
 	T:Is("gold left on the erased key", Store:Amount("marginA"), 0)
 	T:Warns("it warned that money went with it", "had not finished")
+end)
+
+Cases.Case("a transfer stuck past the prune window is written off, and says which field it was in", function(T: Case)
+	local Shop = T:Store({ Default = { Gold = 0, Gems = 0 }, Balance = "Gold", Reducer = Adder, Data = "CaseWriteOff" })
+	local Stale = T:Now() - Windows.PRUNE - 86400
+	Shop:Seed("stuckA", { Gold = 100, Gems = 100 })
+	Shop:Append("stuckA", {
+		{ Id = "res:sg", Kind = "__TransferReserve", To = "stuckB", Amount = 40, Tid = "sg", At = Stale } :: any,
+		{ Id = "res:sm", Kind = "__TransferReserve", To = "stuckB", Amount = 7, Tid = "sm", At = Stale, Field = "Gems" } :: any,
+	})
+
+	T:Is("gold set aside before recovery looked at it", Shop:Aside("stuckA"), 40)
+	T:Is("gems set aside before recovery looked at it", Shop:Aside("stuckA", "Gems"), 7)
+	T:Ok("recovery ran", (Shop.Store:RecoverTransfers("stuckA"):Wait()))
+
+	T:Is("gold set aside once it was written off", Shop:Aside("stuckA"), 0)
+	T:Is("gems set aside once they were written off", Shop:Aside("stuckA", "Gems"), 0)
+	T:Is("gold on the key, which a write off does not give back", Shop:Amount("stuckA"), 60)
+	T:Is("gems on the key", Shop:Amount("stuckA", "Gems"), 93)
+	T:Warns("it said the balance was written off", "pay 40 back by hand")
+	T:Warns("it named the field the other one was in", "pay 7 Gems back by hand")
+end)
+
+Cases.Case("erasing a key with money set aside in more than one field names what each field lost", function(T: Case)
+	local Shop = T:Store({ Default = { Gold = 0, Gems = 0 }, Balance = "Gold", Reducer = Adder, Data = "CaseEraseFields" })
+	Shop:Seed("fieldA", { Gold = 100, Gems = 100 })
+	Shop:Append("fieldA", {
+		{ Id = "res:fg", Kind = "__TransferReserve", To = "fieldB", Amount = 40, Tid = "fg", At = T:Now() } :: any,
+		{ Id = "res:fm", Kind = "__TransferReserve", To = "fieldB", Amount = 7, Tid = "fm", At = T:Now(), Field = "Gems" } :: any,
+	})
+	Shop.Store:Erase("fieldB"):Wait()
+	T:Advance(7 * 86400 + 43200)
+
+	T:Is("gold set aside before the erase", Shop:Aside("fieldA"), 40)
+	T:Is("gems set aside before the erase", Shop:Aside("fieldA", "Gems"), 7)
+	Shop.Store:Erase("fieldA"):Wait()
+
+	T:Warns("it named the balance that went with the key", "40 Gold")
+	T:Warns("it named the other field, rather than adding the two together", "7 Gems")
 end)
 
 Cases.Case("the reap works its way round every store when it cannot afford them all at once", function(T: Case)
@@ -1219,12 +1258,12 @@ Cases.Case("a reducer that deep copies the state is not accused of writing bookk
 		end,
 	})
 
+	Store:Seed("k", { Gold = 5, _Held = { send1 = { To = "elsewhere", Amount = 2, At = T:Now() } } })
 	Store.Store:Edit("k", "Add", { Once = "one" }):Wait()
-	Store.Store:Reserve("k", "Gold", 1, "book1"):Wait()
 	Store.Store:Edit("k", "Add"):Wait()
 
 	T:Is("the applied names it copied are still there", Store.Store:DidApply("k", "one"):Wait(), true)
-	T:Is("the units it copied are still set aside", Store:Booked("k"), 1)
+	T:Is("the money it copied is still set aside", Store:Aside("k"), 2)
 	T:Silent("copying a field is not writing it", "wrote its own")
 end)
 
@@ -1237,19 +1276,19 @@ Cases.Case("a reducer that empties a copied field is still caught", function(T: 
 			local Next = TableUtil.DeepCopy(State)
 			Next.Gold = (Next.Gold or 0) + 1
 			if Op.Kind == "Wipe" then
-				Next._Booked = {}
+				Next._Held = {}
 			end
 			return Next
 		end,
 	})
 
+	Store:Seed("k", { Gold = 5, _Held = { send1 = { To = "elsewhere", Amount = 2, At = T:Now() } } })
 	Store.Store:Edit("k", "Add"):Wait()
-	T:Is("the reservation it is about to try to drop", Store.Store:Reserve("k", "Gold", 1, "book2"):Wait(), true)
+	T:Is("the money it is about to try to drop", Store:Aside("k"), 2)
 	Store.Store:Edit("k", "Wipe"):Wait()
 
-	T:Accuses("it named itself for a mistake the reducer made", "your reducer wrote its own _Booked")
-	T:Is("the units it tried to drop are still set aside", Store:Booked("k"), 1)
-	T:Is("the booking can still be released", Store.Store:Release("k", "book2"):Wait(), true)
+	T:Accuses("it named itself for a mistake the reducer made", "your reducer wrote its own _Held")
+	T:Is("the money it tried to drop is still set aside", Store:Aside("k"), 2)
 end)
 
 return Cases

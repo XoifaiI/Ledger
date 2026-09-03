@@ -5,14 +5,17 @@
 
 	Write: Puts one op on one key, and reads what the record folds to.
 
-	Every public write ends here, and this is the only place that turns a datastore answer into a
-	reason. It runs the caller's guard, asks whether the op still applies, appends, settles and trims
-	the record, then reads back whether the op really took. Shows is for a caller whose op can land and
-	still leave nothing behind, because a later op undid it: it is asked once of the settled record and
-	names the reason. An op that only holds because a transaction is parked carries which ones, so a
-	later compaction can tell a commit from an abandonment, and one that only holds if the transaction
-	does not go through is not written at all, since once the leg lands it could never fold or compact.
-	It also adds a key to the sweep when that key is left holding money mid move.
+	Every public write ends here. This is the only place that turns a datastore answer into a reason.
+	It runs the caller's guard, asks whether the op still applies, appends, settles and trims the
+	record, then reads back whether the op really took. It adds a key to the sweep when that key is
+	left holding money part way through a move.
+
+	Shows is for a caller whose op can land and still leave nothing behind, because a later op undid
+	it. It is asked once of the settled record and names the reason.
+
+	An op that only holds while a transaction is parked carries which ones, so a later compaction can
+	tell a commit from an abandonment. An op that only holds if the transaction does not go through
+	is not written at all. Once the leg lands, such an op could never fold or compact.
 
 	Return type: A table with Failed. It writes Stale, Went, Watch, WatchHeld, Append, Swelling, Starved, Maintain, Applies, Swollen and Written onto the class.
 	Example usage:
@@ -84,7 +87,7 @@ function Store.WatchHeld(self: Store, Key: string, State: any)
 		return
 	end
 
-	if TableUtil.Occupied(State._Held) or TableUtil.Occupied(State._Booked) then
+	if TableUtil.Occupied(State._Held) then
 		self.Sweep:Add(self:Swept(), Key)
 	end
 end
@@ -108,9 +111,7 @@ function Store.Swelling(self: Store, Key: string, Record: Record)
 		break
 	end
 
-	warn(
-		`Ledger: '{Key}' holds {#Record.Ops} ops it cannot compact away while {Blocking} is parked on it. it keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`
-	)
+	warn(`Ledger: '{Key}' holds {#Record.Ops} ops it cannot compact away while {Blocking} is parked on it. it keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`)
 
 	Meter.Swollen = 0
 	Meter.Said = Now

@@ -100,6 +100,10 @@ local function Unlink<T>(self: Node<T>)
 	end
 end
 
+local function Threw(Err: any)
+	warn(`Ledger: Observer listener errored: {Err}`)
+end
+
 local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 	local Done = false
 	local Watch = Clock.Delay(SLOW, function()
@@ -117,7 +121,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 	Clock.Cancel(Watch)
 
 	if not Ok then
-		warn(`Ledger: Observer listener errored: {Err}`)
+		Threw(Err)
 	end
 end
 
@@ -135,7 +139,7 @@ local function Deliver<T>(self: Private<T>, Value: T)
 			else
 				local Ok, Err = NoYield.Try(Node.Listener, Value)
 				if not Ok then
-					warn(`Ledger: Observer listener errored: {Err}`)
+					Threw(Err)
 				end
 			end
 		end

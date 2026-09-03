@@ -5,8 +5,8 @@
 
 	Errors: Raises and identifies Ledger errors.
 
-	Raise throws one, and is the only place the tag is written. Reason reads the reason back off a
-	thrown value, and anything that is not one of Ledger's own reads as Unresolved, so a plain assert
+	Raise throws one, and is the only place that writes the tag. Reason reads the reason back off a
+	thrown value. Anything that is not one of Ledger's own reads as Unresolved, so a plain assert
 	answers a caller the same way.
 
 	Return type: A table with Raise and Reason. The type is Error.

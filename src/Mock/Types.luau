@@ -6,10 +6,10 @@
 	Types: The declarations of the fake datastore.
 
 	These are private to this folder. This file holds declarations, and never logic. A service hands
-	out stores and each store spends from its service, so both shapes are named here rather than in
-	either of those files.
+	out stores and hash maps, and each spends from its service. Every shape is named here rather than
+	in any of those files.
 
-	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, Store and Service.
+	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, Store, Item, MapTransform, HashMap and Service.
 	Example usage:
 		local Types = require("./Types")
 		type Service = Types.Service
@@ -31,6 +31,7 @@ export type KeyInfo = {
 export type Entry = {
 	Text: string?,
 	Written: number,
+	At: number,
 	Deleted: boolean,
 	Label: string,
 }
@@ -102,6 +103,35 @@ export type Store = setmetatable<{
 	Ticket: number,
 }, StoreImpl>
 
+export type Item = {
+	Text: string,
+	Ends: number,
+	Ticket: number,
+}
+
+export type MapTransform = (Current: any) -> any
+
+export type HashMapImpl = {
+	__index: HashMapImpl,
+	New: (Name: string, Service: Service) -> HashMap,
+	Reach: (self: HashMap, Cost: number) -> (),
+	Drop: (self: HashMap, Key: string, Item: Item) -> (),
+	Held: (self: HashMap, Key: string) -> Item?,
+	Sweep: (self: HashMap) -> (),
+	Put: (self: HashMap, Key: string, Value: any, Expiry: number) -> any,
+	GetAsync: (self: HashMap, Key: string) -> any,
+	SetAsync: (self: HashMap, Key: string, Value: any, Expiry: number) -> boolean,
+	UpdateAsync: (self: HashMap, Key: string, Transform: MapTransform, Expiry: number) -> any,
+	RemoveAsync: (self: HashMap, Key: string) -> (),
+}
+
+export type HashMap = setmetatable<{
+	Name: string,
+	Service: Service,
+	Items: { [string]: Item },
+	Ticket: number,
+}, HashMapImpl>
+
 export type ServiceImpl = {
 	__index: ServiceImpl,
 	New: (Options: Options?, Scheduler: Engine.Scheduler?) -> Service,
@@ -112,8 +142,14 @@ export type ServiceImpl = {
 	Take: (self: Service, Lanes: { Lane }, Cost: number) -> (),
 	Await: (self: Service, Lanes: { Lane }, Cost: number) -> (),
 	GetDataStore: (self: Service, Name: string, Scope: string?) -> Store,
+	GetHashMap: (self: Service, Name: string) -> HashMap,
 	GetRequestBudgetForRequestType: (self: Service, Kind: Enum.DataStoreRequestType) -> number,
 	Spend: (self: Service, Kind: Enum.DataStoreRequestType) -> (),
+	Memory: (self: Service) -> number,
+	Reclaim: (self: Service) -> (),
+	Hold: (self: Service, Delta: number) -> (),
+	Room: (self: Service, Delta: number) -> (),
+	Charge: (self: Service, Name: string, Cost: number) -> (),
 	Carry: (self: Service, Way: string, Store: string, Key: string, Bytes: number) -> (),
 	Clear: (self: Service) -> (),
 }
@@ -121,10 +157,15 @@ export type ServiceImpl = {
 export type Service = setmetatable<{
 	Scheduler: Engine.Scheduler,
 	Stores: { [string]: Store },
+	Maps: { [string]: HashMap },
 	Tokens: { [string]: number },
 	Filled: { [string]: number },
 	Queued: number,
 	Conflicts: number,
+	Units: number,
+	Spent: { [string]: number },
+	Bytes: number,
+	Peak: number,
 	Players: number,
 	CCU: number,
 	Throttled: boolean,

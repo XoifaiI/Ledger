@@ -20,19 +20,23 @@ local Observer = require("../Util/Observer")
 local Clock = require("../Util/Clock")
 local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
-local Roblox = require("../Hooks/Roblox")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
+local Lru = require("../Util/Lru")
 local Ids = require("../Encode/Ids")
+local Storable = require("../Encode/Storable")
 local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
+local Bookings = require("../Core/Constants/Bookings")
+local Shards = require("../Core/Constants/Shards")
+local Transactions = require("../Core/Constants/Transactions")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
 local Compact = require("../Record/Compact")
 local Reconcile = require("../Record/Reconcile")
 local Schema = require("../Record/Schema")
 local Layer = require("../Layers/Layer")
-local Booking = require("../Layers/Booking")
 local Escrow = require("../Layers/Escrow")
 local Names = require("../Layers/Names")
 local Tally = require("../Layers/Tally")
@@ -62,8 +66,9 @@ local IDLE_EVERY = 4
 local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
+local RECENT_TALLIES = 256
 
-local TX_SUFFIX = "_Tx"
+local TX_SUFFIX = Transactions.SUFFIX
 
 local UNRESOLVED = Reasons.Unresolved
 
@@ -96,8 +101,11 @@ local function WrapSystem(GameReducer: Shapes.Reducer<any>, Initial: any, Steps:
 		end
 
 		local Next = Reconcile(Initial, Migrated)
-		Next._Received = State._Received
-		Next._Held = State._Held
+		for Field, Held in State do
+			if type(Field) == "string" and Storable.Bookkeeping(Field) then
+				Next[Field] = Held
+			end
+		end
 		return Next
 	end
 
@@ -112,13 +120,23 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 
 	local Turn = Clock.Held()
 	local Asked = Config.Mock
+	local Faked = Config.Hook == nil and (Asked == true or type(Asked) == "table")
 	local Hook = Config.Hook or (if Asked then Registry.Mock(if type(Asked) == "table" then Asked else nil) else Registry.Defaults.Hook)
-	if Hook ~= Roblox.New() then
+	if Faked then
 		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end
 
+	local Keys = (Config.Keys or "Player") :: Shapes.KeysMode
+	local Cached = Hook.Cache ~= nil
+	local Tallies = if Cached then MemoryStoreWrapper.New(Shards.MAP, Turn, Hook) else nil
+	local Leases = if Cached then MemoryStoreWrapper.New(Transactions.LEASE_MAP, Turn, Hook) else nil
+	local Holds = if Cached then MemoryStoreWrapper.New(Bookings.MAP, Turn, Hook) else nil
+	if Tallies == nil then
+		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards, transactions on one key race rather than queue, and nothing can be reserved`)
+	end
+
 	local Layers: { Layer.Layer } = {}
-	for _, Feature in { Escrow.Layered, Booking.Layered, Tally.Layered } do
+	for _, Feature in { Escrow.Layered, Tally.Layered } do
 		local Made = Feature(Config.Balance)
 		if Made ~= nil then
 			table.insert(Layers, Made)
@@ -136,12 +154,17 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Reducer = WrapSystem(Base, Initial, Steps),
 		Wrapper = DataStoreWrapper.New(Config.Name, Turn, Hook),
 		TxWrapper = DataStoreWrapper.New(Marked, Turn, Hook),
+		Tallies = Tallies,
+		Leases = Leases,
+		Bookings = Holds,
+		Recent = Lru.New(RECENT_TALLIES),
+		Bumped = 0,
 		Initial = Initial,
 		Migrations = Steps,
 		Handles = Handled,
 		Books = nil,
 		Shaped = nil,
-		Keys = (Config.Keys or "Player") :: Shapes.KeysMode,
+		Keys = Keys,
 		Loaded = {},
 		Waiters = {},
 		Loads = {},
@@ -150,7 +173,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Sweep = Registry.Sweep(),
 		Sweeping = nil,
 		Staleness = Observer.New(true) :: Observer.Subject<string>,
-		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0 },
+		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0, Unbooked = 0 },
 		Resume = nil,
 		Closed = false,
 	}
@@ -311,7 +334,7 @@ function Store.Load(self: Store, Player: Player)
 		Ticks = 0,
 		Ticker = SetInterval(self.Wrapper.Scheduler, Windows.AUTOSAVE, function()
 			self:Autosave(UserId)
-		end, math.random() * Windows.AUTOSAVE),
+		end, self.Wrapper.Scheduler.Roll() * Windows.AUTOSAVE),
 	}
 	self:Wake(UserId, Active)
 	self:PickUp(Active, UserId)

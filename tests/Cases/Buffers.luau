@@ -5,8 +5,8 @@
 
 	Buffers: One rule per promise Ledger makes about a buffer in state.
 
-	A buffer survives a write and a read byte for byte, lives through a compaction, costs what the
-	datastore charges for it, and is copied rather than shared between keys.
+	A buffer survives a write and a read byte for byte, and lives through a compaction. It costs what
+	the datastore charges for it. Ledger copies one rather than sharing it between keys.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau

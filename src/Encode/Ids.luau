@@ -17,6 +17,7 @@
 local HttpService = game:GetService("HttpService")
 
 local NODE_CHARS = 16
+local MAX_EXACT = 2 ^ 53
 
 local Node = ""
 local Count = 0
@@ -35,7 +36,7 @@ end
 
 local function Fresh(): string
 	Count += 1
-	assert(Count < 2 ^ 53, "this server has built more op ids than a number can count exactly")
+	assert(Count < MAX_EXACT, "this server has built more op ids than a number can count exactly")
 	return `{Home()}:{Count}`
 end
 

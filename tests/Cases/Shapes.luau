@@ -24,6 +24,7 @@ local Session = require("../../src/Session/Session")
 local TableUtil = require("../../src/Util/TableUtil")
 
 local Reducers = Suite.Reducers
+local Reasons = Suite.Reasons
 
 type Case = Suite.Case
 type Fixture = Suite.Fixture
@@ -200,6 +201,28 @@ Cases.Case("preparing a leg leaves the stored snapshot unmigrated", function(T: 
 
 	local State: any = Store:Format():Rehydrate(Store:Record("prepmig"))
 	T:Is("reading it back still migrates", State.Gold, 55)
+end)
+
+Cases.Case("a reset keeps every field of Ledger's own, not the two it used to name", function(T: Case)
+	local Store = Resettable(T, {}, "CaseResetKeeps")
+	Store:Write("keeps", {
+		Snapshot = {
+			Gold = 40,
+			_Received = { ["t:paid"] = T:Now() },
+			_Held = { move = { To = "far", Amount = 5, At = T:Now() } },
+			_Tally = { Gold = 7 },
+		},
+		Ops = {},
+		Seen = {},
+	})
+
+	T:Ok("the reset", (Store.Store:Reset("keeps"):Wait()))
+	local State = Store:State("keeps")
+
+	T:Is("gold, which the reset put back to the default", State.Gold, 100)
+	T:Is("the applied names it kept", next(State._Received), "t:paid")
+	T:Is("the money it kept set aside", State._Held.move.Amount, 5)
+	T:Is("the tally it kept, which is Ledger's own just as much as the other two", State._Tally.Gold, 7)
 end)
 
 Cases.Case("a reset payload is migrated by a server that knows more", function(T: Case)
@@ -516,6 +539,57 @@ Cases.Case("a migration that copies the state is not accused of dropping the boo
 	T:Is("gold", State.Gold, 10)
 	T:Is("the hold, still there", Store:Aside("copied"), 5)
 	T:Silent("no accusation over a field the migration kept", "dropped Ledger's own")
+end)
+
+Cases.Case("a migration that yields is caught rather than left to hang the read", function(T: Case)
+	local Store = T:Store({
+		Default = Reducers.MONEY,
+		Reducer = Reducers.Banker,
+		Migrations = {
+			function(State: any): any
+				coroutine.yield()
+				return State
+			end,
+		},
+	})
+	Store:Write("yielder", { Snapshot = { Gold = 5, Touches = 0 }, Ops = {}, Seen = {} })
+
+	local State, Why = Store.Store:Peek("yielder"):Wait()
+
+	T:Is("the read gives nothing", State, nil)
+	T:Is("and says it could not be resolved", Why, Reasons.Unresolved)
+	T:Is("the stored snapshot is left alone", (Store:Record("yielder").Snapshot :: any).Gold, 5)
+	T:Warns("it says the read failed", "could not read")
+end)
+
+Cases.Case("an older build is turned away from a key it may not write, snapshot or none", function(T: Case)
+	local function Step(State: any): any
+		return State
+	end
+
+	local New = T:Store({ Data = "Deploy", Migrations = { Step, Step } })
+	local Old = T:Store({ Data = "Deploy", Migrations = { Step } })
+
+	T:Ok("the newer build writes the key", New.Store:Edit("k", "Fund", { Amount = 10 }):Wait())
+	T:No("the older build is refused a write", Old.Store:Edit("k", "Fund", { Amount = 1 }):Wait())
+	T:Is("and the key has no snapshot to read", New:Record("k").Snapshot, nil)
+
+	local State, Why = Old.Store:Peek("k"):Wait()
+	T:Is("the read gives nothing", State, nil)
+	T:Is("and says behind", Why, Reasons.Behind)
+
+	local Active, LoadWhy = Old:TrySession("k")
+	T:Is("no session opens", Active, nil)
+	T:Is("and the load says behind", LoadWhy, Reasons.Behind)
+
+	New:Log():Compact("k", New:Format())
+	T:Is("the key carries a snapshot now", New:Record("k").Snapshot ~= nil, true)
+
+	local Packed, PackedWhy = Old.Store:Peek("k"):Wait()
+	T:Is("the read still gives nothing", Packed, nil)
+	T:Is("and still says behind", PackedWhy, Reasons.Behind)
+	T:Is("the newer build's money is untouched", New:Amount("k"), 10)
+	T:Warns("it names the deploy", "finish the deploy")
 end)
 
 return Cases

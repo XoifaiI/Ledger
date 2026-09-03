@@ -5,13 +5,17 @@
 
 	Case: One rule, its bench, and everything it is allowed to say.
 
-	A case gets a world of its own: a fresh datastore, a clock starting at the same second, no faults
-	until it asks for some, and a warn that is recorded rather than printed. The datastore is the mock
-	src ships and the clock is the scheduler src ships. The case body runs as a thread on that
-	scheduler and the bench steps it, so a case crossing a thirty day horizon costs what its work
-	costs. Closing takes down every store this server holds.
+	A case gets a world of its own. A fresh datastore and MemoryStore, and a clock starting at the
+	same second. No faults until it asks for some, and a warn it records rather than prints. Both
+	fakes are the mock src ships, and the clock is the scheduler src ships.
 
-	Return type: A table with Open, Close, Judge and Heard, and the names a bench builds under. The types are Case, Spec and Entry.
+	The case body runs as a thread on that scheduler, and the bench steps it. A case crossing a thirty
+	day horizon costs what its work costs. Closing takes down every store this server holds.
+
+	UseCache runs every bench after it with the MemoryStore absent, failing every call, or partial,
+	where reads answer and writes do not. That is how the suite proves nothing leans on it.
+
+	Return type: A table with Open, Close, Judge, Heard and UseCache, and the names a bench builds under. The types are Case, Spec, Entry and CacheMode.
 	Example usage:
 		local Bank = T:Bank()
 		T:Is("gold after the transfer", Bank:Amount("a"), 50)
@@ -20,7 +24,11 @@
 local Fixture = require("./Fixture")
 local Reducers = require("./Reducers")
 
+local Engine = require("../../src/Util/Engine")
+local Messages = require("../../src/Core/Constants/Messages")
+
 local Ledger = require("../../src") :: any
+local Datastore = require("../../src/Core/Constants/Datastore")
 local Sizes = require("../../src/Core/Constants/Sizes")
 local Clock = require("../../src/Util/Clock")
 local Ids = require("../../src/Encode/Ids")
@@ -35,6 +43,8 @@ export type Entry = {
 	Says: string,
 	Count: number,
 }
+
+export type CacheMode = "absent" | "failing" | "partial"
 
 local Spoken: { Entry } = {}
 
@@ -87,6 +97,9 @@ type CaseImpl = {
 	Said: (self: Case) -> { string },
 	Fail: (self: Case, Label: string, Says: string) -> (),
 
+	Starve: (self: Case, Kind: Enum.DataStoreRequestType) -> (),
+	Fed: (self: Case) -> (),
+
 	Race: (self: Case, Bodies: { () -> () }) -> (),
 	Spawn: (self: Case, Body: () -> ()) -> thread,
 	Wait: (self: Case, Seconds: number?) -> (),
@@ -119,7 +132,7 @@ local VAULT = "CaseVault"
 local NODE = "node1"
 local SIM_NODE = "v2case00000000"
 
-local ACCUSED = "Ledger bug:"
+local ACCUSED = Messages.ACCUSED
 
 local STEP_CAP = 1000000
 local EPOCH = 1700000000
@@ -130,6 +143,68 @@ Case.__index = Case
 Registry.Sweep():Stop()
 
 local Claimed = 0
+local CacheMode: CacheMode? = nil
+
+local function Down(): any
+	error("Ledger memory hook: the MemoryStore is failing every call", 0)
+end
+
+local BROKEN: Engine.Map = table.freeze({
+	GetAsync = function(_: any, _Key: string): any
+		return Down()
+	end,
+	SetAsync = function(_: any, _Key: string, _Value: any, _Expiry: number): any
+		return Down()
+	end,
+	UpdateAsync = function(_: any, _Key: string, _Transform: (any) -> any, _Expiry: number): any
+		return Down()
+	end,
+	RemoveAsync = function(_: any, _Key: string)
+		Down()
+	end,
+})
+
+local function Reading(Inner: Engine.Map): Engine.Map
+	return table.freeze({
+		GetAsync = function(_: any, Key: string): any
+			return Inner:GetAsync(Key)
+		end,
+		SetAsync = function(_: any, _Key: string, _Value: any, _Expiry: number): any
+			return Down()
+		end,
+		UpdateAsync = function(_: any, _Key: string, _Transform: (any) -> any, _Expiry: number): any
+			return Down()
+		end,
+		RemoveAsync = function(_: any, _Key: string)
+			Down()
+		end,
+	})
+end
+
+local function Hooked(Turn: Virtual.Virtual, Service: Mock.Service): Fault.Faulted
+	local Held = Memory.New(Turn, nil, Service)
+	if CacheMode == "absent" then
+		local Bare: any = { Open = Held.Open, Budget = Held.Budget, Service = Held.Service }
+		return Fault.Wrap(Bare, Turn)
+	end
+	if CacheMode == "failing" or CacheMode == "partial" then
+		local Broken: any = {
+			Open = Held.Open,
+			Budget = Held.Budget,
+			Service = Held.Service,
+			Cache = function(Name: string): Engine.Map
+				return if CacheMode == "partial" then Reading(Held.Cache(Name)) else BROKEN
+			end,
+		}
+		return Fault.Wrap(Broken, Turn)
+	end
+	return Fault.Wrap(Held, Turn)
+end
+
+local function UseCache(Mode: CacheMode?)
+	assert(Mode == nil or Mode == "absent" or Mode == "failing" or Mode == "partial", `the cache can run as it is, absent, failing or partial, not '{tostring(Mode)}'`)
+	CacheMode = Mode
+end
 
 local function Quicken(Wrapper: any)
 	Wrapper.Attempts = 3
@@ -159,6 +234,9 @@ function Case.Open(Name: string): Case
 	Walker.Passes = 0
 	Walker.Resume = 1
 
+	local Present: any = game:GetService("Players")
+	Present:Clear()
+
 	local Turn = Virtual.New(EPOCH)
 	local Service = Mock.New({ Throttled = false }, Turn)
 	Clock.Use(Turn)
@@ -168,7 +246,7 @@ function Case.Open(Name: string): Case
 		Turn = Turn,
 		Broken = {},
 		Service = Service,
-		Hook = Fault.Wrap(Memory.New(Turn, nil, Service), Turn),
+		Hook = Hooked(Turn, Service),
 		Built = {},
 		Records = Spoken,
 		Expect = {},
@@ -241,7 +319,7 @@ function Case.Store(self: Case, Held: Spec): Fixture.Fixture
 	local Node = Held.Node or NODE
 
 	local Turn = self.Turn
-	local Hook = Fault.Wrap(Memory.New(Turn, nil, self.Service), Turn)
+	local Hook = Hooked(Turn, self.Service)
 	local Built = Ledger.New({
 		Name = `V2case{Claimed}`,
 		Hook = Hook,
@@ -419,6 +497,25 @@ function Case.Fail(self: Case, Label: string, Says: string)
 	table.insert(self.Broken, `{Label}: {Says}`)
 end
 
+function Case.Starve(self: Case, Kind: Enum.DataStoreRequestType)
+	local Service = self.Service
+	Service.Throttled = true
+	Service.Queued = Datastore.QUEUE_LIMIT
+
+	for _, Lane in Service:LanesFor(Kind) do
+		Service.Tokens[Lane.Id] = 0
+		Service.Filled[Lane.Id] = Service.Scheduler.Now()
+	end
+end
+
+function Case.Fed(self: Case)
+	local Service = self.Service
+	Service.Throttled = false
+	Service.Queued = 0
+	table.clear(Service.Tokens)
+	table.clear(Service.Filled)
+end
+
 function Case.Race(self: Case, Bodies: { () -> () })
 	local Threads: { thread } = {}
 	for _, Body in Bodies do
@@ -496,6 +593,7 @@ return table.freeze({
 	Open = Case.Open,
 	Close = Case.Close,
 	Heard = Catch,
+	UseCache = UseCache,
 	Drive = Case.Drive,
 	Judge = Case.Judge,
 

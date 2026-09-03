@@ -122,9 +122,7 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 		elseif Verdict == "Busy" then
 			return Prepared, Settled, BUSY
 		elseif Verdict == "Spent" then
-			warn(
-				`Ledger: transaction '{Ops[Index].Tx}' was already used for different keys or a different amount. nothing was applied, pick a new name`
-			)
+			warn(`Ledger: transaction '{Ops[Index].Tx}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
 			return Prepared, Settled, SPENT
 		elseif Verdict == "Rejected" then
 			return Prepared, Settled, REFUSED
@@ -132,9 +130,7 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key holds more unsaved ops than it can take. nothing was applied`)
 			return Prepared, Settled, FULL
 		elseif Verdict == "Erased" then
-			warn(
-				`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`
-			)
+			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`)
 			return Prepared, Settled, REFUSED
 		else
 			local Unreachable: never = Verdict
