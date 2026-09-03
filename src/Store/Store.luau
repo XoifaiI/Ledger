@@ -20,7 +20,6 @@ local Observer = require("../Util/Observer")
 local Clock = require("../Util/Clock")
 local SetInterval = require("../Util/SetInterval")
 local TableUtil = require("../Util/TableUtil")
-local Roblox = require("../Hooks/Roblox")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
 local Lru = require("../Util/Lru")
@@ -121,8 +120,9 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 
 	local Turn = Clock.Held()
 	local Asked = Config.Mock
+	local Faked = Config.Hook == nil and (Asked == true or type(Asked) == "table")
 	local Hook = Config.Hook or (if Asked then Registry.Mock(if type(Asked) == "table" then Asked else nil) else Registry.Defaults.Hook)
-	if Hook ~= Roblox.New() then
+	if Faked then
 		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end
 

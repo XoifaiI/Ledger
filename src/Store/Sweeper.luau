@@ -21,6 +21,7 @@
 
 local Clock = require("../Util/Clock")
 local Windows = require("../Core/Constants/Windows")
+local Transactions = require("../Core/Constants/Transactions")
 local SetInterval = require("../Util/SetInterval")
 local Types = require("./Types")
 
@@ -165,15 +166,15 @@ function Sweeper.Pass(self: Sweeper)
 		end
 
 		local Claim = Entry.Store.Claim(Entry.Key, Windows.PASS_LEASE)
-		if Claim.Outcome == "Held" then
+		if Claim.Outcome == Transactions.HELD then
 			continue
 		end
-		Degraded = Claim.Outcome == "Unknown"
+		Degraded = Claim.Outcome == Transactions.UNKNOWN
 
 		local Ok, Clean, Moved = pcall(function(): (boolean, boolean)
 			return Entry.Store.Repair(Entry.Key)
 		end)
-		if Claim.Outcome == "Taken" and not Ok then
+		if Claim.Outcome == Transactions.TAKEN and not Ok then
 			Claim.Release()
 		end
 		if Ok and Clean then

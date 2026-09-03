@@ -869,6 +869,34 @@ Cases.Case("a compaction holds back a reserved kind this build does not handle",
 	T:Is("its id being burned into the seen list", Burned, false)
 end)
 
+Cases.Case("the build floor decides who may park a leg", function(T: Case)
+	local function Step(State: any): any
+		return State
+	end
+
+	local Store = T:Store({ Migrations = { Step, Step, Step, Step, Step } })
+	Store:Seed("floorprep", { Gold = 100, Touches = 0 })
+
+	local Stored = Store:Record("floorprep")
+	Stored.Floor = 5
+	Store:Write("floorprep", Stored)
+
+	local Leg: any = { Id = "tx:floorprep:1", Kind = "Fund", Amount = 5, Tx = "floorprep", TxHome = "Home" }
+
+	local Behind = Log.New(Store.Store.Wrapper, 0)
+	local Ok, Raised = pcall(function()
+		return Behind:Prepare("floorprep", Leg, Store:Format())
+	end)
+
+	T:Is("an older build parking a leg on a record it may not write", Ok, false)
+	T:Is("the reason", if type(Raised) == "table" then (Raised :: any).Why else nil, "Behind")
+	T:Is("nothing was parked", Store:Pending("floorprep"), false)
+
+	local Ahead = Log.New(Store.Store.Wrapper, 5)
+	T:Is("a build that meets the floor parks it", Ahead:Prepare("floorprep", Leg, Store:Format()), "Prepared")
+	T:Is("and the leg is on the key", Store:Pending("floorprep"), true)
+end)
+
 Cases.Case("the build floor decides who may resolve a leg", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("floorleg", { Gold = 100 })

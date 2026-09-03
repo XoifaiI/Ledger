@@ -24,6 +24,7 @@ local Session = require("../../src/Session/Session")
 local TableUtil = require("../../src/Util/TableUtil")
 
 local Reducers = Suite.Reducers
+local Reasons = Suite.Reasons
 
 type Case = Suite.Case
 type Fixture = Suite.Fixture
@@ -538,6 +539,57 @@ Cases.Case("a migration that copies the state is not accused of dropping the boo
 	T:Is("gold", State.Gold, 10)
 	T:Is("the hold, still there", Store:Aside("copied"), 5)
 	T:Silent("no accusation over a field the migration kept", "dropped Ledger's own")
+end)
+
+Cases.Case("a migration that yields is caught rather than left to hang the read", function(T: Case)
+	local Store = T:Store({
+		Default = Reducers.MONEY,
+		Reducer = Reducers.Banker,
+		Migrations = {
+			function(State: any): any
+				coroutine.yield()
+				return State
+			end,
+		},
+	})
+	Store:Write("yielder", { Snapshot = { Gold = 5, Touches = 0 }, Ops = {}, Seen = {} })
+
+	local State, Why = Store.Store:Peek("yielder"):Wait()
+
+	T:Is("the read gives nothing", State, nil)
+	T:Is("and says it could not be resolved", Why, Reasons.Unresolved)
+	T:Is("the stored snapshot is left alone", (Store:Record("yielder").Snapshot :: any).Gold, 5)
+	T:Warns("it says the read failed", "could not read")
+end)
+
+Cases.Case("an older build is turned away from a key it may not write, snapshot or none", function(T: Case)
+	local function Step(State: any): any
+		return State
+	end
+
+	local New = T:Store({ Data = "Deploy", Migrations = { Step, Step } })
+	local Old = T:Store({ Data = "Deploy", Migrations = { Step } })
+
+	T:Ok("the newer build writes the key", New.Store:Edit("k", "Fund", { Amount = 10 }):Wait())
+	T:No("the older build is refused a write", Old.Store:Edit("k", "Fund", { Amount = 1 }):Wait())
+	T:Is("and the key has no snapshot to read", New:Record("k").Snapshot, nil)
+
+	local State, Why = Old.Store:Peek("k"):Wait()
+	T:Is("the read gives nothing", State, nil)
+	T:Is("and says behind", Why, Reasons.Behind)
+
+	local Active, LoadWhy = Old:TrySession("k")
+	T:Is("no session opens", Active, nil)
+	T:Is("and the load says behind", LoadWhy, Reasons.Behind)
+
+	New:Log():Compact("k", New:Format())
+	T:Is("the key carries a snapshot now", New:Record("k").Snapshot ~= nil, true)
+
+	local Packed, PackedWhy = Old.Store:Peek("k"):Wait()
+	T:Is("the read still gives nothing", Packed, nil)
+	T:Is("and still says behind", PackedWhy, Reasons.Behind)
+	T:Is("the newer build's money is untouched", New:Amount("k"), 10)
+	T:Warns("it names the deploy", "finish the deploy")
 end)
 
 return Cases

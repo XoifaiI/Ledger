@@ -28,6 +28,7 @@ local Engine = require("../../src/Util/Engine")
 local Messages = require("../../src/Core/Constants/Messages")
 
 local Ledger = require("../../src") :: any
+local Datastore = require("../../src/Core/Constants/Datastore")
 local Sizes = require("../../src/Core/Constants/Sizes")
 local Clock = require("../../src/Util/Clock")
 local Ids = require("../../src/Encode/Ids")
@@ -95,6 +96,9 @@ type CaseImpl = {
 	Accuses: (self: Case, Label: string, Fragment: string) -> (),
 	Said: (self: Case) -> { string },
 	Fail: (self: Case, Label: string, Says: string) -> (),
+
+	Starve: (self: Case, Kind: Enum.DataStoreRequestType) -> (),
+	Fed: (self: Case) -> (),
 
 	Race: (self: Case, Bodies: { () -> () }) -> (),
 	Spawn: (self: Case, Body: () -> ()) -> thread,
@@ -229,6 +233,9 @@ function Case.Open(Name: string): Case
 	Walker:Stop()
 	Walker.Passes = 0
 	Walker.Resume = 1
+
+	local Present: any = game:GetService("Players")
+	Present:Clear()
 
 	local Turn = Virtual.New(EPOCH)
 	local Service = Mock.New({ Throttled = false }, Turn)
@@ -488,6 +495,25 @@ end
 
 function Case.Fail(self: Case, Label: string, Says: string)
 	table.insert(self.Broken, `{Label}: {Says}`)
+end
+
+function Case.Starve(self: Case, Kind: Enum.DataStoreRequestType)
+	local Service = self.Service
+	Service.Throttled = true
+	Service.Queued = Datastore.QUEUE_LIMIT
+
+	for _, Lane in Service:LanesFor(Kind) do
+		Service.Tokens[Lane.Id] = 0
+		Service.Filled[Lane.Id] = Service.Scheduler.Now()
+	end
+end
+
+function Case.Fed(self: Case)
+	local Service = self.Service
+	Service.Throttled = false
+	Service.Queued = 0
+	table.clear(Service.Tokens)
+	table.clear(Service.Filled)
 end
 
 function Case.Race(self: Case, Bodies: { () -> () })

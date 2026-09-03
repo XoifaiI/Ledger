@@ -142,10 +142,6 @@ function Schema.New<S>(Reducer: Shapes.Reducer<S>, Initial: S, Migrations: { Mig
 end
 
 function Schema.Rehydrate(self: Schema<any>, Record: Record): any
-	if Record.Snapshot == nil then
-		return if self.Blobbed then TableUtil.DeepCopy(self.Initial) else self.Initial
-	end
-
 	local Steps = self.Migrations
 	local Version = Record.Version or 0
 
@@ -153,6 +149,10 @@ function Schema.Rehydrate(self: Schema<any>, Record: Record): any
 	local Needs = if type(Held) == "number" then Held elseif Version > #Steps then Version else 0
 	if Needs > #Steps then
 		Errors.Raise(Reasons.Behind, `this record needs {Needs} migrations and this server has {#Steps}, a newer build wrote it. finish the deploy`)
+	end
+
+	if Record.Snapshot == nil then
+		return if self.Blobbed then TableUtil.DeepCopy(self.Initial) else self.Initial
 	end
 
 	if Version > #Steps then

@@ -97,7 +97,7 @@ function MemoryStoreWrapper.Miss(self: MemoryStoreWrapper, Err: any)
 	local Now = self.Scheduler.Now()
 	self.Row += 1
 	if self.Row >= MISSES_ALLOWED then
-		self.Row = 0
+		self.Row = MISSES_ALLOWED
 		self.Quiet = Now + Windows.BREAKER
 	end
 

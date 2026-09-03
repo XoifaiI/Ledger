@@ -48,8 +48,12 @@ local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
 local HELD = Reasons.Held
 
+local FINISHED = "Finished" :: "Finished"
+local ESCROWED = "Escrowed" :: "Escrowed"
+local STOPPED = "Stopped" :: "Stopped"
+
 local function Stopped(Why: Reason): Reserved
-	return { Outcome = "Stopped", Why = Why }
+	return { Outcome = STOPPED, Why = Why }
 end
 
 local function Spent(Tid: string): Reserved
@@ -94,7 +98,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	if Id ~= nil then
 		local Already = Delivered(Records, Format, To, Tid, Print, From)
 		if Already == Tags.SAME then
-			return { Outcome = "Finished", Follow = true }
+			return { Outcome = FINISHED, Follow = true }
 		end
 		if Already == Tags.OTHER then
 			return Spent(Tid)
@@ -123,7 +127,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 			return Stopped(HELD)
 		end
 
-		return { Outcome = "Escrowed", Tid = Tid, Hold = Escrowed }
+		return { Outcome = ESCROWED, Tid = Tid, Hold = Escrowed }
 	end
 
 	local Spend = Applied.Recall(State._Received, Tags.SENT, Tid, Print)
@@ -131,7 +135,7 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 		return Spent(Tid)
 	end
 	if Spend == Tags.SAME or TxStamp.Carries(Record, `{Kinds.SETTLE_ID}:{Tid}`) then
-		return { Outcome = "Finished" }
+		return { Outcome = FINISHED }
 	end
 	if TxStamp.Carries(Record, `{Kinds.EXPIRE_ID}:{Tid}`) then
 		return Stopped(SPENT)
@@ -203,13 +207,13 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 		return false, Errors.Reason(Ruling), nil
 	end
 
-	if Ruling.Outcome == "Finished" then
+	if Ruling.Outcome == FINISHED then
 		return true, nil, Ruling.Follow
 	end
-	if Ruling.Outcome == "Stopped" then
+	if Ruling.Outcome == STOPPED then
 		return false, Ruling.Why, nil
 	end
-	if Ruling.Outcome ~= "Escrowed" then
+	if Ruling.Outcome ~= ESCROWED then
 		local Unreachable: never = Ruling
 		return false, Unreachable, nil
 	end

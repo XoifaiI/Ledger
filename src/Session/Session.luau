@@ -238,10 +238,9 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 		local Ok, Err = pcall(function()
 			local Pushed, Landed = Rebuild.Push(self)
 			Whole = Landed ~= false
-			if Pushed == nil then
-				Pushed = self.Log:Read(self.Key)
-			end
-			Rebuild.Rebuild(self, self:Settled(Pushed))
+
+			local Stored = if Pushed ~= nil then Pushed else self.Log:Read(self.Key)
+			Rebuild.Rebuild(self, self:Settled(Stored))
 			self:Notify()
 		end)
 		if Ok then

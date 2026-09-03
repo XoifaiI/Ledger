@@ -218,4 +218,19 @@ Cases.Case("the fake datastore is sized once and turns away a second size", func
 	T:Ok("a plain Mock still joins the one that is already there", Joined ~= nil)
 end)
 
+Cases.Case("a store on a hook the game handed it is not called fake", function(T: Case)
+	local Built = Ledger.New({
+		Name = "CaseOwnHook",
+		Keys = "String",
+		Default = { Gold = 0 },
+		Reducer = Suite.Reducers.Banker,
+		Hook = T.Hook,
+	})
+	pcall(function()
+		Built:Destroy()
+	end)
+
+	T:Silent("it does not call the game's own hook fake", "fake datastore")
+end)
+
 return Cases

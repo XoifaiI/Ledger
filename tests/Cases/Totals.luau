@@ -505,4 +505,35 @@ Cases.Case("own bumps are kept for the keep window and the tallies a server reme
 	T:Is("the newest tally is still remembered", A.Store.Recent:Get(Slot(A.Store, `t{RECENT_LIMIT + 20}`)) ~= nil, true)
 end)
 
+Cases.Case("a total does not count a bump that the sum it read already counted", function(T: Case)
+	local A = T:Vault("nodeA")
+	local B = T:Vault("nodeB")
+	T:Is("this case needs nodeA off the shard the refill stalls on", Tally.Mine("nodeA") ~= 0, true)
+
+	A.Store:Bump("pot", FIELD, 100):Wait()
+	T:Is("the other server sums it", B.Store:Total("pot", FIELD, 0):Wait(), 100)
+	T:Advance(CACHE + 1)
+
+	local Stalled = B:Fault(Fault.Reads():OnKey(Tally.Shard("pot", 0)):Only(1):Stall(5))
+	T:Race({
+		function()
+			B.Store:Total("pot", FIELD, 0):Wait()
+		end,
+		function()
+			T:Wait(1)
+			A.Store:Bump("pot", FIELD, 50):Wait()
+		end,
+	})
+
+	local Truth = 0
+	for _, Key in Tally.Keys("pot") do
+		Truth += Tally.Counted(A:Stored(Key), FIELD)
+	end
+
+	T:Is("the bump really landed inside the refill", Stalled.Fired, 1)
+	T:Is("the shards hold both bumps", Truth, 150)
+	T:Is("and the refill wrote what it read", Item(T, A.Store, "pot").Sum, 150)
+	T:Is("so the bumping server reads no more than the shards hold", A.Store:Total("pot", FIELD, 0):Wait(), Truth)
+end)
+
 return Cases

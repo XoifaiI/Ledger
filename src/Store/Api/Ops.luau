@@ -226,13 +226,13 @@ end
 function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?): (Reserved, number?)
 	local Held = self.Bookings
 	if Held == nil then
-		return "Unknown", nil
+		return Bookings.UNKNOWN, nil
 	end
 
-	local Answer: Reserved = "Unknown"
+	local Answer: Reserved = Bookings.UNKNOWN
 	local Known: number? = nil
 	local Ok = Rewritten(Held, Slot, function(Item: Holding?): Holding?
-		Answer, Known = "Unknown", nil
+		Answer, Known = Bookings.UNKNOWN, nil
 		local Base: Holding = Item or { Holds = {}, Stock = {} }
 		if Stock ~= nil then
 			Base.Stock[Field] = Stock
@@ -240,7 +240,7 @@ function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Am
 
 		local Have = Base.Stock[Field]
 		if type(Have) ~= "number" then
-			Answer = "Cold"
+			Answer = Bookings.COLD
 			return nil
 		end
 		Known = Have
@@ -248,7 +248,7 @@ function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Am
 		local Fresh, Sums = Unexpired(Base, Now)
 		local Mine = Fresh[Rid]
 		if Mine ~= nil then
-			Answer = "Taken"
+			Answer = Bookings.TAKEN
 			if Mine.Ends >= Ends then
 				return nil
 			end
@@ -256,21 +256,21 @@ function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Am
 			return { Holds = Fresh, Stock = Base.Stock }
 		end
 		if TableUtil.Count(Fresh) >= Sizes.Booked then
-			Answer = "Full"
+			Answer = Bookings.FULL
 			return nil
 		end
 		if (Sums[Field] or 0) + Amount > Have then
-			Answer = "Refused"
+			Answer = Bookings.REFUSED
 			return if Stock ~= nil then { Holds = Fresh, Stock = Base.Stock } else nil
 		end
 
 		Fresh[Rid] = { Field = Field, Amount = Amount, Ends = Ends }
-		Answer = "Taken"
+		Answer = Bookings.TAKEN
 		return { Holds = Fresh, Stock = Base.Stock }
 	end)
 
 	if not Ok then
-		return "Unknown", nil
+		return Bookings.UNKNOWN, nil
 	end
 	return Answer, Known
 end
@@ -278,13 +278,13 @@ end
 function Store.Dropped(self: Store, Slot: string, Rid: string, State: any): Dropped
 	local Held = self.Bookings
 	if Held == nil then
-		return "Absent"
+		return Bookings.ABSENT
 	end
 
-	local Answer: Dropped = "Unknown"
+	local Answer: Dropped = Bookings.UNKNOWN
 	local Now = Clock.Now()
 	local Ok = Rewritten(Held, Slot, function(Item: Holding?): Holding?
-		Answer = "Absent"
+		Answer = Bookings.MISSING
 		if Item == nil then
 			return nil
 		end
@@ -299,12 +299,12 @@ function Store.Dropped(self: Store, Slot: string, Rid: string, State: any): Drop
 		if type(State) == "table" and type(State[Mine.Field]) == "number" then
 			Item.Stock[Mine.Field] = State[Mine.Field]
 		end
-		Answer = "Dropped"
+		Answer = Bookings.DROPPED
 		return { Holds = Fresh, Stock = Item.Stock }
 	end)
 
 	if not Ok then
-		return "Unknown"
+		return Bookings.UNKNOWN
 	end
 	return Answer
 end
@@ -336,7 +336,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 		local Now = Clock.Now()
 		local Ends = Now + (Hold or Windows.BOOK)
 		local Answer, Known = self:Holding(Slot, Rid, Field, Amount, Now, Ends, nil)
-		if Answer == "Cold" or Answer == "Refused" then
+		if Answer == Bookings.COLD or Answer == Bookings.REFUSED then
 			local Read, State = pcall(function(): any
 				return self:Fold(self:ReadRecord(Resolved))
 			end)
@@ -348,18 +348,18 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 			if type(Stock) ~= "number" then
 				return false, REFUSED
 			end
-			if Answer == "Cold" or Stock ~= Known then
+			if Answer == Bookings.COLD or Stock ~= Known then
 				Answer, Known = self:Holding(Slot, Rid, Field, Amount, Now, Ends, Stock)
 			end
 		end
 
-		if Answer == "Taken" then
+		if Answer == Bookings.TAKEN then
 			return true, nil
 		end
-		if Answer == "Refused" then
+		if Answer == Bookings.REFUSED then
 			return false, REFUSED
 		end
-		if Answer == "Full" then
+		if Answer == Bookings.FULL then
 			warn(`Ledger: '{Resolved}' already holds {Sizes.Booked} reservations, so '{Rid}' was not set aside`)
 			return false, REFUSED
 		end
@@ -405,11 +405,14 @@ function Store.Release(self: Store, Key: KeyLike, Id: string): Future<boolean, R
 
 	return Future.New(function(): (boolean, Reason?)
 		local Gone = self:Dropped(Slot, Rid, nil)
-		if Gone == "Dropped" then
+		if Gone == Bookings.DROPPED then
 			return true, nil
 		end
-		if Gone == "Absent" then
+		if Gone == Bookings.MISSING then
 			return false, REFUSED
+		end
+		if Gone == Bookings.ABSENT then
+			self:Unbooked("Release")
 		end
 		return false, UNRESOLVED
 	end)
@@ -557,17 +560,18 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 			end
 		end
 
+		local Walked = Clock.Now()
 		if Tallies ~= nil then
 			local Wrote = Tallies:UpdateAsync(Slot, function(Current: any): any
 				local Newer = Tally.Read(Current)
-				if Newer ~= nil and Newer.At > Now then
+				if Newer ~= nil and Newer.At > Walked then
 					return nil
 				end
-				return { Sum = Sum, At = Now }
+				return { Sum = Sum, At = Walked }
 			end, Windows.TALLY_KEEP)
-			Held.Down = if Wrote then nil else Now
+			Held.Down = if Wrote then nil else Walked
 		end
-		return Remember(Held, Sum, Now, Now, Mark), nil
+		return Remember(Held, Sum, Walked, Walked, Mark), nil
 	end)
 end
 
@@ -639,13 +643,13 @@ function Store.Leased(self: Store, Targets: { { Name: string, Key: string } }): 
 
 	for _, Key in Keys do
 		local Claim = self:Claim(Key, Windows.TX_LEASE)
-		if Claim.Outcome == "Taken" then
+		if Claim.Outcome == Transactions.TAKEN then
 			table.insert(Taken, Claim.Release)
 			continue
 		end
 
 		Freed(Taken)
-		return {}, Claim.Outcome == "Held"
+		return {}, Claim.Outcome == Transactions.HELD
 	end
 	return Taken, false
 end
@@ -653,16 +657,16 @@ end
 function Store.Claim(self: Store, Key: string, Ttl: number): Types.Claimed
 	local Leases = self.Leases
 	if Leases == nil then
-		return { Outcome = "Absent" }
+		return { Outcome = Transactions.ABSENT }
 	end
 
 	local Node = self.Node
 	local Read, Holder = Leases:GetAsync(Key)
 	if not Read then
-		return { Outcome = "Unknown" }
+		return { Outcome = Transactions.UNKNOWN }
 	end
 	if Holder ~= nil and Holder ~= Node then
-		return { Outcome = "Held" }
+		return { Outcome = Transactions.HELD }
 	end
 
 	local Ok, Won = Leases:UpdateAsync(Key, function(Current: any): any
@@ -673,13 +677,13 @@ function Store.Claim(self: Store, Key: string, Ttl: number): Types.Claimed
 	end, Ttl)
 
 	if not Ok then
-		return { Outcome = "Unknown" }
+		return { Outcome = Transactions.UNKNOWN }
 	end
 	if Won == nil then
-		return { Outcome = "Held" }
+		return { Outcome = Transactions.HELD }
 	end
 	return {
-		Outcome = "Taken",
+		Outcome = Transactions.TAKEN,
 		Release = function()
 			Leases:RemoveAsync(Key)
 		end,

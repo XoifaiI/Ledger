@@ -23,6 +23,7 @@ local Lru = require("../Util/Lru")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
 local Reasons = require("../Core/Constants/Reasons")
+local Bookings = require("../Core/Constants/Bookings")
 local LogTypes = require("../Record/Types")
 local Tally = require("../Layers/Tally")
 local TxTypes = require("../Protocol/Tx/Types")
@@ -48,9 +49,9 @@ export type Allow = (Record) -> boolean
 
 export type Claimed = TxTypes.Claimed
 
-export type Reserved = "Taken" | "Cold" | "Refused" | "Full" | "Unknown"
+export type Reserved = Bookings.Reserved
 
-export type Dropped = "Dropped" | "Absent" | "Unknown"
+export type Dropped = Bookings.Dropped
 
 export type Swept = {
 	read Mark: (Key: string) -> string,

@@ -1214,4 +1214,48 @@ Cases.Case("clearing delivered names goes through even when none have aged out",
 	T:Is("the gold it did not touch", Bank:Amount("young"), 5)
 end)
 
+Cases.Case("the sweep gives up on a key that never comes clean and names it", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("stuckA", { Gold = 100, Touches = 0 })
+	Bank:Seed("stuckB", { Gold = 0, Touches = 0 })
+
+	Bank:Fault(Fault.Updates():OnKey("stuckB"))
+	Bank.Store:Transfer("stuckA", "stuckB", 40, "stuck1"):Wait()
+	T:Is("the money is set aside", Bank:Aside("stuckA"), 40)
+
+	for _ = 1, 5 do
+		T:Sweep()
+	end
+
+	T:Is("the money is still set aside", Bank:Aside("stuckA"), 40)
+	T:Is("money is conserved", Bank:Amount("stuckA") + Bank:Amount("stuckB") + Bank:Aside("stuckA"), 100)
+	T:Warns("it names the key it gave up on", "gave up retrying 'stuckA'")
+	T:Warns("and it says who has to finish the job", "call Resettle on it yourself")
+end)
+
+Cases.Case("a transfer that runs out of request budget part way leaves the money set aside", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("starveA", { Gold = 100, Touches = 0 })
+	Bank:Seed("starveB", { Gold = 0, Touches = 0 })
+	Bank:NoRetries()
+
+	Bank:Fault(Fault.Updates():OnKey("starveB"):Meddle(function()
+		T:Starve(Enum.DataStoreRequestType.UpdateAsync)
+	end))
+
+	local Ok, Why = Bank.Store:Transfer("starveA", "starveB", 30, "starve1"):Wait()
+	T:Fed()
+
+	T:No("the transfer did not finish", Ok)
+	T:Is("and nobody knows whether it landed", Why, Suite.Reasons.Unresolved)
+	T:Is("the money is set aside on the sender", Bank:Aside("starveA"), 30)
+	T:Is("the receiver got nothing", Bank:Amount("starveB"), 0)
+
+	Bank:Healed()
+	T:Is("recovery finishes it once the budget is back", (Bank.Store:RecoverTransfers("starveA"):Wait()), true)
+	T:Is("the receiver was paid once", Bank:Amount("starveB"), 30)
+	T:Is("money is conserved", Bank:Amount("starveA") + Bank:Amount("starveB"), 100)
+	T:Warns("it says it took the money and could not hand it over", "could not hand it over")
+end)
+
 return Cases

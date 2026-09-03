@@ -610,4 +610,22 @@ Cases.Case("a cache call inside a reducer is refused as a yield, which is the gu
 	T:Is("the key, untouched", Store:Amount("k", "Coins"), 0)
 end)
 
+Cases.Case("a map that stays down costs one call a window, however long it is down", function(T: Case)
+	local Missing = Wrapper.New("Ledger_Lease", T.Turn, Broken(T))
+
+	for _ = 1, 3 do
+		Missing:GetAsync("k")
+	end
+	local Shut = Missing.Spent
+	T:Is("the calls it made before it stopped", Shut, 3)
+
+	for Window = 1, 3 do
+		T:Advance(Suite.Horizons.BREAKER + 1)
+		for _ = 1, 5 do
+			T:No("a read while the map is down", (Missing:GetAsync("k")))
+		end
+		T:Is(`the probes it has made after {Window} window(s)`, Missing.Spent - Shut, Window)
+	end
+end)
+
 return Cases

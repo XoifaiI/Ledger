@@ -423,4 +423,31 @@ Cases.Case("a hold on one field leaves another field's stock alone", function(T:
 	T:Is("units held on the other", Holds(Shelf, "shelf", "Other"), 5)
 end)
 
+Cases.Case("a release that never reached a map says so rather than refusing", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf:Seed("rack", { Stock = 10, Sold = 0, Gold = 0 })
+	Shelf.Store.Bookings = nil
+
+	local _, ReserveWhy = Shelf.Store:Reserve("rack", "Stock", 1, "cart"):Wait()
+	local _, HoldsWhy = Shelf.Store:Holds("rack", "Stock"):Wait()
+	local Let, ReleaseWhy = Shelf.Store:Release("rack", "cart"):Wait()
+
+	T:Is("reserve says it could not be resolved", ReserveWhy, Reasons.Unresolved)
+	T:Is("holds says the same", HoldsWhy, Reasons.Unresolved)
+	T:No("release let nothing go", Let)
+	T:Is("and release says the same", ReleaseWhy, Reasons.Unresolved)
+	T:Warns("it says the store has no memorystore", "needs a MemoryStore and this store has none")
+end)
+
+Cases.Case("a release the map answered for finds nothing and refuses", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf:Seed("rack", { Stock = 10, Sold = 0, Gold = 0 })
+
+	local Let, Why = Shelf.Store:Release("rack", "cart"):Wait()
+
+	T:No("release let nothing go", Let)
+	T:Is("it says refused, since the map answered", Why, Reasons.Refused)
+	T:Silent("and it does not blame the store for having no map", "needs a MemoryStore and this store has none")
+end)
+
 return Cases

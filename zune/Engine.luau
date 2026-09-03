@@ -95,9 +95,17 @@ local RunService = table.freeze({
 	end,
 })
 
+local Present: { [number]: any } = {}
+
 local Players = table.freeze({
-	GetPlayerByUserId = function(_: any, _UserId: number): any
-		return nil
+	GetPlayerByUserId = function(_: any, UserId: number): any
+		return Present[UserId]
+	end,
+	Joins = function(_: any, Player: any)
+		Present[Player.UserId] = Player
+	end,
+	Clear = function(_: any)
+		table.clear(Present)
 	end,
 })
 

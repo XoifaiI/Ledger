@@ -35,6 +35,11 @@ local function Outside(Bank: Fixture, Key: string, Kind: string, Fields: { [any]
 	Bank:Append(Key, { NewOp.New(Kind, Fields) })
 end
 
+local function Joined(Player: any)
+	local Present: any = game:GetService("Players")
+	Present:Joins(Player)
+end
+
 local function Filler(Count: number): { number }
 	local Pad: { number } = table.create(Count, 0)
 	for Index = 1, Count do
@@ -1405,6 +1410,49 @@ Cases.Case("a commit held back by a leg that settles on the same read is written
 	T:Ok("it did not wait for a poll, the leg was already decided", T:Now() - Started < Windows.POLL)
 	T:Is("gold on disk", Bank:Amount("quickcommit"), 30)
 	T:Is("anything left pending", Bank:Pending("quickcommit"), false)
+end)
+
+Cases.Case("a callback that says it handled a player who is still here is told they are stranded", function(T: Case)
+	local Players = T:Store({
+		Keys = "Player",
+		Default = Reducers.PLAIN,
+		Reducer = Reducers.Keep,
+		OnLoadFailed = function(): boolean
+			return true
+		end,
+	})
+	Players:NoRetries()
+	Players:Fault(Fault.Reads():OnKey("31"))
+
+	local Player = T:Player(31)
+	Joined(Player)
+	Players.Store:Load(Player)
+
+	T:Is("the player was not kicked", Player.Kicked, 0)
+	T:No("and nothing is loaded for them", Players.Store:IsLoaded(Player))
+	T:Warns("it says the load failed", "could not load")
+	T:Warns("it says they are left with no data", "still in the server with no data")
+end)
+
+Cases.Case("erasing a key while its player is still here closes their session on the next save", function(T: Case)
+	local Players = T:Store({ Keys = "Player", Default = Reducers.PLAIN, Reducer = Reducers.Keep })
+	Players:Seed("42", { Gold = 5 })
+
+	local Player = T:Player(42)
+	Joined(Player)
+	Players.Store:Load(Player)
+	T:Ok("the session is live", Players.Store:IsLoaded(Player))
+
+	T:Ok("the erase went through", Players.Store:Erase(42):Wait())
+	T:Warns("it says the player is still in this server", "while they are still in this server")
+
+	local Active = Players.Store:Get(Player)
+	T:Ok("the session is still holding on", Active ~= nil)
+	T:Ok("and it still takes an op", (Active :: any):Apply("Keep"))
+
+	local Saved = (Active :: any):Flush():Wait()
+	T:No("but the save does not go through", Saved)
+	T:Warns("it says the key was erased under the session", "was erased while this session was live")
 end)
 
 return Cases

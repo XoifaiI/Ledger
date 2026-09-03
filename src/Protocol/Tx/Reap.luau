@@ -57,7 +57,7 @@ type Walk = {
 	Reaped: number,
 }
 
-local ABSENT: Claimed = { Outcome = "Absent" }
+local ABSENT: Claimed = { Outcome = Transactions.ABSENT }
 table.freeze(ABSENT)
 
 local function Spent(Record: Record, Txid: string, Gen: string?, Born: number): boolean
@@ -261,14 +261,14 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		end
 
 		local Shard = (Base + Step) % Transactions.SHARDS
-		local Lease = if Claim ~= nil then Claim(Shard) else ABSENT
-		local More = Lease.Outcome ~= "Held" and Listed(Walk, Shard)
-		if Lease.Outcome == "Taken" and More then
+		local Lease: Claimed = if Claim ~= nil then Claim(Shard) else ABSENT
+		local More = Lease.Outcome ~= Transactions.HELD and Listed(Walk, Shard)
+		if Lease.Outcome == Transactions.TAKEN and More then
 			Lease.Release()
 		end
 
 		Step += 1
-		if Asked.Bounded and Lease.Outcome == "Unknown" then
+		if Asked.Bounded and Lease.Outcome == Transactions.UNKNOWN then
 			break
 		end
 	end
