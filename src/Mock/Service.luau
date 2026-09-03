@@ -10,7 +10,8 @@
 	so a run that owns its clock owns the refill too. A datastore call short of budget queues, and a
 	MemoryStore call short of units is refused at once, since that is what each service does.
 	Conflicts counts the writes that met on one key and had to run their transform again, and Units
-	counts every unit a map spent whether or not the quota is enforced.
+	counts every unit a map spent whether or not the quota is enforced. Spent counts the same per
+	map, since one map has a ceiling of its own on top of the experience quota.
 
 	Return type: A table with New.
 	Example usage:
@@ -67,6 +68,7 @@ function Service.New(Options: Options?, Scheduler: Engine.Scheduler?): Service
 		Queued = 0,
 		Conflicts = 0,
 		Units = 0,
+		Spent = {},
 		Players = Players,
 		CCU = Config.CCU or Players,
 		Throttled = Config.Throttled ~= false,
@@ -142,13 +144,17 @@ function Service.Spend(self: Service, Kind: Enum.DataStoreRequestType)
 	self:Await(self:LanesFor(Kind), 1)
 end
 
-function Service.Charge(self: Service, Cost: number)
+function Service.Charge(self: Service, Name: string, Cost: number)
 	self.Units += Cost
+	self.Spent[Name] = (self.Spent[Name] or 0) + Cost
 	if not self.Throttled then
 		return
 	end
 
-	local Lanes: { Lane } = { { Id = UNITS, Cap = MemoryStore.QUOTA_BASE + MemoryStore.QUOTA_PER_USER * self.CCU } }
+	local Lanes: { Lane } = {
+		{ Id = UNITS, Cap = MemoryStore.QUOTA_BASE + MemoryStore.QUOTA_PER_USER * self.CCU },
+		{ Id = `{UNITS}\0{Name}`, Cap = MemoryStore.QUOTA_MAP },
+	}
 	if not self:Ready(Lanes, Cost) then
 		error(`Ledger mock: {MemoryStore.THROTTLED}`, 0)
 	end
@@ -172,6 +178,7 @@ function Service.Clear(self: Service)
 	self.Queued = 0
 	self.Conflicts = 0
 	self.Units = 0
+	table.clear(self.Spent)
 end
 
 function Service.GetDataStore(self: Service, Name: string, Scope: string?): Types.Store

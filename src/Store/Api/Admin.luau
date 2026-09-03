@@ -131,29 +131,47 @@ function Store.HeldOn(self: Store, Key: string): (boolean, any)
 	end)
 end
 
-local function CountHeld(Held: any): (number, number)
+local function CountHeld(Held: any, Balance: string?): (number, string)
 	if type(Held) ~= "table" then
-		return 0, 0
+		return 0, ""
 	end
 
-	local Holds, Amount = 0, 0
+	local Holds = 0
+	local Amounts: { [string]: number } = {}
 	for _, Entry in Held do
-		if type(Entry) == "table" and type(Entry.Amount) == "number" then
-			Holds += 1
-			Amount += Entry.Amount
+		if type(Entry) ~= "table" or type(Entry.Amount) ~= "number" then
+			continue
 		end
+
+		local Field = if type(Entry.Field) == "string" then Entry.Field else Balance
+		if Field == nil then
+			continue
+		end
+		Holds += 1
+		Amounts[Field] = (Amounts[Field] or 0) + Entry.Amount
 	end
-	return Holds, Amount
+
+	local Fields: { string } = {}
+	for Field in Amounts do
+		table.insert(Fields, Field)
+	end
+	table.sort(Fields)
+
+	local Named: { string } = table.create(#Fields) :: { string }
+	for Index, Field in Fields do
+		Named[Index] = `{Amounts[Field]} {Field}`
+	end
+	return Holds, table.concat(Named, ", ")
 end
 
-function Store.HandOver(self: Store, Key: string): (number, number)
+function Store.HandOver(self: Store, Key: string): (number, string)
 	local Read, Held = self:HeldOn(Key)
 	if not Read then
 		warn(`Ledger: could not read what '{Key}' holds before erasing it, so any unfinished transfers on it are gone for good: {Held}`)
-		return 0, 0
+		return 0, ""
 	end
 	if not TableUtil.Occupied(Held) then
-		return 0, 0
+		return 0, ""
 	end
 
 	local Sent, Why = pcall(function()
@@ -166,9 +184,9 @@ function Store.HandOver(self: Store, Key: string): (number, number)
 	local Again, Left = self:HeldOn(Key)
 	if not Again then
 		warn(`Ledger: could not read what '{Key}' holds after finishing its transfers, so anything still being sent is gone for good: {Left}`)
-		return 0, 0
+		return 0, ""
 	end
-	return CountHeld(Left)
+	return CountHeld(Left, self.Options.Balance)
 end
 
 function Store.Resettle(self: Store, Key: KeyLike): Future<boolean, Reason?>
@@ -251,7 +269,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	end
 
 	return Future.New(function(): (boolean, Reason?)
-		local Checked, Holds, Amount = pcall(function(): (number, number)
+		local Checked, Holds, Said = pcall(function(): (number, string)
 			return self:HandOver(Resolved)
 		end)
 		if not Checked then
@@ -287,7 +305,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		end
 
 		if Holds > 0 then
-			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) worth {Amount} had not finished, so that money is gone for good. check the audit log and pay the receivers back by hand`)
+			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) had not finished, so that money is gone for good: {Said}. check the audit log and pay the receivers back by hand`)
 		end
 
 		local Before = Replaced :: Record

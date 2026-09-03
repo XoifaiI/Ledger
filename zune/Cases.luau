@@ -6,7 +6,7 @@
 
 	It puts the Roblox vocabulary in place, points warn at the bench, loads every module under
 	tests/Cases and runs them. A fragment after the file name runs only the cases whose name holds it,
-	and a second word, absent or failing, runs every bench with the MemoryStore in that state and
+	and a second word, absent, failing or partial, runs every bench with the MemoryStore in that state and
 	leaves out the files that test the cache itself.
 
 	Return type: Nothing. It prints, and sets the exit code.

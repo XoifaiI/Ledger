@@ -10,7 +10,8 @@
 	the mock src ships and the clock is the scheduler src ships. The case body runs as a thread on that
 	scheduler and the bench steps it, so a case crossing a thirty day horizon costs what its work
 	costs. Closing takes down every store this server holds. UseCache runs every bench after it with
-	the MemoryStore absent or failing every call, which is how the suite proves nothing leans on it.
+	the MemoryStore absent, failing every call, or partial, where reads answer and writes do not,
+	which is how the suite proves nothing leans on it.
 
 	Return type: A table with Open, Close, Judge, Heard and UseCache, and the names a bench builds under. The types are Case, Spec, Entry and CacheMode.
 	Example usage:
@@ -39,7 +40,7 @@ export type Entry = {
 	Count: number,
 }
 
-export type CacheMode = "absent" | "failing"
+export type CacheMode = "absent" | "failing" | "partial"
 
 local Spoken: { Entry } = {}
 
@@ -156,19 +157,36 @@ local BROKEN: Engine.Map = table.freeze({
 	end,
 })
 
+local function Reading(Inner: Engine.Map): Engine.Map
+	return table.freeze({
+		GetAsync = function(_: any, Key: string): any
+			return Inner:GetAsync(Key)
+		end,
+		SetAsync = function(_: any, _Key: string, _Value: any, _Expiry: number): any
+			return Down()
+		end,
+		UpdateAsync = function(_: any, _Key: string, _Transform: (any) -> any, _Expiry: number): any
+			return Down()
+		end,
+		RemoveAsync = function(_: any, _Key: string)
+			Down()
+		end,
+	})
+end
+
 local function Hooked(Turn: Virtual.Virtual, Service: Mock.Service): Fault.Faulted
 	local Held = Memory.New(Turn, nil, Service)
 	if CacheMode == "absent" then
 		local Bare: any = { Open = Held.Open, Budget = Held.Budget, Service = Held.Service }
 		return Fault.Wrap(Bare, Turn)
 	end
-	if CacheMode == "failing" then
+	if CacheMode == "failing" or CacheMode == "partial" then
 		local Broken: any = {
 			Open = Held.Open,
 			Budget = Held.Budget,
 			Service = Held.Service,
-			Cache = function(_Name: string): Engine.Map
-				return BROKEN
+			Cache = function(Name: string): Engine.Map
+				return if CacheMode == "partial" then Reading(Held.Cache(Name)) else BROKEN
 			end,
 		}
 		return Fault.Wrap(Broken, Turn)
@@ -177,7 +195,7 @@ local function Hooked(Turn: Virtual.Virtual, Service: Mock.Service): Fault.Fault
 end
 
 local function UseCache(Mode: CacheMode?)
-	assert(Mode == nil or Mode == "absent" or Mode == "failing", `the cache can run as it is, absent or failing, not '{tostring(Mode)}'`)
+	assert(Mode == nil or Mode == "absent" or Mode == "failing" or Mode == "partial", `the cache can run as it is, absent, failing or partial, not '{tostring(Mode)}'`)
 	CacheMode = Mode
 end
 

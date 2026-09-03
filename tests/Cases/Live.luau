@@ -18,7 +18,6 @@ local Suite = require("../Suite")
 local Ledger = require("../../src") :: any
 local NewOp = require("../../src/Record/NewOp")
 local Session = require("../../src/Session/Session")
-local Sessions = require("../../src/Core/Constants/Sessions")
 local Windows = require("../../src/Core/Constants/Windows")
 local Registry = require("../../src/Store/Registry")
 local Observer = require("../../src/Util/Observer")
@@ -1316,7 +1315,7 @@ Cases.Case("an idle session reads its key on every fourth tick and on no other",
 	local Entry = Bank.Store.Loaded[66]
 
 	local Reads: { number } = {}
-	for Index = 1, Sessions.IDLE_EVERY * 2 do
+	for Index = 1, 8 do
 		local Was = Entry.Ticks
 		local Before = Bank.Store.Wrapper.Spent
 		T:Until(function(): boolean

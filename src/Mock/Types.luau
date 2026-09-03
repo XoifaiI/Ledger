@@ -143,7 +143,7 @@ export type ServiceImpl = {
 	GetHashMap: (self: Service, Name: string) -> HashMap,
 	GetRequestBudgetForRequestType: (self: Service, Kind: Enum.DataStoreRequestType) -> number,
 	Spend: (self: Service, Kind: Enum.DataStoreRequestType) -> (),
-	Charge: (self: Service, Cost: number) -> (),
+	Charge: (self: Service, Name: string, Cost: number) -> (),
 	Carry: (self: Service, Way: string, Store: string, Key: string, Bytes: number) -> (),
 	Clear: (self: Service) -> (),
 }
@@ -157,6 +157,7 @@ export type Service = setmetatable<{
 	Queued: number,
 	Conflicts: number,
 	Units: number,
+	Spent: { [string]: number },
 	Players: number,
 	CCU: number,
 	Throttled: boolean,

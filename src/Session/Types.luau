@@ -56,7 +56,6 @@ export type Session<S> = setmetatable<{
 	TxStore: DataStoreWrapper?,
 	State: S,
 	Landed: S?,
-	Revision: string?,
 	Fence: number?,
 	Parked: number,
 	Applied: { [string]: boolean },

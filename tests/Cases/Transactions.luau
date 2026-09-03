@@ -1629,6 +1629,7 @@ Cases.Case("a transaction that committed but could not resolve a leg follows tha
 	T:Is("keys it left the sweep following", Sweep.Count, 2)
 
 	T:Sweep()
+	T:Sweep()
 	T:Is("anything left parked once the sweep ran", Bank:Pending("l"), false)
 	T:Is("gold on the key it paid", Bank:Amount("l"), 50)
 

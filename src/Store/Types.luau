@@ -82,6 +82,7 @@ export type Sweeper = setmetatable<{
 	Count: number,
 	Passes: number,
 	Resume: number,
+	Cursor: string?,
 	Epoch: number,
 	Ticker: thread,
 }, SweeperImpl>
@@ -111,7 +112,6 @@ export type Fields<D> = {
 	TxWrapper: DataStoreWrapper,
 	Tallies: MemoryStoreWrapper?,
 	Leases: MemoryStoreWrapper?,
-	Flags: MemoryStoreWrapper?,
 	Bookings: MemoryStoreWrapper?,
 	Recent: Lru.Lru<Tally.Recent>,
 	Bumped: number,
@@ -165,7 +165,7 @@ export type StoreImpl<D> = {
 	Starved: (self: Store<D>, Pool: Enum.DataStoreRequestType) -> (),
 
 	HeldOn: (self: Store<D>, Key: string) -> (boolean, any),
-	HandOver: (self: Store<D>, Key: string) -> (number, number),
+	HandOver: (self: Store<D>, Key: string) -> (number, string),
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
 	Kept: (self: Store<D>, Slot: string, Now: number) -> Tally.Recent,
 	Unbooked: (self: Store<D>, What: string) -> (),
@@ -180,7 +180,6 @@ export type StoreImpl<D> = {
 	Wake: (self: Store<D>, UserId: number, Active: Session<D>?) -> (),
 	PickUp: (self: Store<D>, Active: Session<D>, UserId: number) -> (),
 	Handled: (self: Store<D>, Player: Player, Why: Reason) -> boolean,
-	Flagged: (self: Store<D>, Active: Session<D>) -> boolean,
 	Autosave: (self: Store<D>, UserId: number) -> (),
 	Save: (self: Store<D>, Active: Session<D>) -> Future<boolean, Reason?>,
 

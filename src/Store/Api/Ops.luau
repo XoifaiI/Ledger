@@ -536,6 +536,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 			end
 		end
 
+		local Own = Tally.Shard(Name, Tally.Mine(self.Node))
 		local Mark = self.Bumped
 		local Sum = 0
 		for _, Key in Tally.Keys(Name) do
@@ -547,6 +548,9 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 			end
 
 			Sum += Tally.Counted(State, Field)
+			if Key == Own then
+				Mark = self.Bumped
+			end
 		end
 
 		if Tallies ~= nil then

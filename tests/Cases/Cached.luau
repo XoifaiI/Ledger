@@ -321,6 +321,32 @@ Cases.Case("the units of an empty experience run out at the quota and come back 
 	T:Is("units counted whether or not they were refused", Service.Units, MemoryStore.QUOTA_BASE + 2)
 end)
 
+Cases.Case("one map runs out of units at its own ceiling while the experience still has plenty", function(T: Case)
+	local Service = Fresh(T, { Players = 0, CCU = 2000 })
+	local Busy = Service:GetHashMap("Hot")
+	local Quiet = Service:GetHashMap("Cold")
+
+	for _ = 1, MemoryStore.QUOTA_MAP do
+		Busy:GetAsync("k")
+	end
+	local Stopped = Refuses(function()
+		Busy:GetAsync("k")
+	end)
+	local Beside = Refuses(function()
+		Quiet:GetAsync("k")
+	end)
+
+	T:Advance(Datastore.REFILL_WINDOW)
+	local Back = Refuses(function()
+		Busy:GetAsync("k")
+	end)
+
+	T:Ok("the call past one map's ceiling", Stopped)
+	T:No("a call on the map beside it, which the experience quota still covers", Beside)
+	T:No("a call once the window refilled", Back)
+	T:Is("units the busy map spent, counted whether or not they were refused", Service.Spent.Hot, MemoryStore.QUOTA_MAP + 2)
+end)
+
 Cases.Case("a map name is one to 128 characters, one name is one map, and two hooks over one service share it", function(T: Case)
 	local Service = Fresh(T)
 

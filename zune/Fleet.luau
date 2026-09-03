@@ -7,8 +7,8 @@
 	N servers over one datastore and one MemoryStore, driven at their real cadence on the virtual
 	clock: every server reaps once per ten minutes, sweeps once a minute, draws a pot every five
 	seconds, and thirty two of them contend on one bank key. It prints datastore calls and MemoryStore
-	units for each, with the cache as it is or absent, so the before and after are measured and not
-	worked out.
+	units for each, with the cache as it is, absent, failing every call, or partial, where reads
+	answer and writes do not, so the before and after are measured and not worked out.
 
 	Return type: Nothing. It prints.
 	Example usage:
@@ -24,7 +24,8 @@ local Suite = require("../tests/Suite")
 local Case = require("../tests/Suite/Case")
 local Ledger = require("../src") :: any
 local Wrapper = require("../src/Util/DataStoreWrapper")
-local Sessions = require("../src/Core/Constants/Sessions")
+local Bookings = require("../src/Core/Constants/Bookings")
+local MemoryStore = require("../src/Core/Constants/MemoryStore")
 local Shards = require("../src/Core/Constants/Shards")
 local Sweeper = require("../src/Store/Sweeper")
 local Transactions = require("../src/Core/Constants/Transactions")
@@ -38,7 +39,7 @@ local SERVERS = tonumber(zune.process.args[2]) or 1000
 local MODE = zune.process.args[3]
 local MINUTES = 10
 local HOUR = 60
-local CONTENDERS = 32
+local CONTENDERS = math.min(32, SERVERS)
 local POT_TICK = 5
 local START = 100
 local CHAOS_SERVERS = 200
@@ -55,6 +56,26 @@ Suite.Cache(MODE :: any)
 
 local function Row(Label: string, Calls: number, Units: number, Per: string)
 	print(string.format("  %-58s %10d calls %10d units   %s", Label, Calls, Units, Per))
+end
+
+local function Taken(T: Suite.Case): { [string]: number }
+	return table.clone(T.Service.Spent)
+end
+
+local function Ceilings(T: Suite.Case, Before: { [string]: number }, Minutes: number)
+	local Names: { string } = {}
+	for Name in T.Service.Spent do
+		table.insert(Names, Name)
+	end
+	table.sort(Names)
+
+	for _, Name in Names do
+		local Rate = (T.Service.Spent[Name] - (Before[Name] or 0)) / Minutes
+		if Rate <= 0 then
+			continue
+		end
+		print(string.format("    %s: %d units a minute against a ceiling of %d for one map, %s", Name, Rate, MemoryStore.QUOTA_MAP, if Rate > MemoryStore.QUOTA_MAP then "OVER" else "inside"))
+	end
 end
 
 local function Calls(Servers: { Fixture }): number
@@ -121,7 +142,7 @@ end
 local function Chaos(Held: Fixture)
 	local Turn = Held.Store.Wrapper.Scheduler
 	for _, Method in { "GetAsync", "UpdateAsync", "RemoveAsync", "ListKeysAsync", "SetAsync" } do
-		for _, Name in { Held.Data, Held.Marked, Transactions.LEASE_MAP, Shards.MAP, Sessions.FLAG_MAP } do
+		for _, Name in { Held.Data, Held.Marked, Transactions.LEASE_MAP, Shards.MAP, Bookings.MAP } do
 			Held.Hook.Fail(Fault.On(Method):OnStore(Name):Meddle(function()
 				local Roll = math.random()
 				if Roll < CHAOS_DROP then
@@ -226,6 +247,7 @@ Bench("idle", function(T: Suite.Case)
 		Held.Store:Load(T:Player(Index))
 	end
 
+	local Maps = Taken(T)
 	local Before, Units = Calls(Servers), T.Service.Units
 	for _ = 1, MINUTES do
 		T:Wait(Windows.SWEEP)
@@ -269,6 +291,7 @@ Bench("idle", function(T: Suite.Case)
 		string.format("%.2f reads and %.2f units per player per minute", Spent / SERVERS / MINUTES, SpentUnits / SERVERS / MINUTES)
 	)
 	print(string.format("    %d writes from another server were seen by the idle sessions after %.1fs on average and %.1fs at worst", Written, Total / math.max(#Seen, 1), Worst))
+	Ceilings(T, Maps, MINUTES)
 end)
 
 Bench("idle chaos", function(T: Suite.Case)
@@ -319,7 +342,7 @@ Bench("idle chaos", function(T: Suite.Case)
 	for _, Held in Servers do
 		Held:Healed()
 	end
-	T:Wait(Windows.IDLE_FALLBACK + Windows.AUTOSAVE * 2)
+	T:Wait(Windows.AUTOSAVE * 6)
 
 	local Stored, Wrong = 0, 0
 	for Index, Held in Servers do
@@ -343,6 +366,7 @@ end)
 
 Bench("totals", function(T: Suite.Case)
 	local Servers = Fleet(T, SERVERS)
+	local Maps = Taken(T)
 	local Before, Units = Calls(Servers), T.Service.Units
 	local Ticks = Windows.SWEEP // POT_TICK
 	for Tick = 1, Ticks do
@@ -357,6 +381,7 @@ Bench("totals", function(T: Suite.Case)
 
 	local Spent = Calls(Servers) - Before
 	Row(`a pot every server draws every {POT_TICK}s for a minute`, Spent, T.Service.Units - Units, string.format("%.1f calls per server per minute", Spent / SERVERS))
+	Ceilings(T, Maps, 1)
 end)
 
 Bench("contention", function(T: Suite.Case)
@@ -473,6 +498,11 @@ Bench("chaos", function(T: Suite.Case)
 end)
 
 Bench("mixed", function(T: Suite.Case)
+	if SERVERS < 2 then
+		print("  a mixed fleet needs more than one server, so this row is left out")
+		return
+	end
+
 	local Stores: { any } = {}
 	for Index = 1, SERVERS do
 		Stores[Index] = Bare(T, Index, "Mixed", Index % 2 == 0)

@@ -112,7 +112,7 @@ function Store.Records(self: Store): LogTypes.Log
 		return Books
 	end
 
-	Books = Log.New(self.Wrapper, #self.Migrations, Schema.FloorOf(self.Migrations), self.Flags)
+	Books = Log.New(self.Wrapper, #self.Migrations, Schema.FloorOf(self.Migrations))
 	self.Books = Books
 	return Books
 end

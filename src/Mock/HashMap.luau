@@ -99,7 +99,7 @@ function HashMap.New(Name: string, Service: Types.Service): HashMap
 end
 
 function HashMap.Reach(self: HashMap, Cost: number)
-	self.Service:Charge(Cost)
+	self.Service:Charge(self.Name, Cost)
 	self.Service.Scheduler.Wait(0)
 end
 

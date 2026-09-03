@@ -77,7 +77,6 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 			TxStore = TxStore,
 			State = Format.Initial,
 			Landed = nil,
-			Revision = nil,
 			Fence = nil,
 			Parked = 0,
 			Applied = {},
@@ -91,9 +90,7 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 
 		local Active: Session<S> = setmetatable(Body :: any, Session) :: any
 		local Ok, Reason = pcall(function()
-			local Read, Revision = Records:Read(Key)
-			Active.Revision = Revision
-			local Stored = Active:Settled(Read)
+			local Stored = Active:Settled(Records:Read(Key))
 			Active.Fence = Rebuild.Fenced(Stored.Erased)
 			Rebuild.Rebuild(Active, Stored)
 		end)
@@ -192,13 +189,13 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		local Ok, Accepted, Stuck = pcall(function(): (boolean, boolean)
 			Rebuild.Push(self)
 
-			local Written, _, Waiting, Revision = Rebuild.Append(self, { Op })
+			local Written, _, Waiting = Rebuild.Append(self, { Op })
 			local Stored = self:Settled(Written)
 			local Deadline = Clock.Now() + Windows.TX + Windows.POLL
 			while true do
 				local Pending = TxStamp.HasPending(Stored)
 				if not Pending and #Waiting > 0 and Clock.Now() < Deadline then
-					Written, _, Waiting, Revision = Rebuild.Append(self, { Op })
+					Written, _, Waiting = Rebuild.Append(self, { Op })
 					Stored = self:Settled(Written)
 					continue
 				end
@@ -206,8 +203,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 					break
 				end
 				Clock.Wait(Windows.POLL)
-				Written, Revision = self.Log:Read(self.Key)
-				Stored = self:Settled(Written)
+				Stored = self:Settled(self.Log:Read(self.Key))
 			end
 
 			local Blocked = TxStamp.HasPending(Stored)
@@ -215,7 +211,6 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on '{self.Key}'. this answer can change once that clears`)
 			end
 
-			self.Revision = Revision
 			local _, Took = Rebuild.Rebuild(self, Stored, Op.Id)
 			self:Notify()
 			return Took, Blocked
@@ -241,12 +236,11 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 	return Future.New(function(): (boolean, Reason?)
 		local Whole = true
 		local Ok, Err = pcall(function()
-			local Pushed, Landed, Revision = Rebuild.Push(self)
+			local Pushed, Landed = Rebuild.Push(self)
 			Whole = Landed ~= false
 			if Pushed == nil then
-				Pushed, Revision = self.Log:Read(self.Key)
+				Pushed = self.Log:Read(self.Key)
 			end
-			self.Revision = Revision
 			Rebuild.Rebuild(self, self:Settled(Pushed))
 			self:Notify()
 		end)
@@ -274,8 +268,7 @@ function Session.Compact<S>(self: Session<S>): Future<boolean, Reason?>
 		local Ok, Err = pcall(function()
 			Rebuild.Push(self)
 
-			local Stored, Revision = self.Log:Compact(self.Key, self.Shape)
-			self.Revision = Revision
+			local Stored = self.Log:Compact(self.Key, self.Shape)
 			if #Stored.Ops > 0 then
 				Rebuild.Rebuild(self, Stored)
 				self:Notify()

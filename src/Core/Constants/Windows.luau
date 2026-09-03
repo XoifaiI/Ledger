@@ -17,7 +17,6 @@
 --]=]
 
 local MemoryStore = require("./MemoryStore")
-local Sessions = require("./Sessions")
 
 local DAY = 86400
 local HOUR = 3600
@@ -40,7 +39,6 @@ local TALLY_CLAIM = 15
 local TALLY_KEEP = 10 * MINUTE
 local TX_LEASE = 10
 local PASS_LEASE = SWEEP
-local IDLE_FLAG = 5 * MINUTE
 local BREAKER = 2 * MINUTE
 
 local TOMB = REDRIVE + EXPIRE_MARGIN
@@ -48,7 +46,6 @@ local ONCE_MARGIN = REDRIVE
 local STUCK = PRUNE
 local ONCE_FLOOR = PRUNE - ONCE_MARGIN
 local TX = LEG * 2
-local IDLE_FALLBACK = Sessions.IDLE_EVERY * AUTOSAVE
 
 local PASS_LIMIT = 32
 
@@ -82,13 +79,11 @@ assert(
 	"a shard walked or a key repaired stays held through the next pass, or every server repeats the work, and runs out well inside the grace a settled marker waits, or the shard stalls for longer than the marker waits to be judged"
 )
 assert(TX_LEASE > 0 and TX_LEASE < LEG, "a lease on a transaction's keys has to run out before the legs a crashed holder parked would, or the lease blocks a key for longer than the marker does")
-assert(IDLE_FALLBACK > AUTOSAVE, "an idle session has to check the flag on more ticks than it reads the key on, or the flag saves nothing")
-assert(IDLE_FLAG > IDLE_FALLBACK, "a flag on a written key has to outlive the window an idle session reads the key in anyway, or it can run out before the session has looked at it")
 assert(
 	BREAKER > 0 and BREAKER < TALLY_KEEP,
 	"a server that stopped calling a MemoryStore map has to try it again inside the window its own last total stays good for, or it answers a remembered sum it can no longer refresh"
 )
-assert(BREAKER >= IDLE_FALLBACK, "a map that is not answering is left alone for at least the window an idle session reads its key in anyway, or the session pays a failed call on most of its ticks")
+assert(BREAKER > SWEEP, "a map that is not answering is left alone for longer than a sweep pass, or a pass pays a failed call on every key it follows")
 
 return table.freeze({
 	PRUNE = PRUNE,
@@ -108,7 +103,6 @@ return table.freeze({
 	TALLY_KEEP = TALLY_KEEP,
 	TX_LEASE = TX_LEASE,
 	PASS_LEASE = PASS_LEASE,
-	IDLE_FLAG = IDLE_FLAG,
 	BREAKER = BREAKER,
 
 	TOMB = TOMB,
@@ -116,7 +110,6 @@ return table.freeze({
 	STUCK = STUCK,
 	ONCE_FLOOR = ONCE_FLOOR,
 	TX = TX,
-	IDLE_FALLBACK = IDLE_FALLBACK,
 
 	PASS_LIMIT = PASS_LIMIT,
 })

@@ -292,6 +292,23 @@ Cases.Case("a bump that carries no Default is counted like any other", function(
 	T:Is("a third bump landing after those two, once every kept sum has run out", Shelf.Store:Total("pot", "Gold"):Wait(), 22)
 end)
 
+Cases.Case("a bump landing while the shards are read is counted once", function(T: Case)
+	local Vault = T:Vault("nodeA")
+	local Mine = Tally.Mine(Vault.Store.Node)
+	T:Ok("this server's shard is not the first one read, so a bump can land ahead of it", Mine > 0)
+	T:Ok("the first bump", (Vault.Store:Bump("pot", "Coins", 5):Wait()))
+	T:Advance(1)
+
+	local Landed = false
+	Vault:Fault(Fault.Reads():OnKey(Tally.Shard("pot", Mine - 1)):Only(1):Meddle(function()
+		Landed = Vault.Store:Bump("pot", "Coins", 100):Wait()
+	end))
+	local Sum = Vault.Store:Total("pot", "Coins"):Wait()
+
+	T:Ok("the bump that landed while the shards were being read", Landed)
+	T:Is("the total, which cannot hold that bump twice", Sum, 105)
+end)
+
 Cases.Case("a fleet spreads its bumps over more than one shard", function(T: Case)
 	local Fleet: { any } = {}
 	for Index = 1, 12 do

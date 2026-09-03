@@ -25,17 +25,14 @@ local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
 local Lru = require("../Util/Lru")
 local Ids = require("../Encode/Ids")
-local Mark = require("../Encode/Mark")
 local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
 local Bookings = require("../Core/Constants/Bookings")
-local Sessions = require("../Core/Constants/Sessions")
 local Shards = require("../Core/Constants/Shards")
 local Transactions = require("../Core/Constants/Transactions")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
-local Log = require("../Record/Log")
 local Compact = require("../Record/Compact")
 local Reconcile = require("../Record/Reconcile")
 local Schema = require("../Record/Schema")
@@ -65,7 +62,7 @@ type Store = Types.Store<any>
 
 local Players = game:GetService("Players")
 
-local IDLE_EVERY = Sessions.IDLE_EVERY
+local IDLE_EVERY = 4
 local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
@@ -129,7 +126,6 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	local Cached = Hook.Cache ~= nil
 	local Tallies = if Cached then MemoryStoreWrapper.New(Shards.MAP, Turn, Hook) else nil
 	local Leases = if Cached then MemoryStoreWrapper.New(Transactions.LEASE_MAP, Turn, Hook) else nil
-	local Flags = if Cached and Keys == "Player" then MemoryStoreWrapper.New(Sessions.FLAG_MAP, Turn, Hook) else nil
 	local Holds = if Cached then MemoryStoreWrapper.New(Bookings.MAP, Turn, Hook) else nil
 	if Tallies == nil then
 		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards, transactions on one key race rather than queue, and nothing can be reserved`)
@@ -156,7 +152,6 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		TxWrapper = DataStoreWrapper.New(Marked, Turn, Hook),
 		Tallies = Tallies,
 		Leases = Leases,
-		Flags = Flags,
 		Bookings = Holds,
 		Recent = Lru.New(RECENT_TALLIES),
 		Bumped = 0,
@@ -217,21 +212,6 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 	return true
 end
 
-function Store.Flagged(self: Store, Active: any): boolean
-	local Flags = self.Flags
-	if Flags == nil then
-		return false
-	end
-
-	local Read, Flag = Flags:GetAsync(Mark.Cached({ self.Wrapper.Name, Active.Key }))
-	if not Read then
-		return false
-	end
-
-	local Revision = Log.Flagged(Flag)
-	return Revision ~= nil and Revision ~= Active.Revision
-end
-
 function Store.Autosave(self: Store, UserId: number)
 	local Entry = self.Loaded[UserId]
 	if Entry == nil then
@@ -242,7 +222,7 @@ function Store.Autosave(self: Store, UserId: number)
 	local Writing = #Active.Pending > 0 or Compact.Oversized(Active.LogSize, Active.LogBytes, Active.StateBytes)
 
 	Entry.Ticks += 1
-	if not Writing and Active.Parked == 0 and Entry.Ticks % IDLE_EVERY ~= 0 and not self:Flagged(Active) then
+	if not Writing and Active.Parked == 0 and Entry.Ticks % IDLE_EVERY ~= 0 then
 		return
 	end
 

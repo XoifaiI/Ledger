@@ -406,10 +406,51 @@ Cases.Case("a claim that cannot reach the map holds a background reap to one sha
 	One.Store:ReapMarkers()
 
 	T:Is("shards a background pass listed with the map down", First, 1)
-	T:Is("the shard its next pass starts on, the one it could not tell was taken", Onward, Cleanup.Mine("nodeA"))
+	T:Is("the shard its next pass starts on, one past the one it walked", Onward, (Cleanup.Mine("nodeA") + 1) % Transactions.SHARDS)
 	T:Is("shards the pass after that listed", Second, 1)
 	T:Is("shards an operator's reap listed", Listed.Count - First - Second, Transactions.SHARDS)
 	T:Warns("it said the map did not answer", "did not answer")
+end)
+
+Cases.Case("a followed key that never comes clean does not hold up the ones behind it", function(T: Case)
+	local One = T:Bank("nodeA")
+	Funded(One, "sweepA", "sweepB")
+	Faulted(One, Fault.Updates())
+	One:NoRetries()
+	One:Fault(Fault.Reads():OnKey("sweepA"))
+
+	local Sweep = Registry.Sweep()
+	Sweep:Add(One.Store:Swept(), "sweepA")
+	Sweep:Add(One.Store:Swept(), "sweepB")
+	local Stuck, Clean = One.Store:Mark("sweepA"), One.Store:Mark("sweepB")
+
+	T:Sweep()
+	local FirstPass = Sweep.Entries[Clean] ~= nil
+	T:Sweep()
+
+	T:Ok("the key that cannot be read is still followed", Sweep.Entries[Stuck] ~= nil)
+	T:Ok("the key behind it, still followed after the pass that took the stuck one", FirstPass)
+	T:Is("the key behind it once the next pass reached it", Sweep.Entries[Clean], nil)
+end)
+
+Cases.Case("one server with the map down still reaps every shard, over as many passes as there are shards", function(T: Case)
+	local One = T:Bank("nodeA")
+	Funded(One, "roundA", "roundB")
+	Faulted(One, Fault.Updates())
+
+	local Seen: { [number]: boolean } = {}
+	local Walked = 0
+	for _ = 1, Transactions.SHARDS do
+		local At = One.Store.Resume or Cleanup.Mine("nodeA")
+		if not Seen[At] then
+			Seen[At] = true
+			Walked += 1
+		end
+		One.Store:ReapMarkers(true)
+	end
+
+	T:Is("shards it started a pass on, every one of them", Walked, Transactions.SHARDS)
+	T:Is("where it is after a full round", One.Store.Resume, Cleanup.Mine("nodeA"))
 end)
 
 Cases.Case("a claim that cannot reach the map repairs one followed key a pass and leaves the rest followed", function(T: Case)

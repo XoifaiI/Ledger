@@ -9,8 +9,9 @@
 	after a few tries with a warning naming it. Every tenth pass also reaps transaction markers. It
 	checks the request budget before it starts and picks up where the last pass stopped. A key whose
 	lease somebody else holds is skipped, and a lease that cannot reach its map ends the pass after
-	that one key, so a fleet that loses the map repairs one key per server per pass. A skipped key
-	keeps its tries, since a skip is not a try.
+	that one key, so a fleet that loses the map repairs one key per server per pass. A pass starts
+	after the key the last one reached, so no key waits behind another that never comes clean. A
+	skipped key keeps its tries, since a skip is not a try.
 
 	Return type: A table with New. The type is Sweeper.
 	Example usage:
@@ -46,7 +47,7 @@ local Sweeper = {} :: SweeperImpl
 Sweeper.__index = Sweeper
 
 function Sweeper.New(): Sweeper
-	local Built: Sweeper = setmetatable({ Entries = {}, Stores = {}, Count = 0, Passes = 0, Resume = 1, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
+	local Built: Sweeper = setmetatable({ Entries = {}, Stores = {}, Count = 0, Passes = 0, Resume = 1, Cursor = nil, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
 	Built.Ticker = SetInterval(Clock.Held(), Windows.SWEEP, function()
 		Built:Pass()
 	end)
@@ -133,12 +134,27 @@ function Sweeper.Pass(self: Sweeper)
 	for Mark in self.Entries do
 		table.insert(Following, Mark)
 	end
+	table.sort(Following)
+
+	local Start = 1
+	local Cursor = self.Cursor
+	if Cursor ~= nil then
+		for Index, Mark in Following do
+			if Mark > Cursor then
+				Start = Index
+				break
+			end
+			Start = Index + 1
+		end
+	end
 
 	local Degraded = false
-	for _, Mark in Following do
+	for Step = 0, #Following - 1 do
+		local Mark = Following[(Start + Step - 1) % #Following + 1]
 		if self.Epoch ~= Mine or Degraded then
 			return
 		end
+		self.Cursor = Mark
 
 		local Entry = self.Entries[Mark]
 		if Entry == nil then

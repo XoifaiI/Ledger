@@ -589,6 +589,45 @@ Cases.Case("erasing a key with an undeliverable hold says so", function(T: Case)
 	T:Warns("it warned that money went with it", "had not finished")
 end)
 
+Cases.Case("a transfer stuck past the prune window is written off, and says which field it was in", function(T: Case)
+	local Shop = T:Store({ Default = { Gold = 0, Gems = 0 }, Balance = "Gold", Reducer = Adder, Data = "CaseWriteOff" })
+	local Stale = T:Now() - Windows.PRUNE - 86400
+	Shop:Seed("stuckA", { Gold = 100, Gems = 100 })
+	Shop:Append("stuckA", {
+		{ Id = "res:sg", Kind = "__TransferReserve", To = "stuckB", Amount = 40, Tid = "sg", At = Stale } :: any,
+		{ Id = "res:sm", Kind = "__TransferReserve", To = "stuckB", Amount = 7, Tid = "sm", At = Stale, Field = "Gems" } :: any,
+	})
+
+	T:Is("gold set aside before recovery looked at it", Shop:Aside("stuckA"), 40)
+	T:Is("gems set aside before recovery looked at it", Shop:Aside("stuckA", "Gems"), 7)
+	T:Ok("recovery ran", (Shop.Store:RecoverTransfers("stuckA"):Wait()))
+
+	T:Is("gold set aside once it was written off", Shop:Aside("stuckA"), 0)
+	T:Is("gems set aside once they were written off", Shop:Aside("stuckA", "Gems"), 0)
+	T:Is("gold on the key, which a write off does not give back", Shop:Amount("stuckA"), 60)
+	T:Is("gems on the key", Shop:Amount("stuckA", "Gems"), 93)
+	T:Warns("it said the balance was written off", "pay 40 back by hand")
+	T:Warns("it named the field the other one was in", "pay 7 Gems back by hand")
+end)
+
+Cases.Case("erasing a key with money set aside in more than one field names what each field lost", function(T: Case)
+	local Shop = T:Store({ Default = { Gold = 0, Gems = 0 }, Balance = "Gold", Reducer = Adder, Data = "CaseEraseFields" })
+	Shop:Seed("fieldA", { Gold = 100, Gems = 100 })
+	Shop:Append("fieldA", {
+		{ Id = "res:fg", Kind = "__TransferReserve", To = "fieldB", Amount = 40, Tid = "fg", At = T:Now() } :: any,
+		{ Id = "res:fm", Kind = "__TransferReserve", To = "fieldB", Amount = 7, Tid = "fm", At = T:Now(), Field = "Gems" } :: any,
+	})
+	Shop.Store:Erase("fieldB"):Wait()
+	T:Advance(7 * 86400 + 43200)
+
+	T:Is("gold set aside before the erase", Shop:Aside("fieldA"), 40)
+	T:Is("gems set aside before the erase", Shop:Aside("fieldA", "Gems"), 7)
+	Shop.Store:Erase("fieldA"):Wait()
+
+	T:Warns("it named the balance that went with the key", "40 Gold")
+	T:Warns("it named the other field, rather than adding the two together", "7 Gems")
+end)
+
 Cases.Case("the reap works its way round every store when it cannot afford them all at once", function(T: Case)
 	local Allowed = 0
 
