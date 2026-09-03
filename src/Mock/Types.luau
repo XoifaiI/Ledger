@@ -6,8 +6,8 @@
 	Types: The declarations of the fake datastore.
 
 	These are private to this folder. This file holds declarations, and never logic. A service hands
-	out stores and hash maps and each spends from its service, so every shape is named here rather
-	than in any of those files.
+	out stores and hash maps, and each spends from its service. Every shape is named here rather than
+	in any of those files.
 
 	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, Store, Item, MapTransform, HashMap and Service.
 	Example usage:
@@ -115,7 +115,9 @@ export type HashMapImpl = {
 	__index: HashMapImpl,
 	New: (Name: string, Service: Service) -> HashMap,
 	Reach: (self: HashMap, Cost: number) -> (),
+	Drop: (self: HashMap, Key: string, Item: Item) -> (),
 	Held: (self: HashMap, Key: string) -> Item?,
+	Sweep: (self: HashMap) -> (),
 	Put: (self: HashMap, Key: string, Value: any, Expiry: number) -> any,
 	GetAsync: (self: HashMap, Key: string) -> any,
 	SetAsync: (self: HashMap, Key: string, Value: any, Expiry: number) -> boolean,
@@ -143,6 +145,10 @@ export type ServiceImpl = {
 	GetHashMap: (self: Service, Name: string) -> HashMap,
 	GetRequestBudgetForRequestType: (self: Service, Kind: Enum.DataStoreRequestType) -> number,
 	Spend: (self: Service, Kind: Enum.DataStoreRequestType) -> (),
+	Memory: (self: Service) -> number,
+	Reclaim: (self: Service) -> (),
+	Hold: (self: Service, Delta: number) -> (),
+	Room: (self: Service, Delta: number) -> (),
 	Charge: (self: Service, Name: string, Cost: number) -> (),
 	Carry: (self: Service, Way: string, Store: string, Key: string, Bytes: number) -> (),
 	Clear: (self: Service) -> (),
@@ -158,6 +164,8 @@ export type Service = setmetatable<{
 	Conflicts: number,
 	Units: number,
 	Spent: { [string]: number },
+	Bytes: number,
+	Peak: number,
 	Players: number,
 	CCU: number,
 	Throttled: boolean,

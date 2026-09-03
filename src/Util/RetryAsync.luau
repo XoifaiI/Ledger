@@ -5,10 +5,10 @@
 
 	RetryAsync: Calls a function again after a failure.
 
-	The delay grows with each attempt and waits on the scheduler it was given, within the limits it
-	was given. A failure that already carries a reason has settled, so it is not retried. The cap is
-	read again on each attempt rather than once, so a caller that is closing down can lower it while
-	a call is already retrying and have the next attempt be the last.
+	The delay grows with each attempt, and waits on the scheduler it was given, within the limits it
+	was given. A failure that already carries a reason has settled, so nothing retries it. It reads
+	the cap again on each attempt rather than once. A caller that is closing down can lower the cap
+	while a call is already retrying, and the next attempt is the last.
 
 	Return type: A function that gives back (Ok, Result).
 	Example usage:

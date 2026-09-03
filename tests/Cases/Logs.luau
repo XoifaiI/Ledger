@@ -5,8 +5,8 @@
 
 	Logs: One rule per case for the op log itself.
 
-	Reading a record, what a junk one folds to, appending the same op twice, and compaction: which ops
-	it may absorb, which it must keep, and what it leaves behind.
+	Reading a record, what a junk one folds to, and appending the same op twice. Then compaction:
+	which ops it may absorb, which it must keep, and what it leaves behind.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau

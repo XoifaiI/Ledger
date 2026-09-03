@@ -5,9 +5,9 @@
 
 	Validate: Refuses each store Ledger.New cannot build.
 
-	The name, the reducer, the default state, the key mode, the migrations and the balance field are
-	all checked here, so a store that is set up wrong throws where it was built rather than behaving
-	wrongly on a key months later.
+	It checks the name, the reducer, the default state, the key mode, the migrations and the balance
+	field. A store that is set up wrong throws where it was built. It does not behave wrongly on a key
+	months later.
 
 	Return type: A function that throws, and gives back nothing.
 	Example usage:

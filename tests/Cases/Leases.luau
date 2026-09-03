@@ -5,12 +5,13 @@
 
 	Leases: One rule per promise the lease before a transaction makes.
 
-	A coordinator leases each leg's key before it drives and lets go on every exit, a second
-	coordinator meeting a held lease answers Busy at once for one unit and no datastore call, a lease
-	that cannot be taken or read means drive as today, a lease nobody lets go of answers Busy until it
-	runs out, and a starved server takes none. No server waits on another, and the marker still
-	decides all of it. The reaper and the sweep claim a lease per shard and per followed key the same
-	way, and a skip is not a try.
+	A coordinator leases each leg's key before it drives, and lets go on every exit. A second
+	coordinator meeting a held lease answers Busy at once, for one unit and no datastore call. A lease
+	it cannot take or read means drive without one. A lease nobody lets go of answers Busy until it
+	runs out. A starved server takes none.
+
+	No server waits on another, and the marker still decides all of it. The reaper and the sweep claim
+	a lease per shard and per followed key the same way. A skip is not a try.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau leases

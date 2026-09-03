@@ -4,9 +4,9 @@
 --[=[
 	Shards: How a tally is spread over keys.
 
-	A tally lives on a fixed number of keys so servers do not queue behind one another. PART separates
-	the tally name from the shard number in a key, FIELD is where the running total is kept, and MAP
-	is the MemoryStore map a summed total is cached in.
+	A tally lives on a fixed number of keys, so servers do not queue behind one another. PART separates
+	the tally name from the shard number in a key. FIELD is where the running total lives. MAP is the
+	MemoryStore map that holds a summed total.
 
 	Return type: A table with SHARDS, PART, FIELD and MAP.
 	Example usage:

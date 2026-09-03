@@ -5,10 +5,10 @@
 
 	Escrow: The reducer half of a transfer.
 
-	The money leaves the sender into a hold under the transfer id, is paid in on the receiver against
-	the set of applied names, and the hold clears once both have happened. Each of the three legs is a
-	separate op, so each is atomic on its own key. Expire gives a hold back and Prune drops names that
-	have aged out.
+	The money leaves the sender into a hold under the transfer id. It arrives on the receiver against
+	the set of applied names. The hold clears once both have happened. Each of the three legs is a
+	separate op, so each is atomic on its own key. Expire gives a hold back, and Prune drops names
+	that have aged out.
 
 	Return type: A table with Layered and Entry.
 	Example usage:

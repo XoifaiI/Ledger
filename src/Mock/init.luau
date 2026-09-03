@@ -5,9 +5,9 @@
 
 	Mock: A datastore and a MemoryStore in memory that keep the limits of the real ones.
 
-	Key and name caps, the value size caps, kept versions, expiry, the request budget, the queues
-	and the request units, so a test writes against the same refusals a live game meets. It sees
-	bytes and identity only, never the record format.
+	Key and name caps, the value size caps, kept versions and expiry. The request budget, the queues,
+	the request units and the memory quota. A test writes against the same refusals a live game meets.
+	The fake sees bytes and identity only, never the record format.
 
 	Return type: A table with New and MAX_VALUE.
 	Example usage:

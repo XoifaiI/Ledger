@@ -5,10 +5,10 @@
 
 	Holds: One rule per case for units held on a single key in MemoryStore.
 
-	A hold lives in MemoryStore and never in the fold: reserving units, confirming them with the
-	game's own op, releasing them, letting a hold run out, what a hold costs, and what the reducer
-	refuses at checkout however many held. The old booking layer, the field transfers and the tallies
-	are in Booking, which runs whether or not there is a MemoryStore.
+	A hold lives in MemoryStore and never in the fold. Reserving units, confirming them with the
+	game's own op, and releasing them. Letting a hold run out, and what a hold costs. What the reducer
+	refuses at checkout, however many are held. The field transfers and the tallies are in Booking,
+	which runs whether or not there is a MemoryStore.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau holds

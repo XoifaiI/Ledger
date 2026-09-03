@@ -6,12 +6,13 @@
 	Servers: One rule per case for two servers writing one datastore, and for a transaction broken at
 	each call it makes.
 
-	Two fixtures over one datastore name are two servers: each holds its own hook, wrapper and queues,
-	so a race between them is a real one rather than a marker written by hand. A sweep drives the same
-	transaction once per call it makes, takes that call and every one after it away, and asks the same
-	questions each time: does the money add up, is the key on one side of the transaction or the
-	other, and did anything stay parked. Each sweep counts what it actually broke, since a fault the
-	retries absorbed has tested the retries.
+	Two fixtures over one datastore name are two servers. Each holds its own hook, wrapper and queues,
+	so a race between them is a real one rather than a marker written by hand.
+
+	A sweep drives the same transaction once per call it makes, and takes that call and every one
+	after it away. It asks the same three questions each time. Does the money add up. Is the key on
+	one side of the transaction or the other. Did anything stay parked. Each sweep counts what it
+	actually broke, since a fault the retries absorbed has tested the retries.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau servers

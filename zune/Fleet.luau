@@ -5,10 +5,13 @@
 	Fleet: Runs the MemoryStore features against a fleet of servers on the mock and prints the cost.
 
 	N servers over one datastore and one MemoryStore, driven at their real cadence on the virtual
-	clock: every server reaps once per ten minutes, sweeps once a minute, draws a pot every five
-	seconds, and thirty two of them contend on one bank key. It prints datastore calls and MemoryStore
-	units for each, with the cache as it is, absent, failing every call, or partial, where reads
-	answer and writes do not, so the before and after are measured and not worked out.
+	clock. Every server reaps once per ten minutes, sweeps once a minute and draws a pot every five
+	seconds. Thirty two of them contend on one bank key, and each holds a shelf a buyer checks out
+	from.
+
+	It prints datastore calls, MemoryStore units and memory for each. The cache runs as it is, absent,
+	failing every call, or partial, where reads answer and writes do not. The before and after are
+	measured rather than worked out.
 
 	Return type: Nothing. It prints.
 	Example usage:
@@ -42,6 +45,8 @@ local MINUTES = 10
 local HOUR = 60
 local CONTENDERS = math.min(32, SERVERS)
 local POT_TICK = 5
+local PLAYERS = 20
+local HOLD_TICKS = 12
 local START = 100
 local CHAOS_SERVERS = 200
 local CHAOS_DROP = 0.03
@@ -77,6 +82,9 @@ local function Ceilings(T: Suite.Case, Before: { [string]: number }, Minutes: nu
 		end
 		print(string.format("    %s: %d units a minute against a ceiling of %d for one map, %s", Name, Rate, MemoryStore.QUOTA_MAP, if Rate > MemoryStore.QUOTA_MAP then "OVER" else "inside"))
 	end
+
+	local Room = MemoryStore.MEMORY_BASE + MemoryStore.MEMORY_PER_USER * SERVERS * PLAYERS
+	print(string.format("    memory: %d bytes at its highest against a quota of %d for %d players, %s", T.Service.Peak, Room, SERVERS * PLAYERS, if T.Service.Peak > Room then "OVER" else "inside"))
 end
 
 local function Calls(Servers: { Fixture }): number
@@ -405,6 +413,49 @@ Bench("contention", function(T: Suite.Case)
 	Row(`{CONTENDERS} servers on one bank key at once`, Spent, T.Service.Units - Units, string.format("%d of %d went through, %.1f calls per success", Wins, CONTENDERS, Spent / math.max(Wins, 1)))
 end)
 
+Bench("holds", function(T: Suite.Case)
+	local Servers: { Fixture } = {}
+	for Index = 1, SERVERS do
+		Servers[Index] = T:Shelf(`h{Index}`)
+		Servers[Index]:Seed(`shelf{Index}`, { Stock = 1, Sold = 0, Gold = 0 })
+	end
+
+	local Maps = Taken(T)
+	local Before, Units = Calls(Servers), T.Service.Units
+	local Reserved, Sold = 0, 0
+	local Batch = math.ceil(SERVERS / HOLD_TICKS)
+
+	for Tick = 1, HOLD_TICKS do
+		for Index = (Tick - 1) * Batch + 1, math.min(Tick * Batch, SERVERS) do
+			local Held = Servers[Index]
+			if Held.Store:Reserve(`shelf{Index}`, "Stock", 1, `buy{Index}`):Wait() then
+				Reserved += 1
+				if Held.Store:Confirm(`shelf{Index}`, `buy{Index}`, "Sell", { Count = 1 }):Wait() then
+					Sold += 1
+				end
+			end
+		end
+		T:Advance(Windows.SWEEP // HOLD_TICKS)
+	end
+
+	local Left, Counted = 0, 0
+	for Index, Held in Servers do
+		local State = Held:State(`shelf{Index}`)
+		Left += State.Stock
+		Counted += State.Sold
+	end
+
+	local Spent = Calls(Servers) - Before
+	Row(
+		`a shelf on every server, one reservation and one checkout each`,
+		Spent,
+		T.Service.Units - Units,
+		string.format("%.1f calls and %.1f units per purchase", Spent / math.max(Sold, 1), (T.Service.Units - Units) / math.max(Sold, 1))
+	)
+	print(`    stock: {Sold} sold of {Reserved} held, {Left} left and {Counted} counted, {if Sold == Reserved and Left + Counted == SERVERS then "whole" else "WRONG"}`)
+	Ceilings(T, Maps, 1)
+end)
+
 Bench("stampede", function(T: Suite.Case)
 	local Servers = Fleet(T, SERVERS)
 	Servers[1].Store:Bump("pot", "Gold", 5):Wait()
@@ -496,6 +547,14 @@ Bench("chaos", function(T: Suite.Case)
 	print(`    transactions: {Wins} of {Tries} told yes, receiver holds {B}, {if B >= Wins and B <= Tries then "consistent" else "WRONG"}`)
 	print(`    pot: {Pot} after {Landed} of {Bumps} bumps told yes, {if Pot ~= nil and Pot >= Landed and Pot <= Bumps then "consistent" else "WRONG"}`)
 	print(`    markers left: {#First:Marks()}, keys still parked: {if First:Pending("chaosA") or First:Pending("chaosB") then "yes" else "none"}`)
+	print(
+		string.format(
+			"    memory: %d bytes at its highest against a quota of %d for %d players",
+			T.Service.Peak,
+			MemoryStore.MEMORY_BASE + MemoryStore.MEMORY_PER_USER * Count * PLAYERS,
+			Count * PLAYERS
+		)
+	)
 end)
 
 Bench("mixed", function(T: Suite.Case)

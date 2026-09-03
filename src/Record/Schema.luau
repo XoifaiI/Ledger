@@ -5,11 +5,12 @@
 
 	Schema: Turns a stored record into the state a game reads.
 
-	Migrations run first, defaults are filled in second, and the ops fold on top of the snapshot last.
-	A migration is the game's code and is not trusted with Ledger's own fields, so anything starting
-	with an underscore is put back after every step and the step that dropped it is named. Certain says
-	whether a parked transaction can still change the answer. Detached copies the snapshot, so a
-	reducer cannot reach the stored record through it.
+	Migrations run first. Defaults fill in second. The ops fold on top of the snapshot last.
+
+	A migration is the game's code, and Ledger does not trust it with its own fields. Schema puts back
+	every field starting with an underscore after every step, and names the step that dropped one.
+	Certain says whether a parked transaction can still change the answer. Detached copies the
+	snapshot, so a reducer cannot reach the stored record through it.
 
 	Return type: A table with New, FloorOf, Migrate and Detached.
 	Example usage:

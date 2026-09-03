@@ -5,8 +5,9 @@
 
 	Escrow: One rule per case for the money path, reserve deliver settle.
 
-	A transfer as three writes on two keys, what happens when a server stops between any two of them,
-	what recovery decides afterwards, and what a transfer meets when the key it is sent to was erased.
+	A transfer as three writes on two keys, and what happens when a server stops between any two of
+	them. What recovery decides afterwards. What a transfer meets when the key it is sent to was
+	erased.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau

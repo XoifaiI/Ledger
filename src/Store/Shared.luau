@@ -5,9 +5,9 @@
 
 	Shared: What each other half of the store needs first.
 
-	Resolving a key and saying what a key may look like, the log and the schema this store folds with,
-	the request budget, and the six plain functions the sweep sees a store as. The log handle is kept
-	against the wrapper that built it.
+	Resolving a key, and saying what a key may look like. The log and the schema this store folds
+	with, and the request budget. The six plain functions the sweep sees a store as. It keeps the log
+	handle against the wrapper that built it.
 
 	Return type: An empty table. It writes Mark, KeyFor, KeyIssue, Live, Resolve, ExpectPlayers, ExpectBalance, Affords, TxAffords, Swept, Records, Format, Fold and ReadRecord onto the class.
 	Example usage:

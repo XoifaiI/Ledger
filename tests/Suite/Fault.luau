@@ -5,12 +5,13 @@
 
 	Fault: The failures a case asks a datastore for, and which call each one takes.
 
-	A fault names the call it watches and what happens to it: dropped never reached the service,
-	swallowed landed and lost its answer, stalled arrives late, and meddled goes through after running
-	something first. An ordinal aims one at the Nth matching call. Wrap puts a memory hook behind the
-	faults a case adds to it, over its datastores and its MemoryStore maps alike, so the store Ledger
-	is handed cannot tell it is being lied to. A map and a datastore share method names, so a fault
-	meant for one names it with OnStore.
+	A fault names the call it watches and what happens to it. Dropped never reached the service.
+	Swallowed landed and lost its answer. Stalled arrives late. Meddled goes through after running
+	something first. An ordinal aims one at the Nth matching call.
+
+	Wrap puts a memory hook behind the faults a case adds to it, over its datastores and its
+	MemoryStore maps alike. The store Ledger is handed cannot tell it is being lied to. A map and a
+	datastore share method names, so a fault meant for one names it with OnStore.
 
 	Return type: A table with Wrap, On and the five builders. The types are Spec, Effect and Faulted.
 	Example usage:

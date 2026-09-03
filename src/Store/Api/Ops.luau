@@ -5,21 +5,23 @@
 
 	Ops: The writes a game asks for by name.
 
-	Edit, Confirm and Bump each check their arguments, build one op and hand it to Written. Reserve,
-	Release and Holds are the MemoryStore half, and never touch the key. Transfer and Tx are the ones
-	that touch more than one key, so they run a protocol
-	instead and add the keys to the sweep if they cannot finish. A total is read from the MemoryStore
-	cache while the sum there is inside its window. Once it is stale, one server claims the refill
-	and reads the shards while every other server answers the stale sum, so the minute never turns
-	into every server reading every shard at once. A map that does not answer holds a total to the
-	sum this server already has, for as long as that sum is kept, so an outage does not turn every
-	poll into sixteen reads on every server. A server with no sum of its own reads the shards when it
-	can afford them and answers Unresolved when it cannot. A bump writes nothing to MemoryStore: this
-	server lays its own bumps over whatever sum it answers, and other servers see them at the next
-	refill. A transaction leases each of its keys in MemoryStore before it drives, in one fixed order
-	so two coordinators cannot wait on each other, and lets go on every exit. A lease only orders who
-	tries: the marker still decides, a lease that cannot be taken or read means drive as today, and a
-	key somebody else holds answers Busy at once, with no drive and no wait.
+	Edit, Confirm and Bump check their arguments, build one op and hand it to Written. Reserve,
+	Release and Holds work on the MemoryStore item and never touch the key. Transfer and Tx touch
+	more than one key. They run a protocol and add the keys to the sweep if they cannot finish.
+
+	A total answers from the sum this server holds while that sum is younger than MaxAge. MaxAge is
+	one TALLY_CACHE unless the caller names another, and a MaxAge of zero always asks. Past that
+	window the server reads the cached item. One server claims the refill of a stale item and reads
+	the shards. The rest answer the stale sum. A map that misses holds the total to this server's own
+	sum. A server with no sum reads the shards when it can afford them, and answers Unresolved when
+	it cannot.
+
+	A bump writes nothing to MemoryStore. This server lays its own bumps over the sum it answers, and
+	other servers see them at the next refill.
+
+	A transaction leases each key before it drives, in one fixed order, and lets go on every exit.
+	The marker still decides. A lease it cannot take or read means drive without one. A key another
+	server holds answers Busy at once.
 
 	Return type: An empty table. It writes Edit, Transfer, Unbooked, Holding, Dropped, Reserve, Confirm, Release, Holds, TallyName, Kept, Bump, Total, Leased, Claim and Tx onto the class.
 	Example usage:
@@ -493,10 +495,12 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 
 	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field)
 
+	local Age = MaxAge or Windows.TALLY_CACHE
+
 	return Future.New(function(): (number?, Reason?)
 		local Now = Clock.Now()
 		local Held = self:Kept(Slot, Now)
-		if MaxAge ~= nil and Held.Seen > 0 and Now - Held.Seen <= MaxAge then
+		if Age > 0 and Held.Seen > 0 and Now - Held.Seen <= Age then
 			return Held.Sum + Over(Held), nil
 		end
 

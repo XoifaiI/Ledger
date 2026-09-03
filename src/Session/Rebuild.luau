@@ -6,11 +6,13 @@
 	Rebuild: Pushes the queued ops to the log, and builds the state again.
 
 	Push reads back which ops actually landed rather than trusting the call that returned. Append
-	carries the fence, the erase mark the key had at load, so a write lands only while that mark is
-	unchanged or has run out, and Fenced is what drops a mark that has. The sift folds the record with
-	and without any parked leg, and an op that holds one way but not the other stays queued until the
-	leg settles. Rebuild folds the record that came back and puts the still queued ops on top, and
-	counts the log the way the record's own cap counts it, an array with a separator after each op.
+	carries the fence, which is the erase mark the key had at load. A write lands only while that mark
+	is unchanged or has run out, and Fenced drops a mark that has.
+
+	The sift folds the record with and without any parked leg. An op that holds one way but not the
+	other stays queued until the leg settles. Rebuild folds the record that came back and puts the
+	still queued ops on top. It counts the log the way the record's own cap counts it, as an array
+	with a separator after each op.
 
 	Return type: A table with Fenced, Append, Push, Rebuild, ApplyPending, SumBytes and SEPARATOR.
 	Example usage:

@@ -5,9 +5,9 @@
 
 	Booking: One rule per case for the units that cross keys, and for tallies.
 
-	Units cross keys with Transfer and a Field, so the transfer cases for a field are here, and a
-	confirm is the game's own op whether or not a hold stands behind it. The hold cases are in Holds,
-	since a hold needs a MemoryStore and these do not. The tally cases are the other half.
+	Units cross keys with Transfer and a Field, so the transfer cases for a field are here. A confirm
+	is the game's own op, whether or not a hold stands behind it. The hold cases are in Holds, since a
+	hold needs a MemoryStore and these do not. The tally cases are the other half.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau booking

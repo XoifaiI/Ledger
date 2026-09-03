@@ -4,10 +4,11 @@
 
 	Engine: The Roblox globals Ledger reads, handled by Zune.
 
-	Ledger takes its datastore, scheduler and clock as arguments, so what is left is: a hash, base64,
-	zstd, json, a guid, the request, compression and sort enums, task, workspace, Random and warn.
-	Install puts them in place, and Listen points warn at something other than the screen. The hash
-	hands back raw bytes rather than hex, since a digest cuts the first six and a shard reads the
+	Ledger takes its datastore, scheduler and clock as arguments. What is left is a hash, base64,
+	zstd, json and a guid. Then the request, compression and sort enums, task, workspace, Random and
+	warn. Install puts them in place, and Listen points warn at something other than the screen.
+
+	The hash hands back raw bytes rather than hex. A digest cuts the first six, and a bucket reads the
 	first four.
 
 	Return type: A table with Install and Listen.

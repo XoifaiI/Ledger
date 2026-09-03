@@ -5,9 +5,9 @@
 
 	Fleet: One rule per promise the reap and sweep leases make to a fleet rather than to a pair.
 
-	Twelve servers over one datastore reap one window, follow one key, and hand a shard with more
-	names than one walk looks at down the line. The cost the fleet pays has to be bounded by the
-	shards and the keys, never by the number of servers, and every marker still has to go.
+	Twelve servers over one datastore reap one window and follow one key. They hand a shard with more
+	names than one walk looks at down the line. The shards and the keys bound the cost the fleet pays,
+	never the number of servers. Every marker still has to go.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau fleet

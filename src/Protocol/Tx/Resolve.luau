@@ -5,7 +5,7 @@
 
 	Resolve: Turns what a marker says into a resolved record.
 
-	Any server that meets a parked leg on a key it wants to read runs this: it reads the marker for
+	Any server that meets a parked leg on a key it wants to read runs this. It reads the marker for
 	every transaction parked there, resolves the legs against it, and tells the marker its leg has
 	reported.
 

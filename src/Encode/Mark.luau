@@ -7,10 +7,12 @@
 
 	Each part carries its own length in front of it, so a delimiter byte inside a part cannot break
 	the read. Of and Split are the pair for one mark, Pack and Unpack for a list of them. Anything
-	that does not carry its length reads back as nothing. Cached is the form a MemoryStore key takes:
-	every part's length up front with a printable separator, since a MemoryStore key holds no byte
-	below a space, then the parts, and a digest once it would pass the cap. A digest holds no
-	separator, so it cannot read as a mark.
+	that does not carry its length reads back as nothing.
+
+	Cached is the form a MemoryStore key takes. It writes every part's length up front with a
+	printable separator, then the parts, since a MemoryStore key holds no byte below a space. A key
+	that would pass the cap becomes a digest instead. A digest holds no separator, so it cannot read
+	as a mark.
 
 	Return type: A table with Of, Split, Pack, Unpack and Cached.
 	Example usage:

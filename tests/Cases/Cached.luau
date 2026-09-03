@@ -5,9 +5,9 @@
 
 	Cached: One rule per promise the fake MemoryStore and its wrapper make.
 
-	Key, name and item caps, expiry on the clock, a transform that sees the item and runs again when
-	a write lands under it, the unit costs and the quota, and a wrapper that calls once and answers a
-	miss. A fake looser than the real service lets a lease or a flag pass in a case and fail live.
+	Key, name and item caps, and expiry on the clock. A transform that sees the item and runs again
+	when a write lands under it. The unit costs, the two quotas, and a wrapper that calls once and
+	answers a miss. A fake looser than the real service lets a lease pass in a case and fail live.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau
@@ -319,6 +319,56 @@ Cases.Case("the units of an empty experience run out at the quota and come back 
 	T:Ok("the call past the quota", Starved)
 	T:No("a call once the window refilled", Back)
 	T:Is("units counted whether or not they were refused", Service.Units, MemoryStore.QUOTA_BASE + 2)
+end)
+
+Cases.Case("a write past the memory quota is refused and a read is not, and taking an item back makes room", function(T: Case)
+	local Service = Fresh(T, { Players = 0, CCU = 0 })
+	local Map = Service:GetHashMap("Memory")
+	local Room = Service:Memory()
+
+	local Held = 0
+	local Full = false
+	for Index = 1, 1000 do
+		if Refuses(function()
+			Map:SetAsync(`k{Index}`, string.rep("a", 128), MINUTE)
+		end) then
+			Full = true
+			break
+		end
+		Held += 1
+	end
+
+	local Read = Refuses(function()
+		Map:GetAsync("k1")
+	end)
+
+	Map:RemoveAsync("k1")
+	local After = Refuses(function()
+		Map:SetAsync("last", string.rep("a", 128), MINUTE)
+	end)
+
+	T:Ok("items it took before the quota bit", Held > 0)
+	T:Ok("a write with no room left", Full)
+	T:No("a read with no room left", Read)
+	T:No("a write once an item was taken back", After)
+	T:Ok("bytes it counts, inside the quota", Service.Bytes <= Room)
+	T:Ok("the high water mark it kept", Service.Peak >= Service.Bytes)
+end)
+
+Cases.Case("an item that ran out gives its memory back without anyone reading it", function(T: Case)
+	local Service = Fresh(T, { Players = 0, CCU = 0 })
+	local Map = Service:GetHashMap("Aging")
+
+	Map:SetAsync("brief", string.rep("a", 256), 10)
+	local While = Service.Bytes
+
+	T:Advance(11)
+	local Stale = Service.Bytes
+	Service:Reclaim()
+
+	T:Ok("bytes it counted while the item was live", While > 0)
+	T:Is("bytes before anyone looked, since nothing sweeps on the clock", Stale, While)
+	T:Is("bytes once the service reclaimed", Service.Bytes, 0)
 end)
 
 Cases.Case("one map runs out of units at its own ceiling while the experience still has plenty", function(T: Case)

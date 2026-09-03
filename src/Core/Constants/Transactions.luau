@@ -4,13 +4,13 @@
 --[=[
 	Transactions: The shape of the transaction protocol, in numbers and names.
 
-	How many keys one transaction may touch and how many other stores this server keeps a handle to.
-	The three states a marker can be in and the four ways opening one can turn out. The cleanup list
-	is spread over shards, each key holding up to a limit before the next part of that minute takes
-	the rest, and a reap pass is bounded by how many markers it looks at and takes off.
+	How many keys one transaction may touch, and how many other stores this server keeps a handle to.
+	The three states a marker can be in, and the four ways opening one can turn out. The cleanup list
+	is spread over shards. Each key holds up to a limit, then the next part of that minute takes the
+	rest. A reap pass is bounded by how many markers it looks at and takes off.
 
-	SUFFIX is what a store's own name gains to make the name of the store its markers live in, so the
-	cap on a store name is the datastore cap less this.
+	SUFFIX is what a store's own name gains to make the name of the store its markers live in. The cap
+	on a store name is the datastore cap less this.
 
 	Return type: A table with the caps, the three statuses, the four openings, the names and the lease numbers. The types are Status and Opened.
 	Example usage:

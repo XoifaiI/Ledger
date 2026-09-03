@@ -6,13 +6,14 @@
 
 	Virtual: A scheduler whose clock only moves when nothing is left to run.
 
-	Everything ready runs first, then time jumps straight to the next deadline, so a run costs what its
-	work costs rather than what its waits ask for. Step takes one turn, Run takes them until nothing is
-	left, and Done says whether anything is ready or sleeping. A thread that throws is kept in Failures
-	rather than printed. The ready queue is a ring indexed by a mask rather than a division, so its
-	capacity has to stay a power of two, and the sleepers are a heap keyed on the deadline. Roll comes
-	from a generator seeded on the second the clock starts, so two runs of one case roll the same
-	numbers and the work Ledger spreads out is spread the same way each time.
+	Everything ready runs first, then time jumps straight to the next deadline. A run costs what its
+	work costs rather than what its waits ask for. Step takes one turn, Run takes them until nothing
+	is left, and Done says whether anything is ready or sleeping. It keeps a thread that throws in
+	Failures rather than printing it.
+
+	The ready queue is a ring indexed by a mask rather than a division, so its capacity has to stay a
+	power of two. The sleepers are a heap keyed on the deadline. Roll comes from a generator seeded on
+	the second the clock starts, so two runs of one case roll the same numbers.
 
 	Return type: A table with New, EPOCH and STEP_CAP. It answers the Scheduler shape and adds the driving. The type is Virtual.
 	Example usage:

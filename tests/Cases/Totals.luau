@@ -5,11 +5,11 @@
 
 	Totals: One rule per promise a cached total makes.
 
-	A total is read from the MemoryStore while the sum there is inside its window and from every
-	shard otherwise, one server refills a stale sum while the rest answer it, this server's own bumps
-	show at once and another server's at the next refill, the key carries every part's length, and a
-	store with no MemoryStore or a failing one answers as it did before. The shard layout cases stay
-	in Booking, since the shards did not change.
+	A total answers from this server's own sum while it is young, from the MemoryStore next, and from
+	every shard otherwise. One server refills a stale sum while the rest answer it. This server's own
+	bumps show at once, and another server's at the next refill. The key carries every part's length.
+	A store with no MemoryStore, or a failing one, still answers. The shard layout cases stay in
+	Booking, since the shards did not change.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau
@@ -129,7 +129,7 @@ Cases.Case("a total is read from the shards once and then from the cache, on thi
 	T:Is("units on the cold total, a read and a refill", ColdUnits, 3)
 	T:Is("the total read warm", Second, 5)
 	T:Is("datastore reads on the warm total", Warm, 0)
-	T:Is("units on the warm total", WarmUnits, 1)
+	T:Is("units on the warm total, none, since the sum it holds is younger than the window the item is trusted for", WarmUnits, 0)
 	T:Is("the total another server reads", Third, 5)
 	T:Is("datastore reads on the other server", Other, 0)
 end)
@@ -185,16 +185,46 @@ Cases.Case("while one server refills a stale sum the others answer it and read n
 			Refilled = A.Store:Total("pot", FIELD):Wait()
 		end)
 	end)
+	local Straight = C.Store:Total("pot", FIELD):Wait()
+	T:Advance(CACHE + 1)
 	local After = C.Store:Total("pot", FIELD):Wait()
 
 	T:Is("the meddle fired on the last shard read", Spec.Fired, 1)
+	T:Is("the total the bystander answers a moment later, its own copy rather than the map", Straight, 0)
 	T:Is("the total a bystander answered while the refill ran", Meanwhile, 0)
 	T:Is("datastore reads the bystander spent", MeanwhileReads, 0)
 	T:Is("units the bystander spent, one read and no claim", MeanwhileUnits, 1)
 	T:Is("the total the refiller answered", Refilled, 5)
 	T:Is("datastore reads the refiller spent", RefillReads, SHARDS)
 	T:Is("units spent while the refiller ran, its read, claim and refill and the bystander's one read", RefillUnits, MemoryStore.UNIT * 2 + MemoryStore.UPDATE_UNITS * 2)
-	T:Is("the bystander's total once the refill landed", After, 5)
+	T:Is("the bystander's total once its own copy is too old to answer with", After, 5)
+end)
+
+Cases.Case("a pot polled hard asks the map once a window, not once a poll", function(T: Case)
+	local A = T:Vault("nodeA")
+	A.Store:Bump("pot", FIELD, 5):Wait()
+	A.Store:Total("pot", FIELD):Wait()
+
+	local Polls = 12
+	local Spent = Units(T, function()
+		for _ = 1, Polls do
+			T:Advance(CACHE // Polls)
+			A.Store:Total("pot", FIELD):Wait()
+		end
+	end)
+
+	local Asked = Units(T, function()
+		T:Advance(CACHE + 1)
+		A.Store:Total("pot", FIELD):Wait()
+	end)
+
+	local Forced = Units(T, function()
+		A.Store:Total("pot", FIELD, 0):Wait()
+	end)
+
+	T:Is("units twelve polls inside one window spend", Spent, 0)
+	T:Is("units the first poll past the window spends, its read of the item and the claim and refill it won", Asked, MemoryStore.UNIT + MemoryStore.UPDATE_UNITS * 2)
+	T:Is("units a caller asking for no window at all spends, since a zero window always asks", Forced, MemoryStore.UNIT)
 end)
 
 Cases.Case("a claim that ran out is taken again, and a live one is not", function(T: Case)
@@ -208,7 +238,8 @@ Cases.Case("a claim that ran out is taken again, and a live one is not", functio
 	end)
 	local Written = Item(T, A.Store, "pot")
 
-	Plant(T, A.Store, "pot", { Sum = 7, At = Now - CACHE - 1, Claimed = Now })
+	T:Advance(CACHE + 1)
+	Plant(T, A.Store, "pot", { Sum = 7, At = T:Now() - CACHE - 1, Claimed = T:Now() })
 	local Waited
 	local WaitedReads = Reads(A.Store, function()
 		Waited = A.Store:Total("pot", FIELD):Wait()
@@ -231,6 +262,7 @@ Cases.Case("a refill keeps a newer sum that landed while it was reading", functi
 		Plant(T, A.Store, "pot", { Sum = 99, At = T:Now() + 1 })
 	end))
 	local Own = A.Store:Total("pot", FIELD):Wait()
+	T:Advance(CACHE + 1)
 	local Next = A.Store:Total("pot", FIELD):Wait()
 
 	T:Is("the meddle fired on the last shard read", Spec.Fired, 1)
@@ -294,22 +326,28 @@ Cases.Case("MaxAge answers from this server with no call at all", function(T: Ca
 	end)
 end)
 
-Cases.Case("a store with no MemoryStore reads every total from its shards and says so once at build", function(T: Case)
+Cases.Case("a store with no MemoryStore reads its shards once a window and says so once at build", function(T: Case)
 	local Store = Built(T, "CaseTotalsBare", nil)
 	Store:Bump("pot", FIELD, 5):Wait()
 
-	local First, Second
+	local First, Second, Later
 	local Cold = Reads(Store, function()
 		First = Store:Total("pot", FIELD):Wait()
 	end)
 	local Again = Reads(Store, function()
 		Second = Store:Total("pot", FIELD):Wait()
 	end)
+	T:Advance(CACHE + 1)
+	local Aged = Reads(Store, function()
+		Later = Store:Total("pot", FIELD):Wait()
+	end)
 
 	T:Is("the first total", First, 5)
 	T:Is("the second total", Second, 5)
+	T:Is("the total once its own sum is too old", Later, 5)
 	T:Is("datastore reads on the first", Cold, SHARDS)
-	T:Is("datastore reads on the second", Again, SHARDS)
+	T:Is("datastore reads on the second, which its own sum answers", Again, 0)
+	T:Is("datastore reads once that sum has aged out", Aged, SHARDS)
 	T:Warns("it said the store has no MemoryStore", "no MemoryStore", 1)
 end)
 

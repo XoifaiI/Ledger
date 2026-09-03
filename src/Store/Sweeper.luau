@@ -5,13 +5,13 @@
 
 	Sweeper: Retries each key a failed write left unfinished.
 
-	A pass repairs the keys it is following, drops one once it comes back clean, and gives up on one
-	after a few tries with a warning naming it. Every tenth pass also reaps transaction markers. It
-	checks the request budget before it starts and picks up where the last pass stopped. A key whose
-	lease somebody else holds is skipped, and a lease that cannot reach its map ends the pass after
-	that one key, so a fleet that loses the map repairs one key per server per pass. A pass starts
-	after the key the last one reached, so no key waits behind another that never comes clean. A
-	skipped key keeps its tries, since a skip is not a try.
+	A pass repairs the keys it is following, and drops one once it comes back clean. It gives up on a
+	key after a few tries, with a warning naming it. Every tenth pass also reaps transaction markers.
+	It checks the request budget before it starts.
+
+	A pass starts after the key the last one reached, so no key waits behind another that never comes
+	clean. It skips a key whose lease another server holds. A lease that cannot reach its map ends the
+	pass after that one key. A skipped key keeps its tries, since a skip is not a try.
 
 	Return type: A table with New. The type is Sweeper.
 	Example usage:

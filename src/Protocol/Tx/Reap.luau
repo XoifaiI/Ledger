@@ -5,15 +5,14 @@
 
 	Reap: Removes the markers of transactions that are over.
 
-	A pass reads the cleanup list rather than searching the store. A marker goes only once every key it
-	named has forgotten its leg, and a key that cannot be read counts as still holding one. Each pass
-	reads a fixed number of names per shard and gives back where it stopped. Handed a Claim, a pass
-	asks it before each shard and skips a shard somebody else holds, so a fleet reaps each shard once
-	per pass rather than once per server, and a skipped shard still counts as walked. A Bounded pass
-	whose Claim cannot reach its map stops after one shard and gives back the next one, so a fleet
-	that loses the map walks one shard per server per pass rather than every shard at once, and one
-	server still covers every shard over as many passes as there are shards. Only the background pass
-	is bounded that way. An operator who asks for a reap gets the whole walk.
+	A pass reads the cleanup list rather than searching the store. A marker goes only once every key
+	it named has forgotten its leg. A key it cannot read counts as still holding one. Each pass reads
+	a fixed number of names per shard and gives back where it stopped.
+
+	A pass with a Claim asks it before each shard and skips a shard another server holds. A skipped
+	shard still counts as walked. A Bounded pass whose Claim cannot reach its map stops after one
+	shard and gives back the next one. One server still covers every shard, over as many passes as
+	there are shards. Only the background pass is bounded. An operator gets the whole walk.
 
 	Return type: A table with Reap. The type is Reaping.
 	Example usage:

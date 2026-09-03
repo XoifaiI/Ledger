@@ -4,8 +4,8 @@
     Clans: an entity store, and a transaction that crosses two stores.
 
     Keys = "String" gives you a store keyed by plain strings for state no single server owns.
-    Many servers write the same clan at once and the validating fold arbitrates, which is
-    exactly the case a session lock cannot serve, because no server can hold the lock.
+    Many servers write the same clan at once, and the validating fold arbitrates. A session
+    lock cannot serve that case, since no server can hold the lock.
 
     An entity store has no sessions and no autosave. There is no player to attach one to, so
     it gets the cross-server surface only.

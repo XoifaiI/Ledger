@@ -6,10 +6,11 @@
 	ThreadQueue: Runs tasks one after the other.
 
 	SubmitAsync waits for its task to run and gives back what the task returned. SkipToLastEnqueued
-	drops everything but the last task and tells each dropped caller. If the thread holding the queue
-	dies, the next caller takes it over. Keyed runs one task on the queue for a key, making that
-	queue if there is none and dropping it once it is empty, so a caller keeping a queue per key
-	keeps them in one way.
+	drops everything but the last task and tells each dropped caller. The next caller takes the queue
+	over if the thread holding it dies.
+
+	Keyed runs one task on the queue for a key. It makes that queue if there is none, and drops it
+	once it is empty. Every caller that keeps a queue per key keeps them one way.
 
 	Return type: A table with New and Keyed.
 	Example usage:

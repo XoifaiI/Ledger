@@ -5,9 +5,9 @@
 
 	Once: One rule per case for a caller named op that lands at most one time.
 
-	The same name offered again across a replay, a compaction, a fresh session, two servers at once,
-	and a key that was erased and came back. Names age out at the prune window, transaction ids
-	included.
+	The same name offered again across a replay, a compaction and a fresh session. The same name from
+	two servers at once, and on a key that was erased and came back. Names age out at the prune
+	window, transaction ids included.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau

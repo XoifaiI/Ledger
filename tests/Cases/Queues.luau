@@ -5,9 +5,9 @@
 
 	Queues: One rule per case for the queues every write stands on.
 
-	Order, exclusion and errors: tasks run in the order they arrived, never two at once, and one that
-	throws tells its own caller and nobody else. The first task runs inline rather than queued, and may
-	yield while the queue stays shut.
+	Order, exclusion and errors. Tasks run in the order they arrived, and never two at once. A task
+	that throws tells its own caller and nobody else. The first task runs inline rather than queued,
+	and may yield while the queue stays shut.
 	Return type: The case file.
 	Example usage:
 		Add a case with Cases.Case, then run zune run zune/Cases.luau

@@ -5,9 +5,9 @@
 
 	Recovery: Picks up the work a server left when it stopped.
 
-	Transfers sends a held transfer again while it is still worth sending, gives it back once it is
-	past its window, and writes it off past the prune window with a warning naming the amount and the
-	key. Each pass takes a fixed bite and leaves the rest for the next one.
+	Transfers sends a held transfer again while it is still worth sending. It gives one back once it
+	is past its window. Past the prune window it writes one off, with a warning naming the amount, its
+	field and the key. Each pass takes a fixed bite and leaves the rest for the next one.
 
 	Return type: A table with Transfers and PASS_LIMIT.
 	Example usage:

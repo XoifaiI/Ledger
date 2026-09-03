@@ -5,9 +5,9 @@
 
 	Fixture: One store on the case bench, and everything a case does to it.
 
-	Seed, Write, Park and Marker put a key into a state by writing raw records straight at the mock,
-	so setup is not broken by the faults a case installed. Record, Stored, Amount and the rest read it
-	back through Ledger's own reader over an unfaulted handle, so nothing here works out what a record
+	Seed, Write, Park and Marker put a key into a state by writing raw records straight at the mock.
+	The faults a case installed cannot break its own setup. Record, Stored, Amount and the rest read
+	it back through Ledger's own reader over an unfaulted handle. Nothing here works out what a record
 	means for itself.
 
 	Return type: A table with New. The type is Fixture.

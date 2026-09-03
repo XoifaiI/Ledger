@@ -5,12 +5,12 @@
 
 	Rules: What a rule is, and the rules an append is built from, in the order they run.
 
-	A rule has a check, a change and a test that must hold after the write, and each part is optional.
-	A pass is what a rule remembers between those parts, and it is cleared at the start of every run.
-	The rules are: legible refuses a record a newer build wrote, allowed runs the caller's guard, fresh
-	adds only the ops the record lacks and lets a sift turn one away or hold one back for a later
-	write, capped refuses once the log is too long, format raises the version floor, and tomb stamps
-	the envelope.
+	A rule has a check, a change and a test that must hold after the write. Each part is optional. A
+	pass is what a rule remembers between those parts, and every run clears it first.
+
+	Legible refuses a record a newer build wrote. Allowed runs the caller's guard. Fresh adds only the
+	ops the record lacks, and lets a sift turn one away or hold one back for a later write. Capped
+	refuses once the log is too long. Format raises the version floor. Tomb stamps the envelope.
 
 	Return type: A table with New, Reset, Readable, Entombed and the six rules. The types are Pass, Rule and Sift.
 	Example usage:

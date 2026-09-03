@@ -5,10 +5,10 @@
 
 	Ledger: Player data as a ledger, and not as a document.
 
-	State is a pure fold of an append only log of ops, and there are no session locks. This file is the
-	whole surface a game can reach: New and NewTyped build a store, Sweep runs a recovery pass, and
-	CloseAll saves everything on the way down. A store takes its scheduler and datastore as options,
-	and Mock puts one on a fake datastore that nothing outlives.
+	State is a pure fold of an append only log of ops, and there are no session locks. This file is
+	the whole surface a game can reach. New and NewTyped build a store. Sweep runs a recovery pass.
+	CloseAll saves everything on the way down. A store takes its scheduler and datastore as options.
+	Mock puts one on a fake datastore that nothing outlives.
 
 	Return type: A table with Reason, New, NewTyped, Sweep and CloseAll.
 	Example usage:

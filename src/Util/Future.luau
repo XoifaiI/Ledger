@@ -7,7 +7,7 @@
 
 	The work starts immediately. Wait gives back the result, or nothing if the work failed, and
 	Happened says which of those it was. Wait takes a timeout. Pack is not table.pack under another
-	name: it widens a generic type pack to any, which is the only way the checker lets one be packed.
+	name. It widens a generic type pack to any, which is the only way the checker packs one.
 
 	Return type: A table with New and Completed.
 	Example usage:

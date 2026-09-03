@@ -5,9 +5,9 @@
 
 	Transform: Runs a list of rules against one key.
 
-	Each rule checks, then changes, then is asked whether it still holds once the write landed. A
-	datastore can run one transform more than once, so the pass is cleared at the start of every run
-	and nothing a rule wrote survives into the next.
+	Each rule checks, then changes, then answers whether it still holds once the write landed. A
+	datastore can run one transform more than once. Every run clears the pass first, so nothing a rule
+	wrote survives into the next.
 
 	Return type: A table with Run, which gives back the record before, the record after, and the reason.
 	Example usage:

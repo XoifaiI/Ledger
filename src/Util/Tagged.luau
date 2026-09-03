@@ -4,9 +4,9 @@
 --[=[
 	Tagged: Says whether a raised value is one of Ledger's own failures.
 
-	Ledger's failures carry a tag rather than a message to be read back, so anything telling a settled
-	answer from a thrown one asks here instead of matching text. The tag itself is Messages.TAG, written
-	only by Errors.Raise and read only here, so the two halves cannot drift apart.
+	Ledger's failures carry a tag rather than a message to read back. Anything telling a settled answer
+	from a thrown one asks here instead of matching text. The tag is Messages.TAG. Errors.Raise is the
+	only place that writes it and this is the only place that reads it, so the two cannot drift apart.
 
 	Return type: A table with Is.
 	Example usage:

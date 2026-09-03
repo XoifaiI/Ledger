@@ -5,10 +5,10 @@
 
 	TypeFunctions: Turns a game's map of op kinds into the types a write is held against.
 
-	A game names its ops once, as a map of the kind to the fields it carries. OpUnion turns that into
-	one tagged union a reducer narrows on, Overloads turns it into one call shape per kind, OpOf names
-	a single kind, NumberKeys names the number fields of a state, and SameKeys holds the two views of
-	a store against each other.
+	A game names its ops once, as a map of the kind to the fields it carries. OpUnion turns that map
+	into one tagged union a reducer narrows on. Overloads turns it into one call shape per kind. OpOf
+	names a single kind. NumberKeys names the number fields of a state. SameKeys holds the two views
+	of a store against each other.
 
 	Return type: An empty table. The types are OpOf, ReadOnly, OpUnion, Overloads, NumberKeys and SameKeys.
 	Example usage:

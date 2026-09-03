@@ -6,10 +6,11 @@
 	Store: One fake datastore.
 
 	It holds its keys and the versions it keeps of each. Two writes on one key can meet, so a
-	transform runs again when another write landed between its read and its write, which is why the
-	read gives up its turn the way a real one does. A transform that yields raises, and one that throws
-	cancels the write silently. A listing comes back in a stable
-	order that is not the key order, since a real one gives no order to lean on.
+	transform runs again when another write landed between its read and its write. The read gives up
+	its turn the way a real one does.
+
+	A transform that yields raises. One that throws cancels the write silently. A listing comes back
+	in a stable order that is not the key order, since a real one gives no order to lean on.
 
 	Return type: A table with New.
 	Example usage:

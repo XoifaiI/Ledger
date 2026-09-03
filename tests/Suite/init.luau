@@ -5,11 +5,12 @@
 
 	Suite: The case suite. One rule per case, and one bench per case.
 
-	File collects the cases of one file, and Run gives each a bench of its own, runs it, takes the
-	bench down and collects what broke. A case that breaks several checks reports them all. Cases run
-	in the order they are written, a filter runs only the ones whose name holds a fragment, and a file
-	tagged with something in Skip is left out, which is how the cache cases stay out of a run whose
-	cache is absent or failing.
+	File collects the cases of one file. Run gives each a bench of its own, runs it, takes the bench
+	down and collects what broke. A case that breaks several checks reports them all.
+
+	Cases run in the order they are written. A filter runs only the ones whose name holds a fragment.
+	Run leaves out a file tagged with something in Skip. That is how the cache cases stay out of a run
+	whose cache is absent, failing or partly down.
 
 	Return type: A table with File, Run, Heard, Cache, Fault, Reducers, Reasons and Horizons.
 	Example usage:

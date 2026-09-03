@@ -5,7 +5,7 @@
 	Kinds: Every op kind Ledger writes, and the prefix each of their ids carries.
 
 	A kind Ledger owns starts with two underscores, which a game may not use. An id prefix keeps one
-	leg of a protocol apart from the others under the same name, so a reserve and a settle for one
+	leg of a protocol apart from the others under the same name. A reserve and a settle for one
 	transfer are two ids rather than one. ENVELOPE is the format of the record itself.
 
 	Return type: A table with ENVELOPE, RESET, the transfer and tally kinds, and the id prefixes.

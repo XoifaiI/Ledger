@@ -5,13 +5,15 @@
 
 	Case: One rule, its bench, and everything it is allowed to say.
 
-	A case gets a world of its own: a fresh datastore and MemoryStore, a clock starting at the same
-	second, no faults until it asks for some, and a warn that is recorded rather than printed. Both are
-	the mock src ships and the clock is the scheduler src ships. The case body runs as a thread on that
-	scheduler and the bench steps it, so a case crossing a thirty day horizon costs what its work
-	costs. Closing takes down every store this server holds. UseCache runs every bench after it with
-	the MemoryStore absent, failing every call, or partial, where reads answer and writes do not,
-	which is how the suite proves nothing leans on it.
+	A case gets a world of its own. A fresh datastore and MemoryStore, and a clock starting at the
+	same second. No faults until it asks for some, and a warn it records rather than prints. Both
+	fakes are the mock src ships, and the clock is the scheduler src ships.
+
+	The case body runs as a thread on that scheduler, and the bench steps it. A case crossing a thirty
+	day horizon costs what its work costs. Closing takes down every store this server holds.
+
+	UseCache runs every bench after it with the MemoryStore absent, failing every call, or partial,
+	where reads answer and writes do not. That is how the suite proves nothing leans on it.
 
 	Return type: A table with Open, Close, Judge, Heard and UseCache, and the names a bench builds under. The types are Case, Spec, Entry and CacheMode.
 	Example usage:

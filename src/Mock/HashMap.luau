@@ -5,11 +5,13 @@
 
 	HashMap: One fake MemoryStore hash map.
 
-	It keeps the limits the real one keeps and refuses more: a key holds no byte below a space, an
-	item has to read back as it went in, so a buffer, a mixed table, a sparse array and nan are
-	turned away where the real service mangles them quietly, and a transform may not yield where the
-	real one lets it. An item lives on the scheduler's clock. Two writes on one key can meet, so a
-	transform runs again when another write landed between its read and its write.
+	It keeps the limits the real one keeps and refuses more. A key holds no byte below a space. An
+	item has to read back as it went in. So it turns away a buffer, a mixed table, a sparse array and
+	nan, all of which the real service mangles quietly. A transform may not yield, where the real one
+	lets it.
+
+	An item lives on the scheduler's clock. Two writes on one key can meet, so a transform runs again
+	when another write landed between its read and its write.
 
 	Return type: A table with New.
 	Example usage:
@@ -103,22 +105,48 @@ function HashMap.Reach(self: HashMap, Cost: number)
 	self.Service.Scheduler.Wait(0)
 end
 
+local function Weight(Key: string, Text: string): number
+	return (#Key + #Text) * MemoryStore.MEMORY_OVERHEAD
+end
+
+function HashMap.Drop(self: HashMap, Key: string, Item: Item)
+	self.Items[Key] = nil
+	self.Service:Hold(-Weight(Key, Item.Text))
+end
+
 function HashMap.Held(self: HashMap, Key: string): Item?
 	local Item = self.Items[Key]
 	if Item == nil then
 		return nil
 	end
 	if self.Service.Scheduler.Now() >= Item.Ends then
-		self.Items[Key] = nil
+		self:Drop(Key, Item)
 		return nil
 	end
 	return Item
 end
 
+function HashMap.Sweep(self: HashMap)
+	local Now = self.Service.Scheduler.Now()
+	for Key, Item in self.Items do
+		if Now >= Item.Ends then
+			self:Drop(Key, Item)
+		end
+	end
+end
+
 function HashMap.Put(self: HashMap, Key: string, Value: any, Expiry: number): any
 	local Text = Encode(Value)
+	local Held = self:Held(Key)
+	local Was = if Held ~= nil then Weight(Key, Held.Text) else 0
+	self.Service:Room(Weight(Key, Text) - Was)
+
+	if Held ~= nil then
+		self:Drop(Key, Held)
+	end
 	self.Ticket += 1
 	self.Items[Key] = { Text = Text, Ends = self.Service.Scheduler.Now() + Expiry, Ticket = self.Ticket }
+	self.Service:Hold(Weight(Key, Text))
 	return Decode(Text)
 end
 
@@ -177,7 +205,10 @@ function HashMap.RemoveAsync(self: HashMap, Key: string)
 	CheckKey(Key)
 	self:Reach(MemoryStore.UNIT)
 
-	self.Items[Key] = nil
+	local Item = self.Items[Key]
+	if Item ~= nil then
+		self:Drop(Key, Item)
+	end
 end
 
 table.freeze(HashMap)

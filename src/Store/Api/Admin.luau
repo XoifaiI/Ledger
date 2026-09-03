@@ -5,10 +5,10 @@
 
 	Admin: The operator side of a store.
 
-	Resettle and RecoverTransfers finish what a stopped server left, ClearDelivered prunes applied
-	names, Reset puts a key back to the default state, and Erase buries it. These are the only paths
-	that throw data away, so each says what went with it. The first erase leaves a tombstone, and only
-	an erase that finds an old one removes the key.
+	Resettle and RecoverTransfers finish what a stopped server left. ClearDelivered prunes applied
+	names. Reset puts a key back to the default state, and Erase buries it. These are the only paths
+	that throw data away, so each says what went with it. The first erase leaves a tombstone. Only an
+	erase that finds an old one removes the key.
 
 	Return type: A table with Failed. It writes Repair, ReapMarkers, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:

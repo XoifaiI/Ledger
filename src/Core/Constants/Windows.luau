@@ -5,13 +5,12 @@
 
 	Windows: Every window Ledger keeps something for.
 
-	Windows in seconds, how long a hold and the item it lives in last, how long a cached total is
-	trusted, how long a lease on a transaction's keys lasts, and the cap on one pass of background
-	work. Anything that follows from another window is derived here, and asserts hold the order they
-	have to keep.
+	Every window is in seconds. How long a hold and the item it lives in last. How long a cached total
+	is trusted, and how long a lease on a transaction's keys lasts. The cap on one pass of background
+	work is here too. A window that follows from another is derived here, and asserts hold the order
+	they have to keep.
 
-	Return type: A table of the windows in seconds, the seconds in a day for the messages that count
-	them, and the cap on one pass.
+	Return type: A table of the windows in seconds, the seconds in a day, and the cap on one pass.
 	Example usage:
 		local Windows = require("./Windows")
 		if Now - At > Windows.PRUNE then Drop() end

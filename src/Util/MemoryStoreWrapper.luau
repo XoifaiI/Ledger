@@ -5,13 +5,13 @@
 
 	MemoryStoreWrapper: Calls a MemoryStore map once, and answers a miss when the call fails.
 
-	Nothing here retries, since a wait on a cache stalls the thing it was meant to speed up, and a
-	caller treats a miss as the map being absent. Each key has its own queue, so two writes to one
-	key from this server land in order. A miss is counted, and said out loud at most once a window.
-	A few misses in a row stop the calls for one BREAKER, so an outage does not add a failed call to
-	every operation on every server. Any answer clears the count, so one throttled key cannot stop
-	the calls for a map that is still answering, and each map has its own wrapper, so one map
-	breaking leaves the others alone.
+	Nothing here retries. A wait on a cache stalls the thing it was meant to speed up, and a caller
+	treats a miss as an absent map. Each key has its own queue, so two writes to one key from this
+	server land in order. It counts every miss and says one out loud at most once a window.
+
+	A few misses in a row stop the calls to that map for one BREAKER. Any answer clears the count, so
+	one throttled key cannot stop the calls to a map that still answers. Each map has its own wrapper,
+	so one map that breaks leaves the others alone.
 
 	Return type: A table with New and Misses.
 	Example usage:
