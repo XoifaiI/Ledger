@@ -141,14 +141,14 @@ local function Gone(Walk: Walk, Txid: string): (boolean, boolean)
 
 			if not Hushed and Walk.Now - Updated <= Windows.STUCK then
 				warn(
-					`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove it is finished. Ledger reads it again every pass until it is {Windows.STUCK // 86400} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
+					`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove it is finished. Ledger reads it again every pass until it is {Windows.STUCK // Windows.DAY} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
 				)
 				return false, false
 			end
 
 			if not Hushed then
 				warn(
-					`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {Windows.STUCK // 86400} days. nothing can ever prove it is finished, so it is taken off for good. any part of it still waiting on a key settles as cancelled now, check the audit log`
+					`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {Windows.STUCK // Windows.DAY} days. nothing can ever prove it is finished, so it is taken off for good. any part of it still waiting on a key settles as cancelled now, check the audit log`
 				)
 			end
 		end

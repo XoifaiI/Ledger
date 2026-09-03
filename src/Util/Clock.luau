@@ -19,7 +19,8 @@
 local Engine = require("./Engine")
 local Roblox = require("../Schedulers/Roblox")
 
-local CENTURY = 100 * 31556952
+local YEAR = 31556952
+local CENTURY = 100 * YEAR
 
 local Real = Roblox.New()
 local Current: Engine.Scheduler = Real

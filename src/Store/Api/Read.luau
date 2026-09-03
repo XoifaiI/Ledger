@@ -34,6 +34,10 @@ type Store = Types.Store<any>
 
 local Failed = Write.Failed
 
+local HISTORY_PAGE = 25
+local HISTORY_LEAST = 1
+local HISTORY_MOST = 100
+
 local function Reading<T>(What: string, Key: string, Body: () -> T): Future<T?, Reason?>
 	return Future.New(function(): (T?, Reason?)
 		local Ok, Held = pcall(Body)
@@ -72,7 +76,7 @@ end
 
 function Store.History(self: Store, Key: KeyLike, Limit: number?): Future<{ HistoryEntry }?, Reason?>
 	local Resolved = self:Resolve(Key, "History")
-	local Page = math.clamp(if type(Limit) == "number" then Limit else 25, 1, 100)
+	local Page = math.clamp(if type(Limit) == "number" then Limit else HISTORY_PAGE, HISTORY_LEAST, HISTORY_MOST)
 
 	return Reading("list the history for", Resolved, function(): { HistoryEntry }
 		local Fine, Pages = self.Wrapper:ListVersionsAsync(Resolved, Enum.SortDirection.Descending, nil, nil, Page)

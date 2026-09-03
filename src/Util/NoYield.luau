@@ -7,7 +7,8 @@
 
 	If the function yields it is stopped and the caller is told where. Run throws on a yield or a
 	throw, and Try answers with a boolean instead. Threads that finished cleanly are kept and used
-	again.
+	again. Two arguments reach the function and no more, since every caller passes a value and at
+	most one thing about it, and a third would be dropped without a word.
 
 	Return type: A table with Run and Try.
 	Example usage:

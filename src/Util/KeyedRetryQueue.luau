@@ -41,21 +41,9 @@ local function Run(State: State, Key: string, Operation: () -> ...any, Handler: 
 		return RunUnqueued(State, Operation, Handler)
 	end
 
-	local Queue = State.Queues[Key]
-	if not Queue then
-		Queue = ThreadQueue.New(State.Scheduler)
-		State.Queues[Key] = Queue
-	end
-
-	local Result = table.pack(Queue:SubmitAsync(function()
+	return ThreadQueue.Keyed(State.Queues, State.Scheduler, Key, function()
 		return RunUnqueued(State, Operation, Handler)
-	end))
-
-	if State.Queues[Key] == Queue and Queue:GetLength() == 0 then
-		State.Queues[Key] = nil
-	end
-
-	return table.unpack(Result, 1, Result.n)
+	end)
 end
 
 local function SkipAllToLastEnqueued(State: State)

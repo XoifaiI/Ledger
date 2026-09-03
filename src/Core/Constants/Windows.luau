@@ -10,7 +10,8 @@
 	work. Anything that follows from another window is derived here, and asserts hold the order they
 	have to keep.
 
-	Return type: A table of the windows in seconds and the cap on one pass.
+	Return type: A table of the windows in seconds, the seconds in a day for the messages that count
+	them, and the cap on one pass.
 	Example usage:
 		local Windows = require("./Windows")
 		if Now - At > Windows.PRUNE then Drop() end
@@ -86,6 +87,8 @@ assert(
 assert(BREAKER > SWEEP, "a map that is not answering is left alone for longer than a sweep pass, or a pass pays a failed call on every key it follows")
 
 return table.freeze({
+	DAY = DAY,
+
 	PRUNE = PRUNE,
 	REDRIVE = REDRIVE,
 	EXPIRE_MARGIN = EXPIRE_MARGIN,

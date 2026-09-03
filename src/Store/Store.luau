@@ -25,6 +25,7 @@ local DataStoreWrapper = require("../Util/DataStoreWrapper")
 local MemoryStoreWrapper = require("../Util/MemoryStoreWrapper")
 local Lru = require("../Util/Lru")
 local Ids = require("../Encode/Ids")
+local Storable = require("../Encode/Storable")
 local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
@@ -68,7 +69,7 @@ local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
 local RECENT_TALLIES = 256
 
-local TX_SUFFIX = "_Tx"
+local TX_SUFFIX = Transactions.SUFFIX
 
 local UNRESOLVED = Reasons.Unresolved
 
@@ -101,8 +102,11 @@ local function WrapSystem(GameReducer: Shapes.Reducer<any>, Initial: any, Steps:
 		end
 
 		local Next = Reconcile(Initial, Migrated)
-		Next._Received = State._Received
-		Next._Held = State._Held
+		for Field, Held in State do
+			if type(Field) == "string" and Storable.Bookkeeping(Field) then
+				Next[Field] = Held
+			end
+		end
 		return Next
 	end
 
@@ -330,7 +334,7 @@ function Store.Load(self: Store, Player: Player)
 		Ticks = 0,
 		Ticker = SetInterval(self.Wrapper.Scheduler, Windows.AUTOSAVE, function()
 			self:Autosave(UserId)
-		end, math.random() * Windows.AUTOSAVE),
+		end, self.Wrapper.Scheduler.Roll() * Windows.AUTOSAVE),
 	}
 	self:Wake(UserId, Active)
 	self:PickUp(Active, UserId)

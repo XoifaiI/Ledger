@@ -6,7 +6,9 @@
 	RetryAsync: Calls a function again after a failure.
 
 	The delay grows with each attempt and waits on the scheduler it was given, within the limits it
-	was given. A failure that already carries a reason has settled, so it is not retried.
+	was given. A failure that already carries a reason has settled, so it is not retried. The cap is
+	read again on each attempt rather than once, so a caller that is closing down can lower it while
+	a call is already retrying and have the next attempt be the last.
 
 	Return type: A function that gives back (Ok, Result).
 	Example usage:
@@ -42,6 +44,7 @@ local function RetryAsync(Scheduler: Engine.Scheduler, Callback: () -> ...any, L
 
 	while true do
 		Attempt += 1
+		local Allowed = Bounds.Attempts or DEFAULT_ATTEMPTS
 
 		local Result
 		if Handler then
@@ -50,16 +53,15 @@ local function RetryAsync(Scheduler: Engine.Scheduler, Callback: () -> ...any, L
 			Result = table.pack(pcall(Callback))
 		end
 
-		local Allowed = Bounds.Attempts or DEFAULT_ATTEMPTS
 		if not Result[1] then
-			warn(`Ledger: RetryAsync attempt {Attempt}/{Allowed}: {Result[2]}`)
+			warn(`Ledger: a call failed on attempt {Attempt} of {Allowed} and will be tried again: {Result[2]}`)
 		end
 
 		if Result[1] or Attempt >= Allowed or Tagged.Is(Result[2]) then
 			return table.unpack(Result, 1, Result.n)
 		end
 
-		local Backoff = Constant + Exponent ^ Attempt + math.random() * Jitter
+		local Backoff = Constant + Exponent ^ Attempt + Scheduler.Roll() * Jitter
 		if Backoff > 0 then
 			Scheduler.Wait(Backoff)
 		end

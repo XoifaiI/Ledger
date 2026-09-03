@@ -29,6 +29,9 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 
 local WIDTH = 10
 local PART_WIDTH = 3
+local SLOT_WIDTH = 2
+
+assert(Transactions.SHARDS <= 10 ^ SLOT_WIDTH, "a cleanup list key writes its shard in two digits, so more shards than that would write keys the reaper cannot read back")
 
 local DIGITS = string.rep("%d", WIDTH)
 local FORMAT = `{Transactions.RESERVED}%02d:%0{WIDTH}d:%0{PART_WIDTH}d`

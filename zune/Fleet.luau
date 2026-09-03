@@ -26,6 +26,7 @@ local Ledger = require("../src") :: any
 local Wrapper = require("../src/Util/DataStoreWrapper")
 local Bookings = require("../src/Core/Constants/Bookings")
 local MemoryStore = require("../src/Core/Constants/MemoryStore")
+local Messages = require("../src/Core/Constants/Messages")
 local Shards = require("../src/Core/Constants/Shards")
 local Sweeper = require("../src/Store/Sweeper")
 local Transactions = require("../src/Core/Constants/Transactions")
@@ -48,7 +49,7 @@ local CHAOS_STALL = 0.02
 local CHAOS_TX = 3
 local IDLE_MINUTES = 10
 local IDLE_WRITES = 200
-local ACCUSED = "Ledger bug:"
+local ACCUSED = Messages.ACCUSED
 
 type Fixture = Suite.Fixture
 

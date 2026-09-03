@@ -44,7 +44,7 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 
 	local Lost = if type(Entry.Field) == "string" then `{Entry.Amount} {Entry.Field}` else tostring(Entry.Amount)
 	warn(
-		`Ledger: transfer {Tid} from {From} has been stuck over {Windows.PRUNE // 86400} days. the receiver has no record of it and giving it back could pay twice, so it is written off. check the audit log and pay {Lost} back by hand if it never arrived`
+		`Ledger: transfer {Tid} from {From} has been stuck over {Windows.PRUNE // Windows.DAY} days. the receiver has no record of it and giving it back could pay twice, so it is written off. check the audit log and pay {Lost} back by hand if it never arrived`
 	)
 	Transfer.Settle(Records, From, Tid, Print)
 end

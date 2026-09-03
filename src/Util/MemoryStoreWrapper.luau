@@ -134,18 +134,7 @@ function MemoryStoreWrapper.AttemptAsync(self: MemoryStoreWrapper, Key: string, 
 		return Once()
 	end
 
-	local Queue = self.Queues[Key]
-	if not Queue then
-		Queue = ThreadQueue.New(self.Scheduler)
-		self.Queues[Key] = Queue
-	end
-
-	local Result = table.pack(pcall(Queue.SubmitAsync, Queue, Once))
-
-	if self.Queues[Key] == Queue and Queue:GetLength() == 0 then
-		self.Queues[Key] = nil
-	end
-
+	local Result = table.pack(pcall(ThreadQueue.Keyed, self.Queues, self.Scheduler, Key, Once))
 	if not Result[1] then
 		self:Miss(Result[2])
 		return false

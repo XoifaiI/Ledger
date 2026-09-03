@@ -18,6 +18,7 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Validate = require("../Core/Validate")
+local Messages = require("../Core/Constants/Messages")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Kinds = require("../Core/Constants/Kinds")
@@ -136,7 +137,7 @@ local function Expiring(Data: Data, Op: Op, Balance: string?): Data?
 	Next._Held = TableUtil.Some(Rest)
 
 	if Next[Field] < (Data[Field] or 0) then
-		warn(`Ledger bug: giving transfer {Tid} back left the sender with less than they started with`)
+		warn(`{Messages.ACCUSED} giving transfer {Tid} back left the sender with less than they started with`)
 		return nil
 	end
 	return Next

@@ -35,9 +35,9 @@ local DEFAULTS: { [string]: number } = {
 
 local DEPTH = 64
 
-local VALUE_MARGIN = 8
-local STATE_MARGIN = 4
-local HELD_MARGIN = 6
+local VALUE_WARN_AT = 8
+local STATE_WARN_AT = 4
+local HELD_ROOM = 6
 
 local Sizes = {
 	Value = DEFAULTS.Value,
@@ -57,10 +57,10 @@ local Sizes = {
 local Loose = Sizes :: { [string]: any }
 
 local function Derive()
-	Sizes.Held = Sizes.Log + Sizes.Log // HELD_MARGIN
+	Sizes.Held = Sizes.Log + Sizes.Log // HELD_ROOM
 	Sizes.StateFloor = Sizes.State - Sizes.Op
-	Sizes.ValueWarn = Sizes.Value - Sizes.Value // VALUE_MARGIN
-	Sizes.StateWarn = Sizes.State - Sizes.State // STATE_MARGIN
+	Sizes.ValueWarn = Sizes.Value - Sizes.Value // VALUE_WARN_AT
+	Sizes.StateWarn = Sizes.State - Sizes.State // STATE_WARN_AT
 end
 
 local function Set(Given: Sizes)

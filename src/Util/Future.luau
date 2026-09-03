@@ -6,7 +6,8 @@
 	Future: Holds the result of work that runs on its own thread.
 
 	The work starts immediately. Wait gives back the result, or nothing if the work failed, and
-	Happened says which of those it was. Wait takes a timeout.
+	Happened says which of those it was. Wait takes a timeout. Pack is not table.pack under another
+	name: it widens a generic type pack to any, which is the only way the checker lets one be packed.
 
 	Return type: A table with New and Completed.
 	Example usage:
@@ -118,7 +119,7 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: 
 	Private.Result = Result
 
 	if not Result[1] then
-		warn(`Ledger: Future callback errored: {tostring(Result[2])}`)
+		warn(`Ledger: work Ledger was doing in the background threw, so whoever waited on it gets nothing back: {tostring(Result[2])}`)
 	end
 
 	Finish(Private, Unpack(Private))
@@ -137,14 +138,12 @@ end
 
 local function Start<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: Future<Ret...>, ...: Args...)
 	local Count = #Idle
-	if Count == 0 then
-		task.spawn(coroutine.create(Runner) :: any, Callback, Inst, ...)
-		return
+	local Thread = if Count == 0 then coroutine.create(Runner) else Idle[Count]
+	if Count > 0 then
+		Idle[Count] = nil
 	end
 
-	local Thread = Idle[Count]
-	Idle[Count] = nil
-	task.spawn(Thread, Callback, Inst, ...)
+	Clock.Held().Resume(Thread, Callback, Inst, ...)
 end
 
 local function Settled<T...>(Result: Packed): Future<T...>

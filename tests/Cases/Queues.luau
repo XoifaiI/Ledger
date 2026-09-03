@@ -16,6 +16,7 @@
 local Suite = require("../Suite")
 
 local KeyedRetryQueue = require("../../src/Util/KeyedRetryQueue")
+local SetInterval = require("../../src/Util/SetInterval")
 local ThreadQueue = require("../../src/Util/ThreadQueue")
 
 type Case = Suite.Case
@@ -255,6 +256,57 @@ Cases.Case("one key only ever has one queue running on it", function(T: Case)
 	T:Is("how many ran at the same time as another", Watch.Overlaps, 0)
 	T:Is("how many queues the key was given", Built, 1)
 	T:Is("queues left in the map once everything settled", Left, 0)
+end)
+
+Cases.Case("a queue whose thread was cancelled is taken over by the next caller, and says Ledger broke", function(T: Case)
+	local Queue = ThreadQueue.New(T.Turn)
+
+	local Holder = T:Spawn(function()
+		Queue:SubmitAsync(function()
+			T:Wait(SLOW)
+		end)
+	end)
+	T:Wait(QUICK)
+
+	local Waiting = T:Spawn(function()
+		Queue:SubmitAsync(function() end)
+	end)
+	T:Wait(QUICK)
+	T.Turn.Cancel(Holder)
+
+	local Took = Queue:SubmitAsync(function(): string
+		return "through"
+	end)
+
+	T:Is("the call that found the queue abandoned", Took, "through")
+	T:Ok(
+		"the task left waiting on the dead holder still ran",
+		T:Until(function(): boolean
+			return coroutine.status(Waiting) == "dead"
+		end)
+	)
+	T:Accuses("it named itself rather than wedging the key", "was cancelled")
+end)
+
+Cases.Case("a job on a timer that throws says Ledger broke and keeps running", function(T: Case)
+	local Runs = 0
+	local Ticker = SetInterval(T.Turn, 1, function()
+		Runs += 1
+		error("injected timer failure")
+	end)
+
+	T:Advance(1)
+	T:Until(function(): boolean
+		return Runs >= 1
+	end)
+	T:Advance(1)
+	T:Until(function(): boolean
+		return Runs >= 2
+	end)
+	T.Turn.Cancel(Ticker)
+
+	T:Is("times it ran, so a throw does not stop the timer", Runs, 2)
+	T:Accuses("it named itself", "runs on a timer threw")
 end)
 
 return Cases

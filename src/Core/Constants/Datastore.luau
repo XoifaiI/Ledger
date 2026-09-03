@@ -14,11 +14,13 @@
 		if #Key > Datastore.MAX_KEY then Refuse() end
 --]=]
 
+local DAY = 86400
+
 return table.freeze({
 	MAX_NAME = 50,
 	MAX_SCOPE = 50,
 	MAX_KEY = 50,
-	KEEP_WINDOW = 30 * 86400,
+	KEEP_WINDOW = 30 * DAY,
 	PAGE_LIMIT = 50,
 	CONFLICT_LIMIT = 32,
 

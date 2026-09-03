@@ -63,6 +63,8 @@ export type DataStoreWrapper = setmetatable<{
 	Queues: { [string]: ThreadQueue },
 }, DataStoreWrapperImpl>
 
+local WHOLE_STORE = ""
+
 local DataStoreWrapper = {} :: DataStoreWrapperImpl
 DataStoreWrapper.__index = DataStoreWrapper
 
@@ -136,8 +138,8 @@ function DataStoreWrapper.GetVersionAsync(self: DataStoreWrapper, Key: string, V
 end
 
 function DataStoreWrapper.ListKeysAsync(self: DataStoreWrapper, Prefix: string?, PageSize: number?, Cursor: string?, Handler: Handler?): (boolean, any)
-	return self:AttemptAsync("", function(Store: Engine.Store)
-		return Store:ListKeysAsync(Prefix or "", PageSize, Cursor, true)
+	return self:AttemptAsync(WHOLE_STORE, function(Store: Engine.Store)
+		return Store:ListKeysAsync(Prefix or WHOLE_STORE, PageSize, Cursor, true)
 	end, Handler)
 end
 

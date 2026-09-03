@@ -121,7 +121,7 @@ function Store.Buried(self: Store, Key: string, Replaced: Record)
 		return
 	end
 
-	warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Windows.TOMB // 86400} days is turned away and given back to whoever sent it`)
+	warn(`Ledger: erasing '{Key}' destroyed {Balance} {Field}. anything sent to it for the next {Windows.TOMB // Windows.DAY} days is turned away and given back to whoever sent it`)
 end
 
 function Store.HeldOn(self: Store, Key: string): (boolean, any)

@@ -5,8 +5,8 @@
 
 	Engine: The two things Ledger is handed rather than reaches for.
 
-	A scheduler is everything to do with when code runs, and a hook is everything to do with where
-	data goes. A store takes one of each when it is built. Neither carries self: an implementation
+	A scheduler is everything to do with when code runs, including the rolls that spread work out, and
+	a hook is everything to do with where data goes. A store takes one of each when it is built. Neither carries self: an implementation
 	binds its own state and hands back plain functions, and every field is read only. A hook's Cache
 	opens a MemoryStore map, and a hook without one puts every feature that uses a map off.
 
@@ -18,6 +18,7 @@
 
 export type Scheduler = {
 	read Now: () -> number,
+	read Roll: () -> number,
 	read Wait: (Seconds: number) -> (),
 	read Spawn: (Body: (...any) -> (), ...any) -> thread,
 	read Resume: (Thread: thread, ...any) -> boolean,

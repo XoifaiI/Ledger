@@ -10,7 +10,9 @@
 	work costs rather than what its waits ask for. Step takes one turn, Run takes them until nothing is
 	left, and Done says whether anything is ready or sleeping. A thread that throws is kept in Failures
 	rather than printed. The ready queue is a ring indexed by a mask rather than a division, so its
-	capacity has to stay a power of two, and the sleepers are a heap keyed on the deadline.
+	capacity has to stay a power of two, and the sleepers are a heap keyed on the deadline. Roll comes
+	from a generator seeded on the second the clock starts, so two runs of one case roll the same
+	numbers and the work Ledger spreads out is spread the same way each time.
 
 	Return type: A table with New, EPOCH and STEP_CAP. It answers the Scheduler shape and adds the driving. The type is Virtual.
 	Example usage:
@@ -37,8 +39,9 @@ local EPOCH = 1700000000
 local READY = 64
 local STEP_CAP = 1048576
 
-local function New(From: number?): Virtual
+local function New(From: number?, Seed: number?): Virtual
 	local Held = From or EPOCH
+	local Rolls = Random.new(Seed or Held)
 	local Taken = 0
 	local Failed: { string } = {}
 
@@ -171,6 +174,10 @@ local function New(From: number?): Virtual
 		return Held
 	end
 
+	local function Roll(): number
+		return Rolls:NextNumber()
+	end
+
 	local function Wait(Seconds: number)
 		local Thread = coroutine.running()
 		if Seconds > 0 then
@@ -288,6 +295,7 @@ local function New(From: number?): Virtual
 
 	return table.freeze({
 		Now = Now,
+		Roll = Roll,
 		Wait = Wait,
 		Spawn = Spawn,
 		Resume = Resume,

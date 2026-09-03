@@ -72,6 +72,14 @@ local function Append<T>(self: Lru<T>, Node: Node)
 	self.Tail = Node
 end
 
+local function Touch<T>(self: Lru<T>, Node: Node)
+	if self.Tail == Node then
+		return
+	end
+	Unlink(self, Node)
+	Append(self, Node)
+end
+
 local function New(Limit: number): Lru<any>
 	assert(type(Limit) == "number" and Limit >= 1 and Limit == Limit // 1, "an Lru needs a whole number of entries to keep, at least one")
 
@@ -90,10 +98,7 @@ function Lru.Get<T>(self: Lru<T>, Key: string): T?
 		return nil
 	end
 
-	if self.Tail ~= Node then
-		Unlink(self, Node)
-		Append(self, Node)
-	end
+	Touch(self, Node)
 	return Node.Value
 end
 
@@ -101,10 +106,7 @@ function Lru.Put<T>(self: Lru<T>, Key: string, Value: T): T
 	local Node = self.Nodes[Key]
 	if Node ~= nil then
 		Node.Value = Value
-		if self.Tail ~= Node then
-			Unlink(self, Node)
-			Append(self, Node)
-		end
+		Touch(self, Node)
 		return Value
 	end
 

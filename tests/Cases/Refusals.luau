@@ -376,7 +376,7 @@ Cases.Case("a failed future says so rather than returning nothing", function(T: 
 
 	T:Is("what a failed job hands back", Answered, nil)
 	T:Is("whether it says it happened", Happened, false)
-	T:Warns("it named the failure", "Future callback errored")
+	T:Warns("it named the failure", "gets nothing back")
 	T:Warns("it carried the cause", "injected job failure")
 end)
 
@@ -410,7 +410,7 @@ Cases.Case("the retry cap can be lowered while it is retrying", function(T: Case
 
 	T:Is("it tried at all", Tries > 0, true)
 	T:Is("it stopped short of the original cap", Tries < 30, true)
-	T:Warns("it said why it gave up", "RetryAsync attempt")
+	T:Warns("it said why it gave up", "will be tried again")
 end)
 
 Cases.Case("recovery leaves the overflow for the next pass", function(T: Case)

@@ -9,7 +9,10 @@
 	is spread over shards, each key holding up to a limit before the next part of that minute takes
 	the rest, and a reap pass is bounded by how many markers it looks at and takes off.
 
-	Return type: A table with the caps, the three statuses, the four openings and the lease numbers. The types are Status and Opened.
+	SUFFIX is what a store's own name gains to make the name of the store its markers live in, so the
+	cap on a store name is the datastore cap less this.
+
+	Return type: A table with the caps, the three statuses, the four openings, the names and the lease numbers. The types are Status and Opened.
 	Example usage:
 		local Transactions = require("./Transactions")
 		if #Legs > Transactions.MAX_LEGS then Refuse() end
@@ -34,6 +37,7 @@ return table.freeze({
 	HUSK = "Husk" :: Opened,
 
 	RESERVED = "__",
+	SUFFIX = "_Tx",
 	SHARDS = 32,
 	ROLL_LIMIT = 256,
 	PARTS = 64,

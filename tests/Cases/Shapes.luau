@@ -202,6 +202,28 @@ Cases.Case("preparing a leg leaves the stored snapshot unmigrated", function(T: 
 	T:Is("reading it back still migrates", State.Gold, 55)
 end)
 
+Cases.Case("a reset keeps every field of Ledger's own, not the two it used to name", function(T: Case)
+	local Store = Resettable(T, {}, "CaseResetKeeps")
+	Store:Write("keeps", {
+		Snapshot = {
+			Gold = 40,
+			_Received = { ["t:paid"] = T:Now() },
+			_Held = { move = { To = "far", Amount = 5, At = T:Now() } },
+			_Tally = { Gold = 7 },
+		},
+		Ops = {},
+		Seen = {},
+	})
+
+	T:Ok("the reset", (Store.Store:Reset("keeps"):Wait()))
+	local State = Store:State("keeps")
+
+	T:Is("gold, which the reset put back to the default", State.Gold, 100)
+	T:Is("the applied names it kept", next(State._Received), "t:paid")
+	T:Is("the money it kept set aside", State._Held.move.Amount, 5)
+	T:Is("the tally it kept, which is Ledger's own just as much as the other two", State._Tally.Gold, 7)
+end)
+
 Cases.Case("a reset payload is migrated by a server that knows more", function(T: Case)
 	local Older = Resettable(T, {}, "CaseResetLadder")
 

@@ -23,6 +23,7 @@ local Fixture = require("./Fixture")
 local Reducers = require("./Reducers")
 
 local Engine = require("../../src/Util/Engine")
+local Messages = require("../../src/Core/Constants/Messages")
 
 local Ledger = require("../../src") :: any
 local Sizes = require("../../src/Core/Constants/Sizes")
@@ -125,7 +126,7 @@ local VAULT = "CaseVault"
 local NODE = "node1"
 local SIM_NODE = "v2case00000000"
 
-local ACCUSED = "Ledger bug:"
+local ACCUSED = Messages.ACCUSED
 
 local STEP_CAP = 1000000
 local EPOCH = 1700000000
