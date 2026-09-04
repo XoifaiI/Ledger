@@ -22,6 +22,8 @@ exclude = [
     "examples/**",
     "internal",
     "internal/**",
+    "skills",
+    "skills/**",
     "test.project.json",
     "RunTests.server.luau",
     "sourcemap.json",
