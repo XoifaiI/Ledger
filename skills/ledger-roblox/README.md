@@ -34,44 +34,6 @@ or destroys money six weeks later.**
 | `references/escalate.md` | when it is Ledger's own bug and the evidence to send |
 | `references/docs-bundle.md` | the whole documentation, generated, so a model with no web access still has the reference |
 
-## Measured
-
-Three arms on a planted 500 line game module: **A** nothing, **B** the full documentation, **C** the
-documentation plus this skill. Twelve real defects planted, six of them deliberately outside the
-detector list, plus four decoys that look wrong and are correct.
-
-| | found | off list six | decoys wrongly flagged | invented API |
-|---|---|---|---|---|
-| A, nothing | not run on this subject | | | |
-| B, documentation | 5 / 12 | 4 / 6 | 0 | one |
-| C, this skill | **11 / 12** | **6 / 6** | 0 | none |
-
-On an earlier subject, A scored 4 of 12 equivalent, flagged two decoys, and invented two API facts.
-
-The result worth knowing: a reducer that accepts every op it does not handle, written as
-`return Patch(State, {})` so it reads as a harmless clone. B missed it and its rewrite made it
-explicit with a comment defending it. C worked it out from the rule that any returned table is an
-accept. That rule is in the documentation B was holding.
-
-The honest caveat: the same author wrote the detectors and planted the defects, so the on list wins
-are partly marking their own homework. The off list six and the endorsement above are not.
-
-## Keeping it true
-
-Pinned to Ledger **5.x**, checked against 5.0.0 and the documentation on 2026-09-04. `SKILL.md` says
-what to do when the game is on a different version.
-
-`references/docs-bundle.md` is a verbatim copy of the site's own `llms-full.txt`. Refresh it on each
-release:
-
-```
-curl -sS https://xoifaii.github.io/LedgerDocs/llms-full.txt > references/docs-bundle.md
-```
-
-It is generated rather than written, so it cannot drift into a second version of the rules. It can
-only be older than the site, which is why the source outranks it and why `verify.md` says where every
-number lives.
-
 ## Not for the library itself
 
 Working on Ledger's own source is a different job with a different brief. `SKILL.md` checks for that
