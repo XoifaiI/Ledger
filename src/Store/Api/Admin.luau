@@ -100,6 +100,10 @@ function Store.ReapMarkers(self: Store, Bounded: boolean?): number
 end
 
 function Store.Buried(self: Store, Key: string, Replaced: Record)
+	if Replaced.Snapshot == nil and #Replaced.Ops == 0 then
+		return
+	end
+
 	local Ok, State = pcall(function(): any
 		return self:Fold(Schema.Detached(Replaced))
 	end)

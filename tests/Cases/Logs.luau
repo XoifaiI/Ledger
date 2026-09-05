@@ -1126,4 +1126,15 @@ Cases.Case("an older build cannot compact away a field transfer whose field it d
 	T:Warns("the older build said it could not compact the key", "cannot be compacted")
 end)
 
+Cases.Case("erasing a key nobody wrote says nothing about money", function(T: Case)
+	local Bank = T:Store({ Default = { Gold = 100, Touches = 0 }, Reducer = Suite.Reducers.Banker, Balance = "Gold" })
+	Bank:Seed("written", { Gold = 100, Touches = 0 })
+
+	T:Is("erasing a key nobody ever wrote", (Bank.Store:Erase("neverwritten"):Wait()), true)
+	T:Is("erasing a key that held the same balance", (Bank.Store:Erase("written"):Wait()), true)
+
+	T:Warns("it named the balance the written key lost, once", "destroyed 100 Gold", 1)
+	T:Is("the key nobody wrote still reads as the default", Bank:Amount("neverwritten"), 100)
+end)
+
 return Cases

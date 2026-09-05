@@ -1,6 +1,6 @@
 {
 	"name": "@xoifail/ledger",
-	"version": "5.0.0",
+	"version": "5.0.1",
 	"description": "Lock-free event-sourced player data for Roblox. State is a fold over validated ops, no session locks.",
 	"main": "src/init.luau",
 	"types": "index.d.ts",
