@@ -9,6 +9,10 @@
 	Release and Holds work on the MemoryStore item and never touch the key. Transfer and Tx touch
 	more than one key. They run a protocol and add the keys to the sweep if they cannot finish.
 
+	A confirm reads the hold first and marks its op with the hold, so a name reused after an earlier
+	confirm answers Spent and never the earlier answer. A hold item is kept inside the map's item cap,
+	so a key with long names stops taking holds before the count cap.
+
 	A total answers from the sum this server holds while that sum is younger than MaxAge. MaxAge is
 	one TALLY_CACHE unless the caller names another, and a MaxAge of zero always asks. Past that
 	window the server reads the cached item. One server claims the refill of a stale item and reads
@@ -17,13 +21,14 @@
 	it cannot.
 
 	A bump writes nothing to MemoryStore. This server lays its own bumps over the sum it answers, and
-	other servers see them at the next refill.
+	other servers see them at the next refill. A bump carries no name, so one that answers Unresolved
+	may already have counted and is not asked again.
 
 	A transaction leases each key before it drives, in one fixed order, and lets go on every exit.
 	The marker still decides. A lease it cannot take or read means drive without one. A key another
 	server holds answers Busy at once.
 
-	Return type: An empty table. It writes Edit, Transfer, Unbooked, Holding, Dropped, Reserve, Confirm, Release, Holds, TallyName, Kept, Bump, Total, Leased, Claim and Tx onto the class.
+	Return type: An empty table. It writes Edit, Transfer, Unbooked, Crowded, Holding, Standing, Dropped, Reserve, Confirm, Release, Holds, TallyName, Kept, Bump, Total, Leased, Claim and Tx onto the class.
 	Example usage:
 		local Ops = require("./Ops")
 		local Ok, Why = self:Edit(1, "Add", { Amount = 5 }):Wait()
@@ -35,10 +40,13 @@ local TableUtil = require("../../Util/TableUtil")
 local MemoryStoreWrapper = require("../../Util/MemoryStoreWrapper")
 local Windows = require("../../Core/Constants/Windows")
 local Sizes = require("../../Core/Constants/Sizes")
+local MemoryStore = require("../../Core/Constants/MemoryStore")
 local Bookings = require("../../Core/Constants/Bookings")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
 local Api = require("../../Core/Api")
+local Ids = require("../../Encode/Ids")
+local Measure = require("../../Encode/Measure")
 local Storable = require("../../Encode/Storable")
 local NewOp = require("../../Record/NewOp")
 local Shards = require("../../Core/Constants/Shards")
@@ -65,7 +73,7 @@ type LegTarget = { Store: Store, Key: string }
 type MemoryStoreWrapper = MemoryStoreWrapper.MemoryStoreWrapper
 type Reserved = Types.Reserved
 type Dropped = Types.Dropped
-type Hold = { Field: string, Amount: number, Ends: number }
+type Hold = Types.Hold
 type Holding = { Holds: { [string]: Hold }, Stock: { [string]: number } }
 
 local MAX_TRANSFER_ID = 64
@@ -77,6 +85,7 @@ local INVALID = Reasons.Invalid
 local UNRESOLVED = Reasons.Unresolved
 local BUSY = Reasons.Busy
 local HELD = Reasons.Held
+local SPENT = Reasons.Spent
 
 local Failed = Write.Failed
 
@@ -101,9 +110,10 @@ end
 
 local function Over(Held: Tally.Recent): number
 	local Mark = Held.Mark
+	local Floor = Held.Floor or Held.At
 	local Sum = 0
 	for _, Bucket in Held.Bumps do
-		if if Mark ~= nil then Bucket.Seq > Mark else Bucket.At > Held.At then
+		if if Mark ~= nil then Bucket.Seq > Mark else Bucket.At > Floor then
 			Sum += Bucket.Amount
 		end
 	end
@@ -121,10 +131,11 @@ local function Bumped(Held: Tally.Recent, Seq: number, Now: number, Amount: numb
 	table.insert(Bumps, { Seq = Seq, At = Now, Amount = Amount })
 end
 
-local function Remember(Held: Tally.Recent, Sum: number, At: number, Seen: number, Mark: number?): number
+local function Remember(Held: Tally.Recent, Sum: number, At: number, Seen: number, Mark: number?, Floor: number?): number
 	Held.Sum = Sum
 	Held.At = At
 	Held.Seen = Seen
+	Held.Floor = Floor or At
 	Held.Mark = if Mark ~= nil then Mark elseif At == Held.OwnAt then Held.OwnMark else nil
 	if Mark ~= nil then
 		Held.OwnAt = At
@@ -147,10 +158,17 @@ local function Unexpired(Item: Holding, Now: number): ({ [string]: Hold }, { [st
 		if type(Held) ~= "table" or type(Held.Field) ~= "string" or type(Held.Amount) ~= "number" or type(Held.Ends) ~= "number" or Held.Ends <= Now then
 			continue
 		end
+		if Held.Gen ~= nil and type(Held.Gen) ~= "string" then
+			continue
+		end
 		Fresh[Rid] = Held
 		Sums[Held.Field] = (Sums[Held.Field] or 0) + Held.Amount
 	end
 	return Fresh, Sums
+end
+
+local function Fitted(Item: Holding): Holding?
+	return if Measure(Item) <= MemoryStore.MAX_ITEM then Item else nil
 end
 
 local function Rewritten(Held: MemoryStoreWrapper, Slot: string, Change: (Holding?) -> Holding?): boolean
@@ -198,10 +216,11 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 		end)
 		if not Ok then
 			warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
+			self.Sweep:Add(self:Swept(), FromKey)
 			return false, UNRESOLVED
 		end
 
-		if Why == BUSY or Why == HELD or Follow then
+		if Why == BUSY or Why == HELD or Why == UNRESOLVED or Follow then
 			self.Sweep:Add(self:Swept(), FromKey)
 		end
 		if Moved then
@@ -223,16 +242,30 @@ function Store.Unbooked(self: Store, What: string)
 	warn(`Ledger: {What} on '{self.Options.Name}' needs a MemoryStore and this store has none, so nothing was set aside`)
 end
 
-function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?): (Reserved, number?)
-	local Held = self.Bookings
-	if Held == nil then
-		return Bookings.UNKNOWN, nil
+function Store.Crowded(self: Store, Key: string, Rid: string, Count: number)
+	local Meter = self.Meter
+	local Now = Clock.Now()
+	if Now - Meter.Crowded < Windows.AUTOSAVE then
+		return
 	end
 
+	Meter.Crowded = Now
+	warn(`Ledger: '{Key}' already holds {Count} reservations and has no room for another, so '{Rid}' was not set aside`)
+end
+
+function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?): (Reserved, number?, number, Hold?)
+	local Held = self.Bookings
+	if Held == nil then
+		return Bookings.UNKNOWN, nil, 0, nil
+	end
+
+	local Gen = Ids.Fresh()
 	local Answer: Reserved = Bookings.UNKNOWN
 	local Known: number? = nil
+	local Count = 0
+	local Standing: Hold? = nil
 	local Ok = Rewritten(Held, Slot, function(Item: Holding?): Holding?
-		Answer, Known = Bookings.UNKNOWN, nil
+		Answer, Known, Count, Standing = Bookings.UNKNOWN, nil, 0, nil
 		local Base: Holding = Item or { Holds = {}, Stock = {} }
 		if Stock ~= nil then
 			Base.Stock[Field] = Stock
@@ -246,33 +279,65 @@ function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Am
 		Known = Have
 
 		local Fresh, Sums = Unexpired(Base, Now)
+		Count = TableUtil.Count(Fresh)
 		local Mine = Fresh[Rid]
 		if Mine ~= nil then
+			if Mine.Field ~= Field or Mine.Amount ~= Amount then
+				Answer = Bookings.SPENT
+				Standing = Mine
+				return nil
+			end
 			Answer = Bookings.TAKEN
 			if Mine.Ends >= Ends then
 				return nil
 			end
-			Fresh[Rid] = { Field = Mine.Field, Amount = Mine.Amount, Ends = Ends }
-			return { Holds = Fresh, Stock = Base.Stock }
+			Fresh[Rid] = { Field = Mine.Field, Amount = Mine.Amount, Ends = Ends, Gen = Mine.Gen }
+			return Fitted({ Holds = Fresh, Stock = Base.Stock })
 		end
-		if TableUtil.Count(Fresh) >= Sizes.Booked then
+		if Count >= Sizes.Booked then
 			Answer = Bookings.FULL
 			return nil
 		end
 		if (Sums[Field] or 0) + Amount > Have then
 			Answer = Bookings.REFUSED
-			return if Stock ~= nil then { Holds = Fresh, Stock = Base.Stock } else nil
+			return if Stock ~= nil then Fitted({ Holds = Fresh, Stock = Base.Stock }) else nil
 		end
 
-		Fresh[Rid] = { Field = Field, Amount = Amount, Ends = Ends }
+		Fresh[Rid] = { Field = Field, Amount = Amount, Ends = Ends, Gen = Gen }
+		local Next = Fitted({ Holds = Fresh, Stock = Base.Stock })
+		if Next == nil then
+			Answer = Bookings.FULL
+			return nil
+		end
 		Answer = Bookings.TAKEN
-		return { Holds = Fresh, Stock = Base.Stock }
+		Count += 1
+		return Next
 	end)
 
 	if not Ok then
-		return Bookings.UNKNOWN, nil
+		return Bookings.UNKNOWN, nil, 0, nil
 	end
-	return Answer, Known
+	return Answer, Known, Count, Standing
+end
+
+function Store.Standing(self: Store, Slot: string, Rid: string): string?
+	local Held = self.Bookings
+	if Held == nil then
+		return nil
+	end
+
+	local Read, Value = Held:GetAsync(Slot)
+	if not Read or Value == nil then
+		return nil
+	end
+	local Item = Holdings(Value)
+	if Item == nil then
+		return nil
+	end
+
+	local Fresh = Unexpired(Item, Clock.Now())
+	local Mine = Fresh[Rid]
+	return if Mine ~= nil then Mine.Gen else nil
 end
 
 function Store.Dropped(self: Store, Slot: string, Rid: string, State: any): Dropped
@@ -335,7 +400,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 
 		local Now = Clock.Now()
 		local Ends = Now + (Hold or Windows.BOOK)
-		local Answer, Known = self:Holding(Slot, Rid, Field, Amount, Now, Ends, nil)
+		local Answer, Known, Count, Standing = self:Holding(Slot, Rid, Field, Amount, Now, Ends, nil)
 		if Answer == Bookings.COLD or Answer == Bookings.REFUSED then
 			local Read, State = pcall(function(): any
 				return self:Fold(self:ReadRecord(Resolved))
@@ -349,7 +414,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 				return false, REFUSED
 			end
 			if Answer == Bookings.COLD or Stock ~= Known then
-				Answer, Known = self:Holding(Slot, Rid, Field, Amount, Now, Ends, Stock)
+				Answer, Known, Count, Standing = self:Holding(Slot, Rid, Field, Amount, Now, Ends, Stock)
 			end
 		end
 
@@ -359,8 +424,12 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 		if Answer == Bookings.REFUSED then
 			return false, REFUSED
 		end
+		if Answer == Bookings.SPENT and Standing ~= nil then
+			warn(`Ledger: '{Rid}' on '{Resolved}' already holds {Standing.Amount} {Standing.Field}, so it keeps that. pick a new name to hold {Amount} {Field}`)
+			return false, SPENT
+		end
 		if Answer == Bookings.FULL then
-			warn(`Ledger: '{Resolved}' already holds {Sizes.Booked} reservations, so '{Rid}' was not set aside`)
+			self:Crowded(Resolved, Rid, Count)
 			return false, REFUSED
 		end
 		return false, UNRESOLVED
@@ -385,14 +454,28 @@ function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fiel
 	local Slot = Mark.Cached({ self.Wrapper.Name, Resolved })
 
 	return Future.New(function(): (boolean, Reason?)
+		local Gen = self:Standing(Slot, Rid)
+		if Gen ~= nil then
+			(Op :: any).Booking = Gen
+		end
+
 		local State: any = nil
-		local Ok, Why = self:Written(Resolved, Op, `confirm booking '{Rid}' with '{Kind}'`, nil, nil, function(Settled: Record): Reason?
+		local Ok, Why = self:Written(Resolved, Op, `confirm booking '{Rid}' with '{Kind}'`, function(Record: Record): boolean
+			for _, Existing in Record.Ops do
+				if Existing.Id == Op.Id then
+					return Gen == nil or Existing.Booking == nil or Existing.Booking == Gen
+				end
+			end
+			return true
+		end, SPENT, function(Settled: Record): Reason?
 			State = self:Fold(Settled)
 			return nil
 		end)
 
 		if Ok then
 			self:Dropped(Slot, Rid, State)
+		elseif Why == SPENT then
+			warn(`Ledger: booking '{Rid}' on '{Resolved}' was already spent by an earlier confirm under that name, so nothing was sold. pick a new name for each purchase`)
 		end
 		return Ok, Why
 	end)
@@ -514,9 +597,10 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 
 			local Item = if Read then Tally.Read(Value) else nil
 			if Item ~= nil then
+				local Floor = Tally.Since(Item, Tally.Mine(self.Node))
 				if Tally.Fresh(Item, Now) or Tally.Claimed(Item, Now) then
 					Held.Down = nil
-					return Remember(Held, Item.Sum, Item.At, Now), nil
+					return Remember(Held, Item.Sum, Item.At, Now, nil, Floor), nil
 				end
 
 				local Won, Claim = Tallies:UpdateAsync(Slot, function(Current: any): any
@@ -524,12 +608,12 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 					if Stale == nil or Tally.Fresh(Stale, Now) or Tally.Claimed(Stale, Now) then
 						return nil
 					end
-					return { Sum = Stale.Sum, At = Stale.At, Claimed = Now }
+					return { Sum = Stale.Sum, At = Stale.At, Read = Stale.Read, Claimed = Now }
 				end, Windows.TALLY_KEEP)
 
 				Held.Down = if Won then nil else Now
 				if not Won or Claim == nil then
-					return Remember(Held, Item.Sum, Item.At, Now), nil
+					return Remember(Held, Item.Sum, Item.At, Now, nil, Floor), nil
 				end
 			end
 		end
@@ -546,7 +630,9 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 		local Own = Tally.Shard(Name, Tally.Mine(self.Node))
 		local Mark = self.Bumped
 		local Sum = 0
-		for _, Key in Tally.Keys(Name) do
+		local Read: { number } = table.create(Shards.SHARDS) :: { number }
+		for Index, Key in Tally.Keys(Name) do
+			Read[Index] = Clock.Now()
 			local Ok, State = pcall(function(): any
 				return self:Fold(self:ReadRecord(Key))
 			end)
@@ -567,7 +653,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 				if Newer ~= nil and Newer.At > Walked then
 					return nil
 				end
-				return { Sum = Sum, At = Walked }
+				return { Sum = Sum, At = Walked, Read = Read }
 			end, Windows.TALLY_KEEP)
 			Held.Down = if Wrote then nil else Walked
 		end

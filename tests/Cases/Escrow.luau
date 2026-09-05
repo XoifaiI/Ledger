@@ -1258,4 +1258,21 @@ Cases.Case("a transfer that runs out of request budget part way leaves the money
 	T:Warns("it says it took the money and could not hand it over", "could not hand it over")
 end)
 
+Cases.Case("a reserve that landed and lost its answer is followed by the sweep", function(T: Case)
+	local Bank = Funded(T, { lostA = 100, lostB = 0 })
+	Bank:Fault(Fault.Updates():OnKey("lostA"):Swallow())
+	local Ok, Why = Bank.Store:Transfer("lostA", "lostB", 40, "lost1"):Wait()
+	Bank:Healed()
+
+	T:Is("the transfer", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Is("the amount set aside by the write whose answer was lost", Bank:Aside("lostA"), 40)
+
+	T:Sweep()
+
+	T:Is("gold on the receiver once the sweep finished it", Bank:Amount("lostB"), 40)
+	T:Is("anything still set aside", Bank:Aside("lostA"), 0)
+	T:Is("money is conserved", Bank:Amount("lostA") + Bank:Amount("lostB") + Bank:Aside("lostA"), 100)
+end)
+
 return Cases

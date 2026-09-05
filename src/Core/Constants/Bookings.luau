@@ -8,8 +8,9 @@
 	key last read for each field. MAP is the map those items live in. CONFIRM_ID is the prefix the op
 	that spends a hold carries. That id comes from the hold's name, so a retry lands once.
 
-	Taking a hold answers one of five, and letting one go answers one of four. Absent is a store with
-	no map at all, where Unknown is a map that did not answer.
+	Taking a hold answers one of six, and letting one go answers one of four. Spent is a name that
+	already holds other terms. Absent is a store with no map at all, where Unknown is a map that did
+	not answer.
 
 	Return type: A table with MAP, CONFIRM_ID and those answers. The types are Reserved and Dropped.
 	Example usage:
@@ -17,7 +18,7 @@
 		local Holds = Wrapper.New(Bookings.MAP, Turn, Hook)
 --]=]
 
-export type Reserved = "Taken" | "Cold" | "Refused" | "Full" | "Unknown"
+export type Reserved = "Taken" | "Cold" | "Refused" | "Full" | "Spent" | "Unknown"
 
 export type Dropped = "Dropped" | "Missing" | "Unknown" | "Absent"
 
@@ -29,6 +30,7 @@ return table.freeze({
 	COLD = "Cold" :: "Cold",
 	REFUSED = "Refused" :: "Refused",
 	FULL = "Full" :: "Full",
+	SPENT = "Spent" :: "Spent",
 	UNKNOWN = "Unknown" :: "Unknown",
 
 	DROPPED = "Dropped" :: "Dropped",

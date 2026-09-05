@@ -10,7 +10,8 @@
 	A migration is the game's code, and Ledger does not trust it with its own fields. Schema puts back
 	every field starting with an underscore after every step, and names the step that dropped one.
 	Certain says whether a parked transaction can still change the answer. Detached copies the
-	snapshot, so a reducer cannot reach the stored record through it.
+	snapshot, so a reducer cannot reach the stored record through it. A migration runs on a copy of
+	the snapshot too, so a record folds the same however many times it is read.
 
 	Return type: A table with New, FloorOf, Migrate and Detached.
 	Example usage:
@@ -160,6 +161,9 @@ function Schema.Rehydrate(self: Schema<any>, Record: Record): any
 	end
 
 	local Snapshot = Record.Snapshot
+	if Version < #Steps then
+		Snapshot = TableUtil.DeepCopy(Snapshot)
+	end
 	local Kept = if Version < #Steps then Bookkeeping(Snapshot) else nil
 	for Index = Version + 1, #Steps do
 		Snapshot = StepApply(Steps[Index], Snapshot)

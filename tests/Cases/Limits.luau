@@ -429,4 +429,33 @@ Cases.Case("a session whose key another writer filled compacts it and flushes", 
 	T:Is("the final save", (Active:Release():Wait()), true)
 end)
 
+Cases.Case("a key that filled behind a parked leg takes writes again once the leg settles", function(T: Case)
+	Sizes.Set({ Value = 65536, State = 4096, Op = 1024, Log = 2048, Compact = 512 })
+	local Bank = T:Bank()
+	Bank:Seed("brimful", { Gold = 100, Touches = 0 })
+	Bank:Marker("brim1", { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
+	Bank:Park("brimful", { Id = "tx:brim1:1", Kind = "Give", Amount = -25, Tx = "brim1", TxGen = "one", TxAt = T:Now() })
+	Bank:MarkerFault(Fault.Reads())
+
+	local Fat = string.rep("x", 200)
+	local Why: any = nil
+	for _ = 1, 40 do
+		local Ok, Reason = Bank.Store:Edit("brimful", "Fund", { Amount = 1, Note = Fat }):Wait()
+		if not Ok then
+			Why = Reason
+			break
+		end
+	end
+	T:Is("the write that met the cap", Why, "Full")
+
+	Bank:Healed()
+	T:Advance(Windows.TX * 4)
+	T:Is("the resettle once the marker store answered", (Bank.Store:Resettle("brimful"):Wait()), true)
+
+	local After, AfterWhy = Bank.Store:Edit("brimful", "Fund", { Amount = 1, Note = Fat }):Wait()
+	T:Is("an edit of the same size once the leg settled", After, true)
+	T:Is("no reason", AfterWhy, nil)
+	T:Is("ops left once the write compacted the key", #Bank:Record("brimful").Ops <= 1, true)
+end)
+
 return Cases

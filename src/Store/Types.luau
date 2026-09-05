@@ -9,7 +9,7 @@
 	as the sweep sees it: six plain functions carrying no self, the same shape the scheduler and the
 	hook take.
 
-	Return type: An empty table. The types are Allow, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Fields, StoreImpl and Store.
+	Return type: An empty table. The types are Allow, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Hold, Fields, StoreImpl and Store.
 	Example usage:
 		local Types = require("./Types")
 		type Store = Types.Store<D>
@@ -104,6 +104,14 @@ export type Meter = {
 	Swollen: number,
 	Said: number,
 	Unbooked: number,
+	Crowded: number,
+}
+
+export type Hold = {
+	Field: string,
+	Amount: number,
+	Ends: number,
+	Gen: string?,
 }
 
 export type Fields<D> = {
@@ -170,7 +178,9 @@ export type StoreImpl<D> = {
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
 	Kept: (self: Store<D>, Slot: string, Now: number) -> Tally.Recent,
 	Unbooked: (self: Store<D>, What: string) -> (),
-	Holding: (self: Store<D>, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?) -> (Reserved, number?),
+	Crowded: (self: Store<D>, Key: string, Rid: string, Count: number) -> (),
+	Holding: (self: Store<D>, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?) -> (Reserved, number?, number, Hold?),
+	Standing: (self: Store<D>, Slot: string, Rid: string) -> string?,
 	Dropped: (self: Store<D>, Slot: string, Rid: string, State: any) -> Dropped,
 	Leased: (self: Store<D>, Targets: { { Name: string, Key: string } }) -> ({ () -> () }, boolean),
 	Claim: (self: Store<D>, Key: string, Ttl: number) -> Claimed,

@@ -65,6 +65,7 @@ export type Session<S> = setmetatable<{
 	StateBytes: number,
 	Changed: Subject<S>,
 	Released: boolean,
+	Stopped: Reason?,
 }, SessionImpl<S>>
 
 return table.freeze({})

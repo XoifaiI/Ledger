@@ -592,4 +592,20 @@ Cases.Case("an older build is turned away from a key it may not write, snapshot 
 	T:Warns("it names the deploy", "finish the deploy")
 end)
 
+Cases.Case("a migration that changes its input in place still folds a record more than once", function(T: Case)
+	local function Inplace(State: any): any
+		State.Sold = State.Sold or 0
+		return State
+	end
+	local Shelf = T:Store({ Default = Reducers.SHELF, Reducer = Reducers.Shopkeeper, Field = "Stock", Migrations = { Inplace } })
+	Shelf:Write("shelf", { Snapshot = { Stock = 10, Gold = 0 }, Ops = {}, Seen = {}, Version = 0 })
+
+	local Ok, Why = Shelf.Store:Confirm("shelf", "cart1", "Sell", { Count = 3 }):Wait()
+
+	T:Is("a confirm, which folds the record twice on the way", Ok, true)
+	T:Is("the reason", Why, nil)
+	T:Is("stock once it was spent", Shelf:Amount("shelf"), 7)
+	T:Silent("nothing said the record could not be read back", "could not read the record back")
+end)
+
 return Cases

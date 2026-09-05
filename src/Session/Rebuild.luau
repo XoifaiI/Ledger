@@ -7,7 +7,8 @@
 
 	Push reads back which ops actually landed rather than trusting the call that returned. Append
 	carries the fence, which is the erase mark the key had at load. A write lands only while that mark
-	is unchanged or has run out, and Fenced drops a mark that has.
+	is unchanged or has run out, and Fenced drops a mark that has. A push the fence turns away closes
+	the session and drops what it could not write.
 
 	The sift folds the record with and without any parked leg. An op that holds one way but not the
 	other stays queued until the leg settles. Rebuild folds the record that came back and puts the
@@ -169,7 +170,9 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= self.Fence then
 		self.Released = true
+		self.Stopped = Reasons.Refused
 		warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
+		self.Pending = {}
 	end
 
 	self.LogSize = #Stored.Ops

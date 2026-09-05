@@ -11,7 +11,9 @@
 
 	An op taken in only because a transaction was parked names those transactions. Packed absorbs it
 	only while none of them has left its name on the key. A transaction that committed leaves an
-	ordinary op, and a build that cannot apply that op has to hold it.
+	ordinary op, and a build that cannot apply that op has to hold it. A Ledger op the fold refuses
+	is absorbed only when the state knows the field it names. A build whose Default lacks that field
+	holds it, the same as a game op it cannot apply.
 
 	Hint names the field taking the most room. Blocked names the kind that stops a key compacting.
 
@@ -92,10 +94,15 @@ local function Conditioned(State: any, Op: Op): boolean
 	return true
 end
 
+local function Knows(State: any, Op: Op): boolean
+	local Field = Op.Field
+	return type(Field) ~= "string" or (type(State) == "table" and type(State[Field]) == "number")
+end
+
 local function Accounted(State: any, Op: Op, Format: Schema<any>): boolean
 	local Handles = Format.Handles
 	if if Handles ~= nil then Handles[Op.Kind] == true else Storable.Reserved(Op.Kind) then
-		return true
+		return Knows(State, Op)
 	end
 
 	if Conditioned(State, Op) then

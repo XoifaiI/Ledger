@@ -173,7 +173,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Sweep = Registry.Sweep(),
 		Sweeping = nil,
 		Staleness = Observer.New(true) :: Observer.Subject<string>,
-		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0, Unbooked = 0 },
+		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0, Unbooked = 0, Crowded = 0 },
 		Resume = nil,
 		Closed = false,
 	}
@@ -242,7 +242,7 @@ function Store.Autosave(self: Store, UserId: number)
 	if Ok and Compact.Oversized(Entry.Active.LogSize, Entry.Active.LogBytes, Entry.Active.StateBytes) then
 		Ok = Entry.Active:Compact():Wait()
 	end
-	if Ok then
+	if Ok or Active.Released then
 		return
 	end
 	warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)

@@ -10,11 +10,12 @@
 	lives in a field of Ledger's own rather than the game's.
 
 	Cache holds a summed total, judged by its own At and never by the item's expiry. While it is
-	stale, one server holds a short claim on refilling it and the rest answer the stale sum. Down is
-	when the map last missed on this tally. A server that cannot reach the map answers the sum it
-	already has.
+	stale, one server holds a short claim on refilling it and the rest answer the stale sum. The item
+	also carries the second each shard was read, so a server lays over the sum only the bumps it made
+	after its own shard was read. Down is when the map last missed on this tally. A server that
+	cannot reach the map answers the sum it already has.
 
-	Return type: A table with Layered, Bump, Counted, Mine, Shard, Keys, Cache, Read, Fresh and Claimed. The types are Cached, Bucket and Recent.
+	Return type: A table with Layered, Bump, Counted, Mine, Shard, Keys, Cache, Read, Since, Fresh and Claimed. The types are Cached, Bucket and Recent.
 	Example usage:
 		local Tally = require("./Tally")
 		local Key = Tally.Shard(Name, Tally.Mine())
@@ -37,6 +38,7 @@ export type Cached = {
 	Sum: number,
 	At: number,
 	Claimed: number?,
+	Read: { number }?,
 }
 
 export type Bucket = {
@@ -49,6 +51,7 @@ export type Recent = {
 	Sum: number,
 	At: number,
 	Seen: number,
+	Floor: number?,
 	Down: number?,
 	Mark: number?,
 	OwnAt: number?,
@@ -128,7 +131,20 @@ local function Read(Value: any): Cached?
 	if Value.Claimed ~= nil and type(Value.Claimed) ~= "number" then
 		return nil
 	end
+	if Value.Read ~= nil and type(Value.Read) ~= "table" then
+		return nil
+	end
 	return Value
+end
+
+local function Since(Item: Cached, Shard: number): number?
+	local Read = Item.Read
+	if Read == nil then
+		return nil
+	end
+
+	local At = Read[Shard + 1]
+	return if type(At) == "number" then At else nil
 end
 
 local function Fresh(Item: Cached, Now: number): boolean
@@ -163,6 +179,7 @@ return table.freeze({
 	Keys = Keys,
 	Cache = Cache,
 	Read = Read,
+	Since = Since,
 	Fresh = Fresh,
 	Claimed = Claimed,
 })

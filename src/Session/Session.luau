@@ -6,9 +6,11 @@
 	Session: One player and one key, with the state folded from the log.
 
 	Apply is hopeful: it folds against live state, answers at once, and queues the op. Commit writes
-	before it answers. Flush pushes what is queued, Compact folds the log into a snapshot, and Release
-	is the last save on the way out. The fence is taken on load and dropped once the erase it marks
-	has run out.
+	before it answers, and a commit whose op has already been folded into the snapshot cannot be
+	answered and says so. Flush pushes what is queued, Compact folds the log into a snapshot, and
+	Release is the last save on the way out. The fence is taken on load and dropped once the erase it
+	marks has run out. A session the fence or a newer build stopped keeps nothing queued and answers
+	why on every save after.
 
 	Return type: A table with Load and MAX_PENDING.
 	Example usage:
@@ -86,6 +88,7 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 			StateBytes = 0,
 			Changed = Observer.New(),
 			Released = false,
+			Stopped = nil,
 		}
 
 		local Active: Session<S> = setmetatable(Body :: any, Session) :: any
@@ -211,9 +214,10 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on '{self.Key}'. this answer can change once that clears`)
 			end
 
+			local Faded = not TxStamp.Holds(Stored, Op.Id) and TxStamp.Carries(Stored, Op.Id)
 			local _, Took = Rebuild.Rebuild(self, Stored, Op.Id)
 			self:Notify()
-			return Took, Blocked
+			return Took, Blocked or Faded
 		end)
 
 		if not Ok then
@@ -234,6 +238,11 @@ end
 
 function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 	return Future.New(function(): (boolean, Reason?)
+		local Stopped = self.Stopped
+		if Stopped ~= nil then
+			return false, Stopped
+		end
+
 		local Whole = true
 		local Ok, Err = pcall(function()
 			local Pushed, Landed = Rebuild.Push(self)
@@ -253,7 +262,9 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 		local Why = Errors.Reason(Err)
 		if Why == BEHIND then
 			self.Released = true
+			self.Stopped = Why
 			warn(`Ledger: '{self.Key}' now needs a newer build than this server has, so this session is closed and its {#self.Pending} unsaved op(s) are not written. the player has to rejoin`)
+			self.Pending = {}
 			return false, Why
 		end
 
@@ -296,6 +307,14 @@ end
 function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 	return Future.New(function(): (boolean, Reason?)
 		self.Released = true
+
+		local Stopped = self.Stopped
+		if Stopped ~= nil then
+			if Stopped == REFUSED then
+				warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+			end
+			return false, Stopped
+		end
 
 		local Whole = true
 		local Ok, Err = pcall(function()

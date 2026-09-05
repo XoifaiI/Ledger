@@ -59,13 +59,14 @@ local function NewOp(Kind: string, Fields: { [any]: any }?): Op
 	assert(Fields == nil or type(Fields) == "table", `op '{Kind}' Fields must be a table when given`)
 
 	local Op: { [any]: any } = if Fields then TableUtil.DeepCopy(Fields) else {}
-	if Op.Id ~= nil or Op.Kind ~= nil or Op.OnceAt ~= nil then
-		warn(`Ledger: op '{Kind}' passed Id, Kind or OnceAt in its fields. those belong to Ledger, so they got overwritten`)
+	if Op.Id ~= nil or Op.Kind ~= nil or Op.OnceAt ~= nil or Op.Booking ~= nil then
+		warn(`Ledger: op '{Kind}' passed Id, Kind, OnceAt or Booking in its fields. those belong to Ledger, so they got overwritten`)
 	end
 
 	Op.Id = Ids.Fresh()
 	Op.Kind = Kind
 	Op.OnceAt = nil
+	Op.Booking = nil
 
 	return Op :: Op
 end

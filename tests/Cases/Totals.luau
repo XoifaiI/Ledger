@@ -536,4 +536,29 @@ Cases.Case("a total does not count a bump that the sum it read already counted",
 	T:Is("so the bumping server reads no more than the shards hold", A.Store:Total("pot", FIELD, 0):Wait(), Truth)
 end)
 
+Cases.Case("an own bump landing while another server reads the shards shows at once, unless it lands in the second its shard was read", function(T: Case)
+	local A = T:Vault("nodeA")
+	local B = T:Vault("nodeB")
+	local Mine = Tally.Mine(B.Store.Node)
+	T:Ok("this case needs nodeB off the last shard, so a read comes after its own", Mine < SHARDS - 1)
+	A.Store:Total("pot", FIELD):Wait()
+	B.Store:Total("pot", FIELD):Wait()
+	T:Advance(CACHE + 1)
+
+	local Landed = false
+	A:Fault(Fault.Reads():OnKey(Tally.Shard("pot", SHARDS - 1)):Only(1):Meddle(function()
+		T:Advance(2)
+		Landed = B.Store:Bump("pot", FIELD, 50):Wait()
+	end))
+	local Refilled = A.Store:Total("pot", FIELD):Wait()
+	local Own = B.Store:Total("pot", FIELD):Wait()
+	T:Advance(CACHE + 1)
+	local Later = B.Store:Total("pot", FIELD):Wait()
+
+	T:Ok("the bump landed inside the refill", Landed)
+	T:Is("the refill, which read the bumping server's shard before the bump", Refilled, 0)
+	T:Is("the bumping server's own total, at once", Own, 50)
+	T:Is("its total a window later", Later, 50)
+end)
+
 return Cases

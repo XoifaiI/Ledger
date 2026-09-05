@@ -1094,4 +1094,36 @@ Cases.Case("two servers appending one op run its transform again and write it on
 	T:Is("gold, counting it once", Bank:Amount("sameop"), 25)
 end)
 
+Cases.Case("an older build cannot compact away a bump on a field it does not know", function(T: Case)
+	local Old = T:Store({ Default = { Gold = 0 }, Reducer = Suite.Reducers.Keep, Data = "CaseDeployBump", Node = "nodeX" })
+	local New = T:Store({ Default = { Gold = 0, Gems = 0 }, Reducer = Suite.Reducers.Keep, Data = "CaseDeployBump", Node = "nodeX" })
+
+	T:Ok("the newer build's bump", (New.Store:Bump("pot", "Gems", 5):Wait()))
+	for _ = 1, 130 do
+		Old.Store:Bump("pot", "Gold", 1):Wait()
+	end
+	T:Advance(Windows.TALLY_KEEP + 1)
+
+	T:Is("gems the newer build counts after the older build tried to compact the shard", New.Store:Total("pot", "Gems", 0):Wait(), 5)
+	T:Is("gold the older build counts", Old.Store:Total("pot", "Gold", 0):Wait(), 130)
+	T:Warns("the older build said it could not compact the shard", "cannot be compacted")
+end)
+
+Cases.Case("an older build cannot compact away a field transfer whose field it does not know", function(T: Case)
+	local Old = T:Store({ Default = { Gold = 0 }, Reducer = Suite.Reducers.Keep, Data = "CaseDeployUnits" })
+	local New = T:Store({ Default = { Gold = 0, Stock = 10 }, Reducer = Suite.Reducers.Keep, Data = "CaseDeployUnits", Field = "Stock" })
+	Old:Seed("shelf", { Gold = 0 })
+	Old:Seed("cart", { Gold = 0 })
+
+	T:Ok("the transfer on the newer build", (New.Store:Transfer("shelf", "cart", 3, "unit1", "Stock"):Wait()))
+	local Before = New:Amount("shelf", "Stock") + New:Amount("cart", "Stock")
+	for _ = 1, 130 do
+		Old.Store:Edit("shelf", "Touch"):Wait()
+	end
+
+	T:Is("units before the older build wrote", Before, 20)
+	T:Is("units after the older build tried to compact the sender", New:Amount("shelf", "Stock") + New:Amount("cart", "Stock") + New:Aside("shelf", "Stock"), 20)
+	T:Warns("the older build said it could not compact the key", "cannot be compacted")
+end)
+
 return Cases

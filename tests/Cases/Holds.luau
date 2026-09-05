@@ -450,4 +450,79 @@ Cases.Case("a release the map answered for finds nothing and refuses", function(
 	T:Silent("and it does not blame the store for having no map", "needs a MemoryStore and this store has none")
 end)
 
+Cases.Case("a booking name reused after a confirm is spent, not sold again for nothing", function(T: Case)
+	local Shelf = T:Shelf()
+	T:Ok("the first reservation", (Shelf.Store:Reserve("shelf", "Stock", 3, "cart1"):Wait()))
+	T:Ok("the first confirm", (Sell(Shelf, "shelf", "cart1", 3)))
+	T:Ok("reserving again under the same name, which is free again", (Shelf.Store:Reserve("shelf", "Stock", 2, "cart1"):Wait()))
+
+	local Ok, Why = Sell(Shelf, "shelf", "cart1", 2)
+	local Now = Shelf:State("shelf")
+
+	T:Is("the second confirm", Ok, false)
+	T:Is("the reason", Why, Reasons.Spent)
+	T:Is("stock, spent by the first confirm only", Now.Stock, 7)
+	T:Is("what the reducer counted", Now.Sold, 3)
+	T:Is("units the second booking still holds", Holds(Shelf, "shelf"), 2)
+	T:Warns("it said the name was spent by an earlier confirm", "already spent by an earlier confirm")
+end)
+
+Cases.Case("a key with long names stops taking holds before its item is too big for the map", function(T: Case)
+	local Field = "LimitedEditionStock"
+	local Shelf = T:Store({ Default = { [Field] = 100000000 }, Reducer = Reducers.Keep, Field = Field })
+
+	local Taken, Refused, Unresolved = 0, 0, 0
+	for Index = 1, Sizes.Booked do
+		local Ok, Why = Shelf.Store:Reserve("shelf", Field, 100000, string.format("%064d", Index)):Wait()
+		if Ok then
+			Taken += 1
+		elseif Why == Reasons.Refused then
+			Refused += 1
+		else
+			Unresolved += 1
+		end
+	end
+	local Held = Item(T, Shelf, "shelf")
+	local Bytes = #game:GetService("HttpService"):JSONEncode(Held)
+
+	T:Ok("holds it took", Taken > 0)
+	T:Ok("holds it turned away once the item was full", Refused > 0)
+	T:Is("holds it could not answer", Unresolved, 0)
+	T:Is("misses the map counted", Shelf.Store.Bookings.Missed, 0)
+	T:Ok(`the item, {Bytes} bytes, inside the cap`, Bytes <= MemoryStore.MAX_ITEM)
+	T:Ok("a small reserve on another key still answers", (Shelf.Store:Reserve("other", Field, 1, "small"):Wait()))
+	T:AtMost("it said the key was full, once a window", "already holds", 1)
+end)
+
+Cases.Case("reserving again under a held name for other terms is spent and holds what it held", function(T: Case)
+	local Shelf = T:Store({ Default = { Stock = 10, Other = 5 }, Reducer = Reducers.Keep, Field = "Stock" })
+	T:Ok("two held", (Shelf.Store:Reserve("shelf", "Stock", 2, "cart1"):Wait()))
+
+	local More, MoreWhy = Shelf.Store:Reserve("shelf", "Stock", 5, "cart1"):Wait()
+	local Elsewhere, ElsewhereWhy = Shelf.Store:Reserve("shelf", "Other", 1, "cart1"):Wait()
+
+	T:Is("asking for five under the name that holds two", More, false)
+	T:Is("the reason", MoreWhy, Reasons.Spent)
+	T:Is("asking for another field under it", Elsewhere, false)
+	T:Is("the reason for the other field", ElsewhereWhy, Reasons.Spent)
+	T:Is("units held on Stock, the two", Holds(Shelf, "shelf", "Stock"), 2)
+	T:Is("units held on Other, none", Holds(Shelf, "shelf", "Other"), 0)
+	T:Warns("it said what the name holds", "already holds 2 Stock")
+	T:Is("asking for the two again, which keeps the hold alive", (Shelf.Store:Reserve("shelf", "Stock", 2, "cart1"):Wait()), true)
+end)
+
+Cases.Case("a key at its cap says so once a window, not once a refusal", function(T: Case)
+	local Shelf = T:Shelf()
+	Sizes.Set({ Booked = 2 })
+	Shelf.Store:Reserve("shelf", "Stock", 1, "b1"):Wait()
+	Shelf.Store:Reserve("shelf", "Stock", 1, "b2"):Wait()
+	for Index = 3, 22 do
+		T:No(`buyer {Index}`, (Shelf.Store:Reserve("shelf", "Stock", 1, `b{Index}`):Wait()))
+	end
+	T:Advance(Windows.AUTOSAVE + 1)
+	T:No("a buyer a window later", (Shelf.Store:Reserve("shelf", "Stock", 1, "later"):Wait()))
+
+	T:Warns("it said the key was full, once for the burst and once a window later", "already holds 2 reservations", 2)
+end)
+
 return Cases

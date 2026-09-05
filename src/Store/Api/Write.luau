@@ -8,7 +8,8 @@
 	Every public write ends here. This is the only place that turns a datastore answer into a reason.
 	It runs the caller's guard, asks whether the op still applies, appends, settles and trims the
 	record, then reads back whether the op really took. It adds a key to the sweep when that key is
-	left holding money part way through a move.
+	left holding money part way through a move. A key with no room for the op is compacted once and
+	tried again before it answers Full.
 
 	Shows is for a caller whose op can land and still leave nothing behind, because a later op undid
 	it. It is asked once of the settled record and names the reason.
@@ -209,24 +210,38 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	local Applied = true
 	local Swollen = false
 	local Doubt = false
-	local Landed, Result = pcall(function(): Record
-		return self:Append(Key, Op, function(Record: Record): boolean
-			Applied, Swollen, Doubt = true, false, false
-			if Guard ~= nil and not Guard(Record) then
-				return false
-			end
+	local function Judge(Record: Record): boolean
+		Applied, Swollen, Doubt = true, false, false
+		if Guard ~= nil and not Guard(Record) then
+			return false
+		end
 
-			local Only
-			Applied, Only, Doubt = self:Applies(Op, Record)
-			if not Applied then
-				return false
-			end
-			(Op :: any).TxOnly = if Only then TxStamp.PendingIds(Record) else nil
+		local Only
+		Applied, Only, Doubt = self:Applies(Op, Record)
+		if not Applied then
+			return false
+		end
+		(Op :: any).TxOnly = if Only then TxStamp.PendingIds(Record) else nil
 
-			Swollen = self:Swollen(Op, Record)
-			return not Swollen
+		Swollen = self:Swollen(Op, Record)
+		return not Swollen
+	end
+
+	local function Attempt(): (boolean, any)
+		return pcall(function(): Record
+			return self:Append(Key, Op, Judge)
 		end)
-	end)
+	end
+
+	local Landed, Result = Attempt()
+	if not Landed and Errors.Reason(Result) == FULL then
+		local Packed = pcall(function()
+			self:Records():Compact(Key, self:Format())
+		end)
+		if Packed then
+			Landed, Result = Attempt()
+		end
+	end
 
 	if not Landed then
 		local Named = Errors.Reason(Result)

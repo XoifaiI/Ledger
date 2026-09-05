@@ -1455,4 +1455,48 @@ Cases.Case("erasing a key while its player is still here closes their session on
 	T:Warns("it says the key was erased under the session", "was erased while this session was live")
 end)
 
+Cases.Case("a commit replayed after its op was compacted away cannot be answered", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("fadedK", { Gold = 0, Touches = 0 })
+	local Active = Bank:Session("fadedK")
+
+	T:Is("the commit", (Active:CommitOp({ Id = "receipt1", Kind = "Fund", Amount = 5 } :: any):Wait()), true)
+	T:Is("the same commit again while the op is in the log", (Active:CommitOp({ Id = "receipt1", Kind = "Fund", Amount = 5 } :: any):Wait()), true)
+	Bank:Log():Compact("fadedK", Bank:Format())
+
+	local Again, Why = Active:CommitOp({ Id = "receipt1", Kind = "Fund", Amount = 5 } :: any):Wait()
+
+	T:Is("the same commit once the op was folded into the snapshot", Again, false)
+	T:Is("the reason, since the record can no longer say whether it took", Why, "Unresolved")
+	T:Is("gold, applied once", Bank:Amount("fadedK"), 5)
+end)
+
+Cases.Case("a session erased under a player says so once and drops what it cannot write", function(T: Case)
+	local Players = T:Store({ Keys = "Player", Default = Reducers.PLAIN, Reducer = Reducers.Keep })
+	Players:Seed("43", { Gold = 5 })
+	local Player = T:Player(43)
+	Joined(Player)
+	Players.Store:Load(Player)
+	T:Wait()
+	local Active: any = Players.Store:Get(Player)
+	T:Ok("the op the session takes", (Active:Apply("Keep")))
+	T:Ok("the erase", (Players.Store:Erase(43):Wait()))
+
+	local Entry = Players.Store.Loaded[43]
+	for _ = 1, 4 do
+		local Was = Entry.Ticks
+		T:Advance(Windows.AUTOSAVE + 1)
+		T:Until(function(): boolean
+			return Entry.Ticks > Was
+		end)
+		T:Wait(1)
+	end
+
+	T:Warns("it said the key was erased under the session, once", "was erased while this session was live", 1)
+	T:Silent("the autosave did not blame the datastore", "the datastore is probably down")
+	T:Is("ops the session still holds, none, since they cannot be written", #Active.Pending, 0)
+	T:Is("the session, closed", Active.Released, true)
+	Players.Store:Unload(Player)
+end)
+
 return Cases
