@@ -74,4 +74,4 @@ npm install @xoifail/ledger
 
 ## License
 
-This project is licensed under the [MIT License](https://github.com/XoifaiI/Ledger/blob/main/LICENSE).
+This project has the [MIT License](https://github.com/XoifaiI/Ledger/blob/main/LICENSE).
