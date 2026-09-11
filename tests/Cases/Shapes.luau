@@ -442,11 +442,22 @@ end)
 Cases.Case("an array is never backfilled from the default", function(T: Case)
 	local Default: any = { Hotbar = { "A", "B", "C" }, Coins = 5 }
 	local Stored: any = { Hotbar = { "X" } }
-	Reconcile(Default, Stored)
+	local Ready: any = Reconcile(Default, Stored)
 
-	T:Is("how many entries the stored array kept", #Stored.Hotbar, 1)
-	T:Is("the entry it kept", Stored.Hotbar[1], "X")
-	T:Is("a missing scalar was filled in", Stored.Coins, 5)
+	T:Is("how many entries the stored array kept", #Ready.Hotbar, 1)
+	T:Is("the entry it kept", Ready.Hotbar[1], "X")
+	T:Is("a missing scalar was filled in", Ready.Coins, 5)
+	T:Is("the table it was handed, which it copies rather than writes into", Stored.Coins, nil)
+	T:Ok("the array itself, still the one that was stored", rawequal(Ready.Hotbar, Stored.Hotbar))
+end)
+
+Cases.Case("a snapshot that already holds every default comes back untouched", function(T: Case)
+	local Default: any = { Coins = 5, Bag = { Slots = 2 } }
+	local Stored: any = { Coins = 9, Bag = { Slots = 4 } }
+	local Ready: any = Reconcile(Default, Stored)
+
+	T:Ok("the very table it was handed, with nothing copied", rawequal(Ready, Stored))
+	T:Is("what it holds", Ready.Coins, 9)
 end)
 
 Cases.Case("numbers are sized by their digits", function(T: Case)

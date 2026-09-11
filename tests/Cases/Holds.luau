@@ -229,6 +229,18 @@ Cases.Case("a hold runs out on its own and the next reservation can have the uni
 	T:Is("units held, the fresh one only", Holds(Shelf, "shelf"), 6)
 end)
 
+Cases.Case("the item a hold lives in outlives the hold, so the next reservation is still warm", function(T: Case)
+	local Shelf = T:Shelf()
+	T:Ok("the first hold on the key, which reads the record to learn the stock", (Shelf.Store:Reserve("shelf", "Stock", 1, "cold"):Wait()))
+
+	T:Advance(Windows.BOOK + 60)
+	T:Is("units held once that one has run out", Holds(Shelf, "shelf"), 0)
+
+	local Before = Shelf.Store.Wrapper.Spent
+	T:Ok("a hold taken inside the margin, after the first ran out", (Shelf.Store:Reserve("shelf", "Stock", 1, "warm"):Wait()))
+	T:Is("records it read to take it, since the item still caches the stock", Shelf.Store.Wrapper.Spent - Before, 0)
+end)
+
 Cases.Case("a shorter hold beside a longer one leaves the longer one alone", function(T: Case)
 	local Shelf = T:Shelf()
 

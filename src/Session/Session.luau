@@ -7,7 +7,8 @@
 
 	Apply is hopeful: it folds against live state, answers at once, and queues the op. Commit writes
 	before it answers, and a commit whose op has already been folded into the snapshot cannot be
-	answered and says so. Flush pushes what is queued, Compact folds the log into a snapshot, and
+	answered and says so. A commit the sift held back writes again a few times at most, since nothing
+	but that count paces it. Flush pushes what is queued, Compact folds the log into a snapshot, and
 	Release is the last save on the way out. The fence is taken on load and dropped once the erase it
 	marks has run out. A session the fence or a newer build stopped keeps nothing queued and answers
 	why on every save after.
@@ -28,6 +29,7 @@ local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
+local Validate = require("../Core/Validate")
 local Windows = require("../Core/Constants/Windows")
 local Measure = require("../Encode/Measure")
 local LogTypes = require("../Record/Types")
@@ -48,6 +50,7 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 export type Session<S> = Types.Session<S>
 
 local MAX_PENDING = 4096
+local MAX_APPENDS = 4
 
 local REFUSED = Reasons.Refused
 local BACKLOG = Reasons.Backlog
@@ -172,7 +175,7 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 end
 
 function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
-	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
+	if not Validate.Op(Op) then
 		warn("Ledger: rejected commit, an op needs a string Id and a string Kind")
 		return Rejected(INVALID)
 	end
@@ -192,21 +195,25 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		local Ok, Accepted, Stuck = pcall(function(): (boolean, boolean)
 			Rebuild.Push(self)
 
-			local Written, _, Waiting = Rebuild.Append(self, { Op })
-			local Stored = self:Settled(Written)
+			local function Land(): (Record, { string })
+				local Written, _, Waiting = Rebuild.Append(self, { Op })
+				return self:Settled(Written), Waiting
+			end
+
+			local Stored, Waiting = Land()
 			local Deadline = Clock.Now() + Windows.TX + Windows.POLL
-			while true do
-				local Pending = TxStamp.HasPending(Stored)
-				if not Pending and #Waiting > 0 and Clock.Now() < Deadline then
-					Written, _, Waiting = Rebuild.Append(self, { Op })
-					Stored = self:Settled(Written)
+			local Tries = 0
+			while Clock.Now() < Deadline do
+				if TxStamp.HasPending(Stored) then
+					Clock.Wait(Windows.POLL)
+					Stored = self:Settled((self.Log:Read(self.Key)))
 					continue
 				end
-				if not Pending or Clock.Now() >= Deadline then
+				if #Waiting == 0 or Tries >= MAX_APPENDS then
 					break
 				end
-				Clock.Wait(Windows.POLL)
-				Stored = self:Settled((self.Log:Read(self.Key)))
+				Tries += 1
+				Stored, Waiting = Land()
 			end
 
 			local Blocked = TxStamp.HasPending(Stored)

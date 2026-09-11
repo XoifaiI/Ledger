@@ -5,30 +5,25 @@
 
 	Ops: The writes a game asks for by name.
 
-	Edit, Confirm and Bump check their arguments, build one op and hand it to Written. Reserve,
-	Release and Holds work on the MemoryStore item and never touch the key. Transfer and Tx touch
-	more than one key. They run a protocol and add the keys to the sweep if they cannot finish.
+	Edit, Confirm and Bump build one op and hand it to Written. Reserve, Release and Holds work on
+	the MemoryStore item and never touch the key. Transfer and Tx run a protocol over more than one
+	key, and add the keys to the sweep when they cannot finish.
 
-	A confirm reads the hold first and marks its op with the hold, so a name reused after an earlier
-	confirm answers Spent and never the earlier answer. A hold item is kept inside the map's item cap,
-	so a key with long names stops taking holds before the count cap.
+	A confirm carries the hold it spends, so a name reused after an earlier confirm answers Spent. A
+	hold item is kept inside the map's item cap, and outlives the longest hold by one margin so the
+	stock it caches is still there for the next reservation.
 
-	A total answers from the sum this server holds while that sum is younger than MaxAge. MaxAge is
-	one TALLY_CACHE unless the caller names another, and a MaxAge of zero always asks. Past that
-	window the total is a copy like any followed key, with a source that sums the shards: one server
-	claims the refill of a stale item and reads them while the rest answer the stale sum, and a map
-	that misses holds the total to this server's own sum. What a total adds is the overlay of this
-	server's own bumps over whatever sum it answers.
+	A total answers this server's own sum inside MaxAge, then reads the shared copy, and one server
+	refills a stale one. A bump writes only its shard and carries no name, so one that answers
+	Unresolved is not asked again. This server lays its own bumps over the sum it answers, in buckets
+	of one second, and a refill seals the open bucket when it reads this server's own shard, so no
+	bucket holds bumps from both sides of that read.
 
-	A bump writes nothing to MemoryStore. This server lays its own bumps over the sum it answers, and
-	other servers see them at the next refill. A bump carries no name, so one that answers Unresolved
-	may already have counted and is not asked again.
+	A transaction leases each key in one fixed order and lets go on every exit. The marker still
+	decides. A lease it cannot take means drive without one, and a key another server holds answers
+	Busy at once.
 
-	A transaction leases each key before it drives, in one fixed order, and lets go on every exit.
-	The marker still decides. A lease it cannot take or read means drive without one. A key another
-	server holds answers Busy at once.
-
-	Return type: An empty table. It writes Edit, Transfer, Unbooked, Crowded, Holding, Standing, Dropped, Reserve, Confirm, Release, Holds, TallyName, Kept, Bump, Total, Leased, Claim and Tx onto the class.
+	Return type: An empty table. It writes Edit, EditOp, Transfer, Unbooked, Crowded, Holding, Standing, Dropped, Reserve, Confirm, Release, Holds, TallyName, Kept, Bump, Flushed, Total, Leased, Claim and Tx onto the class.
 	Example usage:
 		local Ops = require("./Ops")
 		local Ok, Why = self:Edit(1, "Add", { Amount = 5 }):Wait()
@@ -83,6 +78,7 @@ local MAX_TX_ID = 50
 local MAX_BOOKING_ID = 64
 local SHARD_DIGITS = #tostring(Shards.MOST)
 local BUMP_BUDGET = 4
+local BOOK_KEEP = Windows.BOOK + Windows.BOOK_MARGIN
 
 local REFUSED = Reasons.Refused
 local INVALID = Reasons.Invalid
@@ -124,11 +120,16 @@ local function Over(Held: Recent): number
 	return Sum
 end
 
+local function Sealed(Held: Recent, Seq: number)
+	local Shut = Held.Sealed
+	Held.Sealed = if Shut ~= nil and Shut > Seq then Shut else Seq
+end
+
 local function Bumped(Held: Recent, Seq: number, Now: number, Amount: number)
 	local Bumps = Held.Bumps
 	local Last = Bumps[#Bumps]
-	local Mark = Held.Mark
-	if Last ~= nil and Last.At == Now and (Mark == nil or Last.Seq > Mark) then
+	local Shut = Held.Sealed
+	if Last ~= nil and Last.At == Now and (Shut == nil or Last.Seq > Shut) then
 		Last.Amount += Amount
 		return
 	end
@@ -178,7 +179,7 @@ end
 local function Rewritten(Held: MemoryStoreWrapper, Slot: string, Change: (Holding?) -> Holding?): boolean
 	return (Held:UpdateAsync(Slot, function(Current: any): any
 		return Change(Holdings(Current))
-	end, Windows.BOOK))
+	end, BOOK_KEEP))
 end
 
 local function Waiting(self: Store, Slot: string): number
@@ -251,7 +252,7 @@ end
 
 function Store.EditOp(self: Store, Key: KeyLike, Op: Op): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "EditOp")
-	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
+	if not Validate.Op(Op) then
 		warn("Ledger: EditOp rejected the op, an op needs a string Id and a string Kind")
 		return Rejected(INVALID)
 	end
@@ -436,8 +437,9 @@ function Store.Dropped(self: Store, Slot: string, Rid: string, State: any): Drop
 		end
 
 		Fresh[Rid] = nil
-		if type(State) == "table" and type(State[Mine.Field]) == "number" then
-			Item.Stock[Mine.Field] = State[Mine.Field]
+		local Stock = Validate.Numbered(State, Mine.Field)
+		if Stock ~= nil then
+			Item.Stock[Mine.Field] = Stock
 		end
 		Answer = Bookings.DROPPED
 		return { Holds = Fresh, Stock = Item.Stock }
@@ -484,8 +486,8 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 				return false, Failed(`read the {Field} on`, Resolved, State)
 			end
 
-			local Stock = if type(State) == "table" then State[Field] else nil
-			if type(Stock) ~= "number" then
+			local Stock = Validate.Numbered(State, Field)
+			if Stock == nil then
 				return false, REFUSED
 			end
 			if Answer == Bookings.COLD or Stock ~= Known then
@@ -720,6 +722,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 			Refill = function(_Copy: Copy): (any?, number?, Reason?)
 				local Own = Tally.Shard(Name, Mine)
 				local Counted = self.Bumped
+				Sealed(Held, Counted)
 				local Sum = 0
 				local Read: { number } = table.create(Count) :: { number }
 				for Index, Key in Tally.Keys(Name, Count) do
@@ -734,6 +737,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 					Sum += Tally.Counted(State, Field)
 					if Key == Own then
 						Counted = self.Bumped
+						Sealed(Held, Counted)
 					end
 				end
 

@@ -1,6 +1,6 @@
 [package]
 name = "xoifaii/ledger"
-version = "5.2.1"
+version = "5.2.2"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 license = "MIT"

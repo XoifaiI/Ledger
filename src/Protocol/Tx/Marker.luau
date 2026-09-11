@@ -12,7 +12,7 @@
 	The handles it keeps to other stores belong to the hook they were opened on, and so does the count
 	of how many are left. A handle that stops being cached stops queueing its writes in order.
 
-	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
+	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, TouchedAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
 	Example usage:
 		local Marker = require("./Marker")
 		local Status = Marker.StatusOf(TxStore, "order1", 30)
@@ -38,6 +38,8 @@ type Home = {
 	Said: boolean,
 }
 
+local MILLISECOND = 1000
+
 local Homes: { [Engine.Hook]: Home } = setmetatable({}, { __mode = "k" }) :: any
 
 local function GenOf(Value: any): string?
@@ -52,6 +54,13 @@ local function BornAt(Value: any, Fallback: number): number
 		return Fallback
 	end
 	return Value.At
+end
+
+local function TouchedAt(Info: any): number
+	if Info == nil then
+		return 0
+	end
+	return (Info :: DataStoreKeyInfo).UpdatedTime / MILLISECOND
 end
 
 local function Buried(Value: any): boolean
@@ -202,7 +211,7 @@ local function StatusOf(TxStore: DataStoreWrapper, Txid: string, PerLeg: number)
 	end
 
 	local Legs = if type(Marker.Total) == "number" and Marker.Total > 0 then Marker.Total else Transactions.MAX_LEGS
-	local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
+	local Updated = TouchedAt(Info)
 	if Clock.Now() - Updated >= PerLeg * Legs then
 		return Decide(TxStore, Txid, Transactions.ABORTED, nil, Gen) or Transactions.PENDING, Gen, Born
 	end
@@ -256,6 +265,7 @@ return table.freeze({
 	Adopt = Adopt,
 	GenOf = GenOf,
 	BornAt = BornAt,
+	TouchedAt = TouchedAt,
 	MarkOf = MarkOf,
 	Elsewhere = Elsewhere,
 	HomeOf = HomeOf,

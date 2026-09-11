@@ -7,7 +7,7 @@
 
 	These are private to this folder. This file holds declarations, and never logic.
 
-	Return type: An empty table. The types are Outcome, Resolution, Verdict, Prepared, Fated, Shape and Log.
+	Return type: An empty table. The types are Outcome, Resolution, Verdict, Prepared, Fated, Shape, ShapeImpl, Log and LogImpl.
 	Example usage:
 		local Types = require("./Types")
 		type Log = Types.Log

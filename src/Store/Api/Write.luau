@@ -55,6 +55,16 @@ local CLOSED = Reasons.Closed
 local BEHIND = Reasons.Behind
 local FULL = Reasons.Full
 
+type Ruling = {
+	read Allowed: boolean,
+	read Applied: boolean,
+	read Swollen: boolean,
+	read Doubt: boolean,
+}
+
+local CLEAR: Ruling = table.freeze({ Allowed = true, Applied = true, Swollen = false, Doubt = false })
+local BARRED: Ruling = table.freeze({ Allowed = false, Applied = true, Swollen = false, Doubt = false })
+
 local function Failed(What: string, Key: string, Err: any): Reason
 	local Why = Errors.Reason(Err)
 	if Why == CLOSED then
@@ -213,24 +223,25 @@ function Store.Swollen(self: Store, Op: Op, Record: Record): boolean
 end
 
 function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?, Shows: ((Record) -> Reason?)?): (boolean, Reason?)
-	local Applied = true
-	local Swollen = false
-	local Doubt = false
-	local function Judge(Record: Record): boolean
-		Applied, Swollen, Doubt = true, false, false
+	local Ruling: Ruling = CLEAR
+	local function Weigh(Record: Record): Ruling
 		if Guard ~= nil and not Guard(Record) then
-			return false
+			return BARRED
 		end
 
-		local Only
-		Applied, Only, Doubt = self:Applies(Op, Record)
+		local Applied, Only, Doubt = self:Applies(Op, Record)
 		if not Applied then
-			return false
+			return { Allowed = false, Applied = false, Swollen = false, Doubt = Doubt }
 		end
 		(Op :: any).TxOnly = if Only then TxStamp.PendingIds(Record) else nil
 
-		Swollen = self:Swollen(Op, Record)
-		return not Swollen
+		local Swollen = self:Swollen(Op, Record)
+		return { Allowed = not Swollen, Applied = true, Swollen = Swollen, Doubt = Doubt }
+	end
+
+	local function Judge(Record: Record): boolean
+		Ruling = Weigh(Record)
+		return Ruling.Allowed
 	end
 
 	local function Attempt(): (boolean, any, number?)
@@ -274,15 +285,15 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	if Guard ~= nil and not Guard(Stored) then
 		return false, Denied or REFUSED
 	end
-	if Swollen then
+	if Ruling.Swollen then
 		warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {Sizes.State} byte state cap and this would make it bigger`)
 		return false, FULL
 	end
-	if Doubt then
+	if Ruling.Doubt then
 		warn(`Ledger: {What} on '{Key}' was not written, a transaction is parked on that key and this op only holds if it does not go through. ask again once it settles`)
 		return false, UNRESOLVED
 	end
-	if not Applied then
+	if not Ruling.Applied then
 		return false, REFUSED
 	end
 

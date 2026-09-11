@@ -11,7 +11,7 @@
 	changed the record hand back the stamp the datastore put on it, so a copy of the record can be
 	ordered against another without comparing two servers' clocks.
 
-	Return type: A table with New, Verdict, Entombed and NotEntombed.
+	Return type: A table with New, Entombed and NotEntombed.
 	Example usage:
 		local Log = require("./Log")
 		local Books = Log.New(Wrapper, 0)

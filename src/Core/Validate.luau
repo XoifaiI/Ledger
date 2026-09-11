@@ -9,7 +9,12 @@
 	questions without throwing, for a reducer that cannot. Maybe is Name for an argument a caller may
 	leave out.
 
-	Return type: A table with Positive, Number, Amount, Field, Name and Maybe.
+	Op and Numbered narrow rather than check. Op says whether a value is shaped like one, which two
+	public methods asked in the same five clauses each. Numbered reads a number off a state that may
+	not be a table and may not have the field, which is the shape of every read of a stock or a
+	balance out of a fold.
+
+	Return type: A table with Positive, Number, Amount, Field, Name, Maybe, Op and Numbered.
 	Example usage:
 		local Validate = require("./Validate")
 		Validate.Amount(Value, "Transfer")
@@ -42,6 +47,24 @@ local function Maybe(Value: any, Limit: number, What: string): string?
 	return if Value == nil then nil else Name(Value, Limit, What)
 end
 
+local function Op(Value: any): boolean
+	if type(Value) ~= "table" then
+		return false
+	end
+
+	local Id, Kind = Value.Id, Value.Kind
+	return type(Id) == "string" and #Id > 0 and type(Kind) == "string" and #Kind > 0
+end
+
+local function Numbered(State: any, Named: any): number?
+	if type(State) ~= "table" or type(Named) ~= "string" then
+		return nil
+	end
+
+	local Found = State[Named]
+	return if type(Found) == "number" then Found else nil
+end
+
 return table.freeze({
 	Positive = Positive,
 	Number = Number,
@@ -49,4 +72,6 @@ return table.freeze({
 	Field = Field,
 	Name = Name,
 	Maybe = Maybe,
+	Op = Op,
+	Numbered = Numbered,
 })

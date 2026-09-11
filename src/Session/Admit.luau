@@ -9,6 +9,12 @@
 	rather than a boolean. It runs the reducer against live state, and checks the op against the log
 	and state caps. It turns an op away while a parked transaction could settle either way.
 
+	With one transaction parked it can tell which way: it holds the state that transaction landing
+	would give and folds the op against that too, so an op that holds either way is taken and one
+	that holds only one way waits. With two or more it cannot, since it keeps no state for the ways
+	they combine, and every op on the key waits until they clear, whether the reducer took it or
+	not.
+
 	Return type: A table with Admit.
 	Example usage:
 		local Admit = require("./Admit")
@@ -76,16 +82,16 @@ local function Admit<S>(self: Session<S>, Op: Op, OpBytes: number, Durable: bool
 		return Refused(Kind, INVALID, `your reducer handed back a {typeof(Next)} instead of the next state table`)
 	end
 
+	if self.Parked > 1 and not Durable then
+		return Refused(Kind, UNRESOLVED, `more than one transaction is parked on '{Key}' and this op only holds for some of the ways they can settle. ask again once they clear`)
+	end
+
 	if Next == nil then
 		local Waiting = self.Landed
 		if Waiting ~= nil and not Durable and Apply(self.Shape.Reducer, Waiting, Op) ~= nil then
 			return Refused(Kind, UNRESOLVED, `a transaction is parked on '{Key}' and this op only holds if that transaction goes through. ask again once it settles`)
 		end
 		return REJECTED
-	end
-
-	if self.Parked > 1 and not Durable then
-		return Refused(Kind, UNRESOLVED, `more than one transaction is parked on '{Key}' and this op only holds for some of the ways they can settle. ask again once they clear`)
 	end
 
 	local Also: S? = nil

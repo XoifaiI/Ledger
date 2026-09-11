@@ -74,19 +74,23 @@ record is the working.
 
 ### The op ids tell you the story
 
-Ledger's own ops carry ids with a fixed prefix and the transfer id after it. Read them off the list:
+Ledger's own ops carry ids with a fixed prefix and a name after it. For the three transfer legs and
+an expiry that name is the transfer id, so those line up across the two keys. The rest carry
+something else, and the list says which. Read them off it:
 
 | prefix | leg |
 |---|---|
 | `res:` | reserve, money left the sender into `_Held` |
 | `del:` | deliver, money arrived on the receiver |
-| `stl:` | settle, the hold cleared |
+| `set:` | settle, the hold cleared |
 | `exp:` | expire, the hold was given back |
-| `tx:`  | a transaction leg, and it carries a `Tx` field while it is parked |
+| `prn:` | prune, delivered names past the window were dropped. It carries a fresh id, not a transfer id, so it lines up with nothing |
+| `cf:`  | confirm, a reservation was spent. It carries the reservation name |
+| `tx:`  | a transaction leg, and it carries a `Tx` field while it is parked. After the prefix is the transaction id, then the leg number |
 
 That gives you the answer in most money cases without any reasoning:
 
-- `res:` present and no `stl:`, with an entry in `Snapshot._Held`, means the money is in escrow. It
+- `res:` present and no `set:`, with an entry in `Snapshot._Held`, means the money is in escrow. It
   is not lost. Recovery finishes or refunds it.
 - `res:` and `exp:` means it was given back. The sender has it.
 - An op carrying a `Tx` field means a transaction is parked and the key is frozen until it settles.

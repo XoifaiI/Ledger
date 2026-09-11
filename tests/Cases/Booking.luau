@@ -309,6 +309,25 @@ Cases.Case("a bump landing while the shards are read is counted once", function(
 	T:Is("the total, which cannot hold that bump twice", Sum, 105)
 end)
 
+Cases.Case("two bumps in one second, split by the read of this server's shard, are both counted", function(T: Case)
+	local Vault = T:Vault("nodeA")
+	local Mine = Tally.Mine(Vault.Store.Node)
+	T:Ok("this server's shard is not the last one read, so a bump can land behind it", Mine < Shards.SHARDS - 1)
+
+	local At = T:Now()
+	T:Ok("the first bump, which the read of this server's shard goes on to see", (Vault.Store:Bump("pot", "Coins", 5):Wait()))
+
+	local Landed = false
+	Vault:Fault(Fault.Reads():OnKey(Tally.Shard("pot", Mine + 1)):Only(1):Meddle(function()
+		Landed = Vault.Store:Bump("pot", "Coins", 7):Wait()
+	end))
+	local Sum = Vault.Store:Total("pot", "Coins"):Wait()
+
+	T:Ok("the second bump, which landed after this server's shard was read", Landed)
+	T:Is("the second the two of them share, or they would be in buckets of their own", T:Now(), At)
+	T:Is("the total, which is the shard sum and the bump the shards were read before", Sum, 12)
+end)
+
 Cases.Case("a fleet spreads its bumps over more than one shard", function(T: Case)
 	local Fleet: { any } = {}
 	for Index = 1, 12 do

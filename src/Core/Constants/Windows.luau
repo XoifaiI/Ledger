@@ -57,8 +57,8 @@ local PASS_LIMIT = 32
 local PASS_SHARE = 4
 
 assert(TOMB < PRUNE, "a delivery id has to outlive the tomb of the key it was delivered to, or a refund could pay twice")
-assert(BOOK + BOOK_MARGIN < REDRIVE, "a reservation has to run out before a transfer does, or stock would be held longer than money")
-assert(BOOK <= MemoryStore.MAX_EXPIRY, "a hold cannot outlive the MemoryStore item it lives in, and the item lives for one BOOK")
+assert(BOOK < REDRIVE, "a reservation has to run out before a transfer does, or stock would be held longer than money")
+assert(BOOK + BOOK_MARGIN <= MemoryStore.MAX_EXPIRY, "a hold cannot outlive the MemoryStore item it lives in, and the item lives for one BOOK and its margin")
 assert(REAP_GRACE < REAP, "a marker that is already finished goes on the shorter window, and one that is still being decided goes on the longer one")
 assert(
 	STUCK > REAP,
@@ -66,8 +66,8 @@ assert(
 )
 assert(ONCE_FLOOR > 0 and ONCE_FLOOR < PRUNE, "a caller has to be able to stamp a name in the past at all, so the margin cannot take the whole window or none of it")
 assert(
-	BOOK_MARGIN > 0 and BOOK_MARGIN < BOOK,
-	"a reservation is held past its hold so a slow hand over cannot race the recovery that gives its units back, and that wait is added to the hold a game asked for, so it has to be the smaller of the two"
+	BOOK_MARGIN > 0,
+	"the item a hold lives in outlives the longest hold it can carry by this margin, so the stock it caches is still there for the reservation after one runs out. no margin at all would take the item away with the hold and send that reservation to the record"
 )
 assert(POLL < TX, "a session polling for a parked leg has to look more than once before it gives up on the transaction")
 assert(

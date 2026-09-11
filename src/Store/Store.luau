@@ -38,10 +38,7 @@ local Apply = require("../Record/Apply")
 local Compact = require("../Record/Compact")
 local Reconcile = require("../Record/Reconcile")
 local Schema = require("../Record/Schema")
-local Layer = require("../Layers/Layer")
-local Escrow = require("../Layers/Escrow")
-local Names = require("../Layers/Names")
-local Tally = require("../Layers/Tally")
+local Layers = require("../Layers")
 local Recovery = require("../Protocol/Recovery")
 local Session = require("../Session/Session")
 local Registry = require("./Registry")
@@ -176,16 +173,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		)
 	end
 
-	local Layers: { Layer.Layer } = {}
-	for _, Feature in { Escrow.Layered, Tally.Layered } do
-		local Made = Feature(Config.Balance)
-		if Made ~= nil then
-			table.insert(Layers, Made)
-		end
-	end
-
-	local Base = Names.Wrap(Layer.Stack(Layers, Config.Reducer :: any))
-	local Handled = Layer.Handles(Layers)
+	local Base, Handled = Layers.Built(Config.Balance, Config.Reducer :: any)
 
 	local Initial = MakeInitial(Config.Default)
 	local Steps: { Migration } = Config.Migrations or {}

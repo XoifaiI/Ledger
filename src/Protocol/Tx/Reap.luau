@@ -14,6 +14,12 @@
 	shard and gives back the next one. One server still covers every shard, over as many passes as
 	there are shards. Only the background pass is bounded. An operator gets the whole walk.
 
+	Three questions run the pass and each answers one word rather than a pair of flags. Reading the
+	keys a marker names proves it Finished, still Holding, or Unreadable. A marker is then Kept for a
+	later pass, found already Gone, or Reaped. Listing a block of the cleanup list ends Done, Full
+	when there is no room left to look, or Stopped when something outside the pass gave out. Only
+	Stopped ends the whole walk.
+
 	Return type: A table with Reap. The type is Reaping.
 	Example usage:
 		local Reap = require("./Reap")
@@ -64,7 +70,6 @@ type Walk = {
 	Older: number,
 	Grace: number,
 	Room: number,
-	Looks: number,
 	Looked: number,
 	Reaped: number,
 	Afford: (() -> boolean)?,
@@ -74,6 +79,27 @@ local ABSENT: Claimed = { Outcome = Transactions.ABSENT }
 table.freeze(ABSENT)
 
 local ONCE: DataStoreWrapper.Limits = { Attempts = 1 }
+
+type Proof = "Finished" | "Holding" | "Unreadable"
+type Fate = "Keep" | "Gone" | "Reaped"
+type Ending = "Done" | "Full" | "Stopped"
+
+local FINISHED: Proof = "Finished"
+local HOLDING: Proof = "Holding"
+local UNREADABLE: Proof = "Unreadable"
+
+local KEEP: Fate = "Keep"
+local WENT: Fate = "Gone"
+local REAPED: Fate = "Reaped"
+
+local DONE: Ending = "Done"
+local FULL: Ending = "Full"
+local STOPPED: Ending = "Stopped"
+
+local function Affords(Walk: Walk): boolean
+	local Afford = Walk.Afford
+	return Afford == nil or Afford()
+end
 
 local function Spent(Record: Record, Txid: string, Gen: string?, Born: number): boolean
 	for _, Op in Record.Ops do
@@ -103,80 +129,91 @@ local function Anywhere(Walk: Walk, Name: string): LogTypes.Log
 	return Log.New(Marker.Elsewhere(Name, Walk.TxStore))
 end
 
-local function Quiet(Walk: Walk, Txid: string, Keys: any, Gen: string?, Born: number): (boolean, boolean)
+local function Quiet(Walk: Walk, Txid: string, Keys: any, Gen: string?, Born: number): Proof
 	if type(Keys) ~= "string" or #Keys == 0 then
-		return false, false
+		return UNREADABLE
 	end
 
 	local Named = Mark.Unpack(Keys)
 	if #Named == 0 then
-		return false, false
+		return UNREADABLE
 	end
 
 	for _, Held in Named do
 		local Store, Key = Mark.Split(Held)
 		if Store == nil or Key == nil then
-			return false, false
+			return UNREADABLE
 		end
 
 		local Read, Record = pcall(function(): Record
 			return (Anywhere(Walk, Store):Read(Key :: string))
 		end)
 		if not Read or not Spent(Record, Txid, Gen, Born) then
-			return false, true
+			return HOLDING
 		end
 	end
 
-	return true, true
+	return FINISHED
 end
 
-local function Gone(Walk: Walk, Txid: string): (boolean, boolean)
+local function Stuck(Txid: string, Ageing: boolean)
+	if Ageing then
+		warn(
+			`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove it is finished. Ledger reads it again every pass until it is {Windows.STUCK // Windows.DAY} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
+		)
+		return
+	end
+
+	warn(
+		`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {Windows.STUCK // Windows.DAY} days. nothing can ever prove it is finished, so it is taken off for good. any part of it still waiting on a key settles as cancelled now, check the audit log`
+	)
+end
+
+local function Judged(Walk: Walk, Txid: string, Value: any, Updated: number): boolean
+	local Held = Value :: Types.Marker
+	local Settled = Held.Dead == true or Held.Status == Transactions.ABORTED
+	if Walk.Now - Updated < (if Settled then Walk.Grace else Walk.Older) then
+		return false
+	end
+	if Settled then
+		return true
+	end
+
+	local Shown = Quiet(Walk, Txid, Held.Keys, Marker.GenOf(Value), Marker.BornAt(Value, 0))
+	if Shown == FINISHED then
+		return true
+	end
+	if Shown == HOLDING then
+		return false
+	end
+
+	local Ageing = Walk.Now - Updated <= Windows.STUCK
+	Stuck(Txid, Ageing)
+	return not Ageing
+end
+
+local function Gone(Walk: Walk, Txid: string): Fate
 	local Read, Value, Info = Walk.TxStore:GetAsync(Txid)
 	if not Read then
-		return false, false
+		return KEEP
 	end
 	if Value == nil then
-		return true, false
+		return WENT
 	end
 
-	if type(Value) == "table" then
-		local Held = Value :: Types.Marker
-		local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
-		local Settled = Held.Dead == true or Held.Status == Transactions.ABORTED
-		if Walk.Now - Updated < (if Settled then Walk.Grace else Walk.Older) then
-			return false, false
-		end
-
-		if not Settled then
-			local Hushed, Readable = Quiet(Walk, Txid, Held.Keys, Marker.GenOf(Value), Marker.BornAt(Value, 0))
-			if not Hushed and Readable then
-				return false, false
-			end
-
-			if not Hushed and Walk.Now - Updated <= Windows.STUCK then
-				warn(
-					`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove it is finished. Ledger reads it again every pass until it is {Windows.STUCK // Windows.DAY} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
-				)
-				return false, false
-			end
-
-			if not Hushed then
-				warn(
-					`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {Windows.STUCK // Windows.DAY} days. nothing can ever prove it is finished, so it is taken off for good. any part of it still waiting on a key settles as cancelled now, check the audit log`
-				)
-			end
-		end
+	local Updated = Marker.TouchedAt(Info)
+	if type(Value) == "table" and not Judged(Walk, Txid, Value, Updated) then
+		return KEEP
 	end
 
 	if not Walk.TxStore:RemoveAsync(Txid) then
-		return false, false
+		return KEEP
 	end
-	return true, true
+	return REAPED
 end
 
 local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
-	local Afford = Walk.Afford
-	if Looks <= 0 or (Afford ~= nil and not Afford()) then
+	if Looks <= 0 or not Affords(Walk) then
 		return 0, 0
 	end
 
@@ -193,18 +230,18 @@ local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
 	local Looked = 0
 
 	for Index, Txid in Held do
-		if Looked >= Looks or Reaped >= Room or (Afford ~= nil and not Afford()) then
+		if Looked >= Looks or Reaped >= Room or not Affords(Walk) then
 			table.move(Held, Index, #Held, #Later + 1, Later)
 			break
 		end
 
 		Looked += 1
-		local Drop, Took = Gone(Walk, Txid)
-		if not Drop then
+		local Answer = Gone(Walk, Txid)
+		if Answer == KEEP then
 			table.insert(Kept, Txid)
 			continue
 		end
-		if Took then
+		if Answer == REAPED then
 			Reaped += 1
 		end
 	end
@@ -231,17 +268,17 @@ local function Full(Walk: Walk, Looks: number): boolean
 	return Walk.Reaped >= Walk.Room or Looks <= 0
 end
 
-local function Listed(Walk: Walk, Prefix: string, Afford: (() -> boolean)?, Looks: number, From: string?): (boolean, boolean, string?)
+local function Listed(Walk: Walk, Prefix: string, Looks: number, From: string?): (Ending, string?)
 	local Ok, Pages = Walk.TxStore:ListKeysAsync(Prefix, Transactions.REAP_PAGE, From, nil, ONCE)
 	if not Ok then
-		return false, true, nil
+		return STOPPED, nil
 	end
 
 	local Book = Pages :: DataStoreKeyPages
 	while true do
 		for _, Entry in Book:GetCurrentPage() do
 			if Full(Walk, Looks) then
-				return true, false, Book.Cursor
+				return FULL, Book.Cursor
 			end
 
 			local Named = (Entry :: any).KeyName
@@ -257,13 +294,13 @@ local function Listed(Walk: Walk, Prefix: string, Afford: (() -> boolean)?, Look
 		end
 
 		if Book.IsFinished then
-			return false, false, nil
+			return DONE, nil
 		end
-		if Afford ~= nil and not Afford() then
-			return false, true, Book.Cursor
+		if not Affords(Walk) then
+			return STOPPED, Book.Cursor
 		end
 		if not pcall(Book.AdvanceToNextPageAsync, Book) then
-			return false, true, nil
+			return STOPPED, nil
 		end
 	end
 end
@@ -287,17 +324,15 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Older = Older,
 		Grace = math.min(Older, Windows.REAP_GRACE),
 		Room = Asked.Limit or Transactions.REAP_LIMIT,
-		Looks = 0,
 		Looked = 0,
 		Reaped = 0,
 		Afford = Asked.Afford,
 	}
-	local Afford = Asked.Afford
 	local Claim = Asked.Claim
 	local Base = if type(Asked.From) == "number" then Asked.From % Transactions.SHARDS else Cleanup.Mine(Asked.Node)
 
 	local Count = math.min(Asked.Shards or Transactions.SHARDS, Transactions.SHARDS)
-	Walk.Looks = math.max(Transactions.REAP_LOOKS, Walk.Room // Count)
+	local Share = math.max(Transactions.REAP_LOOKS, Walk.Room // Count)
 	local Cursor = Asked.Older
 	local Bookmark = if Cursor ~= nil then Cursor.Cursor else nil
 	local Rotated = false
@@ -305,7 +340,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 
 	local Step = 0
 	while Step < Count do
-		if Walk.Reaped >= Walk.Room or Walk.Looked >= Walk.Room or (Afford ~= nil and not Afford()) then
+		if Walk.Reaped >= Walk.Room or Walk.Looked >= Walk.Room or not Affords(Walk) then
 			break
 		end
 
@@ -313,9 +348,9 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Walk.Shard = Shard
 		local Lease: Claimed = if Claim ~= nil then Claim(Shard) else ABSENT
 		local Left = Walk.Room - Walk.Looked
-		local Looks = if Lease.Outcome == Transactions.TAKEN or Shard == Cleanup.Mine(Walk.Node) then Left else math.min(Walk.Looks, Left)
+		local Looks = if Lease.Outcome == Transactions.TAKEN or Shard == Cleanup.Mine(Walk.Node) then Left else math.min(Share, Left)
 		local Back = if Cursor ~= nil and Cursor.Shard == Shard then Cursor.Back else nil
-		local More, Stopped = false, false
+		local Ended: Ending = DONE
 		if Pending ~= nil and Pending.Shard == Shard then
 			Pending = nil
 		end
@@ -324,20 +359,20 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 			for Index, Prefix in Prefixes do
 				local From = if Bookmark ~= nil and Bookmark.Shard == Shard and Bookmark.Prefix == Prefix then Bookmark.Cursor else nil
 				local Rest
-				More, Stopped, Rest = Listed(Walk, Prefix, Afford, Looks, From)
+				Ended, Rest = Listed(Walk, Prefix, Looks, From)
 				Pending = Marked(Shard, Prefix, Rest)
-				if Back ~= nil and Index == #Prefixes and not Stopped then
+				if Back ~= nil and Index == #Prefixes and Ended ~= STOPPED then
 					Rotated = true
 				end
-				if More or Stopped then
+				if Ended ~= DONE then
 					break
 				end
 			end
 		end
-		if Lease.Outcome == Transactions.TAKEN and (More or Stopped) then
+		if Lease.Outcome == Transactions.TAKEN and Ended ~= DONE then
 			Lease.Release()
 		end
-		if Stopped then
+		if Ended == STOPPED then
 			return Walk.Reaped, Shard, Rotated, Pending
 		end
 

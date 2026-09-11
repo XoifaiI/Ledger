@@ -130,7 +130,7 @@ local Held: Layer.Layer = {
 	},
 }
 
-local function Layered(_Balance: string?): Layer.Layer?
+local function Layered(_Balance: string?): Layer.Layer
 	return Held
 end
 

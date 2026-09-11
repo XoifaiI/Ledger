@@ -178,7 +178,7 @@ local function Pruning(Data: Data, Op: Op): Data?
 	return Next
 end
 
-local function Layered(Balance: string?): Layer.Layer?
+local function Layered(Balance: string?): Layer.Layer
 	return {
 		Kinds = {
 			[Kinds.RESERVE] = function(Data: Data, Op: Op): Data?

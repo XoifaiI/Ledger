@@ -138,20 +138,11 @@ export type Copy = {
 	Stream: Observer.Observer<any>?,
 }
 
-export type Recent = {
-	State: any?,
-	Stamp: number?,
-	At: number,
-	Seen: number,
-	Slack: number,
-	Down: number?,
-	Behind: boolean,
-	Emit: ((any) -> ())?,
-	Ticker: thread?,
-	Stream: Observer.Observer<any>?,
+export type Recent = Copy & {
 	Sum: number,
 	Floor: number?,
 	Mark: number?,
+	Sealed: number?,
 	OwnAt: number?,
 	OwnMark: number?,
 	Bumps: { Tally.Bucket },

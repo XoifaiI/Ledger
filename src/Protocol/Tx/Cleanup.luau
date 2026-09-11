@@ -13,7 +13,14 @@
 	Each store remembers which part of a bucket to write to next. Two stores keep their own keys, and
 	neither one fills the other's.
 
-	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add and Carry.
+	A key has been three shapes. It carried the shard and the minute, then a part number after that,
+	and now the server's name before the part. A pass reads all three, since a deploy is not
+	instant and a server running the newer build meets keys the older one wrote. Only the newest is
+	written, and a name carried forward off an older key lands on a new one, so the old shapes drain
+	on their own and never have to be migrated. Every shape starts with the shard and the minute,
+	which is all a prefix listing reads, so one listing finds them all.
+
+	Return type: A table with Key, Named, Block, Blocks, At, Mine, Add, Carry and BACK.
 	Example usage:
 		local Cleanup = require("./Cleanup")
 		Cleanup.Add(TxStore, "trade1")
@@ -40,6 +47,10 @@ local NODE_MOST = Datastore.MAX_KEY - (#Transactions.RESERVED + SLOT_WIDTH + WID
 
 assert(Transactions.SHARDS <= 10 ^ SLOT_WIDTH, "a cleanup list key writes its shard in two digits, so more shards than that would write keys the reaper cannot read back")
 assert(
+	BLOCK_WIDTH < WIDTH,
+	"a listing prefix is the front of a key's minute, so a block has to be written in fewer digits than the minute it cuts down, or no prefix would ever match a key and nothing would be reaped"
+)
+assert(
 	BLOCK * Windows.BUCKET >= Windows.REAP + Windows.REAP_GRACE + Windows.BUCKET,
 	"a listing block has to hold every minute a marker can still be waiting to be judged, or a pass that lists the current block and the one before it would miss a key"
 )
@@ -47,9 +58,10 @@ assert(
 local DIGITS = string.rep("%d", WIDTH)
 local FORMAT = `{Transactions.RESERVED}%02d:%0{WIDTH}d:%s:%0{PART_WIDTH}d`
 local HEAD = `{Transactions.RESERVED}%02d:%0{BLOCK_WIDTH}d`
-local PATTERN = `^{Transactions.RESERVED}%d%d:({DIGITS}):%w+:%d+$`
-local SHARED = `^{Transactions.RESERVED}%d%d:({DIGITS}):%d+$`
-local PLAIN = `^{Transactions.RESERVED}%d%d:({DIGITS})$`
+local NAMED = `^{Transactions.RESERVED}%d%d:({DIGITS}):%w+:%d+$`
+local PARTED = `^{Transactions.RESERVED}%d%d:({DIGITS}):%d+$`
+local WHOLE = `^{Transactions.RESERVED}%d%d:({DIGITS})$`
+local SHAPES = table.freeze({ NAMED, PARTED, WHOLE })
 
 type Parts = {
 	At: number,
@@ -107,16 +119,14 @@ local function Blocks(Slot: number, Now: number, Older: number?): { string }
 end
 
 local function At(Held: string): number?
-	local Digits = string.match(Held, PATTERN) or string.match(Held, SHARED) or string.match(Held, PLAIN)
-	if Digits == nil then
-		return nil
+	for _, Shape in SHAPES do
+		local Digits = string.match(Held, Shape)
+		local Minutes = if Digits ~= nil then tonumber(Digits) else nil
+		if Minutes ~= nil then
+			return Minutes * Windows.BUCKET
+		end
 	end
-
-	local Minutes = tonumber(Digits)
-	if Minutes == nil then
-		return nil
-	end
-	return Minutes * Windows.BUCKET
+	return nil
 end
 
 local function Place(TxStore: DataStoreWrapper, Slot: number, Node: string, When: number, Batch: { string }): boolean
@@ -196,11 +206,9 @@ local function Add(TxStore: DataStoreWrapper, Node: string, Txid: string): boole
 end
 
 return table.freeze({
-	Shard = Shard,
 	Key = Key,
 	Named = Named,
 	Block = Block,
-	Prefix = Prefix,
 	Blocks = Blocks,
 	At = At,
 	Mine = Mine,
