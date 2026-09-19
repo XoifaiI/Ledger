@@ -6,8 +6,8 @@
 	Sweeper: Retries each key a failed write left unfinished.
 
 	A pass repairs the keys it is following, and drops one once it comes back clean. It gives up on a
-	key after a few tries, with a warning naming it. Every tenth pass also reaps transaction markers.
-	It checks the request budget before it starts.
+	key after a few tries, with a warning naming it. Every pass also reaps the transaction markers of
+	one store, taking the stores in turn. It checks the request budget before it starts.
 
 	A pass starts after the key the last one reached, so no key waits behind another that never comes
 	clean. It skips a key whose lease another server holds. A lease that cannot reach its map ends the

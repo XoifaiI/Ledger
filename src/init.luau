@@ -6,11 +6,12 @@
 	Ledger: Player data as a ledger, and not as a document.
 
 	State is a pure fold of an append only log of ops, and there are no session locks. This file is
-	the whole surface a game can reach. New and NewTyped build a store. Sweep runs a recovery pass.
-	CloseAll saves everything on the way down. A store takes its scheduler and datastore as options.
-	Mock puts one on a fake datastore that nothing outlives.
+	the whole surface a game can reach. New and NewTyped build a store. Id mints a fresh op id. Sweep
+	runs a recovery pass. CloseAll saves everything on the way down. A store takes its datastore as a
+	hook, or Mock puts it on a fake datastore that nothing outlives. It takes no scheduler, since the
+	process keeps one clock.
 
-	Return type: A table with Reason, New, NewTyped, Sweep and CloseAll.
+	Return type: A table with Reason, New, NewTyped, Id, Sweep and CloseAll.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
 		local Bank = Ledger.New({ Name = "Bank", Default = { Gold = 0 }, Reducer = Reducer })

@@ -9,7 +9,7 @@
 	that decision. The marker decides and not the server that asked, so a coordinator that stops
 	leaves a marker any other server can finish from.
 
-	Return type: A table with Drive, Transactions.MAX_LEGS and Transactions.PASSES.
+	Return type: A table with Drive.
 	Example usage:
 		local Coordinator = require("./Coordinator")
 		local Ok, Why = Coordinator.Drive(TxStore, Legs, "trade1")
