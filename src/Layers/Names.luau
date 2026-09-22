@@ -7,7 +7,7 @@
 
 	It wraps the other layers rather than sitting beside them, since it has to see the state after the
 	game reducer has had it. It also refuses an op whose name is already written down, before the
-	reducer runs at all.
+	reducer runs at all. Escrow owns _Received, and puts it back when a game reducer writes it.
 
 	Return type: A table with Wrap.
 	Example usage:
@@ -15,12 +15,10 @@
 		local Reducer = Names.Wrap(Inner)
 --]=]
 
-local TableUtil = require("../Util/TableUtil")
 local Shapes = require("../Core/Shapes")
 local Messages = require("../Core/Constants/Messages")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
-local Storable = require("../Encode/Storable")
 
 type Op = Shapes.Op
 type Reducer<S> = Shapes.Reducer<S>
@@ -53,28 +51,17 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		local Plain: any = Next
 
 		local Stamp, At, Print = StampOf(Op)
-		if Stamp ~= nil then
-			if type(At) ~= "number" then
-				warn(`{Messages.ACCUSED} op '{tostring(Op.Kind)}' carries a name with no time on it. Ledger turned the op away, please report this`)
-				return nil
-			end
-			local Marked = table.clone(Plain)
-			Marked._Received = Applied.Remember(Data._Received, Stamp, At, Print)
-			return Marked :: any
-		end
-
-		local Touched = Plain._Received ~= Data._Received and not Storable.Reserved(Op.Kind)
-		if not Touched then
+		if Stamp == nil then
 			return Next
 		end
-
-		if Plain._Received ~= nil and not TableUtil.DeepEqual(Plain._Received, Data._Received) then
-			warn(`Ledger: your reducer wrote its own _Received on op '{tostring(Op.Kind)}'. Ledger put the applied names back, leave fields starting with an underscore alone`)
+		if type(At) ~= "number" then
+			warn(`{Messages.ACCUSED} op '{tostring(Op.Kind)}' carries a name with no time on it. Ledger turned the op away, please report this`)
+			return nil
 		end
 
-		local Kept = table.clone(Plain)
-		Kept._Received = Data._Received
-		return Kept :: any
+		local Marked = table.clone(Plain)
+		Marked._Received = Applied.Remember(Data._Received, Stamp, At, Print)
+		return Marked :: any
 	end
 
 	return Combined

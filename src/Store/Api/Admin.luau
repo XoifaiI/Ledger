@@ -70,6 +70,7 @@ end
 function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 	local Name = self.Wrapper.Name
 	local Reads = Enum.DataStoreRequestType.GetAsync
+	local Writes = Enum.DataStoreRequestType.UpdateAsync
 	local Lists = Enum.DataStoreRequestType.ListAsync
 
 	local Reaping = self.Reaping
@@ -88,7 +89,10 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 			Limit = Limit,
 			Older = Reaping,
 			Afford = function(): boolean
-				return self:TxAffords(Reads, Transactions.REAP_FLOOR) and self:Affords(Reads, Transactions.REAP_FLOOR) and self:TxAffords(Lists, Transactions.REAP_LISTS)
+				return self:TxAffords(Reads, Transactions.REAP_FLOOR)
+					and self:TxAffords(Writes, Transactions.REAP_FLOOR)
+					and self:Affords(Reads, Transactions.REAP_FLOOR)
+					and self:TxAffords(Lists, Transactions.REAP_LISTS)
 			end,
 			Claim = function(Shard: number): Types.Claimed
 				return self:Claim(Mark.Cached({ "reap", self.TxWrapper.Name, tostring(Shard) }), Windows.PASS_LEASE)

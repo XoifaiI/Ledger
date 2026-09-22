@@ -1117,6 +1117,34 @@ Cases.Case("a rejoin during a leaving load ends with one live session", function
 	Store.Store:Unload(Fake)
 end)
 
+Cases.Case("a player who rejoins during the load they left waits for their own load", function(T: Case)
+	local Store = T:Players()
+	local Old = T:Player(98)
+	local New = T:Player(98)
+
+	T:Spawn(function()
+		Store.Store:Load(Old)
+	end)
+	Store.Store:Unload(Old)
+	Old.Parent = nil
+
+	local Waited: any = "unset"
+	T:Spawn(function()
+		Store.Store:Load(New)
+	end)
+	T:Spawn(function()
+		Waited = Store.Store:WaitForLoaded(New)
+	end)
+	T:Until(function(): boolean
+		return Waited ~= "unset"
+	end)
+
+	T:Is("what the new player waited for is their live session", Waited ~= nil and Waited == Store.Store:Get(New), true)
+	T:Is("the new player is loaded", Store.Store:IsLoaded(New), true)
+	T:Is("the new player was not kicked", New.Kicked, 0)
+	Store.Store:Unload(New)
+end)
+
 Cases.Case("a failed load kicks and frees the key", function(T: Case)
 	local Store = T:Players()
 	local Fake = T:Player(94)

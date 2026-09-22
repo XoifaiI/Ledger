@@ -21,6 +21,7 @@
 local Suite = require("../Suite")
 
 local Windows = require("../../src/Core/Constants/Windows")
+local Transactions = require("../../src/Core/Constants/Transactions")
 
 local Fault = Suite.Fault
 
@@ -226,6 +227,78 @@ Cases.Case("two servers reaping at once take each marker off once", function(T: 
 	T:Is("the marker is gone", One:Mark("reap1"), nil)
 	T:Is("its name is off the cleanup list", One:Rolled()["reap1"], nil)
 	T:Is("the money it moved is untouched", Gold(One, "reapB"), MOVED)
+end)
+
+Cases.Case("a name retried while the reaper judges its old marker keeps the marker the retry wrote", function(T: Case)
+	local Left, Right = Pair(T)
+	Left:Seed("rapA", { Gold = 5, Touches = 0 })
+	Left:Seed("rapB", { Gold = START, Touches = 0 })
+
+	local First, FirstWhy = Move(Left, "rapA", "rapB", MOVED, "rap1")
+	local Dead = Left:Buried("rap1") and Left:Mark("rap1") ~= nil
+	Left.Store:Edit("rapA", "Fund", { Amount = START - 5 }):Wait()
+	T:Advance(Windows.REAP_GRACE + 60)
+
+	Right:NoRetries()
+	local Lost = Right:Fault(Fault.Updates():OnKey("rapB"):Only(2))
+
+	local Again: any = nil
+	local function Retry()
+		if Again ~= nil then
+			return
+		end
+		Again = (Move(Right, "rapA", "rapB", MOVED, "rap1"))
+	end
+	Left:MarkerFault(Fault.Updates():OnKey("rap1"):Only(1):Meddle(Retry))
+	Left:MarkerFault(Fault.Removes():OnKey("rap1"):Only(1):Meddle(Retry))
+
+	Left.Store:ReapMarkers()
+	local Kept = Left:Mark("rap1") ~= nil
+	Right:Healed()
+	T:Advance(Windows.LEG * Transactions.MAX_LEGS + 60)
+	local Settled = (Left.Store:Resettle("rapB"):Wait())
+
+	T:Is("the first try, short of gold", First, false)
+	T:Is("its reason", FirstWhy, "Refused")
+	T:Is("its marker, dead and still standing", Dead, true)
+	T:Is("the retry, run inside the reaper's pass", Again, true)
+	T:Is("the leg the retry left stranded", Lost.Fired, 1)
+	T:Is("the marker the retry wrote, after the pass", Kept, true)
+	T:Is("the stranded leg settles", Settled, true)
+	T:Is("gold on the sending key", Gold(Left, "rapA"), START - MOVED)
+	T:Is("gold on the receiving key", Gold(Left, "rapB"), START + MOVED)
+end)
+
+Cases.Case("a name whose marker is being taken off answers busy until it is gone", function(T: Case)
+	local Left, Right = Pair(T)
+	Left:Seed("conA", { Gold = 5, Touches = 0 })
+	Left:Seed("conB", { Gold = START, Touches = 0 })
+
+	Move(Left, "conA", "conB", MOVED, "con1")
+	Left.Store:Edit("conA", "Fund", { Amount = START - 5 }):Wait()
+	T:Advance(Windows.REAP_GRACE + 60)
+
+	Left:NoRetries()
+	local Stuck = Left:MarkerFault(Fault.Removes():OnKey("con1"):Only(1))
+	Left.Store:ReapMarkers()
+	local Condemned = Left:Mark("con1")
+
+	local Early, EarlyWhy = Move(Right, "conA", "conB", MOVED, "con1")
+	Left:Healed()
+	T:Advance(Windows.REAP_GRACE + 60)
+	Left.Store:ReapMarkers()
+	local Gone = Left:Mark("con1") == nil
+
+	local Later = (Move(Right, "conA", "conB", MOVED, "con1"))
+
+	T:Is("the remove that was dropped", Stuck.Fired, 1)
+	T:Is("the marker it left behind is condemned", type(Condemned) == "table" and Condemned.Condemned, true)
+	T:Is("the name while its marker is condemned", Early, false)
+	T:Is("its reason", EarlyWhy, "Busy")
+	T:Is("the next pass takes the condemned marker off", Gone, true)
+	T:Is("the name once its marker is gone", Later, true)
+	T:Is("gold on the sending key", Gold(Left, "conA"), START - MOVED)
+	T:Is("gold on the receiving key", Gold(Left, "conB"), START + MOVED)
 end)
 
 Cases.Case("two servers writing the cleanup list in one minute both land on it", function(T: Case)

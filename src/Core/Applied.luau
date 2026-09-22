@@ -5,9 +5,9 @@
 
 	Applied: The set of applied names a key keeps in its own state.
 
-	Each name is tagged by what it was, so a transfer, a transaction, a Once name and a grant cannot
-	collide. An entry holds the time of the write and a mark of what the name meant. Names older than
-	the prune window are dropped on the next write.
+	Each name is tagged by what it was, so a transfer, a sent hold, a transaction and a Once name
+	cannot collide. An entry holds the time of the write and a mark of what the name meant. Names
+	older than the prune window are dropped on the next write.
 
 	Return type: A table with Key, Entry, At, Has, Recall, Remember and Prune. The type is Recalled.
 	Example usage:
@@ -20,10 +20,10 @@ local Windows = require("./Constants/Windows")
 
 export type Recalled = Tags.Recalled
 
-local TAGS: { [string]: boolean } = { [Tags.TRANSFER] = true, [Tags.TX] = true, [Tags.ONCE] = true, [Tags.SENT] = true, [Tags.GRANT] = true }
+local TAGS: { [string]: boolean } = { [Tags.TRANSFER] = true, [Tags.TX] = true, [Tags.ONCE] = true, [Tags.SENT] = true }
 
 local function Key(Tag: string, Id: string): string
-	assert(TAGS[Tag], "an applied name has to be tagged transfer, transaction, once, sent or grant")
+	assert(TAGS[Tag], "an applied name has to be tagged transfer, transaction, once or sent")
 	assert(type(Id) == "string" and #Id > 0, "an applied name cannot be empty, or two of them would share an entry")
 	return `{Tag}{Id}`
 end

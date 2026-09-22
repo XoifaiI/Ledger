@@ -7,7 +7,8 @@
 
 	Drive parks a leg on each key, writes one decision to the marker, and resolves every leg against
 	that decision. The marker decides and not the server that asked, so a coordinator that stops
-	leaves a marker any other server can finish from.
+	leaves a marker any other server can finish from. A name whose last marker is being taken off
+	answers Busy until it is gone.
 
 	Return type: A table with Drive.
 	Example usage:
@@ -150,6 +151,9 @@ local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Tx
 	end
 	if Created == Transactions.UNWRITTEN then
 		return { Committed = false, Why = UNRESOLVED, Again = true, Reached = Floor, Parked = Floor > 0 }
+	end
+	if Created == Transactions.CONDEMNED then
+		return { Committed = false, Why = BUSY, Again = false, Reached = Floor, Parked = Floor > 0 }
 	end
 
 	Stamped(Ops, Gen, Born, Print)

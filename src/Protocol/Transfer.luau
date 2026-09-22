@@ -8,7 +8,10 @@
 	Reserve sets the money aside on the sender, Post delivers it to the receiver, and Settle clears
 	the hold. Each leg is one op, atomic on its own key, and the transfer id makes each apply once.
 	The money arrives before the hold clears, so a server that stops leaves it set aside for recovery.
-	
+
+	Terms prints the terms in one fixed form and not through Canon. Recovery compares a stored print
+	for as long as a transfer can wait, so that form must never change.
+
 	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms and LandedOn.
 	Example usage:
 		local Transfer = require("./Transfer")
@@ -62,7 +65,8 @@ local function Spent(Tid: string): Reserved
 end
 
 local function Terms(From: number | string, To: number | string, Amount: number, Field: string?): string
-	return Digest.Of(Digest.Canon({ From = tostring(From), To = tostring(To), Amount = Amount, Field = Field }))
+	local Named = if Field == nil then "" else `Field=string:{Field},`
+	return Digest.Of(`(Amount=number:{Amount},{Named}From=string:{From},To=string:{To})`)
 end
 
 local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, From: (number | string)?): Applied.Recalled

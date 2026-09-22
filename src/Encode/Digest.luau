@@ -12,7 +12,8 @@
 
 	Two servers get the same answer from the same input. Two inputs that differ get different
 	answers. A value carries its type. So does a key that is not a string, or one that reads like a
-	key that carries its type. Every other string key is written as it is.
+	key that carries its type. A string, as a key or a value, has its %, commas, equals signs and
+	brackets escaped. One that holds none of them is written as it is.
 
 	Return type: A table with Canon, Of and Bucket.
 	Example usage:
@@ -27,6 +28,8 @@ local DIGEST_BYTES = 6
 local BUCKET_BYTES = 4
 
 local QUALIFIED = "^%a+:"
+local FRAMING = "[%%,=()]"
+local ESCAPES: { [string]: string } = { ["%"] = "%25", [","] = "%2C", ["="] = "%3D", ["("] = "%28", [")"] = "%29" }
 
 local DIGEST = buffer.create(DIGEST_BYTES)
 local BUCKET = buffer.create(BUCKET_BYTES)
@@ -35,16 +38,24 @@ local function Compare(Left: any, Right: any): boolean
 	return tostring(Left) < tostring(Right)
 end
 
+local function Escaped(Text: string): string
+	return (string.gsub(Text, FRAMING, ESCAPES))
+end
+
 local function Named(Key: any): string
 	if type(Key) ~= "string" then
 		return `{typeof(Key)}:{Key}`
 	end
-	return if string.find(Key, QUALIFIED) ~= nil then `string:{Key}` else Key
+	local Text = Escaped(Key)
+	return if string.find(Text, QUALIFIED) ~= nil then `string:{Text}` else Text
 end
 
 local function Canon(Value: any): string
 	if type(Value) == "buffer" then
 		return `buffer:{buffer.tostring(EncodingService:Base64Encode(Value))}`
+	end
+	if type(Value) == "string" then
+		return `string:{Escaped(Value)}`
 	end
 	if type(Value) ~= "table" then
 		return `{typeof(Value)}:{Value}`

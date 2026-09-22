@@ -9,6 +9,9 @@
 	builds the reducer stack, loads and unloads players, and runs an autosave for each session. The
 	five requires with no name on them put the rest of the methods onto the class.
 
+	A load and its waiters belong to the Player object that asked. A player who rejoins while the load
+	they left is still running gets the answer to their own load, never to the one they left.
+
 	Return type: A table with New.
 	Example usage:
 		local Store = require("./Store")
@@ -219,12 +222,12 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	return Built
 end
 
-function Store.Wake(self: Store, UserId: number, Active: any?)
-	local List = self.Waiters[UserId]
+function Store.Wake(self: Store, Player: Player, Active: any?)
+	local List = self.Waiters[Player]
 	if List == nil then
 		return
 	end
-	self.Waiters[UserId] = nil
+	self.Waiters[Player] = nil
 	for _, Thread in List do
 		self.Wrapper.Scheduler.Resume(Thread, Active)
 	end
@@ -336,22 +339,22 @@ function Store.Load(self: Store, Player: Player)
 		warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
 		return
 	end
-	if self.Loads[UserId] == "Loading" then
+	if self.Loads[Player] == "Loading" then
 		warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
 		return
 	end
 
 	assert(self.Loaded[UserId] == nil, `{Player.Name} is starting a load while they already have a live session, so two sessions would write the same key`)
-	self.Loads[UserId] = "Loading"
+	self.Loads[Player] = "Loading"
 
 	local Job = Session.Load(self:Records(), self:Format(), tostring(UserId), self.TxWrapper)
 	local Active, Why = Job:Wait()
 
-	local Left = self.Loads[UserId] == "Leaving"
-	self.Loads[UserId] = nil
+	local Left = self.Loads[Player] == "Leaving"
+	self.Loads[Player] = nil
 
 	if Active == nil then
-		self:Wake(UserId, nil)
+		self:Wake(Player, nil)
 		if not self:Handled(Player, Why or UNRESOLVED) then
 			Player:Kick("Your data failed to load, please rejoin")
 		end
@@ -370,11 +373,11 @@ function Store.Load(self: Store, Player: Player)
 			self:PickUp(Active, UserId)
 		end
 		self:Save(Active)
-		self:Wake(UserId, nil)
+		self:Wake(Player, nil)
 		return
 	end
 
-	assert(self.Loads[UserId] == nil, "a load finished while this player was still marked as loading")
+	assert(self.Loads[Player] == nil, "a load finished while this player was still marked as loading")
 
 	self.Loaded[UserId] = {
 		Active = Active,
@@ -383,7 +386,7 @@ function Store.Load(self: Store, Player: Player)
 			self:Autosave(UserId)
 		end, self.Wrapper.Scheduler.Roll() * Windows.AUTOSAVE),
 	}
-	self:Wake(UserId, Active)
+	self:Wake(Player, Active)
 	self:PickUp(Active, UserId)
 end
 
@@ -393,10 +396,10 @@ function Store.Unload(self: Store, Player: Player)
 	local Entry = self.Loaded[UserId]
 
 	if Entry == nil then
-		if self.Loads[UserId] ~= nil then
-			self.Loads[UserId] = "Leaving"
+		if self.Loads[Player] ~= nil then
+			self.Loads[Player] = "Leaving"
 		end
-		self:Wake(UserId, nil)
+		self:Wake(Player, nil)
 		return
 	end
 
@@ -435,10 +438,10 @@ function Store.WaitForLoaded(self: Store, Player: Player): any?
 		return nil
 	end
 
-	local List = self.Waiters[Player.UserId]
+	local List = self.Waiters[Player]
 	if List == nil then
 		List = {}
-		self.Waiters[Player.UserId] = List
+		self.Waiters[Player] = List
 	end
 	table.insert(List, coroutine.running())
 	return coroutine.yield()
@@ -480,8 +483,8 @@ function Store.Destroy(self: Store)
 		table.insert(Jobs, self:Save(Entry.Active))
 	end
 
-	for UserId in self.Waiters do
-		self:Wake(UserId, nil)
+	for Waiting in self.Waiters do
+		self:Wake(Waiting, nil)
 	end
 	table.clear(self.Loads)
 

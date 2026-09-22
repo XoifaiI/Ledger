@@ -5,7 +5,7 @@
 	Transactions: The shape of the transaction protocol, in numbers and names.
 
 	How many keys one transaction may touch, and how many other stores this server keeps a handle to.
-	The three states a marker can be in, and the four ways opening one can turn out. The cleanup list
+	The three states a marker can be in, and the five ways opening one can turn out. The cleanup list
 	is spread over shards. Each key holds up to a limit, then the next part of that minute takes the
 	rest. A reap pass is bounded by how many markers it looks at and takes off.
 
@@ -15,7 +15,7 @@
 	Asking for a lease answers one of four. Absent is a store with no map at all, where Unknown is a
 	map that did not answer.
 
-	Return type: A table with the caps, the three statuses, the four openings, the four lease answers, the names and the lease numbers. The types are Status, Opened and Claim.
+	Return type: A table with the caps, the three statuses, the five openings, the four lease answers, the names and the lease numbers. The types are Status, Opened and Claim.
 	Example usage:
 		local Transactions = require("./Transactions")
 		if #Legs > Transactions.MAX_LEGS then Refuse() end
@@ -23,7 +23,7 @@
 
 export type Status = "Pending" | "Committed" | "Aborted"
 
-export type Opened = "Created" | "Mismatch" | "Unwritten" | "Husk"
+export type Opened = "Created" | "Mismatch" | "Unwritten" | "Husk" | "Condemned"
 
 export type Claim = "Taken" | "Held" | "Unknown" | "Absent"
 
@@ -40,6 +40,7 @@ return table.freeze({
 	MISMATCH = "Mismatch" :: Opened,
 	UNWRITTEN = "Unwritten" :: Opened,
 	HUSK = "Husk" :: Opened,
+	CONDEMNED = "Condemned" :: Opened,
 
 	RESERVED = "__",
 	SUFFIX = "_Tx",

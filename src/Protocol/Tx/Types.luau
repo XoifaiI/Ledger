@@ -34,6 +34,7 @@ export type Marker = {
 	Keys: string?,
 	Terms: string?,
 	Dead: boolean?,
+	Condemned: boolean?,
 }
 
 export type Leg = {

@@ -6,8 +6,9 @@
 	Reap: Removes the markers of transactions that are over.
 
 	A pass reads the cleanup list rather than searching the store. A marker goes only once every key
-	it named has forgotten its leg. A key it cannot read counts as still holding one. Each pass reads
-	a fixed number of names per shard and gives back where it stopped.
+	it named has forgotten its leg, and only once it is condemned under the generation the pass
+	judged. A key it cannot read counts as still holding one. Each pass reads a fixed number of names
+	per shard and gives back where it stopped.
 
 	A pass with a Claim asks it before each shard and skips a shard another server holds. A skipped
 	shard still counts as walked. A Bounded pass whose Claim cannot reach its map stops after one
@@ -192,6 +193,16 @@ local function Judged(Walk: Walk, Txid: string, Value: any, Updated: number): bo
 	return not Ageing
 end
 
+local function Doomed(Walk: Walk, Txid: string, Value: any, Info: any): boolean
+	if Marker.Condemned(Value) then
+		return true
+	end
+	if type(Value) == "table" and not Judged(Walk, Txid, Value, Marker.TouchedAt(Info)) then
+		return false
+	end
+	return Marker.Condemn(Walk.TxStore, Txid, Value)
+end
+
 local function Gone(Walk: Walk, Txid: string): Fate
 	local Read, Value, Info = Walk.TxStore:GetAsync(Txid)
 	if not Read then
@@ -200,9 +211,7 @@ local function Gone(Walk: Walk, Txid: string): Fate
 	if Value == nil then
 		return WENT
 	end
-
-	local Updated = Marker.TouchedAt(Info)
-	if type(Value) == "table" and not Judged(Walk, Txid, Value, Updated) then
+	if not Doomed(Walk, Txid, Value, Info) then
 		return KEEP
 	end
 

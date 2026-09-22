@@ -17,6 +17,7 @@ local Suite = require("../Suite")
 
 local Tags = require("../../src/Core/Constants/Tags")
 local Windows = require("../../src/Core/Constants/Windows")
+local Digest = require("../../src/Encode/Digest")
 local TxStamp = require("../../src/Record/TxStamp")
 local Recovery = require("../../src/Protocol/Recovery")
 local Transfer = require("../../src/Protocol/Transfer")
@@ -1298,6 +1299,12 @@ Cases.Case("a retry that reads the receiver stale after a delivery lost its answ
 	T:Is("gold on the sender", Bank:Amount("lagA"), 60)
 	T:Is("anything still set aside", Bank:Aside("lagA"), 0)
 	T:Is("money is conserved", Bank:Amount("lagA") + Bank:Amount("lagB") + Bank:Aside("lagA"), 100)
+end)
+
+Cases.Case("a transfer keeps the print it has always had, even for keys that hold commas or brackets", function(T: Case)
+	T:Is("keys holding a comma and brackets", Transfer.Terms("a,b", "c(d)", 5), Digest.Of("(Amount=number:5,From=string:a,b,To=string:c(d))"))
+	T:Is("keys holding an equals sign and a percent, with a field", Transfer.Terms("x=1", "y%z", 2.5, "Gems"), Digest.Of("(Amount=number:2.5,Field=string:Gems,From=string:x=1,To=string:y%z)"))
+	T:Is("player keys", Transfer.Terms(123, 456, 10), Digest.Of("(Amount=number:10,From=string:123,To=string:456)"))
 end)
 
 return Cases

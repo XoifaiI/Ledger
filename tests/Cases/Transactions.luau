@@ -642,6 +642,29 @@ Cases.Case("a sweep asks the budget before every marker, so a pass stops inside 
 	T:Is("the rest are still there for the next pass", #Bank:Marks(), 40 - Reaped)
 end)
 
+Cases.Case("a sweep asks the write budget before every marker, since condemning one is a write", function(T: Case)
+	local Bank = T:Bank()
+	for _, Id in Batch(40, "shortw") do
+		Bank:Marker(Id, { Status = "Aborted", Total = 0, Adopted = {} })
+	end
+	T:Advance(Windows.REAP_GRACE + 1)
+
+	local Writes = 0
+	Bank:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
+		if Kind == Enum.DataStoreRequestType.UpdateAsync then
+			Writes += 1
+			return math.max(0, Transactions.REAP_FLOOR + 10 - Writes)
+		end
+		return 1000
+	end)
+
+	local Reaped = Bank.Store:ReapMarkers(1)
+
+	T:Ok("it reaped some", Reaped > 0)
+	T:Ok("and stopped inside the shard when the write budget reached its floor", Reaped < 40)
+	T:Is("the rest are still there for the next pass", #Bank:Marks(), 40 - Reaped)
+end)
+
 Cases.Case("a drive slower than a transaction may writes its name on the list again", function(T: Case)
 	local Bank = T:Bank()
 	local Txid = "orphan1"
@@ -918,6 +941,36 @@ Cases.Case("a name reused once its leg is compacted is still spent", function(T:
 	T:Is("gold on the sending key", Bank:Amount("packA"), 90)
 	T:Is("gold on the receiving key", Bank:Amount("packB"), 110)
 	T:Is("money is conserved", Bank:Amount("packA") + Bank:Amount("packB"), 200)
+end)
+
+Cases.Case("a name reused with fields that print alike is still spent", function(T: Case)
+	local Bank = T:Bank()
+
+	Bank.Store:Edit("likeA", "Fund", { Amount = 100 }):Wait()
+	Bank.Store:Edit("likeB", "Fund", { Amount = 100 }):Wait()
+
+	local Folded = {
+		{ Key = "likeA", Kind = "Give", Fields = { Amount = -10, Note = "x,b=string:y" } },
+		{ Key = "likeB", Kind = "Give", Fields = { Amount = 10, Note = "x,b=string:y" } },
+	}
+
+	local First = (Bank.Store:Tx("like1", Folded):Wait())
+
+	local Ok, Why = Bank.Store
+		:Tx("like1", {
+			{ Key = "likeA", Kind = "Give", Fields = { Amount = -10, Note = "x", b = "y" } },
+			{ Key = "likeB", Kind = "Give", Fields = { Amount = 10, Note = "x", b = "y" } },
+		})
+		:Wait()
+
+	local Honest = (Bank.Store:Tx("like1", Folded):Wait())
+
+	T:Is("the first transaction", First, true)
+	T:Is("the same name for fields that used to print the same", Ok, false)
+	T:Is("the reason", Why, "Spent")
+	T:Is("an honest retry of the original terms", Honest, true)
+	T:Is("gold on the sending key", Bank:Amount("likeA"), 90)
+	T:Is("gold on the receiving key", Bank:Amount("likeB"), 110)
 end)
 
 Cases.Case("a leg from a dead generation is retired by an abort", function(T: Case)

@@ -9,10 +9,14 @@
 	touched for longer than a transaction may take. Adopt records that a leg has reported. No marker
 	means aborted. A marker goes away only once every leg has reported.
 
+	Condemn marks one the reaper is about to take off, and only while it holds the generation the
+	reaper judged. A condemned marker reads as aborted, and Create will not open its name again until
+	it is gone.
+
 	The handles it keeps to other stores belong to the hook they were opened on, and so does the count
 	of how many are left. A handle that stops being cached stops queueing its writes in order.
 
-	Return type: A table with Create, Decide, StatusOf, Adopt, GenOf, BornAt, TouchedAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
+	Return type: A table with Create, Decide, StatusOf, Adopt, Condemn, Condemned, GenOf, BornAt, TouchedAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
 	Example usage:
 		local Marker = require("./Marker")
 		local Status = Marker.StatusOf(TxStore, "order1", 30)
@@ -67,6 +71,10 @@ local function Buried(Value: any): boolean
 	return type(Value) == "table" and Value.Dead == true
 end
 
+local function Condemned(Value: any): boolean
+	return type(Value) == "table" and Value.Condemned == true
+end
+
 local function Finished(Current: any): boolean
 	if Current.Total > 0 then
 		return TableUtil.Count(Current.Adopted) >= Current.Total
@@ -77,6 +85,16 @@ end
 local function Ours(Current: any, Gen: string?): boolean
 	local Held = GenOf(Current)
 	return type(Held) == "string" and Held == Gen
+end
+
+local function Same(Current: any, Seen: any): boolean
+	if Current == nil then
+		return false
+	end
+	if type(Seen) ~= "table" then
+		return type(Current) ~= "table"
+	end
+	return type(Current) == "table" and GenOf(Current) == GenOf(Seen)
 end
 
 local function MarkOf(Wrapper: DataStoreWrapper, Key: string): string
@@ -124,10 +142,16 @@ local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Ke
 
 	local Clash = false
 	local Minted = false
+	local Reaping = false
 	local Born = Clock.Now()
 	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
 		Clash = false
 		Minted = false
+		Reaping = false
+		if Condemned(Current) then
+			Reaping = true
+			return nil
+		end
 		if type(Current) ~= "table" or Buried(Current) then
 			Minted = true
 			return {
@@ -152,6 +176,9 @@ local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Ke
 		return Current
 	end)
 
+	if Reaping then
+		return Transactions.CONDEMNED, nil, Born, false
+	end
 	if Clash then
 		return Transactions.MISMATCH, nil, Born, false
 	end
@@ -249,6 +276,20 @@ local function Adopt(TxStore: DataStoreWrapper, Txid: string, Marks: { string },
 	end
 end
 
+local function Condemn(TxStore: DataStoreWrapper, Txid: string, Seen: any): boolean
+	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
+		if not Same(Current, Seen) then
+			return nil
+		end
+
+		local Held: Marker = if type(Current) == "table" then Current else { Status = Transactions.ABORTED, Total = 0 }
+		Held.Dead = true
+		Held.Condemned = true
+		return Held
+	end)
+	return Ok == true and Condemned(Value)
+end
+
 local function ShutdownHomes(Attempts: number)
 	for _, Mine in Homes do
 		for _, Wrapper in Mine.Wrappers do
@@ -263,6 +304,8 @@ return table.freeze({
 	Decide = Decide,
 	StatusOf = StatusOf,
 	Adopt = Adopt,
+	Condemn = Condemn,
+	Condemned = Condemned,
 	GenOf = GenOf,
 	BornAt = BornAt,
 	TouchedAt = TouchedAt,

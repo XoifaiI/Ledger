@@ -536,4 +536,17 @@ Cases.Case("two sets of terms that differ only in the type of a key do not print
 	T:Is("the print a plain field name has always had, so a deploy reads its own names back", Digest.Canon({ Amount = 5 }), "(Amount=number:5)")
 end)
 
+Cases.Case("two sets of terms that differ only in where a comma or a bracket falls do not print the same", function(T: Case)
+	local function Print(Value: any): string
+		return Digest.Of(Digest.Canon(Value))
+	end
+
+	T:No("one print for a note holding a second field and the two fields apart", Print({ Note = "x,b=string:y" }) == Print({ Note = "x", b = "y" }))
+	T:No("one print for a count folded into an item and the two apart", Print({ Item = "Axe,Qty=number:1" }) == Print({ Item = "Axe", Qty = 1 }))
+	T:No("one print for a bracket that closes a table early and the table apart", Print({ a = { b = "c),d=string:e" } }) == Print({ a = { b = "c" }, d = "e)" }))
+	T:No("one print for a key holding a second pair and the pairs apart", Print({ ["a=string:x,b"] = "y" }) == Print({ a = "x", b = "y" }))
+	T:No("one print for an escape written out and the character it stands for", Print({ Note = "%2C" }) == Print({ Note = "," }))
+	T:Is("the print a string with none of those has always had", Digest.Canon({ Note = "plain text", N = 1, B = true }), "(B=boolean:true,N=number:1,Note=string:plain text)")
+end)
+
 return Cases
