@@ -31,7 +31,7 @@ Paths are inside the package, the same tree a `require` reaches.
 | the MemoryStore limits | `Core/Constants/MemoryStore.luau` |
 
 Every file opens with a header saying what it is and what is subtle about it. Read the header first.
-There are 90 of them and the header is the only prose in the file.
+The header is the only prose in the file.
 
 `Core/Constants/Windows.luau` is worth knowing for another reason: each window carries an assert
 saying how it must relate to the others, in a sentence. Those asserts are the best short explanation
@@ -133,7 +133,7 @@ Clock.Use(Turn)                      -- before any store is built
 -- build stores here, then Turn.Advance(seconds) and Turn.Run()
 ```
 
-That is internal, it is not part of the five public entries, and it must be called before any store
+That is internal, it is not part of the public entries, and it must be called before any store
 exists. Say so when you use it, and never leave it in a game.
 
 ## Asking the developer to run it
@@ -165,8 +165,7 @@ you which happened in one line, and a disagreement with your expectation is the 
 
 Do it plainly and early. Name the rung you got to, what the answer turns on, and the experiment that
 would settle it. "I read `Store/Api/Ops.luau` and it does not say, and I cannot run it here, so run
-this and tell me what it prints" is a good answer. An invented number is not, and two of them in one
-of these runs put a fabricated `Promise` return type into a review.
+this and tell me what it prints" is a good answer. An invented number is not.
 
 ## Checking the surface
 

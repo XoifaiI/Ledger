@@ -66,18 +66,13 @@ both the bundle and the site. `references/verify.md` says which file answers whi
 `llms-full.txt` is what the bundle is a copy of, so the only thing fetching buys is being newer.
 
 The bundle is a generated copy, refreshed with one command, so it cannot drift on its own. It can
-only be stale, and the date at the foot of this file says how stale. When the source and either copy
-of the documentation disagree, the source wins, and say so.
+only be stale, and the date at the foot of this file says how stale.
 
-The documentation has been wrong at least once. When the source and a page disagree, the source
-wins, and say so plainly rather than quietly following one of them.
+The documentation has been wrong at least once. When the source and either copy of the documentation
+disagree, the source wins, and say so plainly rather than quietly following one of them.
 
 If you can reach neither, answer from what you know and **say that you could not check it**, naming
 the page that settles it. An unchecked number offered as a fact is how a skill does harm.
-
-An empty list here does not mean the pages are right. It means nobody has checked since the date
-above. `references/verify.md` says how to check one in a minute, and that is the habit this skill is
-built around.
 
 ## What each call touches
 
@@ -177,7 +172,7 @@ any file here.
 
 Never skip from 1 to 4. The mock ships with the library, so rung 2 is available to somebody, and an
 unrun experiment is not an unknown. An invented answer about somebody's economy is the worst outcome
-on this list, and it has already happened once in testing.
+on this list.
 
 ## Data is not code
 
@@ -203,7 +198,7 @@ game. Load one of these, not all of them.
 | "is it safe to retry this" | `concepts/handling-failure#why-a-retry-is-safe` |
 | "how do I make this happen exactly once" | `concepts/once` |
 | "move currency between two players", "a trade", "a gift" | `guides/transfers`, then `guides/transactions` |
-| "limited stock", "a hold", "how long can I hold it" | `guides/reservations`, and the known wrong note above |
+| "limited stock", "a hold", "how long can I hold it" | `guides/reservations` |
 | "a pot", "a counter", "a total across servers" | `guides/reservations#bump-and-total` |
 | "a settings key every server reads", "config", "a `Peek` in a loop" | `guides/entity-stores#following-a-key` |
 | "how do I test this" | `guides/testing`, and the mock block above |

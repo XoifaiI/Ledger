@@ -78,9 +78,11 @@ sender. `Unresolved` is not a refusal, and treating it as one is how a game pays
 1. `Store:Resettle(Key)` settles it now. `true` means nothing is left unfinished.
 2. Still `Busy` means the marker has not decided yet. A transaction is treated as dead after about a
    minute, and another server aborts it on the original's behalf.
-3. The sweep gives up on a key after five goes and warns, naming the key and telling the operator to
+3. A `Tx` retried under a name whose last marker is being taken off answers `Busy` until the reaper
+   has removed it. Retry the same name with a backoff.
+4. The sweep gives up on a key after five goes and warns, naming the key and telling the operator to
    call `Resettle`. That warning is not a failure, it is the sweep handing the job back.
-4. `Tx` does not retry `Busy` for the game, on purpose. A contended key is the last place to send
+5. `Tx` does not retry `Busy` for the game, on purpose. A contended key is the last place to send
    more traffic. The backoff belongs to the game. `guides/transactions#stuck-legs`.
 
 ## Writes answer Full and nothing fixes it
