@@ -9,8 +9,8 @@
 	into one tagged union a reducer narrows on. Overloads turns it into one call shape per kind. OpOf
 	names a single kind. NumberKeys names the number fields of a state. SameKeys holds the two views
 	of a store against each other. Frozen makes a state read only at every level, so a reducer can
-	hand back a state whose nested tables are read only. An array or a map stays writable, because
-	Luau cannot make an indexer read only yet.
+	hand back a state whose nested tables are read only. An array or a map keeps its own type, and so
+	does what it holds, because Luau cannot make an indexer read only yet.
 
 	Return type: An empty table. The types are OpOf, ReadOnly, Frozen, OpUnion, Overloads, NumberKeys and SameKeys.
 	Example usage:
@@ -54,7 +54,7 @@ export type function Frozen(Shape: type): type
 		end
 		local Indexer = Held:readindexer()
 		if Indexer ~= nil then
-			Out:setindexer(Indexer.index, Deep(Indexer.result, Depth + 1))
+			Out:setindexer(Indexer.index, Indexer.result)
 		end
 		return Out
 	end
