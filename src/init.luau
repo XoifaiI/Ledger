@@ -45,7 +45,8 @@ export type TxLeg = Api.TxLeg
 export type HoldOptions = Api.HoldOptions
 export type Op<O = any> = TypeFunctions.OpUnion<O>
 export type OpOf<O, K> = TypeFunctions.OpOf<O, K>
-export type Reducer<S, O = any> = (State: S, Op: TypeFunctions.OpUnion<O>) -> S?
+export type Reducer<S, O = any> = (State: S, Op: TypeFunctions.OpUnion<O>) -> (S | TypeFunctions.Frozen<S>)?
+export type Frozen<S> = TypeFunctions.Frozen<S>
 export type Record<D> = Shapes.Record<D>
 export type Future<T...> = Future.Future<T...>
 export type Observer<T> = Observer.Observer<T>

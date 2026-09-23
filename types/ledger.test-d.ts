@@ -17,6 +17,16 @@ interface Ops {
 	Ping: {};
 }
 
+interface Bag {
+	Gold: number;
+	Items: string[];
+	Files: { Message: string };
+}
+
+interface BagOps {
+	Spend: { Amount: number };
+}
+
 declare const player: Player;
 declare const DataStoreService: DataStoreService;
 
@@ -47,7 +57,9 @@ export type FollowGivesTheState = Expect<Equal<ReturnType<Ledger.Store<Profile>[
 export type OpenOpIsTheDefault = Expect<Equal<Ledger.Op, Ledger.OpenOp>>;
 export type OpOfNamesOneKind = Expect<Equal<Ledger.OpOf<Ops, "Buy">["Kind"], "Buy">>;
 export type OpUnionHasEveryKind = Expect<Equal<Ledger.Op<Ops>["Kind"], "Buy" | "Sell" | "AddGold" | "Ping">>;
-export type AStoreIsALegStore = Expect<Ledger.Store<Profile> extends Ledger.TxLeg["Store"] ? true : false>;
+export type FrozenArraysAreReadonly = Expect<Equal<Ledger.Frozen<Bag>["Items"], ReadonlyArray<string>>>;
+export type FrozenReachesEveryLevel = Expect<Equal<Ledger.Frozen<Bag>["Files"], { readonly Message: string }>>;
+export type AStoreIsALegStore =Expect<Ledger.Store<Profile> extends Ledger.TxLeg["Store"] ? true : false>;
 export type ATypedStoreIsALegStore = Expect<Ledger.TypedStore<Profile, Ops> extends Ledger.TxLeg["Store"] ? true : false>;
 
 function Reducer(this: void, state: Profile, op: Ledger.Op<Ops>): Profile | undefined {
@@ -76,7 +88,17 @@ function OpenReducer(this: void, state: Profile, op: Ledger.Op): Profile | undef
 	return undefined;
 }
 
+function FrozenReducer(this: void, state: Ledger.Frozen<Bag>, op: Ledger.Op<BagOps>): Ledger.Frozen<Bag> | undefined {
+	if (op.Amount > state.Gold) {
+		return undefined;
+	}
+	return { ...state, Gold: state.Gold - op.Amount };
+}
+
 export function Positives(): void {
+	const bag = Ledger.NewTyped<Bag, BagOps>({ Name: "Bag", Default: { Gold: 0, Items: [], Files: { Message: "" } }, Reducer: FrozenReducer });
+	void bag;
+
 	const shop: Ledger.TypedStore<Profile, Ops> = Ledger.NewTyped<Profile, Ops>({
 		Name: "Shop",
 		Default: { Gold: 100, Items: {} },
@@ -271,6 +293,14 @@ export function Negatives(): void {
 	Ledger.New<Profile>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, BumpEvery: "30" });
 	// @ts-expect-error a kind has to name its fields as an object
 	Ledger.NewTyped<Profile, { Buy: string }>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: (state) => state });
+	// @ts-expect-error a reducer gives back a whole state
+	Ledger.NewTyped<Bag, BagOps>({ Name: "Wrong", Default: { Gold: 0, Items: [], Files: { Message: "" } }, Reducer: () => ({ Gold: 1 }) });
+	function Pushing(this: void, state: Ledger.Frozen<Bag>): Ledger.Frozen<Bag> {
+		// @ts-expect-error a frozen array is read only
+		state.Items.push("Sword");
+		return state;
+	}
+	void Pushing;
 	// @ts-expect-error Mock takes Players, CCU and Throttled
 	Ledger.New<Profile>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Mock: { Player: 1 } });
 

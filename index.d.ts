@@ -27,7 +27,17 @@ declare namespace Ledger {
 
 	type Op<O extends OpMap<O> = never> = [O] extends [never] ? OpenOp : { [K in keyof O & string]: OpOf<O, K> }[keyof O & string];
 
-	type Reducer<S, O extends OpMap<O> = never> = (this: void, state: S, op: Op<O>) => S | undefined;
+	type Frozen<T> = T extends (...args: never[]) => unknown
+		? T
+		: T extends ReadonlyMap<infer K, infer V>
+			? ReadonlyMap<K, Frozen<V>>
+			: T extends ReadonlySet<infer V>
+				? ReadonlySet<V>
+				: T extends object
+					? { readonly [K in keyof T]: Frozen<T[K]> }
+					: T;
+
+	type Reducer<S, O extends OpMap<O> = never> = (this: void, state: S, op: Op<O>) => S | Frozen<S> | undefined;
 
 	type NumberKeys<D> = { [K in keyof D]-?: D[K] extends number ? K : never }[keyof D] & string;
 
