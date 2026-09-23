@@ -59,7 +59,7 @@ export type OpOfNamesOneKind = Expect<Equal<Ledger.OpOf<Ops, "Buy">["Kind"], "Bu
 export type OpUnionHasEveryKind = Expect<Equal<Ledger.Op<Ops>["Kind"], "Buy" | "Sell" | "AddGold" | "Ping">>;
 export type FrozenArraysAreReadonly = Expect<Equal<Ledger.Frozen<Bag>["Items"], ReadonlyArray<string>>>;
 export type FrozenReachesEveryLevel = Expect<Equal<Ledger.Frozen<Bag>["Files"], { readonly Message: string }>>;
-export type AStoreIsALegStore =Expect<Ledger.Store<Profile> extends Ledger.TxLeg["Store"] ? true : false>;
+export type AStoreIsALegStore = Expect<Ledger.Store<Profile> extends Ledger.TxLeg["Store"] ? true : false>;
 export type ATypedStoreIsALegStore = Expect<Ledger.TypedStore<Profile, Ops> extends Ledger.TxLeg["Store"] ? true : false>;
 
 function Reducer(this: void, state: Profile, op: Ledger.Op<Ops>): Profile | undefined {
@@ -301,6 +301,14 @@ export function Negatives(): void {
 		return state;
 	}
 	void Pushing;
+	function Marking(this: void, state: Ledger.Frozen<Profile>): Ledger.Frozen<Profile> {
+		// @ts-expect-error a frozen map is read only
+		state.Items["Sword"] = true;
+		// @ts-expect-error a frozen field is read only
+		state.Gold = 5;
+		return state;
+	}
+	void Marking;
 	// @ts-expect-error Mock takes Players, CCU and Throttled
 	Ledger.New<Profile>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Mock: { Player: 1 } });
 
