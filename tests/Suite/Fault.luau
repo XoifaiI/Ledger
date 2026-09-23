@@ -12,7 +12,8 @@
 
 	Wrap puts a memory hook behind the faults a case adds to it, over its datastores and its
 	MemoryStore maps alike. The store Ledger is handed cannot tell it is being lied to. A map and a
-	datastore share method names, so a fault meant for one names it with OnStore.
+	datastore share method names, so a fault meant for one names it with OnStore. A Watch passed to
+	Wrap judges every datastore write as it lands, faulted or not.
 
 	Return type: A table with Wrap, On and the five builders. The types are Spec, Effect and Faulted.
 	Example usage:
@@ -22,6 +23,7 @@
 
 local Engine = require("../../src/Util/Engine")
 local Memory = require("../../src/Hooks/Memory")
+local Watch = require("./Watch")
 
 export type Effect = "Drop" | "Swallow" | "Stall" | "Meddle" | "Stale"
 
@@ -42,6 +44,7 @@ local LISTED = "ListKeysAsync"
 local STORE_METHODS: { string } = { READ, UPDATE, REMOVE, VERSION, VERSIONS, LISTED }
 local MAP_METHODS: { string } = { READ, SET, UPDATE, REMOVE }
 local METHODS: { string } = { READ, SET, UPDATE, REMOVE, VERSION, VERSIONS, LISTED }
+local WRITES: { [string]: boolean } = { [UPDATE] = true, [REMOVE] = true }
 
 local DOWN = "Ledger memory hook: the request never reached the datastore"
 local SWALLOWED = "Ledger memory hook: the write landed and the answer was lost"
@@ -133,18 +136,26 @@ local function Fire(Held: Spec, Scheduler: Engine.Scheduler, Inner: any, Method:
 	error(SWALLOWED, 0)
 end
 
-local function Proxy(Specs: { Spec }, Scheduler: Engine.Scheduler, Name: string, Inner: any, Methods: { string }): any
+local function Proxy(Specs: { Spec }, Scheduler: Engine.Scheduler, Name: string, Inner: any, Methods: { string }, Watching: Watch.Watch?): any
 	local Held = {}
 
 	for _, Method in Methods do
 		Held[Method] = function(_: any, ...: any): ...any
 			local Key = if Method == LISTED then "" else tostring((...))
 			local Firing = Chosen(Specs, Name, Method, Key)
-			if Firing == nil then
-				return Inner[Method](Inner, ...)
+			local Given = table.pack(...)
+
+			local function Call(): ...any
+				if Firing == nil then
+					return Inner[Method](Inner, table.unpack(Given, 1, Given.n))
+				end
+				return Fire(Firing, Scheduler, Inner, Method, table.unpack(Given, 1, Given.n))
 			end
 
-			return Fire(Firing, Scheduler, Inner, Method, ...)
+			if Watching ~= nil and WRITES[Method] then
+				return Watching:Around(Name, Inner, Key, Call)
+			end
+			return Call()
 		end
 	end
 
@@ -168,7 +179,7 @@ local function On(Method: string): Spec
 	}, Spec) :: any
 end
 
-local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler): Faulted
+local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler, Watching: Watch.Watch?): Faulted
 	local Specs: { Spec } = {}
 	local Cache: ((Name: string) -> Engine.Map)? = (Hook :: any).Cache
 
@@ -177,7 +188,7 @@ local function Wrap(Hook: Memory.Memory, Scheduler: Engine.Scheduler): Faulted
 		Budget = Hook.Budget,
 
 		Open = function(Name: string): Engine.Store
-			return Proxy(Specs, Scheduler, Name, Hook.Open(Name), STORE_METHODS)
+			return Proxy(Specs, Scheduler, Name, Hook.Open(Name), STORE_METHODS, Watching)
 		end,
 
 		Cache = if Cache == nil

@@ -8,9 +8,11 @@
 	A game names its ops once, as a map of the kind to the fields it carries. OpUnion turns that map
 	into one tagged union a reducer narrows on. Overloads turns it into one call shape per kind. OpOf
 	names a single kind. NumberKeys names the number fields of a state. SameKeys holds the two views
-	of a store against each other.
+	of a store against each other. Frozen makes a state read only at every level, so a reducer can
+	hand back a state whose nested tables are read only. An array or a map stays writable, because
+	Luau cannot make an indexer read only yet.
 
-	Return type: An empty table. The types are OpOf, ReadOnly, OpUnion, Overloads, NumberKeys and SameKeys.
+	Return type: An empty table. The types are OpOf, ReadOnly, Frozen, OpUnion, Overloads, NumberKeys and SameKeys.
 	Example usage:
 		local TypeFunctions = require("./TypeFunctions")
 		type Ops = TypeFunctions.OpUnion<{ Buy: { Item: string } }>
@@ -26,6 +28,38 @@ export type function ReadOnly(Shape: type): type
 		Held:setwriteproperty(Name, nil)
 	end
 	return Held
+end
+
+export type function Frozen(Shape: type): type
+	local function Deep(Held: type, Depth: number): type
+		if Depth > 16 then
+			return Held
+		end
+		if Held:is("union") or Held:is("intersection") then
+			local Parts = {}
+			for _, Part in Held:components() do
+				table.insert(Parts, Deep(Part, Depth + 1))
+			end
+			return if Held:is("union") then types.unionof(table.unpack(Parts)) else types.intersectionof(table.unpack(Parts))
+		end
+		if not Held:is("table") then
+			return Held
+		end
+
+		local Out = types.newtable(nil, nil, Held:metatable())
+		for Name, Field in Held:properties() do
+			if Field.read ~= nil then
+				Out:setreadproperty(Name, Deep(Field.read, Depth + 1))
+			end
+		end
+		local Indexer = Held:readindexer()
+		if Indexer ~= nil then
+			Out:setindexer(Indexer.index, Deep(Indexer.result, Depth + 1))
+		end
+		return Out
+	end
+
+	return Deep(Shape, 0)
 end
 
 export type OpOf<O, K> = { read Id: string, read Kind: K } & ReadOnly<index<O, K>>

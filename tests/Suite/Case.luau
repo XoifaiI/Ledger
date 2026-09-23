@@ -15,7 +15,10 @@
 	UseCache runs every bench after it with the MemoryStore absent, failing every call, or partial,
 	where reads answer and writes do not. That is how the suite proves nothing leans on it.
 
-	Return type: A table with Open, Close, Judge, Heard and UseCache, and the names a bench builds under. The types are Case, Spec, Entry and CacheMode.
+	Every bench watches the writes its stores make, and Invariants names what broke that no Breaks
+	asked for. UseWatch turns that off for a bench too large to watch.
+
+	Return type: A table with Open, Close, Judge, Invariants, Heard, UseCache and UseWatch, and the names a bench builds under. The types are Case, Spec, Entry and CacheMode.
 	Example usage:
 		local Bank = T:Bank()
 		T:Is("gold after the transfer", Bank:Amount("a"), 50)
@@ -35,6 +38,7 @@ local Ids = require("../../src/Encode/Ids")
 local Wrapper = require("../../src/Util/DataStoreWrapper")
 local Memory = require("../../src/Hooks/Memory")
 local Fault = require("./Fault")
+local Watch = require("./Watch")
 local Registry = require("../../src/Store/Registry")
 local Virtual = require("../../src/Schedulers/Virtual")
 local Mock = require("../../src/Mock")
@@ -96,6 +100,7 @@ type CaseImpl = {
 	AtMost: (self: Case, Label: string, Fragment: string, Most: number) -> (),
 	Silent: (self: Case, Label: string, Fragment: string) -> (),
 	Accuses: (self: Case, Label: string, Fragment: string) -> (),
+	Breaks: (self: Case, Label: string, Fragment: string) -> (),
 	Said: (self: Case) -> { string },
 	Fail: (self: Case, Label: string, Says: string) -> (),
 
@@ -127,6 +132,7 @@ export type Case = setmetatable<{
 	Built: { Fixture.Fixture },
 	Records: { Entry },
 	Expect: { Wanted },
+	Watch: Watch.Watch?,
 }, CaseImpl>
 
 local DATA = "Case"
@@ -146,6 +152,7 @@ Registry.Sweep():Stop()
 
 local Claimed = 0
 local CacheMode: CacheMode? = nil
+local Watching = true
 
 local function Down(): any
 	error("Ledger memory hook: the MemoryStore is failing every call", 0)
@@ -183,11 +190,11 @@ local function Reading(Inner: Engine.Map): Engine.Map
 	})
 end
 
-local function Hooked(Turn: Virtual.Virtual, Service: Mock.Service): Fault.Faulted
+local function Hooked(Turn: Virtual.Virtual, Service: Mock.Service, Watched: Watch.Watch?): Fault.Faulted
 	local Held = Memory.New(Turn, nil, Service)
 	if CacheMode == "absent" then
 		local Bare: any = { Open = Held.Open, Budget = Held.Budget, Service = Held.Service }
-		return Fault.Wrap(Bare, Turn)
+		return Fault.Wrap(Bare, Turn, Watched)
 	end
 	if CacheMode == "failing" or CacheMode == "partial" then
 		local Broken: any = {
@@ -198,14 +205,18 @@ local function Hooked(Turn: Virtual.Virtual, Service: Mock.Service): Fault.Fault
 				return if CacheMode == "partial" then Reading(Held.Cache(Name)) else BROKEN
 			end,
 		}
-		return Fault.Wrap(Broken, Turn)
+		return Fault.Wrap(Broken, Turn, Watched)
 	end
-	return Fault.Wrap(Held, Turn)
+	return Fault.Wrap(Held, Turn, Watched)
 end
 
 local function UseCache(Mode: CacheMode?)
 	assert(Mode == nil or Mode == "absent" or Mode == "failing" or Mode == "partial", `the cache can run as it is, absent, failing or partial, not '{tostring(Mode)}'`)
 	CacheMode = Mode
+end
+
+local function UseWatch(On: boolean)
+	Watching = On
 end
 
 local function Quicken(Wrapper: any)
@@ -241,16 +252,18 @@ function Case.Open(Name: string): Case
 	local Turn = Virtual.New(EPOCH)
 	local Service = Mock.New({ Throttled = false }, Turn)
 	Clock.Use(Turn)
+	local Watched = if Watching then Watch.New(Service) else nil
 
 	return setmetatable({
 		Name = Name,
 		Turn = Turn,
 		Broken = {},
 		Service = Service,
-		Hook = Hooked(Turn, Service),
+		Hook = Hooked(Turn, Service, Watched),
 		Built = {},
 		Records = Spoken,
 		Expect = {},
+		Watch = Watched,
 	}, Case) :: any
 end
 
@@ -320,7 +333,7 @@ function Case.Store(self: Case, Held: Spec): Fixture.Fixture
 	local Node = Held.Node or NODE
 
 	local Turn = self.Turn
-	local Hook = Hooked(Turn, self.Service)
+	local Hook = Hooked(Turn, self.Service, self.Watch)
 	local Built = Ledger.New({
 		Name = `V2case{Claimed}`,
 		Hook = Hook,
@@ -436,6 +449,10 @@ function Case.Accuses(self: Case, Label: string, Fragment: string)
 	table.insert(self.Expect, { Kind = "Accuses", Label = Label, Fragment = Fragment })
 end
 
+function Case.Breaks(self: Case, Label: string, Fragment: string)
+	table.insert(self.Expect, { Kind = "Breaks", Label = Label, Fragment = Fragment })
+end
+
 function Case.Judge(self: Case): { string }
 	local Wanted: { string } = {}
 	for _, Held in self.Expect do
@@ -457,6 +474,9 @@ function Case.Judge(self: Case): { string }
 			continue
 		end
 
+		if Held.Kind == "Breaks" then
+			continue
+		end
 		if Held.Kind == "Accuses" then
 			table.insert(Wanted, Held.Fragment)
 		end
@@ -482,6 +502,45 @@ function Case.Judge(self: Case): { string }
 			end
 		end
 		if not Asked then
+			table.insert(Loose, Line)
+		end
+	end
+	return Loose
+end
+
+local function Invariants(self: Case): { string }
+	local Watched = self.Watch
+	local Broke: { string } = if Watched ~= nil then Watched.Broke else {}
+
+	local Asked: { string } = {}
+	for _, Held in self.Expect do
+		if Held.Kind ~= "Breaks" then
+			continue
+		end
+		table.insert(Asked, Held.Fragment)
+
+		local Seen = false
+		for _, Line in Broke do
+			if string.find(Line, Held.Fragment, 1, true) ~= nil then
+				Seen = true
+				break
+			end
+		end
+		if not Seen then
+			table.insert(self.Broken, `{Held.Label}: nothing broke '{Held.Fragment}'`)
+		end
+	end
+
+	local Loose: { string } = {}
+	for _, Line in Broke do
+		local Wanted = false
+		for _, Fragment in Asked do
+			if string.find(Line, Fragment, 1, true) ~= nil then
+				Wanted = true
+				break
+			end
+		end
+		if not Wanted then
 			table.insert(Loose, Line)
 		end
 	end
@@ -597,8 +656,10 @@ return table.freeze({
 	Close = Case.Close,
 	Heard = Catch,
 	UseCache = UseCache,
+	UseWatch = UseWatch,
 	Drive = Case.Drive,
 	Judge = Case.Judge,
+	Invariants = Invariants,
 
 	DATA = DATA,
 	VAULT = VAULT,

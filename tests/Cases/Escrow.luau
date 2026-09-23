@@ -1301,6 +1301,73 @@ Cases.Case("a retry that reads the receiver stale after a delivery lost its answ
 	T:Is("money is conserved", Bank:Amount("lagA") + Bank:Amount("lagB") + Bank:Aside("lagA"), 100)
 end)
 
+Cases.Case("a transfer name another sender already delivered under is spent before anything is set aside", function(T: Case)
+	local Bank = Funded(T, { firstA = 100, otherC = 100, sharedB = 0 })
+
+	local First = (Bank.Store:Transfer("firstA", "sharedB", 10, "shared1"):Wait())
+	local Ok, Why = Bank.Store:Transfer("otherC", "sharedB", 30, "shared1"):Wait()
+
+	T:Is("the first transfer", First, true)
+	T:Is("the same name from another sender", Ok, false)
+	T:Is("the reason", Why, "Spent")
+	T:Is("gold on the second sender, untouched", Bank:Amount("otherC"), 100)
+	T:Is("anything set aside on the second sender", Bank:Aside("otherC"), 0)
+	T:Is("gold on the receiver, paid once", Bank:Amount("sharedB"), 10)
+end)
+
+Cases.Case("a delivery exactly on the expiry edge still lands", function(T: Case)
+	local Bank = Funded(T, { soundA = 100, soundB = 0 })
+	local Tid = Reserve(Bank, "soundA", "soundB", 40)
+	local Hold = Bank:Stored("soundA")._Held[Tid]
+
+	T:Advance(Windows.REDRIVE + Windows.EXPIRE_MARGIN)
+	T:Holds("the delivery", function()
+		Transfer.Post(Bank:Log(), Bank:Format(), "soundA", Tid, Hold.To, Hold.Amount, Hold.At)
+	end)
+
+	T:Is("gold on the receiver", Bank:Amount("soundB"), 40)
+	T:Is("anything still set aside", Bank:Aside("soundA"), 0)
+end)
+
+Cases.Case("a retry exactly on the redrive edge still sends the transfer", function(T: Case)
+	local Bank = Funded(T, { redriveA = 100, redriveB = 0 })
+	Reserve(Bank, "redriveA", "redriveB", 40, "redrive1")
+
+	T:Advance(Windows.REDRIVE)
+	local Ok, Why = Bank.Store:Transfer("redriveA", "redriveB", 40, "redrive1"):Wait()
+
+	T:Is("the retry", Ok, true)
+	T:Is("the reason", Why, nil)
+	T:Is("gold on the receiver", Bank:Amount("redriveB"), 40)
+	T:Is("anything still set aside", Bank:Aside("redriveA"), 0)
+end)
+
+Cases.Case("a hold exactly thirty days old is given back rather than written off", function(T: Case)
+	local Bank = Funded(T, { pruneA = 100, pruneB = 0 })
+	Reserve(Bank, "pruneA", "pruneB", 40)
+
+	T:Advance(Windows.PRUNE)
+	Bank.Store:RecoverTransfers("pruneA"):Wait()
+
+	T:Is("gold back on the sender", Bank:Amount("pruneA"), 100)
+	T:Is("gold on the receiver", Bank:Amount("pruneB"), 0)
+	T:Is("anything still set aside", Bank:Aside("pruneA"), 0)
+	T:Silent("nothing was written off", "written off")
+end)
+
+Cases.Case("a key exactly at the end of its tomb still turns a delivery away", function(T: Case)
+	local Bank = Funded(T, { tombA = 100, tombB = 50 })
+	Bank.Store:Erase("tombB"):Wait()
+
+	T:Advance(Windows.TOMB)
+	local Ok, Why = Bank.Store:Transfer("tombA", "tombB", 40):Wait()
+
+	T:Is("the transfer", Ok, false)
+	T:Is("the reason", Why, "Held")
+	T:Is("gold on the erased key", Bank:Amount("tombB"), 0)
+	T:Is("the money, still set aside on the sender", Bank:Aside("tombA"), 40)
+end)
+
 Cases.Case("a transfer keeps the print it has always had, even for keys that hold commas or brackets", function(T: Case)
 	T:Is("keys holding a comma and brackets", Transfer.Terms("a,b", "c(d)", 5), Digest.Of("(Amount=number:5,From=string:a,b,To=string:c(d))"))
 	T:Is("keys holding an equals sign and a percent, with a field", Transfer.Terms("x=1", "y%z", 2.5, "Gems"), Digest.Of("(Amount=number:2.5,Field=string:Gems,From=string:x=1,To=string:y%z)"))

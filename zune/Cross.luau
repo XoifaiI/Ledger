@@ -341,6 +341,9 @@ local function Ran(Held: Scenario, Aim: string, Method: string, Mode: string?, A
 		end
 	end
 	Case.Close(T)
+	for _, Line in Case.Invariants(T) do
+		Says = Says or `an invariant broke: {Line}`
+	end
 	return Counted, Says
 end
 

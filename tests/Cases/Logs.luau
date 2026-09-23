@@ -1137,4 +1137,14 @@ Cases.Case("erasing a key nobody wrote says nothing about money", function(T: Ca
 	T:Is("the key nobody wrote still reads as the default", Bank:Amount("neverwritten"), 100)
 end)
 
+Cases.Case("an append whose op does not come back from the datastore says so", function(T: Case)
+	local Store = Ledgered(T)
+
+	local Says = T:Throws("an append of an op a record cannot read back", function()
+		Store:Log():Append("lostop", { { Id = 5, Kind = "Touch" } :: any })
+	end)
+
+	T:Is("it names the rule that did not hold", Says ~= nil and string.find(Says, "did not all come back", 1, true) ~= nil, true)
+end)
+
 return Cases

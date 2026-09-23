@@ -1352,4 +1352,33 @@ Cases.Case("a reducer that empties a copied field is still caught", function(T: 
 	T:Is("the money it tried to drop is still set aside", Store:Aside("k"), 2)
 end)
 
+Cases.Case("a commit whose op carries an empty Once answers invalid", function(T: Case)
+	local Store = Purse(T)
+	local Active = Store:Session("badonce")
+
+	local Ok, Why = Active:CommitOp({ Id = "badonce1", Kind = "Add", Amount = 1, Once = "" } :: any):Wait()
+
+	T:Is("the commit", Ok, false)
+	T:Is("the reason", Why, "Invalid")
+end)
+
+Cases.Case("a commit of something that is not an op answers invalid", function(T: Case)
+	local Store = Purse(T)
+	local Active = Store:Session("noid")
+
+	local Ok, Why = Active:CommitOp({ Kind = "Add", Amount = 1 } :: any):Wait()
+
+	T:Is("the commit", Ok, false)
+	T:Is("the reason", Why, "Invalid")
+end)
+
+Cases.Case("a confirm whose op carries an empty Once answers invalid", function(T: Case)
+	local Store = Purse(T)
+
+	local Ok, Why = Store.Store:Confirm("badconfirm", "order1", "Add", { Amount = 1, Once = "" }):Wait()
+
+	T:Is("the confirm", Ok, false)
+	T:Is("the reason", Why, "Invalid")
+end)
+
 return Cases

@@ -12,7 +12,9 @@
 	Run leaves out a file tagged with something in Skip. That is how the cache cases stay out of a run
 	whose cache is absent, failing or partly down.
 
-	Return type: A table with File, Run, Heard, Cache, Fault, Reducers, Reasons and Horizons.
+	A write that breaks an invariant fails its case as well, unless the case said Breaks for it.
+
+	Return type: A table with File, Run, Heard, Cache, Watch, Fault, Reducers, Reasons and Horizons.
 	Example usage:
 		local Cases = Suite.File("Once")
 		Cases.Case("a replay under the same name changes nothing", function(T) end)
@@ -70,6 +72,7 @@ export type Report = {
 	Failed: number,
 	Broken: { Failure },
 	Accused: { string },
+	Broke: { string },
 	Warnings: number,
 	Seconds: number,
 }
@@ -104,6 +107,7 @@ local function Run(Files: { File }, Options: Options?): Report
 
 	local Broken: { Failure } = {}
 	local Accused: { string } = {}
+	local Broke: { string } = {}
 	local Warnings = 0
 	local Ran, Failed = 0, 0
 
@@ -132,6 +136,9 @@ local function Run(Files: { File }, Options: Options?): Report
 			for _, Line in Case.Judge(Bench) do
 				table.insert(Accused, `{Book.Name}: {Written.Name}: {Line}`)
 			end
+			for _, Line in Case.Invariants(Bench) do
+				table.insert(Broke, `{Book.Name}: {Written.Name}: {Line}`)
+			end
 			for _, Record in Bench.Records do
 				Warnings += Record.Count
 			end
@@ -146,11 +153,12 @@ local function Run(Files: { File }, Options: Options?): Report
 	end
 
 	return {
-		Ok = #Broken == 0 and #Accused == 0,
+		Ok = #Broken == 0 and #Accused == 0 and #Broke == 0,
 		Ran = Ran,
 		Failed = Failed,
 		Broken = Broken,
 		Accused = Accused,
+		Broke = Broke,
 		Warnings = Warnings,
 		Seconds = os.clock() - Started,
 	}
@@ -161,6 +169,7 @@ return table.freeze({
 	Run = Run,
 	Heard = Case.Heard,
 	Cache = Case.UseCache,
+	Watch = Case.UseWatch,
 
 	Fault = Fault,
 	Reducers = Reducers,

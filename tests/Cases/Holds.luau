@@ -588,4 +588,24 @@ Cases.Case("a key at its cap says so once a window, not once a refusal", functio
 	T:Warns("it said the key was full, once for the burst and once a window later", "already holds 2 reservations", 2)
 end)
 
+Cases.Case("a holds read the map cannot answer is unresolved, not empty", function(T: Case)
+	local Shelf = T:Shelf()
+	Shelf.Hook.Fail(Fault.Reads():OnStore(MAP))
+
+	local Held, Why = Shelf.Store:Holds("downshelf", "Stock"):Wait()
+
+	T:Is("the units held", Held, nil)
+	T:Is("the reason", Why, "Unresolved")
+end)
+
+Cases.Case("a holds read of an item that is not a hold is unresolved, not empty", function(T: Case)
+	local Shelf = T:Shelf()
+	T.Service:GetHashMap(MAP):SetAsync(Mark.Cached({ Shelf.Data, "junkshelf" }), "not a hold", 60)
+
+	local Held, Why = Shelf.Store:Holds("junkshelf", "Stock"):Wait()
+
+	T:Is("the units held", Held, nil)
+	T:Is("the reason", Why, "Unresolved")
+end)
+
 return Cases

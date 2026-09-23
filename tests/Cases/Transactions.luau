@@ -943,6 +943,80 @@ Cases.Case("a name reused once its leg is compacted is still spent", function(T:
 	T:Is("money is conserved", Bank:Amount("packA") + Bank:Amount("packB"), 200)
 end)
 
+Cases.Case("a decision under an older generation leaves a newer marker alone", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Marker("olddecide1", { Status = "Pending", Total = 2, Gen = "two", At = T:Now(), Adopted = {} })
+
+	local Decided = Marker.Decide(Bank.Store.TxWrapper, "olddecide1", Transactions.COMMITTED, nil, "one")
+	local Held = Bank:Mark("olddecide1")
+
+	T:Is("what the older decision answers", Decided, nil)
+	T:Is("the newer marker, still undecided", Held.Status, "Pending")
+end)
+
+Cases.Case("a leg reported under an older generation is not counted by a newer marker", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Marker("oldadopt1", { Status = "Committed", Total = 2, Gen = "two", At = T:Now(), Adopted = {} })
+
+	Marker.Adopt(Bank.Store.TxWrapper, "oldadopt1", { Mark.Of("Case", "oldadoptA") }, "one")
+	local Held = Bank:Mark("oldadopt1")
+
+	T:Is("legs the newer marker counts as reported", next(Held.Adopted), nil)
+	T:Is("the newer marker, still standing", Held.Dead, nil)
+end)
+
+Cases.Case("a transaction whose decision never lands answers unresolved", function(T: Case)
+	local Bank = T:Bank()
+	Bank.Store:Edit("undecA", "Fund", { Amount = 100 }):Wait()
+	Bank.Store:Edit("undecB", "Fund", { Amount = 100 }):Wait()
+
+	Bank:NoRetries()
+	for Nth = 2, 2 * Transactions.PASSES, 2 do
+		Bank:MarkerFault(Fault.Updates():OnKey("undec1"):Only(Nth))
+	end
+
+	local Ok, Why = Bank.Store
+		:Tx("undec1", {
+			{ Key = "undecA", Kind = "Give", Fields = { Amount = -10 } },
+			{ Key = "undecB", Kind = "Give", Fields = { Amount = 10 } },
+		})
+		:Wait()
+
+	T:Is("the transaction", Ok, false)
+	T:Is("the reason, since it might still go through", Why, "Unresolved")
+end)
+
+Cases.Case("a drive slower than a transaction puts its name on the list again by itself", function(T: Case)
+	local Bank = T:Bank("nodeA")
+	local Reaper = T:Bank("nodeB")
+	Bank.Store:Edit("slowA", "Fund", { Amount = 100 }):Wait()
+	Bank.Store:Edit("slowB", "Fund", { Amount = 100 }):Wait()
+	local Stalled = Bank:MarkerFault(Fault.Updates():OnKey("slow1"):Only(1):Stall(Windows.REAP_GRACE + 60))
+
+	local Ok: any = nil
+	local Dropped = false
+	T:Race({
+		function()
+			Ok = (Bank.Store
+				:Tx("slow1", {
+					{ Key = "slowA", Kind = "Give", Fields = { Amount = -10 } },
+					{ Key = "slowB", Kind = "Give", Fields = { Amount = 10 } },
+				})
+				:Wait())
+		end,
+		function()
+			T:Wait(Windows.REAP_GRACE + 30)
+			Reaper.Store:ReapMarkers()
+			Dropped = Bank:Rolled()["slow1"] == nil
+		end,
+	})
+
+	T:Is("the marker write the drive waited on", Stalled.Fired, 1)
+	T:Is("a reaper that read the list before the marker existed took the name off", Dropped, true)
+	T:Is("the transaction", Ok, true)
+	T:Is("its name, back on the list once the drive finished", Bank:Rolled()["slow1"], true)
+end)
+
 Cases.Case("a name reused with fields that print alike is still spent", function(T: Case)
 	local Bank = T:Bank()
 

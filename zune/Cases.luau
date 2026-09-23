@@ -81,6 +81,7 @@ print("")
 Row("cases failed", Out.Failed)
 Row("checks broken", #Out.Broken)
 Row("Ledger accused itself", #Out.Accused)
+Row("an invariant broke", #Out.Broke)
 
 local Broken: { string } = {}
 for _, Held in Out.Broken do
@@ -89,6 +90,7 @@ end
 
 Some("broken", Broken, SHOW_BROKEN)
 Some("Ledger accused itself", Out.Accused, SHOW_ACCUSED)
+Some("an invariant broke", Out.Broke, SHOW_ACCUSED)
 
 print("")
 if Out.Ok then

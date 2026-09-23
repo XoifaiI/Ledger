@@ -69,6 +69,7 @@ local ACCUSED = Messages.ACCUSED
 type Fixture = Suite.Fixture
 
 Suite.Cache(if MODE == "" then nil else MODE :: any)
+Suite.Watch(false)
 
 local function Row(Label: string, Calls: number, Units: number, Per: string)
 	print(string.format("  %-58s %10d calls %10d units   %s", Label, Calls, Units, Per))

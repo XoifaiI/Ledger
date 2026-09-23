@@ -531,6 +531,36 @@ Cases.Case("a record swollen by a stuck leg stops at the ceiling and recovers", 
 	T:Is("the log compacts again now the leg is gone", #Bank:Record("swollen").Ops < #Swollen.Ops, true)
 end)
 
+local function Brimming(T: Case, Data: string, Key: string): Fixture
+	Sizes.Set({ Value = 65536, State = 4096, Op = 1024, Log = 2048, Compact = 1024 })
+	local Store = Stashing(T, Data)
+	local Blobs: { string } = {}
+	for Index = 1, 7 do
+		Blobs[Index] = string.rep("b", 500)
+	end
+	Store:Seed(Key, { Blobs = Blobs })
+	return Store
+end
+
+Cases.Case("an edit that would grow a state past its cap answers full", function(T: Case)
+	local Store = Brimming(T, "CaseEditCap", "brimedit")
+
+	local Ok, Why = Store.Store:Edit("brimedit", "Stash", { Text = string.rep("c", 600) }):Wait()
+
+	T:Is("the edit", Ok, false)
+	T:Is("the reason", Why, "Full")
+end)
+
+Cases.Case("an apply that would grow a state past its cap answers full", function(T: Case)
+	local Store = Brimming(T, "CaseApplyCap", "brimapply")
+	local Active = Store:Session("brimapply")
+
+	local Ok, Why = Active:Apply("Stash", { Text = string.rep("c", 600) })
+
+	T:Is("the apply", Ok, false)
+	T:Is("the reason", Why, "Full")
+end)
+
 Cases.Case("a state filled by Ledger's own bookkeeping says whose it is", function(T: Case)
 	Sizes.Set({ Value = 65536, State = 4096, Op = 1024, Log = 2048, Compact = 1024 })
 

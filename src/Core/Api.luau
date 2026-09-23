@@ -135,7 +135,7 @@ export type Config<D> = ConfigCommon<D> & {
 }
 
 export type TypedConfig<D, O> = ConfigCommon<D> & {
-	read Reducer: (State: D, Op: TypeFunctions.OpUnion<O>) -> D?,
+	read Reducer: (State: D, Op: TypeFunctions.OpUnion<O>) -> (D | TypeFunctions.Frozen<D>)?,
 }
 
 type DriftState = { Gold: number }
