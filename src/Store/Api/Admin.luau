@@ -188,7 +188,7 @@ end
 
 local function Sending(Key: string, Said: string)
 	warn(
-		`Ledger: cannot erase '{Key}' yet. {Said} on it is still being sent to another key. erase it again once that transfer is delivered or given back, which takes {Windows.TOMB // Windows.DAY} days at most`
+		`Ledger: cannot erase '{Key}' yet. {Said} on it is still being sent to another key. erase it again once that transfer is delivered. one that cannot be delivered is given back once it is {Windows.TOMB // Windows.DAY} days old`
 	)
 end
 
