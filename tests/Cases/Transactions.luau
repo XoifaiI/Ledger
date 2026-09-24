@@ -954,6 +954,64 @@ Cases.Case("a decision under an older generation leaves a newer marker alone", f
 	T:Is("the newer marker, still undecided", Held.Status, "Pending")
 end)
 
+Cases.Case("a condemned marker cannot be decided, since everyone else reads it as aborted", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Marker("condecide1", { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {}, Dead = true, Condemned = true })
+
+	local Decided = Marker.Decide(Bank.Store.TxWrapper, "condecide1", Transactions.COMMITTED, nil, "one")
+	local Read = Marker.StatusOf(Bank.Store.TxWrapper, "condecide1", Windows.LEG)
+
+	T:Is("what the decision answers", Decided, nil)
+	T:Is("the marker, still undecided", Bank:Mark("condecide1").Status, "Pending")
+	T:Is("what a bystander reads", Read, Transactions.ABORTED)
+end)
+
+Cases.Case("a coordinator whose marker was condemned before it decided moves nothing", function(T: Case)
+	local Bank = T:Bank()
+	local Other = T:Bank("nodeB")
+	Bank:Seed("condA", { Gold = 100 })
+	Bank:Seed("condB", { Gold = 100 })
+
+	local Marks = Bank.DirectMarks
+	local Settled = false
+	local Condemned = Bank:MarkerFault(Fault.Updates():OnKey("cond1"):Meddle(function()
+		if Settled then
+			return
+		end
+		local Held = Bank:Mark("cond1")
+		if type(Held) ~= "table" or Held.Status ~= "Pending" then
+			return
+		end
+		Settled = true
+		T:Advance(Windows.REAP + Windows.REAP_GRACE)
+		Marks:UpdateAsync("cond1", function(Current: any): any
+			Current.Dead = true
+			Current.Condemned = true
+			return Current
+		end)
+		Other.Store:Resettle("condB"):Wait()
+	end))
+
+	local Ok, Why = Bank.Store
+		:Tx("cond1", {
+			{ Key = "condA", Kind = "Give", Fields = { Amount = -25 } },
+			{ Key = "condB", Kind = "Give", Fields = { Amount = 25 } },
+		})
+		:Wait()
+
+	Bank:Healed()
+	Bank.Store:Resettle("condA"):Wait()
+	Bank.Store:Resettle("condB"):Wait()
+
+	T:Ok("the marker was condemned between the legs and the decision", Condemned.Fired >= 1 and Settled)
+	T:Is("the coordinator", Ok, false)
+	T:Is("the reason, the name is being taken off", Why, "Busy")
+	T:Is("gold on the sending key", Bank:Amount("condA"), 100)
+	T:Is("gold on the receiving key", Bank:Amount("condB"), 100)
+	T:Is("money is conserved", Bank:Amount("condA") + Bank:Amount("condB"), 200)
+	T:Is("anything left pending on the sender", Bank:Pending("condA"), false)
+end)
+
 Cases.Case("a leg reported under an older generation is not counted by a newer marker", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Marker("oldadopt1", { Status = "Committed", Total = 2, Gen = "two", At = T:Now(), Adopted = {} })

@@ -10,8 +10,8 @@
 	means aborted. A marker goes away only once every leg has reported.
 
 	Condemn marks one the reaper is about to take off, and only while it holds the generation the
-	reaper judged. A condemned marker reads as aborted, and Create will not open its name again until
-	it is gone.
+	reaper judged. A condemned marker reads as aborted. Decide will not change it, and Create will not
+	open its name again until it is gone.
 
 	The handles it keeps to other stores belong to the hook they were opened on, and so does the count
 	of how many are left. A handle that stops being cached stops queueing its writes in order.
@@ -195,7 +195,7 @@ local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrin
 	assert(To ~= Transactions.PENDING, "a transaction is being decided back to pending, which would let it start over")
 
 	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
-		if type(Current) ~= "table" or not Ours(Current, Gen) then
+		if type(Current) ~= "table" or not Ours(Current, Gen) or Condemned(Current) then
 			return nil
 		end
 		if Current.Status == Transactions.PENDING then

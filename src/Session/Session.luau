@@ -330,7 +330,9 @@ function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 		end)
 		if Ok then
 			if not Whole then
-				warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+				if self.Stopped == REFUSED then
+					warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+				end
 				return false, REFUSED
 			end
 			if #self.Pending > 0 then

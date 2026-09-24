@@ -552,6 +552,35 @@ Cases.Case("a migration that copies the state is not accused of dropping the boo
 	T:Silent("no accusation over a field the migration kept", "dropped Ledger's own")
 end)
 
+Cases.Case("a migration that changes Ledger's own bookkeeping in place has it put back", function(T: Case)
+	local Store = T:Store({
+		Default = Reducers.MONEY,
+		Reducer = Reducers.Banker,
+		Balance = "Gold",
+		Migrations = {
+			function(State: any): any
+				State._Held.held1.Amount = 0
+				State._Received["t:paid1"] = nil
+				return State
+			end,
+		},
+	})
+	Store:Write("inplace", {
+		Snapshot = { Gold = 100, Touches = 0, _Held = { held1 = { To = "elsewhere", Amount = 40, At = T:Now() } }, _Received = { ["t:paid1"] = T:Now() } },
+		Ops = {},
+		Seen = {},
+		Version = 0,
+	})
+
+	T:Is("the money set aside, which the step zeroed", Store:Aside("inplace"), 40)
+	T:Is("the applied name, which the step removed", Store:Names("inplace")["t:paid1"] ~= nil, true)
+	Store.Store:Edit("inplace", "Touch"):Wait()
+	Store:Log():Compact("inplace", Store:Format())
+	local Snapshot: any = Store:Record("inplace").Snapshot
+	T:Is("the hold the compaction wrote down", Snapshot._Held.held1.Amount, 40)
+	T:Warns("it named what the migration changed", "changed Ledger's own")
+end)
+
 Cases.Case("a migration that yields is caught rather than left to hang the read", function(T: Case)
 	local Store = T:Store({
 		Default = Reducers.MONEY,

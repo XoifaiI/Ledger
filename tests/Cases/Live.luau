@@ -1573,4 +1573,43 @@ Cases.Case("a session erased under a player says so once and drops what it canno
 	Players.Store:Unload(Player)
 end)
 
+local function Outspent(T: Case, UserId: number): (Fixture, any, any)
+	local Players = T:Store({ Keys = "Player", Default = Reducers.MONEY, Reducer = Reducers.Banker })
+	Players:Seed(tostring(UserId), { Gold = 10, Touches = 0 })
+	local Player = T:Player(UserId)
+	Joined(Player)
+	Players.Store:Load(Player)
+	T:Wait()
+
+	local Active: any = Players.Store:Get(Player)
+	T:Ok("the session spends the gold", (Active:Apply("Give", { Amount = -10 })))
+	T:Ok("another server spends it first", (Players.Store:Edit(UserId, "Give", { Amount = -10 }):Wait()))
+	return Players, Player, Active
+end
+
+Cases.Case("a final save whose op another server made stale does not say the key was erased", function(T: Case)
+	local Players, Player, Active = Outspent(T, 44)
+	Players.Store:Unload(Player)
+
+	T:Is("gold, spent once", Players:Amount("44"), 0)
+	T:Is("ops the session still holds", #Active.Pending, 0)
+	T:Silent("nothing said the key was erased", "was erased while this session held it")
+end)
+
+Cases.Case("an autosave whose op another server made stale does not blame the datastore", function(T: Case)
+	local Players, Player, Active = Outspent(T, 45)
+	local Entry = Players.Store.Loaded[45]
+	local Was = Entry.Ticks
+	T:Advance(Windows.AUTOSAVE + 1)
+	T:Until(function(): boolean
+		return Entry.Ticks > Was
+	end)
+	T:Wait(1)
+
+	T:Is("gold, spent once", Players:Amount("45"), 0)
+	T:Is("ops the session still holds", #Active.Pending, 0)
+	T:Silent("the autosave did not blame the datastore", "the datastore is probably down")
+	Players.Store:Unload(Player)
+end)
+
 return Cases

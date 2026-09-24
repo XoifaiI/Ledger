@@ -75,6 +75,7 @@ local PROBE_KIND = "LedgerUnknownKind"
 local TX_SUFFIX = Transactions.SUFFIX
 
 local UNRESOLVED = Reasons.Unresolved
+local REFUSED = Reasons.Refused
 
 local function MakeInitial(Default: any): any
 	return TableUtil.DeepFreeze(TableUtil.DeepCopy(Default))
@@ -278,11 +279,11 @@ function Store.Autosave(self: Store, UserId: number)
 		return
 	end
 
-	local Ok = Entry.Active:Flush():Wait()
+	local Ok, Why = Entry.Active:Flush():Wait()
 	if Ok and Compact.Oversized(Entry.Active.LogSize, Entry.Active.LogBytes, Entry.Active.StateBytes) then
-		Ok = Entry.Active:Compact():Wait()
+		Ok, Why = Entry.Active:Compact():Wait()
 	end
-	if Ok or Active.Released then
+	if Ok or Active.Released or Why == REFUSED then
 		return
 	end
 	warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)

@@ -1057,6 +1057,38 @@ Cases.Case("recovery cannot settle a hold against another sender's delivery", fu
 	T:Is("the sender whose money never arrived gets it back", Bank:Amount("raceA") + Bank:Aside("raceA"), 1000)
 end)
 
+Cases.Case("a shared transfer name sent again after its delivery id left seen keeps the second sender's money", function(T: Case)
+	local Bank = Funded(T, { agedA = 1000, agedB = 1000 })
+
+	Transfer.Reserve(Bank:Log(), Bank:Format(), "agedA", "agedC", 100, "order")
+	Transfer.Reserve(Bank:Log(), Bank:Format(), "agedB", "agedC", 250, "order")
+	pcall(Transfer.Post, Bank:Log(), Bank:Format(), "agedA", "order", "agedC", 100)
+	local First = pcall(Transfer.Post, Bank:Log(), Bank:Format(), "agedB", "order", "agedC", 250)
+	Bank:Log():Compact("agedC", Bank:Format())
+
+	local Made = 0
+	for _ = 1, 3 do
+		local Bulk: { any } = {}
+		for _ = 1, 700 do
+			Made += 1
+			table.insert(Bulk, { Id = `pad{Made}`, Kind = "Fund", Amount = 0 } :: any)
+		end
+		Bank:Append("agedC", Bulk)
+		Bank:Log():Compact("agedC", Bank:Format())
+	end
+	local Remembered = table.find(Bank:Record("agedC").Seen, "del:order") ~= nil
+
+	T:Advance(DAY)
+	Recovery.Transfers(Bank:Log(), Bank:Format(), "agedB", Bank:Stored("agedB")._Held)
+
+	local Total = Bank:Amount("agedA") + Bank:Amount("agedB") + Bank:Amount("agedC") + Bank:Aside("agedA") + Bank:Aside("agedB")
+	T:Is("the second sender's first delivery", First, false)
+	T:Is("the first delivery's id, once the receiver outgrew seen", Remembered, false)
+	T:Is("gold on the receiver, paid by the first sender only", Bank:Amount("agedC"), 100)
+	T:Is("the second sender keeps what never arrived", Bank:Amount("agedB") + Bank:Aside("agedB"), 1000)
+	T:Is("money is conserved", Total, 2000)
+end)
+
 Cases.Case("a retry once recovery owns the hold is left alone", function(T: Case)
 	local Bank = Funded(T, { ownA = 100, ownB = 0 })
 

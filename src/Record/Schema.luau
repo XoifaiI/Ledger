@@ -8,7 +8,8 @@
 	Migrations run first. Defaults fill in second. The ops fold on top of the snapshot last.
 
 	A migration is the game's code, and Ledger does not trust it with its own fields. Schema puts back
-	every field starting with an underscore after every step, and names the step that dropped one.
+	every field starting with an underscore after every step, and names the step that dropped or
+	changed one. It compares against the stored record, which no step is handed.
 	Certain says whether a parked transaction can still change the answer. Detached copies the
 	snapshot, so a reducer cannot reach the stored record through it. A migration runs on a copy of
 	the snapshot too, so a record folds the same however many times it is read.
@@ -58,18 +59,15 @@ local function Restored(Snapshot: any, Kept: { [string]: any }?, Index: number):
 	local Next = Snapshot
 	for Key, Value in Kept do
 		local Theirs = Next[Key]
-		if Theirs == Value then
+		if TableUtil.DeepEqual(Theirs, Value) then
 			continue
 		end
 
 		if Next == Snapshot then
 			Next = table.clone(Snapshot)
 		end
-		Next[Key] = Value
-		if TableUtil.DeepEqual(Theirs, Value) then
-			continue
-		end
-		warn(`Ledger: migration {Index} dropped Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`)
+		Next[Key] = TableUtil.DeepCopy(Value)
+		warn(`Ledger: migration {Index} {if Theirs == nil then "dropped" else "changed"} Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`)
 	end
 	return Next
 end
@@ -148,7 +146,7 @@ function Schema.Rehydrate(self: Schema<any>, Record: Record): any
 	if Version < #Steps then
 		Snapshot = TableUtil.DeepCopy(Snapshot)
 	end
-	local Kept = if Version < #Steps then Bookkeeping(Snapshot) else nil
+	local Kept = if Version < #Steps then Bookkeeping(Record.Snapshot) else nil
 	for Index = Version + 1, #Steps do
 		Snapshot = StepApply(Steps[Index], Snapshot)
 		if type(Snapshot) ~= "table" then

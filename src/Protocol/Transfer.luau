@@ -12,6 +12,9 @@
 	Terms prints the terms in one fixed form and not through Canon. Recovery compares a stored print
 	for as long as a transfer can wait, so that form must never change.
 
+	A deliver op on the receiver proves the delivery only while the snapshot holds no earlier one
+	under that name. Otherwise the fold decides, since the fold turns a second delivery away.
+
 	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms and LandedOn.
 	Example usage:
 		local Transfer = require("./Transfer")
@@ -69,6 +72,11 @@ local function Terms(From: number | string, To: number | string, Amount: number,
 	return Digest.Of(`(Amount=number:{Amount},{Named}From=string:{From},To=string:{To})`)
 end
 
+local function Absorbed(Record: Record, Tid: string): boolean
+	local Snapshot: any = Record.Snapshot
+	return type(Snapshot) == "table" and Applied.Has(Snapshot._Received, Tags.TRANSFER, Tid)
+end
+
 local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, From: (number | string)?): Applied.Recalled
 	local Held, Meant, Sender = TxStamp.Written(Record, `{Kinds.DELIVER_ID}:{Tid}`)
 	if Held and Print ~= nil and Sender ~= nil and From ~= nil and tostring(Sender) ~= tostring(From) then
@@ -76,7 +84,12 @@ local function LandedOn(Format: Format, Record: Record, Tid: string, Print: stri
 	end
 
 	if Held and Meant ~= nil and Print ~= nil then
-		return if Meant == Print then Tags.SAME else Tags.OTHER
+		if Meant ~= Print then
+			return Tags.OTHER
+		end
+		if not Absorbed(Record, Tid) then
+			return Tags.SAME
+		end
 	end
 
 	if Held and Print == nil then
