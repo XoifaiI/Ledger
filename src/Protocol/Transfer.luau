@@ -13,7 +13,8 @@
 	for as long as a transfer can wait, so that form must never change.
 
 	A deliver op on the receiver proves the delivery only while the snapshot holds no earlier one
-	under that name. Otherwise the fold decides, since the fold turns a second delivery away.
+	under that name. Otherwise the fold decides, since the fold turns a second delivery away. A leg
+	that would take a key past its state cap answers Full, and the money stays where it was.
 
 	Return type: A table with Reserve, Post, Settle, Prune, Drive, Terms and LandedOn.
 	Example usage:
@@ -23,6 +24,7 @@
 
 local Clock = require("../Util/Clock")
 local Windows = require("../Core/Constants/Windows")
+local Sizes = require("../Core/Constants/Sizes")
 local Errors = require("../Core/Errors")
 local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
@@ -35,6 +37,7 @@ local Log = require("../Record/Log")
 local LogTypes = require("../Record/Types")
 local TxStamp = require("../Record/TxStamp")
 local Apply = require("../Record/Apply")
+local Compact = require("../Record/Compact")
 local Schema = require("../Record/Schema")
 local Kinds = require("../Core/Constants/Kinds")
 local Escrow = require("../Layers/Escrow")
@@ -53,6 +56,7 @@ local REFUSED = Reasons.Refused
 local BUSY = Reasons.Busy
 local SPENT = Reasons.Spent
 local HELD = Reasons.Held
+local FULL = Reasons.Full
 
 local FINISHED = "Finished" :: "Finished"
 local ESCROWED = "Escrowed" :: "Escrowed"
@@ -124,12 +128,22 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 
 	local ReserveOp: Op = { Id = `{Kinds.RESERVE_ID}:{Tid}`, Kind = Kinds.RESERVE, To = To, Amount = Amount, Tid = Tid, At = Clock.Now(), Field = Field }
 
+	local Swelled = false
 	local Record = Records:Append(tostring(From), { ReserveOp }, function(Stored: Record): boolean
+		Swelled = false
 		if TxStamp.HasPending(Stored) then
 			return false
 		end
-		return Apply(Format.Reducer, Format:Fold(Schema.Detached(Stored)), ReserveOp) ~= nil
+		if Apply(Format.Reducer, Format:Fold(Schema.Detached(Stored)), ReserveOp) == nil then
+			return false
+		end
+		Swelled = Compact.Swells(Stored, Format, ReserveOp)
+		return not Swelled
 	end)
+	if Swelled then
+		warn(`Ledger: transfer {Tid} was not sent, '{From}' is at the {Sizes.State} byte state cap and the transfer would make it bigger. nothing was set aside`)
+		return Stopped(FULL)
+	end
 	local State = Format:Fold(Record)
 
 	local Escrowed = Escrow.Entry(State._Held, Tid)
@@ -179,14 +193,26 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 
 	local Print = Terms(From, To, Amount, Field)
 	local DeliverOp: Op = { Id = `{Kinds.DELIVER_ID}:{Tid}`, Kind = Kinds.DELIVER, From = From, Amount = Amount, Tid = Tid, At = Clock.Now(), Print = Print, Field = Field }
+	local Swelled = false
 	local Landed = Records:Append(tostring(To), { DeliverOp }, function(Record: Record): boolean
-		return Sound(At) and Log.NotEntombed(Record)
+		Swelled = false
+		if not Sound(At) or not Log.NotEntombed(Record) then
+			return false
+		end
+		Swelled = Compact.Swells(Record, Format, DeliverOp)
+		return not Swelled
 	end)
 	if not TxStamp.Carries(Landed, DeliverOp.Id) then
 		if not Sound(At) then
 			Errors.Raise(
 				HELD,
 				`transfer {Tid} reached '{To}' later than the window it is given back in, so it was not delivered. the {Amount} stays set aside on '{From}' until recovery gives it back`
+			)
+		end
+		if Swelled then
+			Errors.Raise(
+				FULL,
+				`'{To}' is at the {Sizes.State} byte state cap, so transfer {Tid} was not delivered. the {Amount} stays set aside on '{From}'. recovery tries again, and gives it back once the transfer is overdue`
 			)
 		end
 		Errors.Raise(HELD, `'{To}' was erased, so transfer {Tid} cannot be delivered. the {Amount} has already left '{From}' and stays set aside until it is given back`)

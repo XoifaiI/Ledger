@@ -260,6 +260,9 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 			self:Notify()
 		end)
 		if Ok then
+			if self.Stopped ~= nil then
+				return false, self.Stopped
+			end
 			if not Whole then
 				return false, REFUSED
 			end

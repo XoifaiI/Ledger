@@ -644,7 +644,7 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 
 	local Key = Tally.Shard(Name, Tally.Mine(self.Node, self.Shards))
 	local Op = Tally.Bump(Field, Amount)
-	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field)
+	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field, self.Shards)
 
 	local Bumps = self.Bumps
 	if Bumps ~= nil then
@@ -699,7 +699,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 	self:TallyName(Name, Field, "Total")
 	assert(MaxAge == nil or (type(MaxAge) == "number" and MaxAge >= 0 and MaxAge < math.huge), `Total MaxAge must be a number of seconds when given, got {tostring(MaxAge)}`)
 
-	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field)
+	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field, self.Shards)
 
 	local Age = MaxAge or Windows.TALLY_CACHE
 

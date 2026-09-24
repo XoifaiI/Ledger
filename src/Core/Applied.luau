@@ -6,13 +6,18 @@
 	Applied: The set of applied names a key keeps in its own state.
 
 	Each name is tagged by what it was, so a transfer, a sent hold, a transaction and a Once name
-	cannot collide. An entry holds the time of the write and a mark of what the name meant. Names
-	older than the prune window are dropped on the next write.
+	cannot collide. Names sit in one bucket per day, taken from the time the op carries, and an
+	entry holds the mark of what the name meant or true. A write drops each whole day that is past
+	the prune window, so a name is kept for that window and at most one day more. A write copies
+	only its own day, so the cost of a write does not grow with the names on the key.
 
-	Return type: A table with Key, Entry, At, Has, Recall, Remember and Prune. The type is Recalled.
+	Records before 6.0 hold one flat entry per name, with the time in the entry. The next write of a
+	name puts those into day buckets, and until then a lookup reads a flat entry as it is.
+
+	Return type: A table with Key, Has, Recall, Remember, Prune and Upgraded. The type is Recalled.
 	Example usage:
 		local Applied = require("./Applied")
-		if Applied.Has(Names, Applied.ONCE, "gift") then return end
+		if Applied.Has(Names, Tags.ONCE, "gift") then return end
 --]=]
 
 local Tags = require("./Constants/Tags")
@@ -20,7 +25,13 @@ local Windows = require("./Constants/Windows")
 
 export type Recalled = Tags.Recalled
 
+type Bucket = { [string]: string | true }
+type Days = { [string]: Bucket }
+
 local TAGS: { [string]: boolean } = { [Tags.TRANSFER] = true, [Tags.TX] = true, [Tags.ONCE] = true, [Tags.SENT] = true }
+
+local DAY = "d"
+local DAY_PATTERN = "^d(%-?%d+)$"
 
 local function Key(Tag: string, Id: string): string
 	assert(TAGS[Tag], "an applied name has to be tagged transfer, transaction, once or sent")
@@ -28,32 +39,85 @@ local function Key(Tag: string, Id: string): string
 	return `{Tag}{Id}`
 end
 
-local function Entry(At: number, Meant: string?): any
-	if Meant == nil then
-		return At
-	end
-	return `{At}{Tags.MEANT}{Meant}`
+local function DayOf(At: number): string
+	return `{DAY}{At // Windows.DAY}`
 end
 
-local function Cut(Value: any): number?
+local function Keeps(Name: string, Floor: number): boolean
+	local Digits = string.match(Name, DAY_PATTERN)
+	local Day = if Digits ~= nil then tonumber(Digits) else nil
+	return Day ~= nil and (Day + 1) * Windows.DAY > Floor
+end
+
+local function Split(Value: any): (number?, string?)
+	if type(Value) == "number" then
+		return Value, nil
+	end
+	if type(Value) ~= "string" then
+		return nil, nil
+	end
+
+	local At = string.find(Value, Tags.MEANT, 1, true)
+	if At == nil then
+		return nil, nil
+	end
+	return tonumber(string.sub(Value, 1, At - 1)), string.sub(Value, At + 1)
+end
+
+local function Printed(Value: any): string?
 	if type(Value) ~= "string" then
 		return nil
 	end
-	return (string.find(Value, Tags.MEANT, 1, true))
+	local At = string.find(Value, Tags.MEANT, 1, true)
+	return if At == nil then Value else string.sub(Value, At + 1)
 end
 
-local function At(Value: any): number?
-	if type(Value) == "number" then
-		return Value
+local function Upgraded(Received: any): Days
+	if type(Received) ~= "table" then
+		return {}
 	end
 
-	local Split = Cut(Value)
-	return if Split == nil then nil else tonumber(string.sub(Value :: string, 1, Split - 1))
-end
+	local Flat = false
+	for _, Value in Received do
+		if type(Value) ~= "table" then
+			Flat = true
+			break
+		end
+	end
+	if not Flat then
+		return Received
+	end
 
-local function Meant(Value: any): string?
-	local Split = Cut(Value)
-	return if Split == nil then nil else string.sub(Value :: string, Split + 1)
+	local Out: Days = {}
+	local Copied: { [string]: boolean } = {}
+	local function Into(Slot: string): Bucket
+		if not Copied[Slot] then
+			Out[Slot] = table.clone(Out[Slot] or {})
+			Copied[Slot] = true
+		end
+		return Out[Slot]
+	end
+
+	for Name, Value in Received do
+		if type(Value) == "table" then
+			if Out[Name] == nil then
+				Out[Name] = Value
+				continue
+			end
+			local Held = Into(Name)
+			for Entry, Meant in Value do
+				Held[Entry] = Meant
+			end
+			continue
+		end
+
+		local At, Meant = Split(Value)
+		if At == nil then
+			continue
+		end
+		Into(DayOf(At))[Name] = if Meant ~= nil then Meant else true
+	end
+	return Out
 end
 
 local function Find(Received: any, Tag: string, Id: string): any
@@ -61,7 +125,21 @@ local function Find(Received: any, Tag: string, Id: string): any
 		return nil
 	end
 
-	return Received[Key(Tag, Id)]
+	local Name = Key(Tag, Id)
+	local Flat = Received[Name]
+	if Flat ~= nil then
+		return Flat
+	end
+
+	for _, Bucket in Received do
+		if type(Bucket) == "table" then
+			local Held = Bucket[Name]
+			if Held ~= nil then
+				return Held
+			end
+		end
+	end
+	return nil
 end
 
 local function Has(Received: any, Tag: string, Id: string): boolean
@@ -74,75 +152,54 @@ local function Recall(Received: any, Tag: string, Id: string, Print: string?): R
 		return Tags.UNSEEN
 	end
 
-	local Held = Meant(Value)
+	local Held = Printed(Value)
 	if Held == nil or Print == nil then
 		return Tags.SAME
 	end
 	return if Held == Print then Tags.SAME else Tags.OTHER
 end
 
-local function Fresh(Stamp: any, Floor: number): boolean
-	local When = At(Stamp)
-	return When ~= nil and When >= Floor
-end
-
-local function AnyOlderThan(Received: { [string]: any }, Floor: number): boolean
-	for _, Stamp in Received do
-		if not Fresh(Stamp, Floor) then
-			return true
-		end
-	end
-	return false
-end
-
-local function Survivors(Received: { [string]: any }, Floor: number): ({ [string]: any }, boolean)
-	local Kept: { [string]: any } = {}
-	local Dropped = false
-	for Name, Stamp in Received do
-		if Fresh(Stamp, Floor) then
-			Kept[Name] = Stamp
-		else
-			Dropped = true
-		end
-	end
-	return Kept, Dropped
-end
-
-local function Remember(Received: any, Id: string, Stamped: number, Print: string?): { [string]: any }
-	local Mark = Entry(Stamped, Print)
-	if type(Received) ~= "table" then
-		return { [Id] = Mark }
-	end
-
+local function Remember(Received: any, Id: string, Stamped: number, Print: string?): Days
 	local Floor = Stamped - Windows.PRUNE
-
-	if not AnyOlderThan(Received, Floor) then
-		local Kept: { [string]: any } = table.clone(Received)
-		Kept[Id] = Mark
-		return Kept
+	local Next: Days = {}
+	for Name, Bucket in Upgraded(Received) do
+		if Keeps(Name, Floor) then
+			Next[Name] = Bucket
+		end
 	end
 
-	local Next = Survivors(Received, Floor)
-	Next[Id] = Mark
+	local Slot = DayOf(Stamped)
+	local Bucket: Bucket = table.clone(Next[Slot] or {})
+	Bucket[Id] = if Print ~= nil then Print else true
+	Next[Slot] = Bucket
 	return Next
 end
 
-local function Prune(Received: any, Stamped: any): { [string]: any }?
+local function Prune(Received: any, Stamped: any): Days?
 	if type(Received) ~= "table" or type(Stamped) ~= "number" then
 		return nil
 	end
 
-	local Kept, Dropped = Survivors(Received, Stamped - Windows.PRUNE)
-	return if Dropped then Kept else nil
+	local Days = Upgraded(Received)
+	local Floor = Stamped - Windows.PRUNE
+	local Kept: Days = {}
+	local Changed = Days ~= Received
+	for Name, Bucket in Days do
+		if Keeps(Name, Floor) then
+			Kept[Name] = Bucket
+		else
+			Changed = true
+		end
+	end
+	return if Changed then Kept else nil
 end
 
 return table.freeze({
 	Key = Key,
-	Entry = Entry,
-	At = At,
 	Has = Has,
 	Recall = Recall,
 
 	Remember = Remember,
 	Prune = Prune,
+	Upgraded = Upgraded,
 })

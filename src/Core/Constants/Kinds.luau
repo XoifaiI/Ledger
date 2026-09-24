@@ -16,7 +16,7 @@
 
 return table.freeze({
 
-	ENVELOPE = 1,
+	ENVELOPE = 2,
 
 	RESET = "__Reset",
 	BUMP = "__Bump",

@@ -1112,7 +1112,6 @@ Cases.Case("a rejoin during a leaving load ends with one live session", function
 	end
 
 	T:Silent("the rejoin was not ignored", "already loading")
-	T:Warns("the duplicate was released", "loaded twice concurrently", 1)
 	T:Is("one session is live", Store.Store:IsLoaded(Fake), true)
 	Store.Store:Unload(Fake)
 end)
@@ -1571,6 +1570,95 @@ Cases.Case("a session erased under a player says so once and drops what it canno
 	T:Is("ops the session still holds, none, since they cannot be written", #Active.Pending, 0)
 	T:Is("the session, closed", Active.Released, true)
 	Players.Store:Unload(Player)
+end)
+
+Cases.Case("two copies of one player loading at once share one session, and the older one leaving keeps it", function(T: Case)
+	local Players = T:Players()
+	local Old = T:Player(46)
+	local New = T:Player(46)
+	Joined(Old)
+
+	local Done = 0
+	local Waited: any = "waiting"
+	T:Spawn(function()
+		Players.Store:Load(Old)
+		Done += 1
+	end)
+	T:Spawn(function()
+		Players.Store:Load(New)
+		Done += 1
+	end)
+	T:Spawn(function()
+		Waited = Players.Store:WaitForLoaded(New)
+	end)
+	T:Until(function(): boolean
+		return Done == 2
+	end)
+	T:Wait()
+
+	local Shared = Players.Store:Get(Old)
+	T:Is("the newer copy's wait was answered with the session", Waited ~= nil and Waited == Shared, true)
+	T:Is("nobody was kicked", Old.Kicked + New.Kicked, 0)
+
+	Players.Store:Unload(Old)
+	T:Is("the newer copy still has the session once the older one left", Players.Store:Get(New), Shared)
+	T:Is("the session is still live", Shared.Released, false)
+
+	Players.Store:Unload(New)
+	T:Is("the session once the newer copy left", Shared.Released, true)
+	T:Silent("nothing called it a duplicate", "loaded twice")
+end)
+
+Cases.Case("a second copy of a loaded player shares the session, and the first one leaving keeps it", function(T: Case)
+	local Players = T:Players()
+	local Old = T:Player(47)
+	local New = T:Player(47)
+	Joined(Old)
+	Players.Store:Load(Old)
+	T:Wait()
+	local Shared = Players.Store:Get(Old)
+
+	Players.Store:Load(New)
+	Players.Store:Unload(Old)
+
+	T:Is("the second copy has the session", Players.Store:Get(New), Shared)
+	T:Is("the session is still live", Shared.Released, false)
+	T:Silent("nothing called it a second load", "ignoring this second Load")
+	Players.Store:Unload(New)
+	T:Is("the session once the second copy left", Shared.Released, true)
+end)
+
+Cases.Case("an idle session whose key another server erased stops rather than showing the erased key as live", function(T: Case)
+	local Here = T:Bank("nodeA")
+	local There = T:Bank("nodeB")
+	Here:Seed("idlegone", { Gold = 500, Touches = 0 })
+	local Active = Here:Session("idlegone")
+
+	T:Ok("the other server erases the key", (There.Store:Erase("idlegone"):Wait()))
+	local Flushed, Why = Active:Flush():Wait()
+
+	T:Is("the idle flush", Flushed, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("the session, closed", Active.Released, true)
+	T:Is("the state it still shows, not the erased key", Active:Get().Gold, 500)
+	T:Is("an apply after that", (Active:Apply("Touch")), false)
+	T:Warns("it says why, once", "was erased while this session was live", 1)
+end)
+
+Cases.Case("a commit on a session whose key another server erased stops the session", function(T: Case)
+	local Here = T:Bank("nodeA")
+	local There = T:Bank("nodeB")
+	Here:Seed("commitgone", { Gold = 500, Touches = 0 })
+	local Active = Here:Session("commitgone")
+
+	T:Ok("the other server erases the key", (There.Store:Erase("commitgone"):Wait()))
+	local Ok, Why = Active:Commit("Give", { Amount = -10 }):Wait()
+
+	T:Is("the commit", Ok, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("the session, closed", Active.Released, true)
+	T:Is("nothing landed on the erased key", #Here:Record("commitgone").Ops, 0)
+	T:Warns("it says why, once", "was erased while this session was live", 1)
 end)
 
 local function Outspent(T: Case, UserId: number): (Fixture, any, any)

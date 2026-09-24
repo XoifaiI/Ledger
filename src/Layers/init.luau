@@ -20,7 +20,7 @@
 		local Reducer, Handles = Layers.Built(Config.Balance, Config.Reducer)
 --]=]
 
-local Shapes = require("@self/../Core/Shapes")
+local Shapes = require("./Core/Shapes")
 local Escrow = require("@self/Escrow")
 local Layer = require("@self/Layer")
 local Names = require("@self/Names")

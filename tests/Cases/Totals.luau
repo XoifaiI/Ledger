@@ -567,4 +567,27 @@ Cases.Case("an own bump landing while another server reads the shards shows at o
 	T:Is("its total a window later", Later, 50)
 end)
 
+Cases.Case("a server with more shards does not read a total an older server summed over fewer", function(T: Case)
+	local Node = ""
+	for Index = 1, 200 do
+		if Tally.Mine(`wide{Index}`, 32) >= 16 then
+			Node = `wide{Index}`
+			break
+		end
+	end
+	local Narrow = T:Store({ Default = Reducers.COINS, Reducer = Reducers.Vaulter, Field = FIELD, Shards = 16, Node = "narrow1", Data = "CaseTotalsWide" })
+	local Wide = T:Store({ Default = Reducers.COINS, Reducer = Reducers.Vaulter, Field = FIELD, Shards = 32, Node = Node, Data = "CaseTotalsWide" })
+
+	for _ = 1, 5 do
+		T:Ok("a bump on a shard the older server does not read", (Wide.Store:Bump("pot", FIELD, 10):Wait()))
+	end
+	T:Ok("a bump from the older server", (Narrow.Store:Bump("pot", FIELD, 1):Wait()))
+	T:Advance(STALE * 2)
+
+	T:Ok("the older server refills its own total", (Narrow.Store:Total("pot", FIELD, 0):Wait()) ~= nil)
+	local Third = T:Store({ Default = Reducers.COINS, Reducer = Reducers.Vaulter, Field = FIELD, Shards = 32, Node = "wide999", Data = "CaseTotalsWide" })
+
+	T:Is("what another server with more shards reads", (Third.Store:Total("pot", FIELD):Wait()), 51)
+end)
+
 return Cases

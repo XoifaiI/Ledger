@@ -79,8 +79,8 @@ local function Canon(Value: any): string
 	return `\{{table.concat(Parts, ",")}\}`
 end
 
-local APPENDED = `\{Envelope=1,Ops=\{1=\{Amount=5,Id="v2case00000000:1",Kind="Add"\},2=\{Amount=7,Id="v2case00000000:2",Kind="Add"\}\},Seen=\{\}\}`
-local COMPACTED = `\{Bytes=17,Envelope=1,Floor=0,Ops=\{\},Seen=\{1="v2case00000000:1",2="v2case00000000:2"\},Snapshot=\{Gold=12,N=2\},Version=0\}`
+local APPENDED = `\{Envelope=2,Ops=\{1=\{Amount=5,Id="v2case00000000:1",Kind="Add"\},2=\{Amount=7,Id="v2case00000000:2",Kind="Add"\}\},Seen=\{\}\}`
+local COMPACTED = `\{Bytes=17,Envelope=2,Floor=0,Ops=\{\},Seen=\{1="v2case00000000:1",2="v2case00000000:2"\},Snapshot=\{Gold=12,N=2\},Version=0\}`
 
 Cases.Case("a reducer cannot write into the snapshot a fold starts from", function(T: Case)
 	local Store = T:Store({
@@ -109,7 +109,7 @@ Cases.Case("a reducer cannot write into the snapshot a fold starts from", functi
 	T:Is("gold once the write was turned away", Store:Amount("k"), 12)
 end)
 
-Cases.Case("a stored record has exactly the shape older servers expect", function(T: Case)
+Cases.Case("a stored record has exactly the shape its envelope promises", function(T: Case)
 	local Store = Ledgered(T)
 	Store.Store:Edit("g", "Add", { Amount = 5 }):Wait()
 	Store.Store:Edit("g", "Add", { Amount = 7 }):Wait()

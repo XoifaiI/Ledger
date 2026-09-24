@@ -236,7 +236,7 @@ Cases.Case("a cleared delivery still stops the sender refunding", function(T: Ca
 	T:Advance(PAST_REDRIVE)
 	Bank.Store:ClearDelivered("mintB"):Wait()
 
-	local Left: any = Bank:Stored("mintB")._Received
+	local Left: any = Bank:Names("mintB")
 	T:Advance(DAY)
 	Bank.Store:RecoverTransfers("mintA"):Wait()
 
@@ -335,7 +335,7 @@ Cases.Case("delivery evidence older than thirty days is forgotten", function(T: 
 	Deliver(Bank, "windowB", "win3", 10, T:Now())
 
 	local Sb = Bank:State("windowB")
-	local Received: any = Sb._Received
+	local Received: any = Bank:Names("windowB")
 
 	T:Is("gold after three deliveries", Sb.Gold, 30)
 	T:Is("evidence of the first, now past the window", Received["t:win1"], nil)
@@ -391,18 +391,19 @@ Cases.Case("a delivery is remembered through the transaction wrap", function(T: 
 
 	Bank.Store:Transfer("wrapA", "wrapB", 40):Wait()
 	local Delivered = Bank:State("wrapB")
-	local Marked: string = next(Delivered._Received) :: any
+	local Marked: string = next(Bank:Names("wrapB")) :: any
 	local Tid = string.sub(Marked, 3)
 
 	Bank.Store:Edit("wrapB", "Fund", { Amount = 5 }):Wait()
 	local Plain = Bank:State("wrapB")
+	local Kept = Bank:Names("wrapB")
 
 	Deliver(Bank, "wrapB", Tid, 40, T:Now(), `del2:{Tid}`)
 
 	T:Is("gold once the transfer lands", Delivered.Gold, 40)
 	T:Is("the delivery is remembered under the transfer namespace", string.sub(Marked, 1, 2), "t:")
 	T:Is("gold after a plain edit", Plain.Gold, 45)
-	T:Is("the edit kept the evidence", Plain._Received[Marked] ~= nil, true)
+	T:Is("the edit kept the evidence", Kept[Marked] ~= nil, true)
 	T:Is("gold after the same transfer arrives again", Bank:Amount("wrapB"), 45)
 end)
 
@@ -731,8 +732,8 @@ Cases.Case("a transfer and a transaction can share a name", function(T: Case)
 	T:Is("the transaction's reason", CommittedWhy, nil)
 	T:Is("gold on the sender", Bank:Amount("sharedA"), 65)
 	T:Is("gold on the receiver", Sb.Gold, 45)
-	T:Is("the transfer is remembered under its own namespace", Sb._Received["t:shared1"] ~= nil, true)
-	T:Is("the transaction is remembered under its own namespace", Sb._Received["x:shared1"] ~= nil, true)
+	T:Is("the transfer is remembered under its own namespace", Bank:Names("sharedB")["t:shared1"] ~= nil, true)
+	T:Is("the transaction is remembered under its own namespace", Bank:Names("sharedB")["x:shared1"] ~= nil, true)
 end)
 
 Cases.Case("erasing a key is refused while a transaction is parked on it", function(T: Case)
@@ -852,7 +853,7 @@ Cases.Case("an expiry sees a delivery even after the evidence is cleared", funct
 
 	T:Advance(PAST_REDRIVE)
 	Bank.Store:ClearDelivered("seenB"):Wait()
-	local Kept: any = Bank:Stored("seenB")._Received
+	local Kept: any = Bank:Names("seenB")
 
 	Bank.Store:RecoverTransfers("seenA"):Wait()
 
@@ -887,11 +888,12 @@ Cases.Case("a redelivery is refused once the op id falls out of seen", function(
 		end
 	end
 	local State: any = Bank:State("seenB")
+	local Named = Bank:Names("seenB")
 
 	Deliver(Bank, "seenB", "first", 100, T:Now())
 
 	T:Is("the op id, once the log has outgrown the seen window", Remembered, false)
-	T:Is("the transfer is still remembered by name", State._Received["t:first"] ~= nil, true)
+	T:Is("the transfer is still remembered by name", Named["t:first"] ~= nil, true)
 	T:Is("gold before the redelivery", State.Gold, 100)
 	T:Is("gold after the same delivery arrives again", Bank:Amount("seenB"), 100)
 end)
@@ -1087,6 +1089,98 @@ Cases.Case("a shared transfer name sent again after its delivery id left seen ke
 	T:Is("gold on the receiver, paid by the first sender only", Bank:Amount("agedC"), 100)
 	T:Is("the second sender keeps what never arrived", Bank:Amount("agedB") + Bank:Aside("agedB"), 1000)
 	T:Is("money is conserved", Total, 2000)
+end)
+
+Cases.Case("a second erase keeps the names a refund still has to check, so a delivered transfer is not given back", function(T: Case)
+	local Bank = Funded(T, { twiceA = 100, twiceB = 0, twiceC = 0 })
+
+	local Held = Transfer.Reserve(Bank:Log(), Bank:Format(), "twiceA", "twiceB", 40, "twice1") :: any
+	Bank:NoRetries()
+	local Lost = Bank:Fault(Fault.Updates():OnKey("twiceA"))
+	pcall(Transfer.Post, Bank:Log(), Bank:Format(), "twiceA", "twice1", "twiceB", 40, Held.Hold.At, nil)
+	Bank:Healed()
+
+	T:Ok("the settle on the sender failed", Lost.Fired >= 1)
+	T:Is("the delivery landed", Bank:Amount("twiceB"), 40)
+	T:Is("the hold the failed settle left", Bank:Aside("twiceA"), 40)
+
+	T:Ok("the receiver spends it onward", (Bank.Store:Transfer("twiceB", "twiceC", 40):Wait()))
+	T:Ok("the first erase", (Bank.Store:Erase("twiceB"):Wait()))
+	T:Advance(Windows.TOMB + DAY)
+	T:Ok("the second erase, past the tomb", (Bank.Store:Erase("twiceB"):Wait()))
+	T:Advance(DAY)
+	Bank.Store:RecoverTransfers("twiceA"):Wait()
+
+	T:Is("the sender, not refunded", Bank:Amount("twiceA"), 60)
+	T:Is("anything still set aside", Bank:Aside("twiceA"), 0)
+	T:Is("money is conserved", Bank:Amount("twiceA") + Bank:Aside("twiceA") + Bank:Amount("twiceC"), 100)
+	T:Warns("it said why the record stayed", "still holds names")
+
+	T:Advance(Windows.PRUNE)
+	T:Ok("erasing it once the names have run out", (Bank.Store:Erase("twiceB"):Wait()))
+	T:Is("the record is off the datastore", Bank.Direct:Current("twiceB"), nil)
+end)
+
+Cases.Case("an erase that cannot hand a transfer over refuses rather than destroying it", function(T: Case)
+	local Bank = Funded(T, { handA = 100, handB = 0 })
+	Transfer.Reserve(Bank:Log(), Bank:Format(), "handA", "handB", 40, "hand1")
+
+	Bank:NoRetries()
+	local Failing = Bank:Fault(Fault.Updates():OnKey("handB"))
+	local Ok, Why = Bank.Store:Erase("handA"):Wait()
+	Bank:Healed()
+
+	T:Ok("the hand over write failed", Failing.Fired >= 1)
+	T:Is("the erase", Ok, false)
+	T:Is("the reason", Why, "Busy")
+	T:Is("the money, still set aside", Bank:Aside("handA"), 40)
+	T:Is("the key, not buried", Bank:Record("handA").Erased, nil)
+	T:Warns("it said why", "is still being sent")
+
+	T:Ok("erasing it again once the receiver answers", (Bank.Store:Erase("handA"):Wait()))
+	T:Is("the receiver got the transfer", Bank:Amount("handB"), 40)
+	T:Silent("nothing was written off", "gone for good")
+end)
+
+Cases.Case("a transfer reserved on another server during an erase stops the erase", function(T: Case)
+	local Eraser = Funded(T, { raceE = 100, raceR = 0 })
+	local Sender = T:Bank("nodeB")
+
+	local Raced: any = nil
+	local Spec = Eraser:Fault(Fault.Updates():OnKey("raceE"):Only(1):Meddle(function()
+		Raced = Transfer.Reserve(Sender:Log(), Sender:Format(), "raceE", "raceR", 40, "race7")
+	end))
+	local Ok, Why = Eraser.Store:Erase("raceE"):Wait()
+	Eraser:Healed()
+
+	T:Is("the reserve landed inside the erase", Spec.Fired == 1 and Raced ~= nil and Raced.Outcome == "Escrowed", true)
+	T:Is("the erase", Ok, false)
+	T:Is("the reason", Why, "Busy")
+	T:Is("the key, not buried", Eraser:Record("raceE").Erased, nil)
+	T:Is("the money, still set aside", Eraser:Aside("raceE"), 40)
+
+	Transfer.Post(Sender:Log(), Sender:Format(), "raceE", "race7", "raceR", 40, Raced.Hold.At, nil)
+	T:Ok("erasing it once the transfer is delivered", (Eraser.Store:Erase("raceE"):Wait()))
+	T:Is("the receiver got the transfer", Eraser:Amount("raceR"), 40)
+	T:Is("the eraser counted what it destroyed", Eraser:Amount("raceE"), 0)
+end)
+
+Cases.Case("a shared transfer name kept in the flat names before 6.0 still keeps the second sender's money", function(T: Case)
+	local Bank = Funded(T, { flatB = 1000 })
+	Bank:Write("flatC", {
+		Snapshot = { Gold = 100, Touches = 0, _Received = { ["t:order"] = `{T:Now()}#{Transfer.Terms("flatA", "flatC", 100)}` } },
+		Ops = {},
+		Seen = {},
+	})
+	Bank:Append("flatB", {
+		{ Id = "res:order", Kind = "__TransferReserve", To = "flatC", Amount = 250, Tid = "order", At = T:Now() } :: any,
+	})
+
+	T:Advance(DAY)
+	Recovery.Transfers(Bank:Log(), Bank:Format(), "flatB", Bank:Stored("flatB")._Held)
+
+	T:Is("gold on the receiver, paid by the first sender only", Bank:Amount("flatC"), 100)
+	T:Is("the second sender keeps what never arrived", Bank:Amount("flatB") + Bank:Aside("flatB"), 1000)
 end)
 
 Cases.Case("a retry once recovery owns the hold is left alone", function(T: Case)

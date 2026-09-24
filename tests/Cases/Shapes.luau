@@ -17,6 +17,7 @@ local HttpService = game:GetService("HttpService")
 local Suite = require("../Suite")
 
 local Measure = require("../../src/Encode/Measure")
+local Kinds = require("../../src/Core/Constants/Kinds")
 local NewOp = require("../../src/Record/NewOp")
 local Reconcile = require("../../src/Record/Reconcile")
 local Schema = require("../../src/Record/Schema")
@@ -220,7 +221,7 @@ Cases.Case("a reset keeps every field of Ledger's own, not the two it used to na
 	local State = Store:State("keeps")
 
 	T:Is("gold, which the reset put back to the default", State.Gold, 100)
-	T:Is("the applied names it kept", next(State._Received), "t:paid")
+	T:Is("the applied names it kept", next(Store:Names("keeps")), "t:paid")
 	T:Is("the money it kept set aside", State._Held.move.Amount, 5)
 	T:Is("the tally it kept, which is Ledger's own just as much as the other two", State._Tally.Gold, 7)
 end)
@@ -341,7 +342,7 @@ end)
 
 Cases.Case("a record from a newer envelope is refused", function(T: Case)
 	local Store = T:Store({ Default = { Gold = 0 }, Reducer = Adder })
-	Store:Write("recenv", { Envelope = 2, Snapshot = { Gold = 1 }, Ops = {} })
+	Store:Write("recenv", { Envelope = Kinds.ENVELOPE + 1, Snapshot = { Gold = 1 }, Ops = {} })
 
 	T:Throws("reading a record from a newer envelope", function()
 		Store:Log():Read("recenv")

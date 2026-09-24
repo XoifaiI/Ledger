@@ -579,6 +579,52 @@ Cases.Case("a state filled by Ledger's own bookkeeping says whose it is", functi
 	T:Silent("it did not tell them to take out their own data", "take out what the game no longer reads")
 end)
 
+local function Named(T: Case, Count: number): { [string]: any }
+	local Bucket: any = {}
+	for Index = 1, Count do
+		Bucket[`t:{string.rep("n", 100)}{Index}`] = true
+	end
+	return { [`d{T:Now() // 86400}`] = Bucket }
+end
+
+Cases.Case("a transfer into a key at its state cap is not delivered and keeps the money set aside", function(T: Case)
+	Sizes.Set({ Value = 65536, State = 4096, Op = 1024, Log = 2048, Compact = 1024 })
+	local Bank = T:Bank()
+	Bank:Seed("brimsend", { Gold = 100, Touches = 0 })
+	Bank:Write("brimhub", { Snapshot = { Gold = 0, Touches = 0, _Received = Named(T, 40) }, Ops = {}, Seen = {} })
+	local Before = Measure(Bank:Stored("brimhub"))
+
+	local Ok, Why = Bank.Store:Transfer("brimsend", "brimhub", 40, "brim1"):Wait()
+
+	T:Is("the transfer", Ok, false)
+	T:Is("the reason", Why, "Full")
+	T:Is("gold on the full key", Bank:Amount("brimhub"), 0)
+	T:Is("the money, set aside on the sender", Bank:Aside("brimsend"), 40)
+	T:Is("the full key did not grow", Measure(Bank:Stored("brimhub")) <= Before, true)
+	T:Warns("it said why", "state cap")
+	T:Ok("the full key still takes a write that does not grow it", (Bank.Store:Edit("brimhub", "Touch"):Wait()))
+
+	T:Advance(9 * 86400)
+	T:Ok("recovery gives the transfer back", (Bank.Store:RecoverTransfers("brimsend"):Wait()))
+	T:Is("gold back on the sender", Bank:Amount("brimsend"), 100)
+	T:Is("money is conserved", Bank:Amount("brimsend") + Bank:Aside("brimsend") + Bank:Amount("brimhub"), 100)
+end)
+
+Cases.Case("a transfer out of a key at its state cap is refused before anything is set aside", function(T: Case)
+	Sizes.Set({ Value = 65536, State = 4096, Op = 1024, Log = 2048, Compact = 1024 })
+	local Bank = T:Bank()
+	Bank:Write("brimpay", { Snapshot = { Gold = 100, Touches = 0, _Received = Named(T, 40) }, Ops = {}, Seen = {} })
+
+	local Ok, Why = Bank.Store:Transfer("brimpay", "brimtake", 40, "brim2"):Wait()
+
+	T:Is("the transfer", Ok, false)
+	T:Is("the reason", Why, "Full")
+	T:Is("gold on the full key", Bank:Amount("brimpay"), 100)
+	T:Is("anything set aside", Bank:Aside("brimpay"), 0)
+	T:Is("gold on the receiver", Bank:Amount("brimtake"), 0)
+	T:Warns("it said why", "state cap")
+end)
+
 Cases.Case("a record that cannot compact says what is blocking it", function(T: Case)
 	local Bank = T:Bank()
 

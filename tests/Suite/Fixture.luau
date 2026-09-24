@@ -237,7 +237,21 @@ end
 
 function Fixture.Names(self: Fixture, Key: string): { [string]: any }
 	local Held = self:Stored(Key)._Received
-	return if type(Held) == "table" then Held else {}
+	local Flat: { [string]: any } = {}
+	if type(Held) ~= "table" then
+		return Flat
+	end
+
+	for Name, Value in Held do
+		if type(Value) ~= "table" then
+			Flat[Name] = Value
+			continue
+		end
+		for Entry, Meant in Value do
+			Flat[Entry] = Meant
+		end
+	end
+	return Flat
 end
 
 function Fixture.Knows(self: Fixture, Key: string, Tag: string, Id: string): boolean

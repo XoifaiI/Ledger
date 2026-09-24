@@ -7,7 +7,7 @@
 
 	Raise throws one, and is the only place that writes the tag. Reason reads the reason back off a
 	thrown value. Anything that is not one of Ledger's own reads as Unresolved, so a plain assert
-	answers a caller the same way.
+	answers a caller the same way. A raised error prints as its message.
 
 	Return type: A table with Raise and Reason. The type is Error.
 	Example usage:
@@ -27,19 +27,23 @@ export type Error = {
 	Message: string,
 }
 
+local Printed = table.freeze({
+	__tostring = function(Raised: Error): string
+		return Raised.Message
+	end,
+})
+
 local function IsError(Value: unknown): boolean
 	return Tagged.Is(Value) and type((Value :: { Why: unknown }).Why) == "string"
 end
 
 local function Raise(Why: Reason, Message: string): never
-	error(
-		{
-			[Messages.TAG] = true,
-			Why = Why,
-			Message = Message,
-		} :: Error,
-		0
-	)
+	local Raised = {
+		[Messages.TAG] = true,
+		Why = Why,
+		Message = Message,
+	} :: Error
+	error(setmetatable(Raised :: any, Printed), 0)
 end
 
 local function Reason(Err: unknown): Reason

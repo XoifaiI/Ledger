@@ -7,8 +7,9 @@
 
 	Resettle and RecoverTransfers finish what a stopped server left. ClearDelivered prunes applied
 	names. Reset puts a key back to the default state, and Erase buries it. These are the only paths
-	that throw data away, so each says what went with it. The first erase leaves a tombstone. Only an
-	erase that finds an old one removes the key.
+	that throw data away, so each says what went with it. Erase answers Busy while money on the key is
+	still being sent. The first erase leaves a tombstone. Only an erase that finds an old one removes
+	the key, and only once the key holds no name a refund could still check.
 
 	Return type: A table with Failed. It writes Repair, ReapMarkers, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:
@@ -23,6 +24,7 @@ local Windows = require("../../Core/Constants/Windows")
 local Errors = require("../../Core/Errors")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
+local Applied = require("../../Core/Applied")
 local Mark = require("../../Encode/Mark")
 local Compact = require("../../Record/Compact")
 local Log = require("../../Record/Log")
@@ -184,6 +186,12 @@ local function CountHeld(Held: any, Balance: string?): (number, string)
 	return Holds, table.concat(Named, ", ")
 end
 
+local function Sending(Key: string, Said: string)
+	warn(
+		`Ledger: cannot erase '{Key}' yet. {Said} on it is still being sent to another key. erase it again once that transfer is delivered or given back, which takes {Windows.TOMB // Windows.DAY} days at most`
+	)
+end
+
 function Store.HandOver(self: Store, Key: string): (number, string)
 	local Read, Held = self:HeldOn(Key)
 	if not Read then
@@ -289,27 +297,39 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 	end
 
 	return Future.New(function(): (boolean, Reason?)
-		local Checked, Holds, Said = pcall(function(): (number, string)
-			return self:HandOver(Resolved)
+		local Checked, Why = pcall(function()
+			self:HandOver(Resolved)
 		end)
 		if not Checked then
-			return false, Failed("erase", Resolved, Holds)
+			return false, Failed("erase", Resolved, Why)
 		end
 
 		local Steps = self.Migrations
+		local Named = false
+		local Late: string? = nil
 		local Ok, Replaced = pcall(function(): Record
 			return self:Records():Entomb(Resolved, Clock.Now(), function(Record: Record): Record
+				Named = false
+				Late = nil
 				local Fine, State = pcall(function(): any
 					return self:Fold(Record)
 				end)
 
+				local Left, Owed = CountHeld(if Fine and type(State) == "table" then State._Held else nil, self.Options.Balance)
+				if Left > 0 then
+					Late = Owed
+					Errors.Raise(BUSY, `'{Resolved}' took a transfer while it was being erased`)
+				end
+
 				local Names = if Fine and type(State) == "table" then State._Received else nil
-				if type(Names) ~= "table" or next(Names) == nil then
+				local Young = Applied.Prune(Names, Clock.Now()) or Names
+				if type(Young) ~= "table" or next(Young) == nil then
 					return { Ops = {}, Seen = {} }
 				end
 
+				Named = true
 				local Fresh: any = TableUtil.DeepCopy(self.Initial)
-				Fresh._Received = TableUtil.DeepCopy(Names)
+				Fresh._Received = TableUtil.DeepCopy(Young)
 				return {
 					Ops = {},
 					Seen = {},
@@ -321,11 +341,11 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		end)
 
 		if not Ok then
+			if Late ~= nil then
+				Sending(Resolved, Late)
+				return false, BUSY
+			end
 			return false, Failed("erase", Resolved, Replaced)
-		end
-
-		if Holds > 0 then
-			warn(`Ledger: erased '{Resolved}' while {Holds} transfer(s) had not finished, so that money is gone for good: {Said}. check the audit log and pay the receivers back by hand`)
 		end
 
 		local Before = Replaced :: Record
@@ -339,14 +359,18 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		if Copier ~= nil then
 			Copier:RemoveAsync(Mark.Cached({ self.Wrapper.Name, Resolved }))
 		end
-		local Copy = self.Copies[Resolved]
+		local Copy = self.Followed[Resolved] or self.Copies:Get(Resolved)
 		if Copy ~= nil then
 			Copy.State = nil
 			Copy.Stamp = nil
 			Copy.Seen = 0
 		end
 
-		if Before.Erased ~= nil and not Log.Entombed(Before) then
+		if Before.Erased ~= nil and not Log.Entombed(Before) and Named then
+			warn(
+				`Ledger: erased '{Resolved}' again and kept its record. it still holds names from the last {Windows.PRUNE // Windows.DAY} days, and a refund may have to check them. erase it again after they run out`
+			)
+		elseif Before.Erased ~= nil and not Log.Entombed(Before) then
 			local Reached, Gone, Cause = pcall(function(): (boolean, any)
 				return self.Wrapper:RemoveAsync(Resolved)
 			end)

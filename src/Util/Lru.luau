@@ -7,12 +7,12 @@
 
 	Entries sit on a doubly linked list in the order they were last touched. A touch and an eviction
 	each cost the same however many entries there are. Get touches, and Put touches or adds. Adding
-	past the limit drops the head of the list first.
+	past the limit drops the head of the list first. Clear forgets every entry.
 
 	New hands back a loose one, since nothing it is given names the entry type. The annotation on
 	whatever holds it names the type instead.
 
-	Return type: A table with New. The type is Lru.
+	Return type: A table with New. The type is Lru, with Get, Put and Clear.
 	Example usage:
 		local Lru = require("./Lru")
 		local Recent: Lru.Lru<Entry> = Lru.New(256)
@@ -30,6 +30,7 @@ type LruImpl<T> = {
 	__index: LruImpl<T>,
 	Get: (self: Lru<T>, Key: string) -> T?,
 	Put: (self: Lru<T>, Key: string, Value: T) -> T,
+	Clear: (self: Lru<T>) -> (),
 }
 
 export type Lru<T> = setmetatable<{
@@ -124,6 +125,13 @@ function Lru.Put<T>(self: Lru<T>, Key: string, Value: T): T
 	Append(self, Fresh)
 	self.Count += 1
 	return Value
+end
+
+function Lru.Clear<T>(self: Lru<T>)
+	table.clear(self.Nodes)
+	self.Head = nil
+	self.Tail = nil
+	self.Count = 0
 end
 
 table.freeze(Lru)

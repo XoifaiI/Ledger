@@ -33,7 +33,7 @@ local function Fold<S>(Base: S, Ops: { Op }, Reducer: Reducer<S>, Mark: string?)
 		end
 		local Next = Apply(Reducer, State, Op)
 		if Next ~= nil then
-			State = FreezeDelta(Next)
+			State = FreezeDelta(Next :: S)
 			if Op.Id == Mark then
 				Took = true
 			end

@@ -194,8 +194,8 @@ Cases.Case("two servers judge one item stale a little apart, so one of them refi
 	T:Ok("the edit", Fund(A, KEY, 5))
 	T:Is("the first copy", Gold(A, KEY, AGE), 5)
 	T:Is("the other server's copy", Gold(B, KEY, AGE), 5)
-	A.Store.Copies[KEY].Slack = SLACK
-	B.Store.Copies[KEY].Slack = 0
+	A.Store:Copy(KEY).Slack = SLACK
+	B.Store:Copy(KEY).Slack = 0
 	T:Advance(CACHE + 1)
 
 	local Early, EarlyUnits
@@ -331,7 +331,7 @@ Cases.Case("a follower's ticker stops when the last listener leaves and starts a
 			return Pushed > 0
 		end)
 	)
-	local Copy = A.Store.Copies[KEY]
+	local Copy = A.Store:Copy(KEY)
 	local Ticking = Copy.Ticker ~= nil
 
 	Connection:Disconnect()
@@ -367,7 +367,7 @@ Cases.Case("destroying a store stops its followers", function(T: Case)
 			return Pushed > 0
 		end)
 	)
-	local Copy = Store.Copies[KEY]
+	local Copy = Store:Copy(KEY)
 
 	Store:Destroy()
 	local Idle = Units(T, function()
@@ -376,7 +376,8 @@ Cases.Case("destroying a store stops its followers", function(T: Case)
 	end)
 
 	T:Is("the ticker once the store was destroyed", Copy.Ticker, nil)
-	T:Is("copies the store keeps", next(Store.Copies), nil)
+	T:Is("copies the store keeps", Store.Copies.Count, 0)
+	T:Is("copies it follows", next(Store.Followed), nil)
 	T:Is("units spent after", Idle, 0)
 end)
 
@@ -446,7 +447,7 @@ Cases.Case("a refill keeps a newer copy that landed while it was reading", funct
 	T:Advance(STALE)
 
 	local Spec = A:Fault(Fault.Reads():OnKey(KEY):Only(1):Meddle(function()
-		Plant(T, A, KEY, { State = { Gold = 99, Touches = 0 }, Stamp = (A.Store.Copies[KEY].Stamp or 0) + 1, At = T:Now() + 1 })
+		Plant(T, A, KEY, { State = { Gold = 99, Touches = 0 }, Stamp = (A.Store:Copy(KEY).Stamp or 0) + 1, At = T:Now() + 1 })
 	end))
 	local Own = Gold(A, KEY, AGE)
 	T:Advance(AGE + 1)
@@ -596,6 +597,66 @@ Cases.Case("a store with no MemoryStore reads the record on every tick and says 
 	T:Is("datastore reads on the second, which the copy answers", Warm, 0)
 	T:Is("datastore reads once the copy aged", Aged, 1)
 	T:Warns("it said the store has no MemoryStore", "no MemoryStore", 1)
+end)
+
+Cases.Case("a refill that read the record before this server's own write keeps the newer copy", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("behind", { Gold = 1 })
+	T:Is("the first peek fills the copy", (Bank.Store:Peek("behind", 60):Wait()).Gold, 1)
+	T:Advance(20)
+
+	local Written = Bank.Hook.Fail(Fault.Updates():OnStore(Follows.MAP):Only(2):Meddle(function()
+		Bank.Store:Edit("behind", "Fund", { Amount = 10 }):Wait()
+	end))
+	Bank.Store:Peek("behind", 0):Wait()
+	local Copy = Bank.Store:Peek("behind", 60):Wait()
+
+	T:Is("the edit ran inside the refill", Written.Fired, 1)
+	T:Is("this server's copy, which shows its own write", Copy.Gold, 11)
+	T:Is("the record", Bank:Amount("behind"), 11)
+end)
+
+Cases.Case("what a copy hands back is frozen, from this server, from another server's item and from a follow", function(T: Case)
+	local Here = T:Bank("nodeA")
+	local There = T:Bank("nodeB")
+	Here:Seed("frozen", { Gold = 5 })
+	Here:Seed("pushed", { Gold = 5 })
+
+	local function Poked(Value: any): boolean
+		return (pcall(function()
+			Value.Gold = -999
+		end))
+	end
+
+	local Own = Here.Store:Peek("frozen", 60):Wait()
+	local Theirs = There.Store:Peek("frozen", 60):Wait()
+	local Pushed: any = nil
+	Here.Store:Follow("pushed"):Subscribe(function(State: any)
+		Pushed = Pushed or State
+	end)
+	T:Advance(FOLLOW + 1)
+	T:Until(function(): boolean
+		return Pushed ~= nil
+	end)
+
+	T:Ok("the follow pushed a state", type(Pushed) == "table")
+	T:No("a write into this server's copy", Poked(Own))
+	T:No("a write into a copy from another server's item", Poked(Theirs))
+	T:No("a write into what a follow pushed", Poked(Pushed))
+	T:Is("what the next caller sees", (Here.Store:Peek("frozen", 60):Wait()).Gold, 5)
+end)
+
+Cases.Case("copies of keys nobody follows are bounded", function(T: Case)
+	local Bank = T:Bank()
+	Bank.Store:Follow("kept"):Subscribe(function() end)
+	local Followed = Bank.Store:Copy("kept")
+	for Index = 1, 900 do
+		Bank.Store:Peek(`many{Index}`, 30):Wait()
+	end
+
+	T:Is("copies held after peeking 900 keys", Bank.Store.Copies.Count, 256)
+	T:Is("the followed copy is still the one held", Bank.Store:Copy("kept"), Followed)
+	T:Is("the latest peeked copy is held", Bank.Store.Copies:Get("many900") ~= nil, true)
 end)
 
 return Cases

@@ -1892,7 +1892,7 @@ Cases.Case("a retry after the leg ids are forgotten moves nothing twice", functi
 	Vault:Seed("forgetB", { Coins = 0 })
 
 	local First = Cross(Shop, Vault, "forgetA", "forgetB", 25, "forget1")
-	local Remembered = Shop:Stored("forgetA")._Received["x:forget1"] ~= nil
+	local Remembered = Shop:Names("forgetA")["x:forget1"] ~= nil
 
 	Shop:Forget("forgetA", { "tx:forget1:" })
 	Vault:Forget("forgetB", { "tx:forget1:" })

@@ -33,7 +33,6 @@ local Sizes = require("../../Core/Constants/Sizes")
 local Errors = require("../../Core/Errors")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
-local Measure = require("../../Encode/Measure")
 local Compact = require("../../Record/Compact")
 local Schema = require("../../Record/Schema")
 local TxStamp = require("../../Record/TxStamp")
@@ -204,21 +203,7 @@ function Store.Applies(self: Store, Op: Op, Record: Record): (boolean, boolean, 
 end
 
 function Store.Swollen(self: Store, Op: Op, Record: Record): boolean
-	if Compact.Bulk(Record) + Measure(Record.Ops) + Measure(Op) <= Sizes.StateFloor then
-		return false
-	end
-
-	local Read, Over = pcall(function(): boolean
-		local Format = self:Format()
-		local Folded = Format:Fold(Schema.Detached(Record))
-		local Next = Apply(Format.Reducer, Folded, Op)
-		if Next == nil then
-			return false
-		end
-
-		local Bytes = Measure(Next)
-		return Bytes > Sizes.State and Bytes > Measure(Folded)
-	end)
+	local Read, Over = pcall(Compact.Swells, Record, self:Format(), Op)
 	return Read and Over
 end
 

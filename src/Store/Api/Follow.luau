@@ -11,7 +11,9 @@
 	lands refills a stale or absent item. The rest answer the copy they hold and never wait. Each
 	copy rolls its own slack onto the stale window. A state too big for an item takes the item off,
 	and every server makes its own. A map that misses holds a server to its copy for a keep window.
-	An item or a write with an older stamp than the copy is left alone. A tick reads the item,
+	An item, a write or a refill with an older stamp than the copy is left alone. What a copy hands
+	back is frozen. A followed copy stays for as long as the store. The rest sit in an Lru, so the
+	copy used longest ago goes first. A tick reads the item,
 	doubles its interval while the stamp sits still up to a cap, and pushes only when it moved. A
 	write on this server goes into its own copy, never the map. A Peek with a MaxAge of zero
 	refills through the claim, and an item refilled inside the claim window answers it.
@@ -108,27 +110,26 @@ end
 
 local function Settle(Copy: Copy, State: any, Stamp: number?, At: number, Seen: number): any
 	local Moved = Copy.State == nil or (Stamp or 0) ~= (Copy.Stamp or 0)
-	Copy.State = State
+	Copy.State = TableUtil.FreezeDelta(State)
 	Copy.Stamp = Stamp
 	Copy.At = At
 	Copy.Seen = Seen
 
 	local Emit = Copy.Emit
 	if Moved and Emit ~= nil then
-		Emit(State)
+		Emit(Copy.State)
 	end
-	return State
+	return Copy.State
 end
 
 function Store.Copy(self: Store, Key: string): Copy
-	local Held = self.Copies[Key]
+	local Held = self.Followed[Key] or self.Copies:Get(Key)
 	if Held ~= nil then
 		return Held
 	end
 
 	local Fresh: Copy = { At = 0, Seen = 0, Slack = self.Wrapper.Scheduler.Roll() * Windows.COPY_SLACK, Behind = false }
-	self.Copies[Key] = Fresh
-	return Fresh
+	return self.Copies:Put(Key, Fresh)
 end
 
 function Store.Recorded(self: Store, Key: string): Source
@@ -195,6 +196,9 @@ function Store.Refilled(self: Store, Copy: Copy, Now: number, Source: Source, Mi
 		end
 	end
 
+	if Copy.State ~= nil and (Stamp or 0) < (Copy.Stamp or 0) then
+		return Settle(Copy, Copy.State, Copy.Stamp, Copy.At, Walked), nil
+	end
 	return Settle(Copy, State, Stamp, Walked, Walked), nil
 end
 
@@ -278,7 +282,7 @@ function Store.Copied(self: Store, Copy: Copy, Now: number, Force: boolean, Sour
 end
 
 function Store.Noted(self: Store, Key: string, Record: Shapes.Record<any>, Stamp: number?)
-	local Copy = self.Copies[Key]
+	local Copy = self.Followed[Key] or self.Copies:Get(Key)
 	if Copy == nil or Stamp == nil then
 		return
 	end
@@ -331,17 +335,19 @@ function Store.Follow(self: Store, Key: KeyLike): Observer.Observer<any>
 		end
 	end)
 	Copy.Stream = Stream
+	self.Followed[Resolved] = Copy
 	return Stream
 end
 
 function Store.Unfollowed(self: Store)
-	for Key, Copy in self.Copies do
+	for _, Copy in self.Followed do
 		local Stream = Copy.Stream
 		if Stream ~= nil then
 			Stream:Destroy()
 		end
-		self.Copies[Key] = nil
 	end
+	table.clear(self.Followed)
+	self.Copies:Clear()
 end
 
 return table.freeze({})

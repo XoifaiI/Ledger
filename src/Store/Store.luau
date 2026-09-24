@@ -10,7 +10,8 @@
 	five requires with no name on them put the rest of the methods onto the class.
 
 	A load and its waiters belong to the Player object that asked. A player who rejoins while the load
-	they left is still running gets the answer to their own load, never to the one they left.
+	they left is still running gets the answer to their own load, never to the one they left. Two
+	copies of one player share one session, and only the copy that called Load last releases it.
 
 	Return type: A table with New.
 	Example usage:
@@ -70,6 +71,7 @@ local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
 local RECENT_TALLIES = 256
+local KEPT_COPIES = 256
 local PROBE_KIND = "LedgerUnknownKind"
 
 local TX_SUFFIX = Transactions.SUFFIX
@@ -192,7 +194,8 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Leases = Leases,
 		Bookings = Holds,
 		Copier = Copier,
-		Copies = {},
+		Copies = Lru.New(KEPT_COPIES),
+		Followed = {},
 		Recent = Lru.New(RECENT_TALLIES),
 		Bumped = 0,
 		Initial = Initial,
@@ -206,6 +209,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Loaded = {},
 		Waiters = {},
 		Loads = {},
+		Latest = {},
 		Saving = {},
 		Node = Ids.Home(),
 		Sweep = Registry.Sweep(),
@@ -215,7 +219,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Reaping = Rotation(),
 		Closed = false,
 	}
-	local Built = setmetatable(Body, Store)
+	local Built: Store = setmetatable(Body :: any, Store)
 
 	table.insert(Registry.Stores, Built)
 	Built.Sweep:Adopt(Built:Swept())
@@ -335,9 +339,13 @@ end
 function Store.Load(self: Store, Player: Player)
 	self:ExpectPlayers("Load")
 	local UserId = Player.UserId
+	local Again = self.Latest[UserId] == Player
+	self.Latest[UserId] = Player
 
 	if self.Loaded[UserId] ~= nil then
-		warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
+		if Again then
+			warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
+		end
 		return
 	end
 	if self.Loads[Player] == "Loading" then
@@ -345,7 +353,6 @@ function Store.Load(self: Store, Player: Player)
 		return
 	end
 
-	assert(self.Loaded[UserId] == nil, `{Player.Name} is starting a load while they already have a live session, so two sessions would write the same key`)
 	self.Loads[Player] = "Loading"
 
 	local Job = Session.Load(self:Records(), self:Format(), tostring(UserId), self.TxWrapper)
@@ -362,9 +369,14 @@ function Store.Load(self: Store, Player: Player)
 		return
 	end
 
-	if self.Loaded[UserId] ~= nil then
-		warn(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
+	local Shared = self.Loaded[UserId]
+	if Shared ~= nil then
 		Active:Release()
+		if Left or not Player.Parent then
+			self:Wake(Player, nil)
+			return
+		end
+		self:Wake(Player, Shared.Active)
 		return
 	end
 
@@ -395,8 +407,12 @@ function Store.Unload(self: Store, Player: Player)
 	self:ExpectPlayers("Unload")
 	local UserId = Player.UserId
 	local Entry = self.Loaded[UserId]
+	local Latest = self.Latest[UserId] == Player
 
-	if Entry == nil then
+	if Entry == nil or not Latest then
+		if Latest then
+			self.Latest[UserId] = nil
+		end
 		if self.Loads[Player] ~= nil then
 			self.Loads[Player] = "Leaving"
 		end
@@ -404,6 +420,7 @@ function Store.Unload(self: Store, Player: Player)
 		return
 	end
 
+	self.Latest[UserId] = nil
 	self.Loaded[UserId] = nil
 	self.Wrapper.Scheduler.Cancel(Entry.Ticker)
 
@@ -483,6 +500,7 @@ function Store.Destroy(self: Store)
 		self.Wrapper.Scheduler.Cancel(Entry.Ticker)
 		table.insert(Jobs, self:Save(Entry.Active))
 	end
+	table.clear(self.Latest)
 
 	for Waiting in self.Waiters do
 		self:Wake(Waiting, nil)

@@ -649,11 +649,18 @@ Cases.Case("erasing a key with an undeliverable hold says so", function(T: Case)
 	Store.Store:Erase("marginB"):Wait()
 	T:Advance(7 * 86400 + 43200)
 
-	Store.Store:Erase("marginA"):Wait()
+	local Ok, Why = Store.Store:Erase("marginA"):Wait()
 
+	T:Is("the erase while the hold cannot be delivered", Ok, false)
+	T:Is("the reason", Why, "Busy")
+	T:Is("the money, still set aside", Store:Aside("marginA"), 40)
+	T:Warns("it warned that money is still being sent", "is still being sent")
+
+	T:Advance(86400)
+	T:Ok("erasing it once the hold can be given back", (Store.Store:Erase("marginA"):Wait()))
 	T:Is("gold to a receiver that was erased before the sender", Store:Amount("marginB"), 0)
 	T:Is("gold left on the erased key", Store:Amount("marginA"), 0)
-	T:Warns("it warned that money went with it", "had not finished")
+	T:Silent("nothing was written off", "gone for good")
 end)
 
 Cases.Case("a transfer stuck past the prune window is written off, and says which field it was in", function(T: Case)

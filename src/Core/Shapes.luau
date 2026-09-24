@@ -50,7 +50,7 @@ export type Held = {
 
 export type Folded = {
 	_Held: { [string]: Held }?,
-	_Received: { [string]: number | string }?,
+	_Received: { [string]: any }?,
 	_Tally: { [string]: number }?,
 	[any]: any,
 }

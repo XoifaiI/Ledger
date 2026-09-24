@@ -8,7 +8,7 @@
 	Push reads back which ops actually landed rather than trusting the call that returned. Append
 	carries the fence, which is the erase mark the key had at load. A write lands only while that mark
 	is unchanged or has run out, and Fenced drops a mark that has. A push the fence turns away closes
-	the session and drops what it could not write.
+	the session and drops what it could not write. So does a rebuild that reads a fresh erase mark.
 
 	The sift folds the record with and without any parked leg. An op that holds one way but not the
 	other stays queued until the leg settles. Rebuild folds the record that came back and puts the
@@ -60,7 +60,7 @@ local function ApplyPending<S>(self: Session<S>, State: S, Applied: { [string]: 
 		Applied[Op.Id] = true
 		local Next = Apply(self.Shape.Reducer, State, Op)
 		if Next ~= nil then
-			State = Next
+			State = Next :: S
 		end
 	end
 	return State
@@ -111,6 +111,13 @@ local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { 
 		return Record.Erased == Fence or (not Rules.Entombed(Record) and Fenced(Fence) == nil)
 	end, Sifted(self))
 	return Stored, Turned, Waiting
+end
+
+local function Close<S>(self: Session<S>)
+	self.Released = true
+	self.Stopped = Reasons.Refused
+	warn(`Ledger: '{self.Key}' was erased while this session was live, so its {#self.Pending} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
+	self.Pending = {}
 end
 
 local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string })
@@ -171,10 +178,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	assert(Missed <= Count, "a push lost more ops than it was given, so one was counted twice")
 
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= self.Fence then
-		self.Released = true
-		self.Stopped = Reasons.Refused
-		warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
-		self.Pending = {}
+		Close(self)
 	end
 
 	self.LogSize = #Stored.Ops
@@ -232,6 +236,10 @@ end
 
 local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, boolean)
 	self.Fence = Fenced(self.Fence)
+	if self.Stopped == nil and Stored.Erased ~= self.Fence and Rules.Entombed(Stored) then
+		Close(self)
+		return self.State, false
+	end
 	local Base: S = self.Shape:Rehydrate(Stored)
 	local State, Accepted = Fold(Base, Stored.Ops, self.Shape.Reducer, Mark)
 	local Applied: { [string]: boolean } = {}

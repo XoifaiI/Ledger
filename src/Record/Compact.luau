@@ -16,8 +16,10 @@
 	holds it, the same as a game op it cannot apply.
 
 	Hint names the field taking the most room. Blocked names the kind that stops a key compacting.
+	Swells says whether an op would take a state past its cap. It reads the cached size first and
+	folds only a key that is near the cap.
 
-	Return type: A table with Packed, Oversized, Overgrown, Bulk, Hint, Blocked and SEEN_LIMIT.
+	Return type: A table with Packed, Swells, Oversized, Overgrown, Bulk, Hint, Blocked and SEEN_LIMIT.
 	Example usage:
 		local Compact = require("./Compact")
 		if Compact.Overgrown(Record) then Fold() end
@@ -65,6 +67,21 @@ local function Bulk(Record: Record): number
 		return Record.Bytes
 	end
 	return Measure(Record.Snapshot)
+end
+
+local function Swells(Record: Record, Format: Schema<any>, Op: Op): boolean
+	if Bulk(Record) + Measure(Record.Ops) + Measure(Op) <= Sizes.StateFloor then
+		return false
+	end
+
+	local Folded = Format:Fold(Schema.Detached(Record))
+	local Next = Apply(Format.Reducer, Folded, Op)
+	if Next == nil then
+		return false
+	end
+
+	local Bytes = Measure(Next)
+	return Bytes > Sizes.State and Bytes > Measure(Folded)
 end
 
 local function Overgrown(Record: Record): boolean
@@ -223,6 +240,7 @@ end
 
 return table.freeze({
 	Packed = Packed,
+	Swells = Swells,
 	Oversized = Oversized,
 	Overgrown = Overgrown,
 	Bulk = Bulk,

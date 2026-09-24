@@ -63,7 +63,7 @@ local function DeepCopy<T>(Value: T, Seen: { [any]: any }?): T
 		return Fresh :: any
 	end
 	if type(Value) ~= "table" then
-		return Value
+		return Value :: T
 	end
 
 	local Tracked = Seen or {}
@@ -83,12 +83,12 @@ end
 
 local function DeepFreeze<T>(Value: T, Seen: { [any]: boolean }?): T
 	if type(Value) ~= "table" then
-		return Value
+		return Value :: T
 	end
 
 	local Tracked = Seen or {}
 	if Tracked[Value] then
-		return Value
+		return Value :: T
 	end
 	Tracked[Value] = true
 
@@ -99,7 +99,7 @@ local function DeepFreeze<T>(Value: T, Seen: { [any]: boolean }?): T
 	if not table.isfrozen(Value :: any) then
 		table.freeze(Value :: any)
 	end
-	return Value
+	return Value :: T
 end
 
 local function HasBuffer(Value: any): boolean
@@ -133,7 +133,7 @@ local function FreezeDelta<T>(Value: T): T
 	for _, Inner in Value :: any do
 		FreezeDelta(Inner)
 	end
-	return Value
+	return Value :: T
 end
 
 return table.freeze({

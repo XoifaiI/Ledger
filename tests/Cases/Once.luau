@@ -30,6 +30,17 @@ local ONCE_FLOOR = Horizons.ONCE_FLOOR
 
 local Cases = Suite.File("Once")
 
+local function Days(Raw: any): (number, boolean)
+	local Count, Bucketed = 0, true
+	for Name, Value in Raw do
+		Count += 1
+		if string.match(Name, "^d%d+$") == nil or type(Value) ~= "table" then
+			Bucketed = false
+		end
+	end
+	return Count, Bucketed
+end
+
 local function Named(Active: any, Kind: string, Name: string, Amount: number): boolean
 	return (Active:Apply(Kind, { Amount = Amount, Once = Name }))
 end
@@ -250,14 +261,14 @@ Cases.Case("a transaction id is forgotten once it is older than the prune horizo
 	T:Is("gold after asking again under the same name a month later", Bank:Amount("a") + Bank:Amount("b"), 600)
 end)
 
-Cases.Case("a Once name is forgotten once it is older than the prune horizon", function(T: Case)
+Cases.Case("a Once name is forgotten within a day after the prune horizon", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("a", { Gold = 0 })
 
 	Bank.Store:Edit("a", "Fund", { Amount = 1, Once = "old" }):Wait()
 	T:Is("the old name right after it ran", Bank.Store:DidApply("a", "old"):Wait(), true)
 
-	T:Advance(PRUNE_HORIZON + 60)
+	T:Advance(PRUNE_HORIZON + DAY)
 	Bank.Store:Edit("a", "Fund", { Amount = 1, Once = "new" }):Wait()
 
 	T:Is("the old name once the horizon passed", Bank.Store:DidApply("a", "old"):Wait(), false)
@@ -547,6 +558,80 @@ Cases.Case("two sets of terms that differ only in where a comma or a bracket fal
 	T:No("one print for a key holding a second pair and the pairs apart", Print({ ["a=string:x,b"] = "y" }) == Print({ a = "x", b = "y" }))
 	T:No("one print for an escape written out and the character it stands for", Print({ Note = "%2C" }) == Print({ Note = "," }))
 	T:Is("the print a string with none of those has always had", Digest.Canon({ Note = "plain text", N = 1, B = true }), "(B=boolean:true,N=number:1,Note=string:plain text)")
+end)
+
+Cases.Case("applied names sit in one bucket per day, and no name carries its own time", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("days", { Gold = 0 })
+
+	T:Ok("a name on the first day", (Bank.Store:Edit("days", "Fund", { Amount = 1, Once = "one" }):Wait()))
+	T:Advance(DAY)
+	T:Ok("a name on the next day", (Bank.Store:Edit("days", "Fund", { Amount = 1, Once = "two" }):Wait()))
+	Bank:Log():Compact("days", Bank:Format())
+
+	local Count, Bucketed = Days(Bank:Record("days").Snapshot._Received)
+	local Names = Bank:Names("days")
+	T:Is("buckets on the key", Count, 2)
+	T:Is("every entry is a day of names", Bucketed, true)
+	T:Is("the first name, which holds no time", Names["o:one"], true)
+	T:Is("the second name", Names["o:two"], true)
+end)
+
+Cases.Case("a name is kept for its whole window, to the second", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("edge", { Gold = 0 })
+	Bank.Store:Edit("edge", "Fund", { Amount = 1, Once = "kept" }):Wait()
+
+	T:Advance(PRUNE_HORIZON)
+	Bank.Store:Edit("edge", "Fund", { Amount = 1, Once = "later" }):Wait()
+	T:Is("the name on the last second of its window", Bank.Store:DidApply("edge", "kept"):Wait(), true)
+	T:Is("a replay of it then", (Bank.Store:Edit("edge", "Fund", { Amount = 1, Once = "kept" }):Wait()), false)
+	T:Is("gold, the replay turned away", Bank:Amount("edge"), 2)
+end)
+
+Cases.Case("a Once name replayed on a later day is still refused", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("later", { Gold = 0 })
+
+	T:Ok("the grant", (Bank.Store:Edit("later", "Fund", { Amount = 5, Once = "gift" }):Wait()))
+	T:Advance(3 * DAY)
+	local Again, Why = Bank.Store:Edit("later", "Fund", { Amount = 5, Once = "gift" }):Wait()
+
+	T:Is("the same grant three days later", Again, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("gold, granted once", Bank:Amount("later"), 5)
+end)
+
+Cases.Case("a record from before 6.0 keeps its names and is written back in day buckets", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Write("flat", {
+		Snapshot = {
+			Gold = 10,
+			Touches = 0,
+			_Received = {
+				["o:gift"] = T:Now() - 2 * DAY,
+				["t:paid1"] = `{T:Now() - DAY}#abcdefgh`,
+				["t:bad"] = "no time in it",
+			},
+		},
+		Ops = {},
+		Seen = {},
+	})
+
+	T:Is("the old Once name", Bank.Store:DidApply("flat", "gift"):Wait(), true)
+	T:Is("a replay of it", (Bank.Store:Edit("flat", "Fund", { Amount = 5, Once = "gift" }):Wait()), false)
+	T:Ok("a new name", (Bank.Store:Edit("flat", "Fund", { Amount = 1, Once = "new" }):Wait()))
+	Bank:Log():Compact("flat", Bank:Format())
+
+	local Count, Bucketed = Days(Bank:Record("flat").Snapshot._Received)
+	local Names = Bank:Names("flat")
+	T:Is("buckets written back", Count, 3)
+	T:Is("every entry is a day of names", Bucketed, true)
+	T:Is("the old Once name", Names["o:gift"], true)
+	T:Is("the old transfer name keeps what it meant", Names["t:paid1"], "abcdefgh")
+	T:Is("an old name with no time it could be read by, which counts as run out", Names["t:bad"], nil)
+	T:Is("the new name", Names["o:new"], true)
+	T:Is("gold", Bank:Amount("flat"), 11)
 end)
 
 return Cases

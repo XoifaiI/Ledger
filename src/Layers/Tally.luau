@@ -12,7 +12,8 @@
 	Cache names the item a summed total lives in, which a store keeps fresh the way it keeps a copy
 	of any key. The state in that item carries the sum and the second each shard was read, so a
 	server lays over the sum only the bumps it made after its own shard was read. Since reads that
-	second back out.
+	second back out. A tally over a count of shards other than the default names that count in its
+	item, so two builds with different counts never read each other's sum.
 
 	Return type: A table with Layered, Bump, Counted, Mine, Shard, Keys, Cache and Since. The type is Bucket.
 	Example usage:
@@ -103,8 +104,12 @@ local function Bump(Field: string, Amount: number): Op
 	return { Id = Ids.Fresh(), Kind = Kinds.BUMP, Field = Field, Amount = Amount } :: any
 end
 
-local function Cache(Store: string, Name: string, Field: string): string
-	return Mark.Cached({ Store, Name, Field })
+local function Cache(Store: string, Name: string, Field: string, Count: number?): string
+	local Over = Count or Shards.SHARDS
+	if Over == Shards.SHARDS then
+		return Mark.Cached({ Store, Name, Field })
+	end
+	return Mark.Cached({ Store, Name, Field, tostring(Over) })
 end
 
 local function Since(State: any, Shard: number): number?

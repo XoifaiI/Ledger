@@ -113,6 +113,7 @@ local function Release()
 		Held:Flushed()
 		for UserId, Entry in Held.Loaded do
 			Held.Loaded[UserId] = nil
+			Held.Latest[UserId] = nil
 			Held.Wrapper.Scheduler.Cancel(Entry.Ticker)
 			Held:Save(Entry.Active)
 		end
