@@ -447,9 +447,17 @@ A key takes one transaction at a time. While a leg is parked on it, every other 
 that key returns [`Busy`](/docs/concepts/reasons) and stops. `Tx` does not retry a `Busy` for you,
 because every server retrying at once would multiply the load on a key that is already contended.
 
-Retry it yourself with a short backoff. Measured against the mock, 8 servers depositing into one bank
-key all get through in about 3 attempts each. 32 servers take about 8 attempts each, and the cost per
-successful transaction goes from 10 requests to over 100.
+Retry it yourself with a short backoff. Measured on the mock, with 32 servers each starting a two leg
+transaction on one bank key at the same moment:
+
+| | went through | datastore requests | MemoryStore units |
+| --- | --- | --- | --- |
+| With MemoryStore | 1 | 8 | 101 |
+| Without MemoryStore | 2 | 130 per success | 0 |
+
+With MemoryStore, the first server to lease the keys drives the transaction. The others return `Busy`
+at once, having spent about 3 units each and no datastore request. Without MemoryStore, every server
+drives its transaction and they race on the key.
 
 Plan around this for anything every player writes to, such as a guild bank, a global shop or an event
 total. Spread the writes across keys where you can, for example one key per guild rather than one for
@@ -463,19 +471,24 @@ Measured on the mock, for the path where nothing fails.
 | --- | --- |
 | `Peek`, `Edit`, `EditOp`, `Bump` | 1 |
 | `Bump`, with `BumpEvery` | 0, and one per total per window |
-| `Peek` with a `MaxAge`, from the copy | 0, and one MemoryStore unit |
+| `Peek` with a `MaxAge`, from this server's copy | 0 |
+| `Peek` with a `MaxAge`, from the shared copy | 0, and one MemoryStore unit |
 | `Peek` with a `MaxAge`, refilling the copy | 1, and five units, on one server a minute |
-| `Reserve`, `Release` | 0, and two MemoryStore units, plus one read on the first hold of a key |
-| `Confirm` | 1, and two MemoryStore units |
+| `Reserve`, the first hold on a key | 1, and four MemoryStore units |
+| `Reserve`, `Release` | 0, and two MemoryStore units |
+| `Confirm` | 1, and three MemoryStore units |
 | `Holds` | 0, and one MemoryStore unit |
-| `Transfer` | 3 |
-| `Tx`, 2 legs | 8 |
-| `Tx`, 4 legs | 12 |
-| `Total`, cached | 0, and one MemoryStore unit |
+| `Transfer` | 3, or 4 with your own `Id` |
+| `Tx`, 2 legs | 8, and eight MemoryStore units |
+| `Tx`, 4 legs | 12, and sixteen MemoryStore units |
+| `Total`, from this server's own sum | 0 |
+| `Total`, from the cached sum | 0, and one MemoryStore unit |
 | `Total`, cold | 16, and five units, on one server a minute |
 
 A transaction spends 4 requests on its marker whatever the leg count, so the marker is half the cost
-of a two leg transaction. A limit that lives on one key is a reservation, not a transaction. See
+of a two leg transaction. It also spends 4 MemoryStore units a leg to lease its keys, so two servers
+do not drive one key at once. A `Transfer` with your own `Id` reads the receiver first, to tell a
+retry from a new transfer. A limit that lives on one key is a reservation, not a transaction. See
 [Reservations and totals](/docs/guides/reservations).
 
 Roblox gives an experience `UpdateAsync` budget of `300 + 20 per CCU` a minute, which works out at
@@ -500,8 +513,9 @@ again under the same Id. A hold lives in MemoryStore, so it uses no space on the
 its own. One key holds 256 at once.
 
 Holds share the experience's MemoryStore quota, `1000 + 120 × concurrent users` request units a
-minute, with totals, transaction leases and followed keys. A `Reserve` or `Release` is two units. A
-`Confirm` is two. A `Holds` is one. A key read through
+minute, with totals, transaction leases and followed keys. A `Reserve` or `Release` is two units,
+and the first hold on a key is four units and one request. A `Confirm` is three. A `Holds` is one. A
+transaction is four a leg. A key read through
 [`Follow`](/docs/guides/entity-stores#following-a-key) costs one unit per tick on each server that
 follows it. A tick is every 30 seconds, and slows to every 4 minutes while the key does not change.
 `Follow` and `Peek` with a `MaxAge` read a copy of the key kept in MemoryStore. The one server that
@@ -510,11 +524,12 @@ item, 32 KB of your fields. A bigger key is read from the record by every server
 about it at most once every 30 seconds.
 
 A total is spread over 16 keys, or the `Shards` the store names, 1 to 99. `Total` returns a sum
-cached in MemoryStore, for one request unit. Each server treats that sum as stale after its own time
-between 60 and 75 seconds. Only one server then refills it: it reads every shard, one request each,
-and caches the sum again. The other servers return the cached sum meanwhile. `Bump` costs one
-request and no units. With `BumpEvery` a server pays one request per total per window, however many
-times it bumps.
+cached in MemoryStore, for one request unit. A server that read the sum inside the `MaxAge` you pass,
+60 seconds by default, returns its own copy and spends nothing. Each server treats the cached sum as
+stale after its own time between 60 and 75 seconds. Only one server then refills it: it reads every
+shard, one request each, and caches the sum again. The other servers return the cached sum
+meanwhile. `Bump` costs one request and no units. With `BumpEvery` a server pays one request per
+total per window, however many times it bumps.
 
 Each server bumps one shard key, and one shard key takes about 80 writes a minute. With a
 `BumpEvery` of 60, that is about 80 servers on each shard. Set `Shards` to the number of servers
