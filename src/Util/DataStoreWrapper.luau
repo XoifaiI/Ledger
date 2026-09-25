@@ -7,8 +7,9 @@
 
 	Each key has its own queue, so writes to one key stay in order. It is handed the scheduler its
 	retries wait on and the hook its calls go to, and carries both for everything underneath it.
+	ONCE is the limit for a call that must not be tried a second time.
 
-	Return type: A table with New.
+	Return type: A table with New and ONCE.
 	Example usage:
 		local Wrapper = require("./DataStoreWrapper")
 		local Books = Wrapper.New("Players", Scheduler, Hook)
@@ -33,8 +34,8 @@ type DataStoreWrapperImpl = {
 	GetStore: (self: DataStoreWrapper) -> Engine.Store,
 	AttemptAsync: (self: DataStoreWrapper, Key: string, Operation: (Store: Engine.Store) -> ...any, Handler: Handler?, Limits: Limits?) -> ...any,
 	GetAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
-	UpdateAsync: (self: DataStoreWrapper, Key: string, Transform: Transform, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
-	RemoveAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
+	UpdateAsync: (self: DataStoreWrapper, Key: string, Transform: Transform, Handler: Handler?, Limits: Limits?) -> (boolean, any, DataStoreKeyInfo?),
+	RemoveAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?, Limits: Limits?) -> (boolean, any, DataStoreKeyInfo?),
 	ListVersionsAsync: (
 		self: DataStoreWrapper,
 		Key: string,
@@ -66,6 +67,7 @@ export type DataStoreWrapper = setmetatable<{
 }, DataStoreWrapperImpl>
 
 local WHOLE_STORE = ""
+local ONCE: Limits = { Attempts = 1 }
 
 local DataStoreWrapper = {} :: DataStoreWrapperImpl
 DataStoreWrapper.__index = DataStoreWrapper
@@ -105,18 +107,18 @@ function DataStoreWrapper.GetAsync(self: DataStoreWrapper, Key: string, Handler:
 	end, Handler)
 end
 
-function DataStoreWrapper.UpdateAsync(self: DataStoreWrapper, Key: string, Transform: Transform, Handler: Handler?): (boolean, any, DataStoreKeyInfo?)
+function DataStoreWrapper.UpdateAsync(self: DataStoreWrapper, Key: string, Transform: Transform, Handler: Handler?, Limits: Limits?): (boolean, any, DataStoreKeyInfo?)
 	return self:AttemptAsync(Key, function(Store: Engine.Store)
 		return Store:UpdateAsync(Key, function(Current: any, KeyInfo: DataStoreKeyInfo)
 			return NoYield.Run(Transform, Current, KeyInfo)
 		end)
-	end, Handler)
+	end, Handler, Limits)
 end
 
-function DataStoreWrapper.RemoveAsync(self: DataStoreWrapper, Key: string, Handler: Handler?): (boolean, any, DataStoreKeyInfo?)
+function DataStoreWrapper.RemoveAsync(self: DataStoreWrapper, Key: string, Handler: Handler?, Limits: Limits?): (boolean, any, DataStoreKeyInfo?)
 	return self:AttemptAsync(Key, function(Store: Engine.Store)
 		return Store:RemoveAsync(Key)
-	end, Handler)
+	end, Handler, Limits)
 end
 
 function DataStoreWrapper.ListVersionsAsync(
@@ -160,4 +162,5 @@ table.freeze(DataStoreWrapper)
 
 return table.freeze({
 	New = DataStoreWrapper.New,
+	ONCE = ONCE,
 })

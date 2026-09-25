@@ -7,9 +7,10 @@
 
 	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, compact it or trim it.
 	An append adds only the ops the record does not already have, so running one twice applies once.
-	Every write first asks whether this build may write the record at all. A read and a write that
-	changed the record hand back the stamp the datastore put on it, so a copy of the record can be
-	ordered against another without comparing two servers' clocks.
+	Every write first asks whether this build may write the record at all. The first write to a key
+	stores the state the key starts from, whether it is an append or a parked leg. A read and a write
+	that changed the record hand back the stamp the datastore put on it, so a copy of the record can
+	be ordered against another without comparing two servers' clocks.
 
 	Return type: A table with New, Entombed and NotEntombed.
 	Example usage:
@@ -146,8 +147,9 @@ local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?
 		end
 	end
 
-	if type(Op.Tx) == "string" and type(Op.TxTerms) == "string" then
-		local Recalled = Applied.Recall(Held(Record, Format, Folded)._Received, Tags.TX, Op.Tx, Op.TxTerms)
+	local Name = TxStamp.NameOf(Op)
+	if Name ~= nil and type(Op.TxTerms) == "string" then
+		local Recalled = Applied.Recall(Held(Record, Format, Folded)._Received, Tags.TX, Name, Op.TxTerms)
 		if Recalled == Tags.OTHER then
 			return Verdicts.SPENT
 		end
@@ -162,11 +164,11 @@ local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?
 		end
 	end
 
-	if type(Op.Tx) ~= "string" then
+	if type(Op.Tx) ~= "string" or Name == nil then
 		return nil
 	end
 
-	if Applied.Has(Held(Record, Format, Folded)._Received, Tags.TX, Op.Tx) then
+	if Applied.Has(Held(Record, Format, Folded)._Received, Tags.TX, Name) then
 		return Verdicts.SETTLED
 	end
 	return nil
@@ -192,8 +194,8 @@ end
 local Log = {} :: Types.LogImpl
 Log.__index = Log
 
-function Log.New(Wrapper: DataStoreWrapper, Known: number?, Floor: number?): Log
-	return setmetatable({ Wrapper = Wrapper, Known = Known, Floor = Floor }, Log) :: any
+function Log.New(Wrapper: DataStoreWrapper, Known: number?, Floor: number?, Base: any?): Log
+	return setmetatable({ Wrapper = Wrapper, Known = Known, Floor = Floor, Base = Base }, Log) :: any
 end
 
 function Log.Legible(self: Log, Key: string, Record: Record)
@@ -273,6 +275,7 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Ru
 			Rules.Allowed(Guard),
 			Rules.Fresh(Ops, Sift),
 			Rules.Capped(Key, Owned),
+			Rules.Based(self.Base, self.Known),
 			Rules.Format(self.Floor),
 			Rules.Tomb(),
 		}
@@ -350,6 +353,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 			return nil
 		end
 
+		Rules.Settle(Record, self.Base, self.Known)
 		Record.Envelope = Kinds.ENVELOPE
 		if type(self.Floor) == "number" and self.Floor > (Record.Floor or 0) then
 			Record.Floor = self.Floor

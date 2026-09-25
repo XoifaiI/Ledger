@@ -7,8 +7,9 @@
 
 	Drive parks a leg on each key, writes one decision to the marker, and resolves every leg against
 	that decision. The marker decides and not the server that asked, so a coordinator that stops
-	leaves a marker any other server can finish from. A name whose last marker is being taken off
-	answers Busy until it is gone.
+	leaves a marker any other server can finish from. A pass that may open a generation puts the key
+	of its marker on the cleanup list first, and every leg names that key. A later pass of the same
+	drive joins the marker an earlier pass opened.
 
 	Return type: A table with Drive.
 	Example usage:
@@ -63,8 +64,9 @@ local function PrepareLeg(Leg: Leg, Op: Op, PerLeg: number?): Log.Prepared
 	return Leg.Log:Prepare(Leg.Key, Op, Leg.Shape)
 end
 
-local function Stamped(Ops: { Op }, Gen: string?, Born: number, Print: string)
+local function Stamped(Ops: { Op }, Decides: string, Gen: string?, Born: number, Print: string)
 	for _, Op in Ops do
+		Op.Tx = Decides
 		Op.TxGen = Gen
 		Op.TxAt = Born
 		Op.TxTerms = Print
@@ -124,15 +126,15 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 		elseif Verdict == "Busy" then
 			return Prepared, Settled, BUSY
 		elseif Verdict == "Spent" then
-			warn(`Ledger: transaction '{Ops[Index].Tx}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
+			warn(`Ledger: transaction '{Ops[Index].TxSticky}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
 			return Prepared, Settled, SPENT
 		elseif Verdict == "Rejected" then
 			return Prepared, Settled, REFUSED
 		elseif Verdict == "Full" then
-			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key holds more unsaved ops than it can take. nothing was applied`)
+			warn(`Ledger: transaction '{Ops[Index].TxSticky}' cannot touch '{Legs[Index].Key}', that key holds more unsaved ops than it can take. nothing was applied`)
 			return Prepared, Settled, FULL
 		elseif Verdict == "Erased" then
-			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`)
+			warn(`Ledger: transaction '{Ops[Index].TxSticky}' cannot touch '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`)
 			return Prepared, Settled, REFUSED
 		else
 			local Unreachable: never = Verdict
@@ -143,23 +145,33 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 	return Prepared, Settled, nil
 end
 
-local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Txid: string, Keys: string, Terms: string, Print: string, Floor: number, PerLeg: number?): Pass
-	local Created, Gen, Born, Minted = Marker.Create(TxStore, Txid, #Legs, Keys, Terms)
+local function RunOnce(
+	TxStore: DataStoreWrapper,
+	Legs: { Leg },
+	Ops: { Op },
+	Txid: string,
+	Keys: string,
+	Terms: string,
+	Print: string,
+	Floor: number,
+	PerLeg: number?,
+	Fresh: string,
+	Own: string?
+): Pass
+	local Created, Gen, Born, Minted, Key = Marker.Create(TxStore, Txid, #Legs, Keys, Terms, Fresh, Own)
 	if Created == Transactions.MISMATCH then
 		warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Floor, Parked = Floor > 0 }
 	end
-	if Created == Transactions.UNWRITTEN then
-		return { Committed = false, Why = UNRESOLVED, Again = true, Reached = Floor, Parked = Floor > 0 }
-	end
-	if Created == Transactions.CONDEMNED then
-		return { Committed = false, Why = BUSY, Again = false, Reached = Floor, Parked = Floor > 0 }
+	if Created == Transactions.UNWRITTEN or Key == nil then
+		return { Held = Key, Committed = false, Why = UNRESOLVED, Again = true, Reached = Floor, Parked = Floor > 0 }
 	end
 
-	Stamped(Ops, Gen, Born, Print)
+	local Decides: string = Key
+	Stamped(Ops, Decides, Gen, Born, Print)
 
 	if Created == Transactions.HUSK then
-		return { Committed = false, Why = SPENT, Again = true, Reached = Floor, Parked = Heal(TxStore, Legs, Txid, Gen, Born) > 0 }
+		return { Held = Decides, Committed = false, Why = SPENT, Again = true, Reached = Floor, Parked = Heal(TxStore, Legs, Decides, Gen, Born) > 0 }
 	end
 
 	local Prepared, Settled, Cause = PrepareAll(Legs, Ops, Floor, PerLeg)
@@ -168,36 +180,36 @@ local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Tx
 	assert(Prepared <= #Legs, "the transaction prepared past its own last leg")
 
 	if Clean and Settled == #Legs then
-		Marker.Decide(TxStore, Txid, Transactions.ABORTED, 0, Gen)
-		return { Committed = true, Why = nil, Again = false, Reached = Prepared, Parked = false }
+		Marker.Decide(TxStore, Decides, Transactions.ABORTED, 0, Gen)
+		return { Held = Decides, Committed = true, Why = nil, Again = false, Reached = Prepared, Parked = false }
 	end
 
 	local Split = Clean and Settled > 0
 	local Aborting = not Clean or Split
 	local Disown = Cause == SPENT and Minted
 	local Shrink = if Aborting then (if Disown then 0 else Prepared) else nil
-	local Final = Marker.Decide(TxStore, Txid, if Aborting then Transactions.ABORTED else Transactions.COMMITTED, Shrink, Gen)
+	local Final = Marker.Decide(TxStore, Decides, if Aborting then Transactions.ABORTED else Transactions.COMMITTED, Shrink, Gen)
 	if Final == nil then
-		return { Committed = false, Why = UNRESOLVED, Again = true, Reached = Prepared, Parked = Prepared > 0 }
+		return { Held = Decides, Committed = false, Why = UNRESOLVED, Again = true, Reached = Prepared, Parked = Prepared > 0 }
 	end
 
 	local Landed = Final == Transactions.COMMITTED
 	local Verdict: Log.Verdict = { Commit = Landed, Gen = Gen, Since = Born }
-	local Marks, Left = Adopted(Legs, Txid, Verdict, if Landed then #Legs else Prepared, true)
-	Marker.Adopt(TxStore, Txid, Marks, Gen)
+	local Marks, Left = Adopted(Legs, Decides, Verdict, if Landed then #Legs else Prepared, true)
+	Marker.Adopt(TxStore, Decides, Marks, Gen)
 	local Stranded = Left > 0
 
 	if Landed then
-		return { Committed = true, Why = nil, Again = false, Reached = Prepared, Parked = Stranded }
+		return { Held = Decides, Committed = true, Why = nil, Again = false, Reached = Prepared, Parked = Stranded }
 	end
 	if not Aborting then
-		return { Committed = false, Why = SPENT, Again = true, Reached = Prepared, Parked = Stranded }
+		return { Held = Decides, Committed = false, Why = SPENT, Again = true, Reached = Prepared, Parked = Stranded }
 	end
 	if Split then
 		warn(`Ledger: transaction '{Txid}' had already gone through on some of its keys and not others, so Ledger cancelled it`)
-		return { Committed = false, Why = SPENT, Again = false, Reached = Prepared, Parked = Stranded }
+		return { Held = Decides, Committed = false, Why = SPENT, Again = false, Reached = Prepared, Parked = Stranded }
 	end
-	return { Committed = false, Why = Cause, Again = Cause == UNRESOLVED, Reached = Prepared, Parked = Stranded }
+	return { Held = Decides, Committed = false, Why = Cause, Again = Cause == UNRESOLVED, Reached = Prepared, Parked = Stranded }
 end
 
 local function LegOp(Id: string, Index: number, Leg: Leg, Home: string): Op
@@ -211,17 +223,16 @@ local function LegOp(Id: string, Index: number, Leg: Leg, Home: string): Op
 	local Fits, Unstorable = Storable.Op(Op :: Op)
 	assert(Fits, `transaction leg '{Leg.Kind}' cannot be stored, {Unstorable}`)
 
-	Op.Tx = Id
 	Op.TxHome = Home
 	Op.TxSticky = Id
 	return Op :: Op
 end
 
-local function Enrolled(TxStore: DataStoreWrapper, Node: string, Id: string, Added: number)
+local function Enrolled(TxStore: DataStoreWrapper, Node: string, Rolled: { string }, Added: number)
 	if Clock.Now() - Added < Windows.TX then
 		return
 	end
-	Cleanup.Add(TxStore, Node, Id)
+	Cleanup.Carry(TxStore, Cleanup.Mine(Node), Node, Rolled)
 end
 
 local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node: string?, PerLeg: number?): (boolean, Reason?, boolean)
@@ -250,7 +261,9 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 	local Print = Digest.Of(Mark.Pack({ Keys, Shape }))
 
 	local Added = Clock.Now()
-	if not Cleanup.Add(TxStore, Home, Id) then
+	local Fresh = Ids.Fresh()
+	local Rolled: { string } = { Marker.KeyOf(Fresh) }
+	if not Cleanup.Carry(TxStore, Cleanup.Mine(Home), Home, Rolled) then
 		warn(`Ledger: transaction '{Id}' was not started, Ledger could not write it down first. nothing was applied, try again`)
 		return false, UNRESOLVED, false
 	end
@@ -258,12 +271,24 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 	local Last: Reason = UNRESOLVED
 	local Floor = 0
 	local Parked = false
-	for _ = 1, Transactions.PASSES do
-		local Attempt = RunOnce(TxStore, Legs, Ops, Id, Keys, Shape, Print, Floor, PerLeg)
+	local Own: string? = nil
+	for Pass = 1, Transactions.PASSES do
+		if Pass > 1 then
+			Fresh = Ids.Fresh()
+			local Next = Marker.KeyOf(Fresh)
+			if not Cleanup.Carry(TxStore, Cleanup.Mine(Home), Home, { Next }) then
+				Last = UNRESOLVED
+				break
+			end
+			table.insert(Rolled, Next)
+		end
+
+		local Attempt = RunOnce(TxStore, Legs, Ops, Id, Keys, Shape, Print, Floor, PerLeg, Fresh, Own)
 		Floor = Attempt.Reached
 		Parked = Attempt.Parked
+		Own = Attempt.Held or Own
 		if Attempt.Committed then
-			Enrolled(TxStore, Home, Id, Added)
+			Enrolled(TxStore, Home, Rolled, Added)
 			return true, nil, Parked
 		end
 
@@ -281,7 +306,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 		warn(`Ledger: transaction '{Id}' could not get through and changed nothing. that name is spent now, so use a new one`)
 	end
 
-	Enrolled(TxStore, Home, Id, Added)
+	Enrolled(TxStore, Home, Rolled, Added)
 	return false, Last, Parked
 end
 

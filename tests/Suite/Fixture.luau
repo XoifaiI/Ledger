@@ -19,6 +19,7 @@
 local Applied = require("../../src/Core/Applied")
 local Mark = require("../../src/Encode/Mark")
 local Cleanup = require("../../src/Protocol/Tx/Cleanup")
+local Transactions = require("../../src/Core/Constants/Transactions")
 local TxStamp = require("../../src/Record/TxStamp")
 local Log = require("../../src/Record/Log")
 local Wrapper = require("../../src/Util/DataStoreWrapper")
@@ -83,12 +84,18 @@ export type Fixture = setmetatable<{
 }, FixtureImpl>
 
 local ROLL = "__"
+local DECISION = Transactions.DECISION
 
 local Fixture = {} :: FixtureImpl
 Fixture.__index = Fixture
 
 local function Peek(Held: Fake, Key: string): any
 	return (Held:Current(Key))
+end
+
+local function Counted(Gen: any): number
+	local Digits = if type(Gen) == "string" then string.match(Gen, ":(%d+)$") else nil
+	return if Digits ~= nil then tonumber(Digits) or 0 else 0
 end
 
 local function Reader(Store: any, Service: Service, Data: string): any
@@ -107,6 +114,25 @@ local function Live(Held: Fake): { string }
 		end
 	end
 	return Found
+end
+
+local function Newest(Held: Fake, Name: string): any
+	local Best: any = nil
+	for _, Key in Live(Held) do
+		if string.sub(Key, 1, #DECISION) ~= DECISION then
+			continue
+		end
+		local Decided = Peek(Held, Key)
+		if type(Decided) ~= "table" or Decided.Name ~= Name then
+			continue
+		end
+		local At = if type(Decided.At) == "number" then Decided.At else 0
+		local Was = if Best ~= nil and type(Best.At) == "number" then Best.At else 0
+		if Best == nil or At > Was or (At == Was and Counted(Decided.Gen) > Counted(Best.Gen)) then
+			Best = Decided
+		end
+	end
+	return Best
 end
 
 local function Sum(Held: any, Field: string?): number
@@ -265,10 +291,9 @@ end
 function Fixture.Marks(self: Fixture): { string }
 	local Found: { string } = {}
 	for _, Named in Live(self.DirectMarks) do
-		if string.sub(Named, 1, #ROLL) == ROLL then
-			continue
+		if string.sub(Named, 1, #DECISION) == DECISION or string.sub(Named, 1, #ROLL) ~= ROLL then
+			table.insert(Found, Named)
 		end
-		table.insert(Found, Named)
 	end
 	return Found
 end
@@ -286,13 +311,21 @@ function Fixture.Rolled(self: Fixture): { [string]: boolean }
 		end
 		for _, Id in Mark.Unpack(Held) do
 			Found[Id] = true
+			local Decided = if string.sub(Id, 1, #DECISION) == DECISION then Peek(self.DirectMarks, Id) else nil
+			if type(Decided) == "table" and type(Decided.Name) == "string" then
+				Found[Decided.Name] = true
+			end
 		end
 	end
 	return Found
 end
 
 function Fixture.Mark(self: Fixture, Id: string): any
-	return Peek(self.DirectMarks, Id)
+	local Held = Peek(self.DirectMarks, Id)
+	if Held ~= nil then
+		return Held
+	end
+	return Newest(self.DirectMarks, Id)
 end
 
 function Fixture.Buried(self: Fixture, Id: string): boolean
@@ -301,6 +334,15 @@ function Fixture.Buried(self: Fixture, Id: string): boolean
 end
 
 function Fixture.Unmark(self: Fixture, Id: string)
+	for _, Key in Live(self.DirectMarks) do
+		if string.sub(Key, 1, #DECISION) ~= DECISION then
+			continue
+		end
+		local Decided = Peek(self.DirectMarks, Key)
+		if type(Decided) == "table" and Decided.Name == Id then
+			self.DirectMarks:RemoveAsync(Key)
+		end
+	end
 	self.DirectMarks:RemoveAsync(Id)
 end
 

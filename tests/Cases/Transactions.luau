@@ -276,7 +276,7 @@ Cases.Case("a renamed amount never half applies", function(T: Case)
 	Bank.Store:Resettle("termsB"):Wait()
 
 	T:Is("asking again under the same name with a different amount", Ok, false)
-	T:Is("the reason", Why, "Spent")
+	T:Is("the reason, since the first amount is still parked", Why, "Busy")
 	T:Is("gold on the sending key", Bank:Amount("termsA"), 100)
 	T:Is("gold on the receiving key", Bank:Amount("termsB"), 100)
 	T:Is("money is conserved", Bank:Amount("termsA") + Bank:Amount("termsB"), 200)
@@ -758,11 +758,13 @@ Cases.Case("a server writes its names to a key of its own, and another server's 
 	T:Ok("the deal", (Swap(Shop, "ownA", "ownB", 30, "ownroll1")))
 	local Own = Shop:Mark(Cleanup.Key("nodeA", T:Now()))
 	local Named = if type(Own) == "string" then Mark.Unpack(Own) else {}
+	local Held = Shop:Mark("ownroll1")
+	local Key = if type(Held) == "table" and type(Held.Gen) == "string" then Marker.KeyOf(Held.Gen) else "none"
 
 	T:Advance(Windows.REAP + 60)
 	Beside.Store:ReapMarkers()
 
-	T:Is("the name on the first server's own key", table.find(Named, "ownroll1") ~= nil, true)
+	T:Is("its marker's key on the first server's own key", table.find(Named, Key) ~= nil, true)
 	T:Is("the marker after the other server's pass", Shop:Mark("ownroll1"), nil)
 	T:Is("the name on the list after it", Shop:Rolled()["ownroll1"], nil)
 end)
@@ -849,7 +851,8 @@ Cases.Case("a coordinator that dies between its legs is healed by the retry", fu
 	local Stranded = Bank:Pending("healB")
 
 	T:Advance(Windows.REAP + 1)
-	local Reaped = Bank.Store:ReapMarkers()
+	Bank.Store:ReapMarkers()
+	local Standing = not Bank:Buried("heal1")
 
 	local Ok = (Bank.Store
 		:Tx("heal1", {
@@ -859,7 +862,7 @@ Cases.Case("a coordinator that dies between its legs is healed by the retry", fu
 		:Wait())
 
 	T:Is("a leg is left parked by the crash", Stranded, true)
-	T:Is("the marker is not reaped while its own leg is parked", Reaped, 0)
+	T:Is("the marker is not reaped while its own leg is parked", Standing, true)
 	T:Is("the retry", Ok, true)
 	T:Is("gold on the sending key", Bank:Amount("healA"), 90)
 	T:Is("gold on the receiving key", Bank:Amount("healB"), 110)
@@ -966,7 +969,7 @@ Cases.Case("a condemned marker cannot be decided, since everyone else reads it a
 	T:Is("what a bystander reads", Read, Transactions.ABORTED)
 end)
 
-Cases.Case("a coordinator whose marker was condemned before it decided moves nothing", function(T: Case)
+Cases.Case("a coordinator whose marker was condemned before it decided opens a new one, and the condemned one moves nothing", function(T: Case)
 	local Bank = T:Bank()
 	local Other = T:Bank("nodeB")
 	Bank:Seed("condA", { Gold = 100 })
@@ -974,7 +977,8 @@ Cases.Case("a coordinator whose marker was condemned before it decided moves not
 
 	local Marks = Bank.DirectMarks
 	local Settled = false
-	local Condemned = Bank:MarkerFault(Fault.Updates():OnKey("cond1"):Meddle(function()
+	local First: string? = nil
+	local Condemned = Bank:MarkerFault(Fault.Updates():OnPrefix(Transactions.DECISION):Meddle(function()
 		if Settled then
 			return
 		end
@@ -983,8 +987,9 @@ Cases.Case("a coordinator whose marker was condemned before it decided moves not
 			return
 		end
 		Settled = true
+		First = Held.Gen
 		T:Advance(Windows.REAP + Windows.REAP_GRACE)
-		Marks:UpdateAsync("cond1", function(Current: any): any
+		Marks:UpdateAsync(Marker.KeyOf(Held.Gen), function(Current: any): any
 			Current.Dead = true
 			Current.Condemned = true
 			return Current
@@ -1003,11 +1008,13 @@ Cases.Case("a coordinator whose marker was condemned before it decided moves not
 	Bank.Store:Resettle("condA"):Wait()
 	Bank.Store:Resettle("condB"):Wait()
 
+	local Old = if First ~= nil then (Marks:Current(Marker.KeyOf(First))) else nil
 	T:Ok("the marker was condemned between the legs and the decision", Condemned.Fired >= 1 and Settled)
-	T:Is("the coordinator", Ok, false)
-	T:Is("the reason, the name is being taken off", Why, "Busy")
-	T:Is("gold on the sending key", Bank:Amount("condA"), 100)
-	T:Is("gold on the receiving key", Bank:Amount("condB"), 100)
+	T:Is("the condemned marker was never decided", if type(Old) == "table" then Old.Status else nil, "Pending")
+	T:Is("the coordinator, on a new marker", Ok, true)
+	T:Is("its reason", Why, nil)
+	T:Is("gold on the sending key", Bank:Amount("condA"), 75)
+	T:Is("gold on the receiving key", Bank:Amount("condB"), 125)
 	T:Is("money is conserved", Bank:Amount("condA") + Bank:Amount("condB"), 200)
 	T:Is("anything left pending on the sender", Bank:Pending("condA"), false)
 end)
@@ -1030,7 +1037,7 @@ Cases.Case("a transaction whose decision never lands answers unresolved", functi
 
 	Bank:NoRetries()
 	for Nth = 2, 2 * Transactions.PASSES, 2 do
-		Bank:MarkerFault(Fault.Updates():OnKey("undec1"):Only(Nth))
+		Bank:MarkerFault(Fault.Updates():OnPrefix(Transactions.DECISION):Only(Nth))
 	end
 
 	local Ok, Why = Bank.Store
@@ -1044,15 +1051,15 @@ Cases.Case("a transaction whose decision never lands answers unresolved", functi
 	T:Is("the reason, since it might still go through", Why, "Unresolved")
 end)
 
-Cases.Case("a drive slower than a transaction puts its name on the list again by itself", function(T: Case)
+Cases.Case("a drive slower than a transaction puts its marker on the list again by itself", function(T: Case)
 	local Bank = T:Bank("nodeA")
 	local Reaper = T:Bank("nodeB")
 	Bank.Store:Edit("slowA", "Fund", { Amount = 100 }):Wait()
 	Bank.Store:Edit("slowB", "Fund", { Amount = 100 }):Wait()
-	local Stalled = Bank:MarkerFault(Fault.Updates():OnKey("slow1"):Only(1):Stall(Windows.REAP_GRACE + 60))
+	local Stalled = Bank:MarkerFault(Fault.Updates():OnPrefix(Transactions.DECISION):Only(1):Stall(Windows.REAP_GRACE + 60))
 
 	local Ok: any = nil
-	local Dropped = false
+	local Listed: { [string]: boolean } = {}
 	T:Race({
 		function()
 			Ok = (Bank.Store
@@ -1065,14 +1072,16 @@ Cases.Case("a drive slower than a transaction puts its name on the list again by
 		function()
 			T:Wait(Windows.REAP_GRACE + 30)
 			Reaper.Store:ReapMarkers()
-			Dropped = Bank:Rolled()["slow1"] == nil
+			Listed = Bank:Rolled()
 		end,
 	})
 
+	local Held = Bank:Mark("slow1")
+	local Key = if type(Held) == "table" and type(Held.Gen) == "string" then Marker.KeyOf(Held.Gen) else "none"
 	T:Is("the marker write the drive waited on", Stalled.Fired, 1)
-	T:Is("a reaper that read the list before the marker existed took the name off", Dropped, true)
+	T:Is("a reaper that read the list before the marker existed took its key off", Listed[Key], nil)
 	T:Is("the transaction", Ok, true)
-	T:Is("its name, back on the list once the drive finished", Bank:Rolled()["slow1"], true)
+	T:Is("its key, back on the list once the drive finished", Bank:Rolled()[Key], true)
 end)
 
 Cases.Case("a name reused with fields that print alike is still spent", function(T: Case)
@@ -1687,8 +1696,12 @@ Cases.Case("a committer whose marker was aborted pulls its legs back", function(
 	Bank:Seed("raceB", { Gold = 100 })
 
 	local Marks = Bank.DirectMarks
-	Bank:MarkerFault(Fault.Updates():OnKey("race1"):Meddle(function()
-		Marks:UpdateAsync("race1", function(Current: any): any
+	Bank:MarkerFault(Fault.Updates():OnPrefix(Transactions.DECISION):Meddle(function()
+		local Held = Bank:Mark("race1")
+		if type(Held) ~= "table" or type(Held.Gen) ~= "string" then
+			return
+		end
+		Marks:UpdateAsync(Marker.KeyOf(Held.Gen), function(Current: any): any
 			if type(Current) ~= "table" or Current.Status ~= "Pending" then
 				return nil
 			end
@@ -2303,10 +2316,10 @@ Cases.Case("a marker naming a store this server never built is still reaped", fu
 		end
 	end
 
-	local Reaped = Shop.Store:ReapMarkers()
+	Shop.Store:ReapMarkers()
 
 	T:Is("the transaction across two stores", Ok, true)
-	T:Is("markers reaped by a server missing the far store", Reaped, 2)
+	T:Is("markers left once a server missing the far store reaped", #Shop:Marks(), 0)
 	T:Is("gold in the shop", Shop:State("farA").Gold, 75)
 	T:Is("coins in the vault", Vault:State("farB").Coins, 25)
 end)

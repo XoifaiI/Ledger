@@ -7,9 +7,10 @@
 
 	Every fold skips a stamped op, so these questions say whether a key is waiting on a transaction.
 	Unstamped takes the stamp off one, Landed takes it off every op of a transaction, and Carries looks
-	in both Ops and Seen.
+	in both Ops and Seen. A leg's stamp names the key of its marker. NameOf and PendingNames give the
+	name a game chose, which is the name a key keeps once a leg lands.
 
-	Return type: A table with Unstamped, Landed, HasPending, NotPending, PendingTx, PendingIds, Holds, Carries and Written.
+	Return type: A table with Unstamped, Landed, HasPending, NotPending, NameOf, PendingTx, PendingNames, Holds, Carries and Written.
 	Example usage:
 		local TxStamp = require("./TxStamp")
 		if TxStamp.HasPending(Record) then return end
@@ -61,16 +62,23 @@ local function PendingTx(Record: Record): { [string]: string | true }
 	return Set
 end
 
-local function PendingIds(Record: Record): { string }
+local function NameOf(Op: Op): string?
+	if type(Op.TxSticky) == "string" then
+		return Op.TxSticky
+	end
+	return if type(Op.Tx) == "string" then Op.Tx else nil
+end
+
+local function PendingNames(Record: Record): { string }
 	local Seen: { [string]: boolean } = {}
 	local Found: { string } = {}
 	for _, Op in Record.Ops do
-		local Txid = Op.Tx
-		if type(Txid) ~= "string" or Seen[Txid] then
+		local Name = NameOf(Op)
+		if type(Op.Tx) ~= "string" or Name == nil or Seen[Name] then
 			continue
 		end
-		Seen[Txid] = true
-		table.insert(Found, Txid)
+		Seen[Name] = true
+		table.insert(Found, Name)
 	end
 	table.sort(Found)
 	return Found
@@ -111,8 +119,9 @@ return table.freeze({
 	Landed = Landed,
 	HasPending = HasPending,
 	NotPending = NotPending,
+	NameOf = NameOf,
 	PendingTx = PendingTx,
-	PendingIds = PendingIds,
+	PendingNames = PendingNames,
 	Holds = Holds,
 	Carries = Carries,
 	Written = Written,

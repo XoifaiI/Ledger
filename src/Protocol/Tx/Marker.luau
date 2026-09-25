@@ -3,31 +3,34 @@
 
 --[=[
 
-	Marker: The one key that decides a transaction.
+	Marker: The key that decides one use of a transaction name.
 
-	Create opens one. Decide commits or aborts it. StatusOf reads it, and abandons one nothing has
-	touched for longer than a transaction may take. Adopt records that a leg has reported. No marker
-	means aborted. A marker goes away only once every leg has reported.
+	Each generation of a name has a marker of its own, under a key that holds the generation. Nothing
+	writes that key a second time, so a reaper that takes one off can only take off the one it judged.
+	A marker an older build wrote sits under the name itself and is read as before. Create joins one
+	like that, or refuses it for other terms, and otherwise opens a new generation. A coordinator joins
+	its own generation again on a later pass.
 
-	Condemn marks one the reaper is about to take off, and only while it holds the generation the
-	reaper judged. A condemned marker reads as aborted. Decide will not change it, and Create will not
-	open its name again until it is gone.
+	Decide commits or aborts a marker. StatusOf reads it, and abandons one nothing has touched for
+	longer than a transaction may take. Adopt records that a leg has reported. No marker means aborted.
+	Condemn marks one the reaper is about to take off, and only while it holds the generation and the
+	status the reaper judged. A condemned marker reads as aborted and Decide will not change it.
 
 	The handles it keeps to other stores belong to the hook they were opened on, and so does the count
 	of how many are left. A handle that stops being cached stops queueing its writes in order.
 
-	Return type: A table with Create, Decide, StatusOf, Adopt, Condemn, Condemned, GenOf, BornAt, TouchedAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
+	Return type: A table with Create, Decide, StatusOf, Adopt, Condemn, Condemned, KeyOf, GenOf, BornAt, TouchedAt, MarkOf, Elsewhere, HomeOf and ShutdownHomes.
 	Example usage:
 		local Marker = require("./Marker")
-		local Status = Marker.StatusOf(TxStore, "order1", 30)
+		local Status = Marker.StatusOf(TxStore, Marker.KeyOf(Gen), 30)
 --]=]
 
 local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Engine = require("../../Util/Engine")
-local Ids = require("../../Encode/Ids")
 local Mark = require("../../Encode/Mark")
+local Datastore = require("../../Core/Constants/Datastore")
 local Transactions = require("../../Core/Constants/Transactions")
 local Types = require("./Types")
 
@@ -43,6 +46,7 @@ type Home = {
 }
 
 local MILLISECOND = 1000
+local ONCE = DataStoreWrapper.ONCE
 
 local Homes: { [Engine.Hook]: Home } = setmetatable({}, { __mode = "k" }) :: any
 
@@ -75,6 +79,16 @@ local function Condemned(Value: any): boolean
 	return type(Value) == "table" and Value.Condemned == true
 end
 
+local function KeyOf(Gen: string): string
+	local Key = `{Transactions.DECISION}{Gen}`
+	assert(#Key <= Datastore.MAX_KEY, `the marker key for generation '{Gen}' is longer than a datastore key may be`)
+	return Key
+end
+
+local function Clashes(Value: any, Keys: string, Terms: string): boolean
+	return (type(Value.Keys) == "string" and Value.Keys ~= Keys) or (type(Value.Terms) == "string" and Value.Terms ~= Terms)
+end
+
 local function Finished(Current: any): boolean
 	if Current.Total > 0 then
 		return TableUtil.Count(Current.Adopted) >= Current.Total
@@ -94,7 +108,7 @@ local function Same(Current: any, Seen: any): boolean
 	if type(Seen) ~= "table" then
 		return type(Current) ~= "table"
 	end
-	return type(Current) == "table" and GenOf(Current) == GenOf(Seen)
+	return type(Current) == "table" and GenOf(Current) == GenOf(Seen) and Current.Status == Seen.Status
 end
 
 local function MarkOf(Wrapper: DataStoreWrapper, Key: string): string
@@ -137,58 +151,87 @@ local function HomeOf(TxStore: DataStoreWrapper, Home: string | true): DataStore
 	return Elsewhere(Home, TxStore)
 end
 
-local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Keys: string, Terms: string): (Opened, string?, number, boolean)
+local function Open(TxStore: DataStoreWrapper, Gen: string, Name: string, Total: number, Keys: string, Terms: string, Born: number): boolean
+	local Made = false
+	local Ok, Value = TxStore:UpdateAsync(KeyOf(Gen), function(Current: any): Marker?
+		Made = false
+		if Current ~= nil then
+			return nil
+		end
+
+		Made = true
+		return {
+			Status = Transactions.PENDING,
+			Total = Total,
+			Gen = Gen,
+			At = Born,
+			Adopted = {},
+			Keys = Keys,
+			Terms = Terms,
+			Name = Name,
+		}
+	end, nil, ONCE)
+	return Ok == true and Made and type(Value) == "table"
+end
+
+local function Opening(TxStore: DataStoreWrapper, Name: string, Fresh: string, Total: number, Keys: string, Terms: string, Born: number): (Opened, string?, number, boolean, string?)
+	local Key = KeyOf(Fresh)
+	if not Open(TxStore, Fresh, Name, Total, Keys, Terms, Born) then
+		return Transactions.UNWRITTEN, nil, Born, false, Key
+	end
+	return Transactions.CREATED, Fresh, Born, true, Key
+end
+
+local function Joined(Value: Marker, Born: number, Key: string): (Opened, string?, number, boolean, string?)
+	local Outcome = if Value.Status == Transactions.ABORTED then Transactions.HUSK else Transactions.CREATED
+	return Outcome, GenOf(Value), BornAt(Value, Born), false, Key
+end
+
+local function Create(TxStore: DataStoreWrapper, Name: string, Total: number, Keys: string, Terms: string, Fresh: string, Own: string?): (Opened, string?, number, boolean, string?)
 	assert(Total > 0, "a transaction marker is being opened for no legs at all")
 
-	local Clash = false
-	local Minted = false
-	local Reaping = false
 	local Born = Clock.Now()
-	local Ok, Value = TxStore:UpdateAsync(Txid, function(Current: any): Marker?
-		Clash = false
-		Minted = false
-		Reaping = false
-		if Condemned(Current) then
-			Reaping = true
-			return nil
+	if Own ~= nil then
+		local Standing: any = nil
+		local Looked = TxStore:UpdateAsync(Own, function(Current: any): Marker?
+			Standing = Current
+			if type(Current) ~= "table" or Buried(Current) then
+				return nil
+			end
+			return Current
+		end)
+		if Looked ~= true then
+			return Transactions.UNWRITTEN, nil, Born, false, Own
 		end
-		if type(Current) ~= "table" or Buried(Current) then
-			Minted = true
-			return {
-				Status = Transactions.PENDING,
-				Total = Total,
-				Gen = Ids.Fresh(),
-				At = Born,
-				Adopted = {},
-				Keys = Keys,
-				Terms = Terms,
-			}
+		if type(Standing) == "table" and not Buried(Standing) then
+			return Joined(Standing, Born, Own)
 		end
-		if type(Current.Keys) == "string" and Current.Keys ~= Keys then
-			Clash = true
-			return nil
-		end
-		if type(Current.Terms) == "string" and Current.Terms ~= Terms then
-			Clash = true
-			return nil
-		end
+	end
 
+	local Read, Seen = TxStore:GetAsync(Name)
+	if Read ~= true then
+		return Transactions.UNWRITTEN, nil, Born, false, nil
+	end
+	if type(Seen) ~= "table" or Buried(Seen) then
+		return Opening(TxStore, Name, Fresh, Total, Keys, Terms, Born)
+	end
+	if Clashes(Seen, Keys, Terms) then
+		return Transactions.MISMATCH, nil, Born, false, nil
+	end
+
+	local Touched: any = nil
+	local Ok = TxStore:UpdateAsync(Name, function(Current: any): Marker?
+		Touched = nil
+		if type(Current) ~= "table" or Buried(Current) or Clashes(Current, Keys, Terms) then
+			return nil
+		end
+		Touched = Current
 		return Current
 	end)
-
-	if Reaping then
-		return Transactions.CONDEMNED, nil, Born, false
+	if Ok ~= true or Touched == nil then
+		return Transactions.UNWRITTEN, nil, Born, false, nil
 	end
-	if Clash then
-		return Transactions.MISMATCH, nil, Born, false
-	end
-	if Ok ~= true then
-		return Transactions.UNWRITTEN, nil, Born, false
-	end
-	if type(Value) == "table" and (Value :: Marker).Status == Transactions.ABORTED then
-		return Transactions.HUSK, GenOf(Value), BornAt(Value, Born), Minted
-	end
-	return Transactions.CREATED, GenOf(Value), BornAt(Value, Born), Minted
+	return Joined(Touched, Born, Name)
 end
 
 local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrink: number?, Gen: string?): Status?
@@ -306,6 +349,7 @@ return table.freeze({
 	Adopt = Adopt,
 	Condemn = Condemn,
 	Condemned = Condemned,
+	KeyOf = KeyOf,
 	GenOf = GenOf,
 	BornAt = BornAt,
 	TouchedAt = TouchedAt,

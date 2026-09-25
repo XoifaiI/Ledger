@@ -53,7 +53,7 @@ export type Shape<S> = setmetatable<{
 export type LogImpl = {
 	__index: LogImpl,
 
-	New: (Wrapper: DataStoreWrapper, Known: number?, Floor: number?) -> Log,
+	New: (Wrapper: DataStoreWrapper, Known: number?, Floor: number?, Base: any?) -> Log,
 	Legible: (self: Log, Key: string, Record: Record<any>) -> (),
 	Update: (self: Log, Key: string, Apply: (Record<any>) -> Record<any>?) -> Outcome,
 	Read: (self: Log, Key: string) -> (Record<any>, number?),
@@ -71,6 +71,7 @@ export type Log = setmetatable<{
 	read Wrapper: DataStoreWrapper,
 	read Known: number?,
 	read Floor: number?,
+	read Base: any?,
 }, LogImpl>
 
 return table.freeze({})

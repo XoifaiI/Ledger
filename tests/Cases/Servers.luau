@@ -249,8 +249,8 @@ Cases.Case("a name retried while the reaper judges its old marker keeps the mark
 		end
 		Again = (Move(Right, "rapA", "rapB", MOVED, "rap1"))
 	end
-	Left:MarkerFault(Fault.Updates():OnKey("rap1"):Only(1):Meddle(Retry))
-	Left:MarkerFault(Fault.Removes():OnKey("rap1"):Only(1):Meddle(Retry))
+	local Condemning = Left:MarkerFault(Fault.Updates():OnPrefix(Transactions.DECISION):Only(1):Meddle(Retry))
+	local Removing = Left:MarkerFault(Fault.Removes():OnPrefix(Transactions.DECISION):Only(1):Meddle(Retry))
 
 	Left.Store:ReapMarkers()
 	local Kept = Left:Mark("rap1") ~= nil
@@ -261,6 +261,7 @@ Cases.Case("a name retried while the reaper judges its old marker keeps the mark
 	T:Is("the first try, short of gold", First, false)
 	T:Is("its reason", FirstWhy, "Refused")
 	T:Is("its marker, dead and still standing", Dead, true)
+	T:Is("the reaper reached its condemn and its remove", Condemning.Fired + Removing.Fired, 2)
 	T:Is("the retry, run inside the reaper's pass", Again, true)
 	T:Is("the leg the retry left stranded", Lost.Fired, 1)
 	T:Is("the marker the retry wrote, after the pass", Kept, true)
@@ -269,7 +270,7 @@ Cases.Case("a name retried while the reaper judges its old marker keeps the mark
 	T:Is("gold on the receiving key", Gold(Left, "rapB"), START + MOVED)
 end)
 
-Cases.Case("a name whose marker is being taken off answers busy until it is gone", function(T: Case)
+Cases.Case("a name whose marker is being taken off can be used again at once, and the late remove takes off only the old marker", function(T: Case)
 	local Left, Right = Pair(T)
 	Left:Seed("conA", { Gold = 5, Touches = 0 })
 	Left:Seed("conB", { Gold = START, Touches = 0 })
@@ -279,11 +280,12 @@ Cases.Case("a name whose marker is being taken off answers busy until it is gone
 	T:Advance(Windows.REAP_GRACE + 60)
 
 	Left:NoRetries()
-	local Stuck = Left:MarkerFault(Fault.Removes():OnKey("con1"):Only(1))
+	local Stuck = Left:MarkerFault(Fault.Removes():OnPrefix(Transactions.DECISION):Only(1))
 	Left.Store:ReapMarkers()
 	local Condemned = Left:Mark("con1")
 
 	local Early, EarlyWhy = Move(Right, "conA", "conB", MOVED, "con1")
+	local Retried = Left:Mark("con1")
 	Left:Healed()
 	T:Advance(Windows.REAP_GRACE + 60)
 	Left.Store:ReapMarkers()
@@ -293,10 +295,11 @@ Cases.Case("a name whose marker is being taken off answers busy until it is gone
 
 	T:Is("the remove that was dropped", Stuck.Fired, 1)
 	T:Is("the marker it left behind is condemned", type(Condemned) == "table" and Condemned.Condemned, true)
-	T:Is("the name while its marker is condemned", Early, false)
-	T:Is("its reason", EarlyWhy, "Busy")
-	T:Is("the next pass takes the condemned marker off", Gone, true)
-	T:Is("the name once its marker is gone", Later, true)
+	T:Is("the name while its old marker is condemned", Early, true)
+	T:Is("its reason", EarlyWhy, nil)
+	T:Is("the retry wrote a marker of its own", type(Retried) == "table" and type(Condemned) == "table" and Retried.Gen ~= Condemned.Gen, true)
+	T:Is("the next pass takes both markers off", Gone, true)
+	T:Is("the name asked again once they are gone", Later, true)
 	T:Is("gold on the sending key", Gold(Left, "conA"), START - MOVED)
 	T:Is("gold on the receiving key", Gold(Left, "conB"), START + MOVED)
 end)

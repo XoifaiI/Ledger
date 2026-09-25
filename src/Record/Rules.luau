@@ -10,15 +10,18 @@
 
 	Legible refuses a record a newer build wrote. Allowed runs the caller's guard. Fresh adds only the
 	ops the record lacks, and lets a sift turn one away or hold one back for a later write. Capped
-	refuses once the log is too long. Format raises the version floor. Tomb stamps the envelope.
+	refuses once the log is too long. Based stores the state a key starts from on its first write, so
+	a later Default reaches only a key nobody has written. Format raises the version floor. Tomb
+	stamps the envelope.
 
-	Return type: A table with New, Reset, Readable, Entombed and the six rules. The types are Pass, Rule and Sift.
+	Return type: A table with New, Reset, Readable, Entombed, Settle and the seven rules. The types are Pass, Rule and Sift.
 	Example usage:
 		local Rules = require("./Rules")
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
 --]=]
 
 local Clock = require("../Util/Clock")
+local TableUtil = require("../Util/TableUtil")
 local Kinds = require("../Core/Constants/Kinds")
 local Shapes = require("../Core/Shapes")
 local Errors = require("../Core/Errors")
@@ -171,6 +174,27 @@ local function Capped(Key: string, Owned: boolean): Rule
 	}
 end
 
+local function Settle(Record: Record, Base: any?, Known: number?)
+	if Base == nil or Record.Snapshot ~= nil or (Record.Version or 0) > (Known or 0) then
+		return
+	end
+
+	local Snapshot = TableUtil.DeepCopy(Base)
+	Record.Snapshot = Snapshot
+	Record.Bytes = Measure(Snapshot)
+	Record.Version = Known or 0
+end
+
+local function Based(Base: any?, Known: number?): Rule
+	return {
+		Name = "based",
+		Apply = function(Record: Record): Record?
+			Settle(Record, Base, Known)
+			return Record
+		end,
+	}
+end
+
 local function Format(Floor: number?): Rule
 	return {
 		Name = "format",
@@ -201,10 +225,12 @@ return table.freeze({
 	Reset = Reset,
 
 	Readable = Readable,
+	Settle = Settle,
 	Legible = Legible,
 	Allowed = Allowed,
 	Fresh = Fresh,
 	Capped = Capped,
+	Based = Based,
 	Format = Format,
 	Tomb = Tomb,
 	Entombed = Entombed,

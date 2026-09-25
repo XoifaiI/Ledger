@@ -260,7 +260,8 @@ Bench("roll", function(T: Suite.Case)
 	local Marks = Servers[1].DirectMarks
 	local RollKeys = 0
 	for _, Name in Marks.Names do
-		if Marks.Slots[Name].Live ~= nil and string.sub(Name, 1, #Transactions.RESERVED) == Transactions.RESERVED then
+		local Rolled = string.sub(Name, 1, #Transactions.RESERVED) == Transactions.RESERVED and string.sub(Name, 1, #Transactions.DECISION) ~= Transactions.DECISION
+		if Marks.Slots[Name].Live ~= nil and Rolled then
 			RollKeys += 1
 		end
 	end
@@ -269,17 +270,18 @@ Bench("roll", function(T: Suite.Case)
 	T:Advance(Windows.REAP_GRACE + 60)
 	local ReapBefore, ReapUnits = Calls(Servers), T.Service.Units
 	local ListsBefore = T.Service.Calls.ListAsync or 0
-	local Rounds, Reaped = 0, 0
+	local Rounds, Left = 0, Markers
 	repeat
 		Rounds += 1
 		for _, Held in Servers do
-			Reaped += Held.Store:ReapMarkers(1)
+			Held.Store:ReapMarkers(1)
 		end
 		T:Advance(Windows.SWEEP)
-	until Reaped >= Markers or Rounds >= 6
+		Left = #Servers[1]:Marks()
+	until Left == 0 or Rounds >= 6
+	local Reaped = Markers - Left
 	local ReapSpent = Calls(Servers) - ReapBefore
 	local Listed = (T.Service.Calls.ListAsync or 0) - ListsBefore
-	local Left = #Servers[1]:Marks()
 	local ListBudget = 300 + 2 * SERVERS * PLAYERS
 
 	Row(

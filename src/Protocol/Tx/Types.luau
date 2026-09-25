@@ -35,6 +35,7 @@ export type Marker = {
 	Terms: string?,
 	Dead: boolean?,
 	Condemned: boolean?,
+	Name: string?,
 }
 
 export type Leg = {
@@ -52,6 +53,7 @@ export type Pass = {
 	read Again: boolean,
 	read Reached: number,
 	read Parked: boolean,
+	read Held: string?,
 }
 
 export type Lookup = (Name: string) -> LogTypes.Log?

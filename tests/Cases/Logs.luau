@@ -79,7 +79,7 @@ local function Canon(Value: any): string
 	return `\{{table.concat(Parts, ",")}\}`
 end
 
-local APPENDED = `\{Envelope=2,Ops=\{1=\{Amount=5,Id="v2case00000000:1",Kind="Add"\},2=\{Amount=7,Id="v2case00000000:2",Kind="Add"\}\},Seen=\{\}\}`
+local APPENDED = `\{Bytes=16,Envelope=2,Ops=\{1=\{Amount=5,Id="v2case00000000:1",Kind="Add"\},2=\{Amount=7,Id="v2case00000000:2",Kind="Add"\}\},Seen=\{\},Snapshot=\{Gold=0,N=0\},Version=0\}`
 local COMPACTED = `\{Bytes=17,Envelope=2,Floor=0,Ops=\{\},Seen=\{1="v2case00000000:1",2="v2case00000000:2"\},Snapshot=\{Gold=12,N=2\},Version=0\}`
 
 Cases.Case("a reducer cannot write into the snapshot a fold starts from", function(T: Case)
@@ -363,7 +363,7 @@ Cases.Case("compaction refuses a state with a gap in an array", function(T: Case
 	Store:Log():Compact("gappy", Schema.New(Gappy, COUNTED))
 
 	local Record = Store:Record("gappy")
-	T:Is("a snapshot was written anyway", Record.Snapshot, nil)
+	T:Is("the snapshot is still the base the first write stored", Record.Snapshot.N, 0)
 	T:Is("the log is kept as it was", #Record.Ops, 2)
 	T:Warns("it said why", "cannot be compacted")
 	T:Warns("it named the sparse array", "sparse array")
@@ -385,7 +385,7 @@ Cases.Case("compaction refuses a state mixing array and string keys", function(T
 	Store:Log():Compact("mixedkeys", Schema.New(Mixed, COUNTED))
 
 	local Record = Store:Record("mixedkeys")
-	T:Is("a snapshot was written anyway", Record.Snapshot, nil)
+	T:Is("the snapshot is still the base the first write stored", Record.Snapshot.N, 0)
 	T:Is("the log is kept as it was", #Record.Ops, 1)
 	T:Warns("it named the mixed keys", "mixes array and string keys")
 end)
@@ -397,7 +397,7 @@ Cases.Case("Trim compacts only an overgrown log", function(T: Case)
 	local Left = Store:Log():Trim("trimsmall", Store:Format(), Store:Record("trimsmall"))
 
 	T:Is("ops left on a short log", #Left.Ops, 1)
-	T:Is("a short log was compacted anyway", Store:Record("trimsmall").Snapshot, nil)
+	T:Is("the snapshot of a short log is still the base the first write stored", Store:Record("trimsmall").Snapshot.Gold, 0)
 
 	local Bulk: { any } = {}
 	for _ = 1, 130 do
@@ -1098,15 +1098,16 @@ Cases.Case("an older build cannot compact away a bump on a field it does not kno
 	local Old = T:Store({ Default = { Gold = 0 }, Reducer = Suite.Reducers.Keep, Data = "CaseDeployBump", Node = "nodeX" })
 	local New = T:Store({ Default = { Gold = 0, Gems = 0 }, Reducer = Suite.Reducers.Keep, Data = "CaseDeployBump", Node = "nodeX" })
 
+	T:Ok("the older build writes the shard first, so its base has no Gems", (Old.Store:Bump("pot", "Gold", 1):Wait()))
 	T:Ok("the newer build's bump", (New.Store:Bump("pot", "Gems", 5):Wait()))
-	for _ = 1, 130 do
+	for _ = 1, 129 do
 		Old.Store:Bump("pot", "Gold", 1):Wait()
 	end
 	T:Advance(Windows.TALLY_KEEP + 1)
 
 	T:Is("gems the newer build counts after the older build tried to compact the shard", New.Store:Total("pot", "Gems", 0):Wait(), 5)
 	T:Is("gold the older build counts", Old.Store:Total("pot", "Gold", 0):Wait(), 130)
-	T:Warns("the older build said it could not compact the shard", "cannot be compacted")
+	T:Warns("the older build said it held the bump it does not apply", "this build does not apply")
 end)
 
 Cases.Case("an older build cannot compact away a field transfer whose field it does not know", function(T: Case)

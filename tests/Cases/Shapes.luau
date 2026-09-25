@@ -603,7 +603,7 @@ Cases.Case("a migration that yields is caught rather than left to hang the read"
 	T:Warns("it says the read failed", "could not read")
 end)
 
-Cases.Case("an older build is turned away from a key it may not write, snapshot or none", function(T: Case)
+Cases.Case("an older build is turned away from a key it may not write, compacted or not", function(T: Case)
 	local function Step(State: any): any
 		return State
 	end
@@ -613,7 +613,8 @@ Cases.Case("an older build is turned away from a key it may not write, snapshot 
 
 	T:Ok("the newer build writes the key", New.Store:Edit("k", "Fund", { Amount = 10 }):Wait())
 	T:No("the older build is refused a write", Old.Store:Edit("k", "Fund", { Amount = 1 }):Wait())
-	T:Is("and the key has no snapshot to read", New:Record("k").Snapshot, nil)
+	T:Is("and the key holds only the base its first write stored", New:Record("k").Snapshot.Gold, 0)
+	T:Is("with the write still in the log", #New:Record("k").Ops, 1)
 
 	local State, Why = Old.Store:Peek("k"):Wait()
 	T:Is("the read gives nothing", State, nil)
@@ -624,7 +625,7 @@ Cases.Case("an older build is turned away from a key it may not write, snapshot 
 	T:Is("and the load says behind", LoadWhy, Reasons.Behind)
 
 	New:Log():Compact("k", New:Format())
-	T:Is("the key carries a snapshot now", New:Record("k").Snapshot ~= nil, true)
+	T:Is("the key carries the compacted state now", New:Record("k").Snapshot.Gold, 10)
 
 	local Packed, PackedWhy = Old.Store:Peek("k"):Wait()
 	T:Is("the read still gives nothing", Packed, nil)

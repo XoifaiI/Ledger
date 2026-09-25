@@ -26,6 +26,7 @@ local Transactions = require("../../src/Core/Constants/Transactions")
 
 local SUFFIX = Transactions.SUFFIX
 local RESERVED = Transactions.RESERVED
+local DECISION = Transactions.DECISION
 local PARKED = '"Tx":"'
 
 type Outcome = {
@@ -132,7 +133,7 @@ function Watch.Judge(self: Watch, Name: string, Key: string, Prior: string?, Aft
 		end
 		return
 	end
-	if string.sub(Key, 1, #RESERVED) ~= RESERVED then
+	if string.sub(Key, 1, #DECISION) == DECISION or string.sub(Key, 1, #RESERVED) ~= RESERVED then
 		self:Marker(Name, Key, Prior, After)
 	end
 end
@@ -167,7 +168,8 @@ function Watch.Legs(self: Watch, Name: string, Key: string, Prior: string, After
 		local Kept = next(Held.Committed)
 		local Lost = next(Held.Dropped)
 		if Kept ~= nil and Lost ~= nil then
-			self:Say(`transaction '{Tx}' committed its leg on '{Kept}' and rolled back its leg on '{Lost}'`)
+			local Shown = if type(Leg.TxSticky) == "string" then Leg.TxSticky else Tx
+			self:Say(`transaction '{Shown}' committed its leg on '{Kept}' and rolled back its leg on '{Lost}'`)
 		end
 	end
 end
@@ -182,6 +184,7 @@ function Watch.Marker(self: Watch, Name: string, Key: string, Prior: string, Aft
 	if not Aborted(Json.Decode(After), Gen) then
 		return
 	end
+	local Shown = if type(Was.Name) == "string" then Was.Name else Key
 
 	for _, Store in self.Service.Stores do
 		if string.sub(Store.Name, -#SUFFIX) == SUFFIX then
@@ -194,7 +197,7 @@ function Watch.Marker(self: Watch, Name: string, Key: string, Prior: string, Aft
 			end
 			for _, Leg in Ops(Text) do
 				if Leg.Tx == Key and Leg.TxGen == Gen and (Leg.TxHome == nil or Leg.TxHome == Name) then
-					self:Say(`the marker of committed transaction '{Key}' went while its leg was still parked on '{Store.Name}/{Held}'`)
+					self:Say(`the marker of committed transaction '{Shown}' went while its leg was still parked on '{Store.Name}/{Held}'`)
 				end
 			end
 		end

@@ -8,7 +8,8 @@
 	A fault names the call it watches and what happens to it. Dropped never reached the service.
 	Swallowed landed and lost its answer. Stalled arrives late. Meddled goes through after running
 	something first. Stale is a read that answers the version before the newest, or nothing when
-	the key has only one. An ordinal aims one at the Nth matching call.
+	the key has only one. An ordinal aims one at the Nth matching call. OnPrefix aims one at every
+	key that starts with a prefix, for a key a case cannot name before it is written.
 
 	Wrap puts a memory hook behind the faults a case adds to it, over its datastores and its
 	MemoryStore maps alike. The store Ledger is handed cannot tell it is being lied to. A map and a
@@ -54,6 +55,7 @@ type SpecImpl = {
 
 	OnStore: (self: Spec, Name: string) -> Spec,
 	OnKey: (self: Spec, Key: string) -> Spec,
+	OnPrefix: (self: Spec, Prefix: string) -> Spec,
 	Only: (self: Spec, Nth: number) -> Spec,
 	After: (self: Spec, Count: number) -> Spec,
 	Swallow: (self: Spec) -> Spec,
@@ -69,6 +71,7 @@ export type Spec = setmetatable<{
 	Method: string,
 	Store: string?,
 	Key: string?,
+	Prefix: string?,
 	Nth: number?,
 	Past: number?,
 	Effect: Effect,
@@ -169,6 +172,7 @@ local function On(Method: string): Spec
 		Method = Method,
 		Store = nil,
 		Key = nil,
+		Prefix = nil,
 		Nth = nil,
 		Past = nil,
 		Effect = DROP,
@@ -218,6 +222,12 @@ function Spec.OnKey(self: Spec, Key: string): Spec
 	return self
 end
 
+function Spec.OnPrefix(self: Spec, Prefix: string): Spec
+	assert(#Prefix > 0, "a fault aimed at every key that starts with nothing is a fault aimed at every key")
+	self.Prefix = Prefix
+	return self
+end
+
 function Spec.Only(self: Spec, Nth: number): Spec
 	assert(Nth >= 1, "a fault that fires on call zero never fires")
 	self.Nth = Nth
@@ -259,6 +269,9 @@ function Spec.Matches(self: Spec, Name: string, Method: string, Key: string): bo
 		return false
 	end
 	if self.Store ~= nil and self.Store ~= Name then
+		return false
+	end
+	if self.Prefix ~= nil and string.sub(Key, 1, #self.Prefix) ~= self.Prefix then
 		return false
 	end
 	return self.Key == nil or self.Key == Key

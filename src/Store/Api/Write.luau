@@ -218,7 +218,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		if not Applied then
 			return { Allowed = false, Applied = false, Swollen = false, Doubt = Doubt }
 		end
-		(Op :: any).TxOnly = if Only then TxStamp.PendingIds(Record) else nil
+		(Op :: any).TxOnly = if Only then TxStamp.PendingNames(Record) else nil
 
 		local Swollen = self:Swollen(Op, Record)
 		return { Allowed = not Swollen, Applied = true, Swollen = Swollen, Doubt = Doubt }
