@@ -339,7 +339,8 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Afford = Asked.Afford,
 	}
 	local Claim = Asked.Claim
-	local Base = if type(Asked.From) == "number" then Asked.From % Transactions.SHARDS else Cleanup.Mine(Asked.Node)
+	local Own = Cleanup.Mine(Walk.Node)
+	local Base = if type(Asked.From) == "number" then Asked.From % Transactions.SHARDS else Own
 
 	local Count = math.min(Asked.Shards or Transactions.SHARDS, Transactions.SHARDS)
 	local Share = math.max(Transactions.REAP_LOOKS, Walk.Room // Count)
@@ -358,7 +359,7 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Walk.Shard = Shard
 		local Lease: Claimed = if Claim ~= nil then Claim(Shard) else ABSENT
 		local Left = Walk.Room - Walk.Looked
-		local Looks = if Lease.Outcome == Transactions.TAKEN or Shard == Cleanup.Mine(Walk.Node) then Left else math.min(Share, Left)
+		local Looks = if Lease.Outcome == Transactions.TAKEN or Shard == Own then Left else math.min(Share, Left)
 		local Back = if Cursor ~= nil and Cursor.Shard == Shard then Cursor.Back else nil
 		local Ended: Ending = DONE
 		if Pending ~= nil and Pending.Shard == Shard then

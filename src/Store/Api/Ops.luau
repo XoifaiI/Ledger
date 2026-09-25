@@ -73,6 +73,8 @@ type Hold = Types.Hold
 type Recent = Types.Recent
 type Copy = Types.Copy
 type Holding = { Holds: { [string]: Hold }, Stock: { [string]: number } }
+type Asked = { Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?, Gen: string }
+type Verdict = { read Answer: Reserved, read Known: number?, read Count: number, read Standing: Hold? }
 
 local MAX_TRANSFER_ID = 64
 local MAX_TX_ID = 50
@@ -87,6 +89,8 @@ local UNRESOLVED = Reasons.Unresolved
 local BUSY = Reasons.Busy
 local HELD = Reasons.Held
 local SPENT = Reasons.Spent
+
+local UNJUDGED: Verdict = table.freeze({ Answer = Bookings.UNKNOWN, Count = 0 })
 
 local Failed = Write.Failed
 
@@ -181,6 +185,47 @@ local function Rewritten(Held: MemoryStoreWrapper, Slot: string, Change: (Holdin
 	return (Held:UpdateAsync(Slot, function(Current: any): any
 		return Change(Holdings(Current))
 	end, BOOK_KEEP))
+end
+
+local function Judged(Item: Holding?, Ask: Asked): (Holding?, Verdict)
+	local Base: Holding = Item or { Holds = {}, Stock = {} }
+	if Ask.Stock ~= nil then
+		Base.Stock[Ask.Field] = Ask.Stock
+	end
+
+	local Have = Base.Stock[Ask.Field]
+	if type(Have) ~= "number" then
+		return nil, { Answer = Bookings.COLD, Count = 0 }
+	end
+
+	local Fresh, Sums = Unexpired(Base, Ask.Now)
+	local Count = TableUtil.Count(Fresh)
+	local Mine = Fresh[Ask.Rid]
+	if Mine ~= nil then
+		if Mine.Field ~= Ask.Field or Mine.Amount ~= Ask.Amount then
+			return nil, { Answer = Bookings.SPENT, Known = Have, Count = Count, Standing = Mine }
+		end
+		local Taken: Verdict = { Answer = Bookings.TAKEN, Known = Have, Count = Count }
+		if Mine.Ends >= Ask.Ends then
+			return nil, Taken
+		end
+		Fresh[Ask.Rid] = { Field = Mine.Field, Amount = Mine.Amount, Ends = Ask.Ends, Gen = Mine.Gen }
+		return Fitted({ Holds = Fresh, Stock = Base.Stock }), Taken
+	end
+	if Count >= Sizes.Booked then
+		return nil, { Answer = Bookings.FULL, Known = Have, Count = Count }
+	end
+	if (Sums[Ask.Field] or 0) + Ask.Amount > Have then
+		local Restocked = if Ask.Stock ~= nil then Fitted({ Holds = Fresh, Stock = Base.Stock }) else nil
+		return Restocked, { Answer = Bookings.REFUSED, Known = Have, Count = Count }
+	end
+
+	Fresh[Ask.Rid] = { Field = Ask.Field, Amount = Ask.Amount, Ends = Ask.Ends, Gen = Ask.Gen }
+	local Next = Fitted({ Holds = Fresh, Stock = Base.Stock })
+	if Next == nil then
+		return nil, { Answer = Bookings.FULL, Known = Have, Count = Count }
+	end
+	return Next, { Answer = Bookings.TAKEN, Known = Have, Count = Count + 1 }
 end
 
 local function Waiting(self: Store, Slot: string): number
@@ -336,65 +381,18 @@ function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Am
 		return Bookings.UNKNOWN, nil, 0, nil
 	end
 
-	local Gen = Ids.Fresh()
-	local Answer: Reserved = Bookings.UNKNOWN
-	local Known: number? = nil
-	local Count = 0
-	local Standing: Hold? = nil
+	local Ask: Asked = { Rid = Rid, Field = Field, Amount = Amount, Now = Now, Ends = Ends, Stock = Stock, Gen = Ids.Fresh() }
+	local Verdict = UNJUDGED
 	local Ok = Rewritten(Held, Slot, function(Item: Holding?): Holding?
-		Answer, Known, Count, Standing = Bookings.UNKNOWN, nil, 0, nil
-		local Base: Holding = Item or { Holds = {}, Stock = {} }
-		if Stock ~= nil then
-			Base.Stock[Field] = Stock
-		end
-
-		local Have = Base.Stock[Field]
-		if type(Have) ~= "number" then
-			Answer = Bookings.COLD
-			return nil
-		end
-		Known = Have
-
-		local Fresh, Sums = Unexpired(Base, Now)
-		Count = TableUtil.Count(Fresh)
-		local Mine = Fresh[Rid]
-		if Mine ~= nil then
-			if Mine.Field ~= Field or Mine.Amount ~= Amount then
-				Answer = Bookings.SPENT
-				Standing = Mine
-				return nil
-			end
-			Answer = Bookings.TAKEN
-			if Mine.Ends >= Ends then
-				return nil
-			end
-			Fresh[Rid] = { Field = Mine.Field, Amount = Mine.Amount, Ends = Ends, Gen = Mine.Gen }
-			return Fitted({ Holds = Fresh, Stock = Base.Stock })
-		end
-		if Count >= Sizes.Booked then
-			Answer = Bookings.FULL
-			return nil
-		end
-		if (Sums[Field] or 0) + Amount > Have then
-			Answer = Bookings.REFUSED
-			return if Stock ~= nil then Fitted({ Holds = Fresh, Stock = Base.Stock }) else nil
-		end
-
-		Fresh[Rid] = { Field = Field, Amount = Amount, Ends = Ends, Gen = Gen }
-		local Next = Fitted({ Holds = Fresh, Stock = Base.Stock })
-		if Next == nil then
-			Answer = Bookings.FULL
-			return nil
-		end
-		Answer = Bookings.TAKEN
-		Count += 1
+		local Next
+		Next, Verdict = Judged(Item, Ask)
 		return Next
 	end)
 
 	if not Ok then
-		return Bookings.UNKNOWN, nil, 0, nil
+		Verdict = UNJUDGED
 	end
-	return Answer, Known, Count, Standing
+	return Verdict.Answer, Verdict.Known, Verdict.Count, Verdict.Standing
 end
 
 function Store.Standing(self: Store, Slot: string, Rid: string): string?
@@ -652,8 +650,6 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 		`Bump needs a positive finite Amount. a tally is spread over keys that cannot see each other, so nothing can be taken back out of one`
 	)
 
-	local Key = Tally.Shard(Name, Tally.Mine(self.Node, self.Shards))
-	local Op = Tally.Bump(Field, Amount)
 	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field, self.Shards)
 
 	local Bumps = self.Bumps
@@ -661,6 +657,8 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 		return Queued(Bumps, Slot, Name, Field, Amount).Answer
 	end
 
+	local Key = Tally.Shard(Name, Tally.Mine(self.Node, self.Shards))
+	local Op = Tally.Bump(Field, Amount)
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Why = self:Written(Key, Op, `add {Amount} to '{Name}'`)
 		if Ok then
@@ -752,15 +750,16 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 				end
 
 				Mark = Counted
-				return { Sum = Sum, Read = Read }, nil, nil
+				return Tally.Item(Sum, Read), nil, nil
 			end,
 		}
 
 		local State, Why = self:Copied(Held, Now, false, Source)
-		if type(State) ~= "table" or type(State.Sum) ~= "number" then
+		local Sum = Tally.Sum(State)
+		if Sum == nil then
 			return nil, Why or UNRESOLVED
 		end
-		return Remember(Held, State.Sum, Held.At, Held.Seen, Mark, Tally.Since(State, Mine)) + Waiting(self, Slot), nil
+		return Remember(Held, Sum, Held.At, Held.Seen, Mark, Tally.Since(State, Mine)) + Waiting(self, Slot), nil
 	end)
 end
 

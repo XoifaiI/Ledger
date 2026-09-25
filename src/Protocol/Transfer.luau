@@ -33,7 +33,7 @@ local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Digest = require("../Encode/Digest")
 local Ids = require("../Encode/Ids")
-local Log = require("../Record/Log")
+local Rules = require("../Record/Rules")
 local LogTypes = require("../Record/Types")
 local TxStamp = require("../Record/TxStamp")
 local Apply = require("../Record/Apply")
@@ -82,7 +82,11 @@ local function Absorbed(Record: Record, Tid: string): boolean
 end
 
 local function LandedOn(Format: Format, Record: Record, Tid: string, Print: string?, From: (number | string)?): Applied.Recalled
-	local Held, Meant, Sender = TxStamp.Written(Record, `{Kinds.DELIVER_ID}:{Tid}`)
+	local Id = `{Kinds.DELIVER_ID}:{Tid}`
+	local Delivery = TxStamp.Find(Record, Id)
+	local Held = TxStamp.Carries(Record, Id)
+	local Meant = if Delivery ~= nil and type(Delivery.Print) == "string" then Delivery.Print else nil
+	local Sender = if Delivery ~= nil then Delivery.From else nil
 	if Held and Print ~= nil and Sender ~= nil and From ~= nil and tostring(Sender) ~= tostring(From) then
 		return Tags.OTHER
 	end
@@ -196,7 +200,7 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 	local Swelled = false
 	local Landed = Records:Append(tostring(To), { DeliverOp }, function(Record: Record): boolean
 		Swelled = false
-		if not Sound(At) or not Log.NotEntombed(Record) then
+		if not Sound(At) or Rules.Entombed(Record.Erased) then
 			return false
 		end
 		Swelled = Compact.Swells(Record, Format, DeliverOp)

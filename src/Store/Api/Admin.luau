@@ -29,6 +29,7 @@ local Applied = require("../../Core/Applied")
 local Mark = require("../../Encode/Mark")
 local Compact = require("../../Record/Compact")
 local Log = require("../../Record/Log")
+local Rules = require("../../Record/Rules")
 local NewOp = require("../../Record/NewOp")
 local Schema = require("../../Record/Schema")
 local TxStamp = require("../../Record/TxStamp")
@@ -48,11 +49,18 @@ type Record = Shapes.Record<any>
 type KeyLike = Shapes.KeyLike
 type Reason = Reasons.Reason
 type Store = Types.Store<any>
+type Plan = "Plain" | "Removing" | "Named" | "Owed"
+type Burial = { read Plan: Plan, read Owed: string? }
 
 local Players = game:GetService("Players")
 
 local BUSY = Reasons.Busy
 local BEHIND = Reasons.Behind
+
+local PLAIN = "Plain" :: "Plain"
+local REMOVING = "Removing" :: "Removing"
+local NAMED = "Named" :: "Named"
+local OWED = "Owed" :: "Owed"
 
 local Failed = Write.Failed
 
@@ -193,6 +201,32 @@ local function Sending(Key: string, Said: string)
 	)
 end
 
+local function Tomb(self: Store, Record: Record, At: number): (Record?, Burial)
+	local Fine, State = pcall(function(): Shapes.Folded
+		return self:Fold(Record)
+	end)
+	local Folded: Shapes.Folded? = if Fine and type(State) == "table" then State else nil
+
+	local Left, Owed = CountHeld(if Folded ~= nil then Folded._Held else nil, self.Options.Balance)
+	if Left > 0 then
+		return nil, { Plan = OWED, Owed = Owed }
+	end
+
+	local Names = if Folded ~= nil then Folded._Received else nil
+	local Young = Applied.Prune(Names, Clock.Now()) or Names
+	if type(Young) ~= "table" or next(Young) == nil then
+		if Record.Erased ~= nil and not Rules.Entombed(Record.Erased) then
+			return { Ops = {}, Seen = {}, Removing = At }, { Plan = REMOVING }
+		end
+		return { Ops = {}, Seen = {} }, { Plan = PLAIN }
+	end
+
+	local Steps = self.Migrations
+	local Fresh: any = TableUtil.DeepCopy(self.Initial)
+	Fresh._Received = TableUtil.DeepCopy(Young)
+	return { Ops = {}, Seen = {}, Snapshot = Fresh, Version = #Steps, Floor = Schema.FloorOf(Steps) }, { Plan = NAMED }
+end
+
 function Store.HandOver(self: Store, Key: string): (number, string)
 	local Read, Held = self:HeldOn(Key)
 	if not Read then
@@ -305,49 +339,23 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 			return false, Failed("erase", Resolved, Why)
 		end
 
-		local Steps = self.Migrations
 		local At = Clock.Now()
-		local Named = false
-		local Removing = false
-		local Late: string? = nil
+		local Burial: Burial = { Plan = PLAIN }
 		local Ok, Replaced = pcall(function(): Record
 			return self:Records():Entomb(Resolved, At, function(Record: Record): Record
-				Named = false
-				Removing = false
-				Late = nil
-				local Fine, State = pcall(function(): any
-					return self:Fold(Record)
-				end)
-
-				local Left, Owed = CountHeld(if Fine and type(State) == "table" then State._Held else nil, self.Options.Balance)
-				if Left > 0 then
-					Late = Owed
-					Errors.Raise(BUSY, `'{Resolved}' took a transfer while it was being erased`)
+				local Body
+				Body, Burial = Tomb(self, Record, At)
+				if Body == nil then
+					return Errors.Raise(BUSY, `'{Resolved}' took a transfer while it was being erased`)
 				end
-
-				local Names = if Fine and type(State) == "table" then State._Received else nil
-				local Young = Applied.Prune(Names, Clock.Now()) or Names
-				if type(Young) ~= "table" or next(Young) == nil then
-					Removing = Record.Erased ~= nil and not Log.Entombed(Record)
-					return { Ops = {}, Seen = {}, Removing = if Removing then At else nil }
-				end
-
-				Named = true
-				local Fresh: any = TableUtil.DeepCopy(self.Initial)
-				Fresh._Received = TableUtil.DeepCopy(Young)
-				return {
-					Ops = {},
-					Seen = {},
-					Snapshot = Fresh,
-					Version = #Steps,
-					Floor = Schema.FloorOf(Steps),
-				}
+				return Body
 			end)
 		end)
 
 		if not Ok then
-			if Late ~= nil then
-				Sending(Resolved, Late)
+			local Owed = Burial.Owed
+			if Owed ~= nil then
+				Sending(Resolved, Owed)
 				return false, BUSY
 			end
 			return false, Failed("erase", Resolved, Replaced)
@@ -371,11 +379,11 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 			Copy.Seen = 0
 		end
 
-		if Before.Erased ~= nil and not Log.Entombed(Before) and Named then
+		if Before.Erased ~= nil and not Rules.Entombed(Before.Erased) and Burial.Plan == NAMED then
 			warn(
 				`Ledger: erased '{Resolved}' again and kept its record. it still holds names from the last {Windows.PRUNE // Windows.DAY} days, and a refund may have to check them. erase it again after they run out`
 			)
-		elseif Removing then
+		elseif Burial.Plan == REMOVING then
 			local Reached, Gone, Cause = pcall(function(): (boolean, any)
 				return self.Wrapper:RemoveAsync(Resolved)
 			end)

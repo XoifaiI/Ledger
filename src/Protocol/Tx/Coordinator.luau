@@ -163,16 +163,11 @@ local function RunOnce(
 	Home: string,
 	Carried: number
 ): Pass
-	local Created, Gen, Born, Minted, Key = Marker.Create(TxStore, Txid, #Legs, Keys, Terms, Fresh, Own)
-	if Created == Transactions.MISMATCH then
-		warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
-		return { Committed = false, Why = SPENT, Again = false, Reached = Floor, Parked = Floor > 0 }
-	end
-	if Created == Transactions.UNWRITTEN or Key == nil then
-		return { Held = Key, Committed = false, Why = UNRESOLVED, Again = true, Reached = Floor, Parked = Floor > 0 }
+	local Created, Gen, Born, Minted, Decides = Marker.Create(TxStore, Txid, #Legs, Keys, Terms, Fresh, Own)
+	if Created == Transactions.UNWRITTEN then
+		return { Held = Decides, Committed = false, Why = UNRESOLVED, Again = true, Reached = Floor, Parked = Floor > 0 }
 	end
 
-	local Decides: string = Key
 	if Minted and Clock.Now() - Carried >= LATE then
 		Cleanup.Carry(TxStore, Cleanup.Mine(Home), Home, { Decides })
 	end
@@ -272,7 +267,8 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 	local Carried = Added
 	local Fresh = Ids.Fresh()
 	local Rolled: { string } = { Marker.KeyOf(Fresh) }
-	if not Cleanup.Carry(TxStore, Cleanup.Mine(Home), Home, Rolled) then
+	local Slot = Cleanup.Mine(Home)
+	if not Cleanup.Carry(TxStore, Slot, Home, Rolled) then
 		warn(`Ledger: transaction '{Id}' was not started, Ledger could not write it down first. nothing was applied, try again`)
 		return false, UNRESOLVED, false
 	end
@@ -285,7 +281,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 		if Pass > 1 then
 			Fresh = Ids.Fresh()
 			local Next = Marker.KeyOf(Fresh)
-			if not Cleanup.Carry(TxStore, Cleanup.Mine(Home), Home, { Next }) then
+			if not Cleanup.Carry(TxStore, Slot, Home, { Next }) then
 				Last = UNRESOLVED
 				break
 			end

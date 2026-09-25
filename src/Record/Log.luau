@@ -13,7 +13,7 @@
 	that changed the record hand back the stamp the datastore put on it, so a copy of the record can
 	be ordered against another without comparing two servers' clocks.
 
-	Return type: A table with New, Entombed and NotEntombed.
+	Return type: A table with New.
 	Example usage:
 		local Log = require("./Log")
 		local Books = Log.New(Wrapper, 0)
@@ -134,35 +134,26 @@ local function Materialize(Value: any): Record
 	return Value
 end
 
-local Entombed = Rules.Entombed
-
-local function NotEntombed(Record: Record): boolean
-	return not Entombed(Record)
-end
-
 local function Meant(Held: any, Wanted: any): boolean
 	return type(Held) ~= "string" or type(Wanted) ~= "string" or Held == Wanted
 end
 
 local function Stamped(Info: any): number?
-	if Info == nil then
-		return nil
-	end
-	local At = (Info :: any).UpdatedTime
+	local At = if Info ~= nil then Info.UpdatedTime else nil
 	return if type(At) == "number" then At else nil
 end
 
-local function Held(Record: Record, Format: Schema<any>, Hold: { any }): any
-	local Folded = Hold[1]
-	if Folded == nil then
-		Folded = Format:Fold(Schema.Detached(Record))
-		Hold[1] = Folded
+local function Folding(Record: Record, Format: Schema<any>): () -> any
+	local Folded: any = nil
+	return function(): any
+		if Folded == nil then
+			Folded = Format:Fold(Schema.Detached(Record))
+		end
+		return Folded
 	end
-	return Folded
 end
 
-local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?): Prepared?
-	local Folded: { any } = Hold or {}
+local function Known(Record: Record, Op: Op, Fold: () -> any): Prepared?
 	for _, Existing in Record.Ops do
 		if Existing.Id == Op.Id then
 			if Existing.Tx == nil then
@@ -174,7 +165,7 @@ local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?
 
 	local Name = TxStamp.NameOf(Op)
 	if Name ~= nil and type(Op.TxTerms) == "string" then
-		local Recalled = Applied.Recall(Held(Record, Format, Folded)._Received, Tags.TX, Name, Op.TxTerms)
+		local Recalled = Applied.Recall(Fold()._Received, Tags.TX, Name, Op.TxTerms)
 		if Recalled == Tags.OTHER then
 			return Verdicts.SPENT
 		end
@@ -193,7 +184,7 @@ local function Known(Record: Record, Op: Op, Format: Schema<any>, Hold: { any }?
 		return nil
 	end
 
-	if Applied.Has(Held(Record, Format, Folded)._Received, Tags.TX, Name) then
+	if Applied.Has(Fold()._Received, Tags.TX, Name) then
 		return Verdicts.SETTLED
 	end
 	return nil
@@ -329,25 +320,21 @@ function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Recor
 	end).Before
 end
 
-function Log.AppendUnlessPending(self: Log, Key: string, Ops: { Op }): Record
-	return (self:Append(Key, Ops, TxStamp.NotPending))
-end
-
 function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepared
 	assert(type(Op.Tx) == "string", "a transaction leg is being prepared without the transaction it belongs to")
 
 	local Verdict: Prepared = Verdicts.REJECTED
 	local Outcome = self:Update(Key, function(Record: Record): Record?
 		Verdict = Verdicts.REJECTED
-		local Folded: { any } = {}
+		local Fold = Folding(Record, Format)
 		self:Legible(Key, Record)
-		local Already = Known(Record, Op, Format, Folded)
+		local Already = Known(Record, Op, Fold)
 		if Already ~= nil then
 			Verdict = Already
 			return nil
 		end
 
-		if Entombed(Record) then
+		if Rules.Entombed(Record.Erased) then
 			Verdict = Verdicts.ERASED
 			return nil
 		end
@@ -357,7 +344,7 @@ function Log.Prepare(self: Log, Key: string, Op: Op, Format: Schema<any>): Prepa
 			return nil
 		end
 
-		local State = Held(Record, Format, Folded)
+		local State = Fold()
 		local Next = Apply(Format.Reducer, State, TxStamp.Unstamped(Op))
 		if Next == nil then
 			Verdict = Verdicts.REJECTED
@@ -503,6 +490,4 @@ table.freeze(Log)
 
 return table.freeze({
 	New = Log.New,
-	Entombed = Entombed,
-	NotEntombed = NotEntombed,
 })

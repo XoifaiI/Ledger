@@ -6,11 +6,12 @@
 	TxStamp: The transaction stamp on an op, and what a record says about it.
 
 	Every fold skips a stamped op, so these questions say whether a key is waiting on a transaction.
-	Unstamped takes the stamp off one, Landed takes it off every op of a transaction, and Carries looks
-	in both Ops and Seen. A leg's stamp names the key of its marker. NameOf and PendingNames give the
-	name a game chose, which is the name a key keeps once a leg lands.
+	Unstamped takes the stamp off one, and Landed takes it off every op of a transaction. Find and
+	Holds look for an id in Ops, and Carries looks in both Ops and Seen. A leg's stamp names the key
+	of its marker. NameOf and PendingNames give the name a game chose, which is the name a key keeps
+	once a leg lands.
 
-	Return type: A table with Unstamped, Landed, HasPending, NotPending, NameOf, PendingTx, PendingNames, Holds, Carries and Written.
+	Return type: A table with Unstamped, Landed, HasPending, NameOf, PendingTx, PendingNames, Find, Holds and Carries.
 	Example usage:
 		local TxStamp = require("./TxStamp")
 		if TxStamp.HasPending(Record) then return end
@@ -46,10 +47,6 @@ local function HasPending(Record: Record): boolean
 		end
 	end
 	return false
-end
-
-local function NotPending(Record: Record): boolean
-	return not HasPending(Record)
 end
 
 local function PendingTx(Record: Record): { [string]: string | true }
@@ -97,32 +94,18 @@ local function Holds(Record: Record, Id: string): boolean
 	return Find(Record, Id) ~= nil
 end
 
-local function Written(Record: Record, Id: string): (boolean, string?, any)
-	local Op = Find(Record, Id)
-	if Op ~= nil then
-		return true, if type(Op.Print) == "string" then Op.Print else nil, Op.From
-	end
-	for _, Seen in Record.Seen do
-		if Seen == Id then
-			return true, nil, nil
-		end
-	end
-	return false, nil, nil
-end
-
 local function Carries(Record: Record, Id: string): boolean
-	return (Written(Record, Id))
+	return Holds(Record, Id) or table.find(Record.Seen, Id) ~= nil
 end
 
 return table.freeze({
 	Unstamped = Unstamped,
 	Landed = Landed,
 	HasPending = HasPending,
-	NotPending = NotPending,
 	NameOf = NameOf,
 	PendingTx = PendingTx,
 	PendingNames = PendingNames,
+	Find = Find,
 	Holds = Holds,
 	Carries = Carries,
-	Written = Written,
 })

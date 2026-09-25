@@ -178,6 +178,22 @@ Cases.Case("a final save the fence stopped does not report success", function(T:
 	T:Is("a final save the fence stopped", Saved, false)
 	T:Is("the reason a final save gives", SaveWhy, "Refused")
 	T:Is("ops on the erased key", #Bank:Record("lastsave").Ops, 0)
+	T:Warns("the final save says why", "wrote nothing, that key was erased while this session held it", 1)
+end)
+
+Cases.Case("a session compacted after its key was erased closes rather than showing the erased state", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("compactgone", { Gold = 50 })
+
+	local Active = Bank:Session("compactgone")
+	T:Ok("the erase", (Bank.Store:Erase("compactgone"):Wait()))
+	local Ok, Why = Active:Compact():Wait()
+
+	T:Is("a compaction onto a key erased under the session", Ok, false)
+	T:Is("the reason", Why, "Refused")
+	T:Is("the session, which cannot write any more", Active.Released, true)
+	T:Is("the gold it still shows, from before the erase", Active:Get().Gold, 50)
+	T:Warns("it says why", "was erased while this session was live", 1)
 end)
 
 Cases.Case("Commit cannot write through the fence either", function(T: Case)

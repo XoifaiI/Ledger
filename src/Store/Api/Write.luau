@@ -82,6 +82,27 @@ local function Failed(What: string, Key: string, Err: any): Reason
 	return Why
 end
 
+local function Weigh(self: Store, Op: Op, Guard: Allow?, Record: Record): Ruling
+	if Guard ~= nil and not Guard(Record) then
+		return BARRED
+	end
+
+	local Applied, Only, Doubt = self:Applies(Op, Record)
+	if not Applied then
+		return { Allowed = false, Applied = false, Swollen = false, Doubt = Doubt }
+	end
+	(Op :: any).TxOnly = if Only then TxStamp.PendingNames(Record) else nil
+
+	local Swollen = self:Swollen(Op, Record)
+	return { Allowed = not Swollen, Applied = true, Swollen = Swollen, Doubt = Doubt }
+end
+
+local function Attempt(self: Store, Key: string, Op: Op, Judge: Allow): (boolean, any, number?, boolean?)
+	return pcall(function(): (Record, number?, boolean)
+		return self:Append(Key, Op, Judge)
+	end)
+end
+
 function Store.Stale(self: Store): Observer.Observer<string>
 	return self.Staleness
 end
@@ -212,39 +233,18 @@ end
 
 function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Allow?, Denied: Reason?, Shows: ((Record) -> Reason?)?): (boolean, Reason?)
 	local Ruling: Ruling = CLEAR
-	local function Weigh(Record: Record): Ruling
-		if Guard ~= nil and not Guard(Record) then
-			return BARRED
-		end
-
-		local Applied, Only, Doubt = self:Applies(Op, Record)
-		if not Applied then
-			return { Allowed = false, Applied = false, Swollen = false, Doubt = Doubt }
-		end
-		(Op :: any).TxOnly = if Only then TxStamp.PendingNames(Record) else nil
-
-		local Swollen = self:Swollen(Op, Record)
-		return { Allowed = not Swollen, Applied = true, Swollen = Swollen, Doubt = Doubt }
-	end
-
 	local function Judge(Record: Record): boolean
-		Ruling = Weigh(Record)
+		Ruling = Weigh(self, Op, Guard, Record)
 		return Ruling.Allowed
 	end
 
-	local function Attempt(): (boolean, any, number?, boolean?)
-		return pcall(function(): (Record, number?, boolean)
-			return self:Append(Key, Op, Judge)
-		end)
-	end
-
-	local Landed, Result, Stamp, Doubted = Attempt()
+	local Landed, Result, Stamp, Doubted = Attempt(self, Key, Op, Judge)
 	if not Landed and Errors.Reason(Result) == FULL then
 		local Packed = pcall(function()
 			self:Records():Compact(Key, self:Format())
 		end)
 		if Packed then
-			Landed, Result, Stamp, Doubted = Attempt()
+			Landed, Result, Stamp, Doubted = Attempt(self, Key, Op, Judge)
 		end
 	end
 

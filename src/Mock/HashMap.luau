@@ -19,7 +19,6 @@
 		local Leases = HashMap.New("Ledger_Lease", Service)
 --]=]
 
-local Messages = require("../Core/Constants/Messages")
 local NoYield = require("../Util/NoYield")
 local TableUtil = require("../Util/TableUtil")
 local Datastore = require("../Core/Constants/Datastore")
@@ -180,7 +179,7 @@ function HashMap.UpdateAsync(self: HashMap, Key: string, Transform: MapTransform
 
 		local Ran, Next = NoYield.Try(Transform, Was)
 		if not Ran then
-			if type(Next) == "string" and string.find(Next, Messages.YIELDED, 1, true) ~= nil then
+			if NoYield.Yielded(Next) then
 				error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)
 			end
 			error(`Ledger mock: the UpdateAsync transform on '{Key}' threw, so nothing was written: {Next}`, 0)

@@ -6,16 +6,17 @@
 	Tally: A total spread over a fixed set of keys.
 
 	Each server writes its own shard and never waits behind another. A total only goes up, and no
-	single key knows it. Mine picks this server's shard and Shards names them all. The running total
-	lives in a field of Ledger's own rather than the game's.
+	single key knows it. Mine picks this server's shard, Shard names one and Keys names them all. The
+	running total lives in a field of Ledger's own rather than the game's.
 
 	Cache names the item a summed total lives in, which a store keeps fresh the way it keeps a copy
 	of any key. The state in that item carries the sum and the second each shard was read, so a
-	server lays over the sum only the bumps it made after its own shard was read. Since reads that
-	second back out. A tally over a count of shards other than the default names that count in its
-	item, so two builds with different counts never read each other's sum.
+	server lays over the sum only the bumps it made after its own shard was read. Item builds that
+	state, and Sum and Since read it back, so its shape lives in this file alone. A tally over a count
+	of shards other than the default names that count in its item, so two builds with different
+	counts never read each other's sum.
 
-	Return type: A table with Layered, Bump, Counted, Mine, Shard, Keys, Cache and Since. The type is Bucket.
+	Return type: A table with Layered, Bump, Counted, Mine, Shard, Keys, Cache, Item, Sum and Since. The types are Bucket and Summed.
 	Example usage:
 		local Tally = require("./Tally")
 		local Key = Tally.Shard(Name, Tally.Mine())
@@ -39,9 +40,10 @@ export type Bucket = {
 	Amount: number,
 }
 
-local LastNode = ""
-local LastCount = 0
-local LastShard = 0
+export type Summed = {
+	Sum: number,
+	Read: { number },
+}
 
 local function Counted(State: Data, Field: string): number
 	if type(State) ~= "table" then
@@ -77,14 +79,7 @@ local function Bumping(Data: Data, Op: Op): Data?
 end
 
 local function Mine(Node: string?, Count: number?): number
-	local Home = Node or Ids.Home()
-	local Over = Count or Shards.SHARDS
-	if Home ~= LastNode or Over ~= LastCount then
-		LastNode = Home
-		LastCount = Over
-		LastShard = Digest.Bucket(Home, Over)
-	end
-	return LastShard
+	return Digest.Bucket(Node or Ids.Home(), Count or Shards.SHARDS)
 end
 
 local function Shard(Name: string, Index: number): string
@@ -110,6 +105,17 @@ local function Cache(Store: string, Name: string, Field: string, Count: number?)
 		return Mark.Cached({ Store, Name, Field })
 	end
 	return Mark.Cached({ Store, Name, Field, tostring(Over) })
+end
+
+local function Item(Sum: number, Read: { number }): Summed
+	return { Sum = Sum, Read = Read }
+end
+
+local function Sum(State: any): number?
+	if type(State) ~= "table" or type(State.Sum) ~= "number" then
+		return nil
+	end
+	return State.Sum
 end
 
 local function Since(State: any, Shard: number): number?
@@ -148,5 +154,7 @@ return table.freeze({
 	Shard = Shard,
 	Keys = Keys,
 	Cache = Cache,
+	Item = Item,
+	Sum = Sum,
 	Since = Since,
 })

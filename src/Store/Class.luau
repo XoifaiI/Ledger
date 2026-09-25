@@ -5,8 +5,8 @@
 
 	Class: The method table for the store.
 
-	Shared, Write, Read, Admin and Ops each write their methods onto it, and Store.luau freezes it
-	once all five have been required.
+	Shared and every file under Api write their methods onto it, and Store.luau freezes it once all
+	of them have been required.
 
 	Return type: The method table. __index points at itself.
 	Example usage:

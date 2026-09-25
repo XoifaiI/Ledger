@@ -5,7 +5,7 @@
 
 	Compact: Folds the ops on a key into a new snapshot.
 
-	Overgrown and Worthwhile say whether a key is worth compacting. They read a share of the snapshot
+	Overgrown and Oversized say whether a key is worth compacting. They read a share of the snapshot
 	for a large state and a count for a small one. Packed does the fold. It absorbs the run of ops at
 	the front this build can apply, keeps the rest, and moves the absorbed ids to Seen. Seen keeps a
 	fixed count, so each compaction notes how many ids it absorbed and when. Dropping the oldest ids
@@ -54,7 +54,7 @@ local COMPACT_OPS = 128
 local COMPACT_CEILING = 512
 local COMPACT_SHARE = 0.2
 
-local function Worthwhile(Ops: number, Bytes: number, State: number): boolean
+local function Oversized(Ops: number, Bytes: number, State: number): boolean
 	if Ops >= COMPACT_CEILING or Bytes >= Sizes.Compact then
 		return true
 	end
@@ -62,10 +62,6 @@ local function Worthwhile(Ops: number, Bytes: number, State: number): boolean
 		return false
 	end
 	return Bytes >= State * COMPACT_SHARE
-end
-
-local function Oversized(Ops: number, Bytes: number, State: number?): boolean
-	return Worthwhile(Ops, Bytes, State or 0)
 end
 
 local function Bulk(Record: Record): number
@@ -97,7 +93,7 @@ local function Overgrown(Record: Record): boolean
 		return Bytes >= Sizes.Compact
 	end
 
-	return Worthwhile(Count, Bytes, Bulk(Record))
+	return Oversized(Count, Bytes, Bulk(Record))
 end
 
 local function Conditioned(State: any, Op: Op): boolean

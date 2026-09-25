@@ -7,9 +7,7 @@
 
 	Each generation of a name has a marker of its own, under a key that holds the generation. Nothing
 	writes that key a second time, so a reaper that takes one off can only take off the one it judged.
-	A marker an older build wrote sits under the name itself and is read as before. Create joins one
-	like that, or refuses it for other terms, and otherwise opens a new generation. A coordinator joins
-	its own generation again on a later pass.
+	Create opens a new generation, and a coordinator joins its own generation again on a later pass.
 
 	Decide commits or aborts a marker. StatusOf reads it, and abandons one nothing has touched for
 	longer than a transaction may take. Adopt records that a leg has reported. No marker means aborted.
@@ -83,10 +81,6 @@ local function KeyOf(Gen: string): string
 	local Key = `{Transactions.DECISION}{Gen}`
 	assert(#Key <= Datastore.MAX_KEY, `the marker key for generation '{Gen}' is longer than a datastore key may be`)
 	return Key
-end
-
-local function Clashes(Value: any, Keys: string, Terms: string): boolean
-	return (type(Value.Keys) == "string" and Value.Keys ~= Keys) or (type(Value.Terms) == "string" and Value.Terms ~= Terms)
 end
 
 local function Finished(Current: any): boolean
@@ -174,20 +168,12 @@ local function Open(TxStore: DataStoreWrapper, Gen: string, Name: string, Total:
 	return Ok == true and Made and type(Value) == "table"
 end
 
-local function Opening(TxStore: DataStoreWrapper, Name: string, Fresh: string, Total: number, Keys: string, Terms: string, Born: number): (Opened, string?, number, boolean, string?)
-	local Key = KeyOf(Fresh)
-	if not Open(TxStore, Fresh, Name, Total, Keys, Terms, Born) then
-		return Transactions.UNWRITTEN, nil, Born, false, Key
-	end
-	return Transactions.CREATED, Fresh, Born, true, Key
-end
-
-local function Joined(Value: Marker, Born: number, Key: string): (Opened, string?, number, boolean, string?)
+local function Joined(Value: Marker, Born: number, Key: string): (Opened, string?, number, boolean, string)
 	local Outcome = if Value.Status == Transactions.ABORTED then Transactions.HUSK else Transactions.CREATED
 	return Outcome, GenOf(Value), BornAt(Value, Born), false, Key
 end
 
-local function Create(TxStore: DataStoreWrapper, Name: string, Total: number, Keys: string, Terms: string, Fresh: string, Own: string?): (Opened, string?, number, boolean, string?)
+local function Create(TxStore: DataStoreWrapper, Name: string, Total: number, Keys: string, Terms: string, Fresh: string, Own: string?): (Opened, string?, number, boolean, string)
 	assert(Total > 0, "a transaction marker is being opened for no legs at all")
 
 	local Born = Clock.Now()
@@ -208,30 +194,11 @@ local function Create(TxStore: DataStoreWrapper, Name: string, Total: number, Ke
 		end
 	end
 
-	local Read, Seen = TxStore:GetAsync(Name)
-	if Read ~= true then
-		return Transactions.UNWRITTEN, nil, Born, false, nil
+	local Key = KeyOf(Fresh)
+	if not Open(TxStore, Fresh, Name, Total, Keys, Terms, Born) then
+		return Transactions.UNWRITTEN, nil, Born, false, Key
 	end
-	if type(Seen) ~= "table" or Buried(Seen) then
-		return Opening(TxStore, Name, Fresh, Total, Keys, Terms, Born)
-	end
-	if Clashes(Seen, Keys, Terms) then
-		return Transactions.MISMATCH, nil, Born, false, nil
-	end
-
-	local Touched: any = nil
-	local Ok = TxStore:UpdateAsync(Name, function(Current: any): Marker?
-		Touched = nil
-		if type(Current) ~= "table" or Buried(Current) or Clashes(Current, Keys, Terms) then
-			return nil
-		end
-		Touched = Current
-		return Current
-	end)
-	if Ok ~= true or Touched == nil then
-		return Transactions.UNWRITTEN, nil, Born, false, nil
-	end
-	return Joined(Touched, Born, Name)
+	return Transactions.CREATED, Fresh, Born, true, Key
 end
 
 local function Decide(TxStore: DataStoreWrapper, Txid: string, To: Status, Shrink: number?, Gen: string?): Status?

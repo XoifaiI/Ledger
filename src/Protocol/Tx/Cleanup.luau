@@ -68,22 +68,10 @@ type Parts = {
 	Slots: { [number]: number },
 }
 
-local LastNode = ""
-local LastShard = 0
-
 local Filled: { [DataStoreWrapper]: Parts } = setmetatable({}, { __mode = "k" }) :: any
 
-local function Shard(Text: string): number
-	return Digest.Bucket(Text, Transactions.SHARDS)
-end
-
 local function Mine(Node: string?): number
-	local Home = Node or Ids.Home()
-	if Home ~= LastNode then
-		LastNode = Home
-		LastShard = Shard(Home)
-	end
-	return LastShard
+	return Digest.Bucket(Node or Ids.Home(), Transactions.SHARDS)
 end
 
 local function Named(Slot: number, When: number, Node: string, Part: number): string

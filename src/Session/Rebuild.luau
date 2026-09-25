@@ -16,7 +16,7 @@
 	still queued ops on top. It counts the log the way the record's own cap counts it, as an array
 	with a separator after each op.
 
-	Return type: A table with Fenced, Append, Roomed, Push, Rebuild, ApplyPending, SumBytes and SEPARATOR.
+	Return type: A table with Fenced, Roomed, Push, Rebuild and SEPARATOR.
 	Example usage:
 		local Rebuild = require("./Rebuild")
 		local Stored, Whole = Rebuild.Push(Active)
@@ -100,7 +100,7 @@ local function Sifted<S>(self: Session<S>): (Record) -> (Op) -> boolean?
 end
 
 local function Fenced(Erased: number?): number?
-	if Erased == nil or not Rules.Entombed({ Ops = {}, Seen = {}, Erased = Erased }) then
+	if not Rules.Entombed(Erased) then
 		return nil
 	end
 	return Erased
@@ -109,7 +109,7 @@ end
 local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string }, { string })
 	local Fence = self.Fence
 	local Stored, Turned, Waiting, _, Doubted = self.Log:Append(self.Key, Ops, function(Record: Record): boolean
-		return Record.Erased == Fence or (not Rules.Entombed(Record) and Fenced(Fence) == nil)
+		return Record.Erased == Fence or (not Rules.Entombed(Record.Erased) and Fenced(Fence) == nil)
 	end, Sifted(self))
 	return Stored, Turned, Waiting, Doubted
 end
@@ -136,6 +136,14 @@ local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, 
 	return Append(self, Batch)
 end
 
+local function Ids(List: { string }): { [string]: boolean }
+	local Set: { [string]: boolean } = {}
+	for _, Id in List do
+		Set[Id] = true
+	end
+	return Set
+end
+
 local function Push<S>(self: Session<S>): (Record?, boolean?)
 	local Count = #self.Pending
 	if Count == 0 then
@@ -145,22 +153,12 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	local Batch = table.move(self.Pending, 1, Count, 1, {})
 	local Stored, Turned, Waiting = Roomed(self, Batch)
 
-	local Landed: { [string]: boolean } = {}
+	local Landed = Ids(Stored.Seen)
 	for _, Op in Stored.Ops do
 		Landed[Op.Id] = true
 	end
-	for _, Id in Stored.Seen do
-		Landed[Id] = true
-	end
-	local Dropped: { [string]: boolean } = {}
-	for _, Id in Turned do
-		Dropped[Id] = true
-	end
-
-	local Held: { [string]: boolean } = {}
-	for _, Id in Waiting do
-		Held[Id] = true
-	end
+	local Dropped = Ids(Turned)
+	local Held = Ids(Waiting)
 
 	local Kept: { Op } = {}
 	for _, Op in self.Pending do
@@ -176,7 +174,6 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 			Missed += 1
 		end
 	end
-	assert(Missed <= Count, "a push lost more ops than it was given, so one was counted twice")
 
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= self.Fence then
 		Close(self)
@@ -237,7 +234,7 @@ end
 
 local function Rebuild<S>(self: Session<S>, Stored: Record, Mark: string?): (S, boolean)
 	self.Fence = Fenced(self.Fence)
-	if self.Stopped == nil and Stored.Erased ~= self.Fence and Rules.Entombed(Stored) then
+	if self.Stopped == nil and Stored.Erased ~= self.Fence and Rules.Entombed(Stored.Erased) then
 		Close(self)
 		return self.State, false
 	end
@@ -280,11 +277,8 @@ end
 
 return table.freeze({
 	Fenced = Fenced,
-	Append = Append,
 	Roomed = Roomed,
 	Push = Push,
 	Rebuild = Rebuild,
-	ApplyPending = ApplyPending,
-	SumBytes = SumBytes,
 	SEPARATOR = SEPARATOR,
 })

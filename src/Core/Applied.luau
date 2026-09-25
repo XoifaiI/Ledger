@@ -11,8 +11,9 @@
 	the prune window, so a name is kept for that window and at most one day more. A write copies
 	only its own day, so the cost of a write does not grow with the names on the key.
 
-	Records before 6.0 hold one flat entry per name, with the time in the entry. The next write of a
-	name puts those into day buckets, and until then a lookup reads a flat entry as it is.
+	Records before 6.0 hold one flat entry per name, with the time in the entry. Flat is the one
+	reader of that entry. The next write of a name puts those entries into day buckets. Until then a
+	lookup reads a flat entry through Flat, and an entry with no time it can read counts as run out.
 
 	Return type: A table with Key, Has, Recall, Remember, Prune and Upgraded. The type is Recalled.
 	Example usage:
@@ -31,7 +32,7 @@ type Days = { [string]: Bucket }
 local TAGS: { [string]: boolean } = { [Tags.TRANSFER] = true, [Tags.TX] = true, [Tags.ONCE] = true, [Tags.SENT] = true }
 
 local DAY = "d"
-local DAY_PATTERN = "^d(%-?%d+)$"
+local DAY_PATTERN = `^{DAY}(%-?%d+)$`
 
 local function Key(Tag: string, Id: string): string
 	assert(TAGS[Tag], "an applied name has to be tagged transfer, transaction, once or sent")
@@ -49,9 +50,9 @@ local function Keeps(Name: string, Floor: number): boolean
 	return Day ~= nil and (Day + 1) * Windows.DAY > Floor
 end
 
-local function Split(Value: any): (number?, string?)
+local function Flat(Value: any): (number?, (string | true)?)
 	if type(Value) == "number" then
-		return Value, nil
+		return Value, true
 	end
 	if type(Value) ~= "string" then
 		return nil, nil
@@ -61,15 +62,11 @@ local function Split(Value: any): (number?, string?)
 	if At == nil then
 		return nil, nil
 	end
-	return tonumber(string.sub(Value, 1, At - 1)), string.sub(Value, At + 1)
-end
-
-local function Printed(Value: any): string?
-	if type(Value) ~= "string" then
-		return nil
+	local Written = tonumber(string.sub(Value, 1, At - 1))
+	if Written == nil then
+		return nil, nil
 	end
-	local At = string.find(Value, Tags.MEANT, 1, true)
-	return if At == nil then Value else string.sub(Value, At + 1)
+	return Written, string.sub(Value, At + 1)
 end
 
 local function Upgraded(Received: any): Days
@@ -77,14 +74,14 @@ local function Upgraded(Received: any): Days
 		return {}
 	end
 
-	local Flat = false
+	local Outdated = false
 	for _, Value in Received do
 		if type(Value) ~= "table" then
-			Flat = true
+			Outdated = true
 			break
 		end
 	end
-	if not Flat then
+	if not Outdated then
 		return Received
 	end
 
@@ -111,24 +108,24 @@ local function Upgraded(Received: any): Days
 			continue
 		end
 
-		local At, Meant = Split(Value)
-		if At == nil then
+		local At, Meant = Flat(Value)
+		if At == nil or Meant == nil then
 			continue
 		end
-		Into(DayOf(At))[Name] = if Meant ~= nil then Meant else true
+		Into(DayOf(At))[Name] = Meant
 	end
 	return Out
 end
 
-local function Find(Received: any, Tag: string, Id: string): any
+local function Find(Received: any, Tag: string, Id: string): (string | true)?
 	if type(Received) ~= "table" then
 		return nil
 	end
 
 	local Name = Key(Tag, Id)
-	local Flat = Received[Name]
-	if Flat ~= nil then
-		return Flat
+	local _, Meant = Flat(Received[Name])
+	if Meant ~= nil then
+		return Meant
 	end
 
 	for _, Bucket in Received do
@@ -147,13 +144,11 @@ local function Has(Received: any, Tag: string, Id: string): boolean
 end
 
 local function Recall(Received: any, Tag: string, Id: string, Print: string?): Recalled
-	local Value = Find(Received, Tag, Id)
-	if Value == nil then
+	local Held = Find(Received, Tag, Id)
+	if Held == nil then
 		return Tags.UNSEEN
 	end
-
-	local Held = Printed(Value)
-	if Held == nil or Print == nil then
+	if type(Held) ~= "string" or Print == nil then
 		return Tags.SAME
 	end
 	return if Held == Print then Tags.SAME else Tags.OTHER

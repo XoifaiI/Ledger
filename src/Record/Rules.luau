@@ -6,7 +6,8 @@
 	Rules: What a rule is, and the rules an append is built from, in the order they run.
 
 	A rule has a check, a change and a test that must hold after the write. Each part is optional. A
-	pass is what a rule remembers between those parts, and every run clears it first.
+	pass is what a rule remembers between those parts, and every run starts a fresh one. Entombed
+	and Leaving each take the time a mark was set, since that time is all they read.
 
 	Legible refuses a record a newer build wrote. Allowed runs the caller's guard. Kept answers Busy
 	while an erase is taking the key off, so nothing lands between its tomb and its removal. Fresh
@@ -16,7 +17,7 @@
 	first write, so a later Default reaches only a key nobody has written. Format raises the version
 	floor. Tomb stamps the envelope, and clears an erase mark or a removal mark that has run out.
 
-	Return type: A table with New, Reset, Readable, Entombed, Leaving, Settle and the eight rules. The types are Pass, Rule and Sift.
+	Return type: A table with Readable, Entombed, Leaving, Settle and the eight rules. The types are Pass, Rule and Sift.
 	Example usage:
 		local Rules = require("./Rules")
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
@@ -51,28 +52,12 @@ export type Rule = {
 
 export type Sift = (Record: Record) -> (Op: Op) -> boolean?
 
-local function Quiet(Pass: Pass)
-	Pass.Silent = true
+local function Entombed(Erased: number?): boolean
+	return type(Erased) == "number" and Clock.Now() - Erased <= Windows.TOMB
 end
 
-local function New(): Pass
-	return { Refused = nil, Silent = false, Notes = {} }
-end
-
-local function Reset(Pass: Pass)
-	Pass.Refused = nil
-	Pass.Silent = false
-	table.clear(Pass.Notes)
-end
-
-local function Entombed(Record: Record): boolean
-	local At = Record.Erased
-	return type(At) == "number" and Clock.Now() - At <= Windows.TOMB
-end
-
-local function Leaving(Record: Record): boolean
-	local At = Record.Removing
-	return type(At) == "number" and Clock.Now() - At <= Windows.LEAVING
+local function Leaving(Removing: number?): boolean
+	return type(Removing) == "number" and Clock.Now() - Removing <= Windows.LEAVING
 end
 
 local function Readable(Key: string, Known: number?, Record: Record)
@@ -99,7 +84,7 @@ local function Allowed(Guard: ((Record) -> boolean)?): Rule
 		Name = "allowed",
 		Check = function(Record: Record, Pass: Pass): Reasons.Reason?
 			if Guard ~= nil and not Guard(Record) then
-				Quiet(Pass)
+				Pass.Silent = true
 			end
 			return nil
 		end,
@@ -110,7 +95,7 @@ local function Kept(Key: string): Rule
 	return {
 		Name = "kept",
 		Check = function(Record: Record): Reasons.Reason?
-			if not Leaving(Record) then
+			if not Leaving(Record.Removing) then
 				return nil
 			end
 
@@ -240,10 +225,10 @@ local function Tomb(): Rule
 		Name = "tomb",
 		Apply = function(Record: Record): Record?
 			Record.Envelope = Kinds.ENVELOPE
-			if not Entombed(Record) then
+			if not Entombed(Record.Erased) then
 				Record.Erased = nil
 			end
-			if not Leaving(Record) then
+			if not Leaving(Record.Removing) then
 				Record.Removing = nil
 			end
 			return Record
@@ -252,9 +237,6 @@ local function Tomb(): Rule
 end
 
 return table.freeze({
-	New = New,
-	Reset = Reset,
-
 	Readable = Readable,
 	Settle = Settle,
 	Legible = Legible,

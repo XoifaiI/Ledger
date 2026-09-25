@@ -8,7 +8,7 @@
 	Canon writes a value out the same way every time, and a buffer goes in by its bytes rather than by
 	where it lives. Of hashes that text into a short name. Bucket reads the first four bytes of the
 	hash as one big endian number, then takes the remainder. A buffer reads the other way round, so
-	Bucket swaps the bytes. Both keep a buffer of their own and hold nothing between calls.
+	Bucket swaps the bytes. Neither holds anything between calls.
 
 	Two servers get the same answer from the same input. Two inputs that differ get different
 	answers. A value carries its type. So does a key that is not a string, or one that reads like a
@@ -25,14 +25,10 @@ local EncodingService = game:GetService("EncodingService")
 
 local HASH = Enum.HashAlgorithm.Blake3
 local DIGEST_BYTES = 6
-local BUCKET_BYTES = 4
 
 local QUALIFIED = "^%a+:"
 local FRAMING = "[%%,=()]"
 local ESCAPES: { [string]: string } = { ["%"] = "%25", [","] = "%2C", ["="] = "%3D", ["("] = "%28", [")"] = "%29" }
-
-local DIGEST = buffer.create(DIGEST_BYTES)
-local BUCKET = buffer.create(BUCKET_BYTES)
 
 local function Compare(Left: any, Right: any): boolean
 	return tostring(Left) < tostring(Right)
@@ -81,13 +77,11 @@ local function Hash(Text: string): string
 end
 
 local function Of(Text: string): string
-	buffer.writestring(DIGEST, 0, Hash(Text), DIGEST_BYTES)
-	return buffer.tostring(EncodingService:Base64Encode(DIGEST))
+	return buffer.tostring(EncodingService:Base64Encode(buffer.fromstring(string.sub(Hash(Text), 1, DIGEST_BYTES))))
 end
 
 local function Bucket(Text: string, Count: number): number
-	buffer.writestring(BUCKET, 0, Hash(Text), BUCKET_BYTES)
-	return bit32.byteswap(buffer.readu32(BUCKET, 0)) % Count
+	return bit32.byteswap(buffer.readu32(buffer.fromstring(Hash(Text)), 0)) % Count
 end
 
 return table.freeze({

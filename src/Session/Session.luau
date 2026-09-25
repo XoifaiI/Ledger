@@ -68,12 +68,13 @@ end
 local Session = {} :: Types.SessionImpl<any>
 Session.__index = Session
 
-local function SettlePending<S>(self: Session<S>, Stored: Record): Record
-	local TxStore = self.TxStore
-	if TxStore and TxStamp.HasPending(Stored) then
-		return Tx.Settle(self.Log, TxStore, self.Key, Stored)
+local function Unparked<S>(self: Session<S>, Stored: Record, Deadline: number): Record
+	local Held = Stored
+	while TxStamp.HasPending(Held) and Clock.Now() < Deadline do
+		Clock.Wait(Windows.POLL)
+		Held = self:Settled((self.Log:Read(self.Key)))
 	end
-	return Stored
+	return Held
 end
 
 local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: string, TxStore: DataStoreWrapper?): Future<Session<S>?, Reason?>
@@ -113,8 +114,13 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 end
 
 function Session.Settled<S>(self: Session<S>, Stored: Record): Record
+	local TxStore = self.TxStore
+	if TxStore == nil or not TxStamp.HasPending(Stored) then
+		return Stored
+	end
+
 	local Ok, Resolved = pcall(function(): Record
-		return SettlePending(self, Stored)
+		return Tx.Settle(self.Log, TxStore, self.Key, Stored)
 	end)
 	if Ok then
 		return Resolved
@@ -172,8 +178,6 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 	table.insert(self.Pending, Op)
 	self.LogBytes += OpBytes + Rebuild.SEPARATOR
 	self:Notify()
-
-	assert(#self.Pending <= MAX_PENDING, "more ops are queued than the cap allows, so the backlog guard let one through")
 	return true, nil
 end
 
@@ -207,18 +211,12 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 
 			local Stored, Waiting = Land()
 			local Deadline = Clock.Now() + Windows.TX + Windows.POLL
+			Stored = Unparked(self, Stored, Deadline)
 			local Tries = 0
-			while Clock.Now() < Deadline do
-				if TxStamp.HasPending(Stored) then
-					Clock.Wait(Windows.POLL)
-					Stored = self:Settled((self.Log:Read(self.Key)))
-					continue
-				end
-				if #Waiting == 0 or Tries >= MAX_APPENDS then
-					break
-				end
+			while #Waiting > 0 and Tries < MAX_APPENDS and not TxStamp.HasPending(Stored) and Clock.Now() < Deadline do
 				Tries += 1
 				Stored, Waiting = Land()
+				Stored = Unparked(self, Stored, Deadline)
 			end
 
 			local Blocked = TxStamp.HasPending(Stored)
@@ -307,26 +305,11 @@ function Session.Compact<S>(self: Session<S>): Future<boolean, Reason?>
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Err = pcall(function()
 			Rebuild.Push(self)
-
-			local Stored = self.Log:Compact(self.Key, self.Shape)
-			if #Stored.Ops > 0 then
-				Rebuild.Rebuild(self, Stored)
-				self:Notify()
-				return
-			end
-
-			local Base: S = self.Shape:Rehydrate(Stored)
-			table.clear(self.Applied)
-			self.State = TableUtil.FreezeDelta(Rebuild.ApplyPending(self, Base, self.Applied))
-			self.Landed = nil
-			self.Parked = 0
-			self.StateBytes = Measure(self.State)
-			self.LogSize = 0
-			self.LogBytes = Measure(Stored.Ops) + Rebuild.SumBytes(self.Pending)
+			Rebuild.Rebuild(self, self.Log:Compact(self.Key, self.Shape))
 			self:Notify()
 		end)
 		if Ok then
-			return true, nil
+			return self.Stopped == nil, self.Stopped
 		end
 
 		warn(`Ledger: compaction for '{self.Key}' failed, so its log just stays long for now: {Err}`)
@@ -338,34 +321,32 @@ function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 	return Future.New(function(): (boolean, Reason?)
 		self.Released = true
 
-		local Stopped = self.Stopped
-		if Stopped ~= nil then
-			if Stopped == REFUSED then
-				warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+		local Whole = true
+		if self.Stopped == nil then
+			local Ok, Err = pcall(function()
+				local _, Landed = Rebuild.Push(self)
+				Whole = Landed ~= false
+			end)
+			if not Ok then
+				warn(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
+				return false, Errors.Reason(Err)
 			end
+		end
+
+		local Stopped = self.Stopped
+		if Stopped == REFUSED then
+			warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+		end
+		if Stopped ~= nil then
 			return false, Stopped
 		end
-
-		local Whole = true
-		local Ok, Err = pcall(function()
-			local _, Landed = Rebuild.Push(self)
-			Whole = Landed ~= false
-		end)
-		if Ok then
-			if not Whole then
-				if self.Stopped == REFUSED then
-					warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
-				end
-				return false, REFUSED
-			end
-			if #self.Pending > 0 then
-				warn(`Ledger: final save for '{self.Key}' left {#self.Pending} op(s) unwritten. they were waiting on a transaction parked on that key and die with this server`)
-			end
-			return true, nil
+		if not Whole then
+			return false, REFUSED
 		end
-
-		warn(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
-		return false, Errors.Reason(Err)
+		if #self.Pending > 0 then
+			warn(`Ledger: final save for '{self.Key}' left {#self.Pending} op(s) unwritten. they were waiting on a transaction parked on that key and die with this server`)
+		end
+		return true, nil
 	end)
 end
 

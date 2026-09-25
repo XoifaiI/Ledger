@@ -17,6 +17,7 @@ local Suite = require("../Suite")
 
 local Ledger = require("../../src") :: any
 local Engine = require("../../src/Util/Engine")
+local Ids = require("../../src/Encode/Ids")
 local Windows = require("../../src/Core/Constants/Windows")
 local Shards = require("../../src/Core/Constants/Shards")
 local Tally = require("../../src/Layers/Tally")
@@ -381,6 +382,10 @@ local function Batching(T: Case, Node: string): Fixture
 	return T:Store({ Default = Reducers.SHELF, Reducer = Reducers.Shopkeeper, Field = "Stock", Node = Node, BumpEvery = 10 })
 end
 
+local function Counted(Id: string): number
+	return tonumber(string.match(Id, ":(%d+)$")) or 0
+end
+
 local function Summed(Shelf: Fixture, Shard: string): (number, number)
 	local Ops = Shelf:Record(Shard).Ops
 	local Total = 0
@@ -422,6 +427,18 @@ Cases.Case("a store that batches its bumps writes one op per tally per window an
 	T:Advance(Windows.TALLY_CACHE + 1)
 	T:Is("the total another server reads", (Other.Store:Total("pot", "Gold"):Wait()), 5)
 	T:Is("and this server's, once more from the shards", (Shelf.Store:Total("pot", "Gold"):Wait()), 5)
+end)
+
+Cases.Case("a queued bump mints no op id until its window writes it", function(T: Case)
+	local Shelf = Batching(T, "batchids")
+
+	local Before = Counted(Ids.Fresh())
+	for _ = 1, 50 do
+		Shelf.Store:Bump("pot", "Gold", 1)
+	end
+	local After = Counted(Ids.Fresh())
+
+	T:Is("op ids minted between two reads of the counter by fifty queued bumps", After - Before - 1, 0)
 end)
 
 Cases.Case("waiting on a queued bump answers once its window is written, the way Commit does", function(T: Case)

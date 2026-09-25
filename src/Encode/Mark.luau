@@ -28,91 +28,49 @@ local FIELD = "\0"
 local LIST = "\1"
 local CACHE = ":"
 
-local ZERO = 48
-local NINE = 57
+local FIELD_HEAD = `^(%d+){FIELD}`
+local LIST_HEAD = `^(%d+){LIST}`
 
-local CACHED_LENGTHS = 256
-
-local FIELD_HEADS: { string } = table.create(CACHED_LENGTHS) :: { [number]: string }
-local LIST_HEADS: { string } = table.create(CACHED_LENGTHS) :: { [number]: string }
-for Size = 0, CACHED_LENGTHS - 1 do
-	local Text = tostring(Size)
-	FIELD_HEADS[Size + 1] = Text .. FIELD
-	LIST_HEADS[Size + 1] = Text .. LIST
-end
-
-local function Digits(Text: string, At: number, Length: number): (number, number)
-	local Index = At
-	local Count = 0
-
-	while Index <= Length do
-		local Byte = string.byte(Text, Index) :: number
-		if Byte < ZERO or Byte > NINE then
-			break
-		end
-
-		Count = Count * 10 + Byte - ZERO
-		Index += 1
+local function Read(Text: string, Head: string, At: number): (string?, number)
+	local _, Stop, Digits = string.find(Text, Head, At)
+	local Size = if Digits ~= nil then tonumber(Digits) else nil
+	if Stop == nil or Size == nil or Stop + Size > #Text then
+		return nil, At
 	end
-
-	return Count, Index
+	return string.sub(Text, Stop + 1, Stop + Size), Stop + Size + 1
 end
 
 local function Of(Store: string, Key: string): string
-	local Size = #Store
-	local Head = FIELD_HEADS[Size + 1]
-	local Front = if Head ~= nil then Head else tostring(Size) .. FIELD
-
-	return Front .. Store .. Key
+	return #Store .. FIELD .. Store .. Key
 end
 
 local function Split(Mark: string): (string?, string?)
-	local Length = #Mark
-	local Count, Index = Digits(Mark, 1, Length)
-
-	if Index == 1 or string.byte(Mark, Index) ~= 0 or Index + Count > Length then
+	local Store, Rest = Read(Mark, FIELD_HEAD, 1)
+	if Store == nil then
 		return nil, nil
 	end
-
-	return string.sub(Mark, Index + 1, Index + Count), string.sub(Mark, Index + Count + 1)
+	return Store, string.sub(Mark, Rest)
 end
 
 local function Pack(Parts: { string }): string
-	local Total = #Parts
-	local Pieces: { string } = table.create(Total * 2) :: { [number]: string }
-	local Cursor = 0
-
-	for Index = 1, Total do
-		local Part = Parts[Index]
-		local Size = #Part
-		local Head = LIST_HEADS[Size + 1]
-		local Front = if Head ~= nil then Head else tostring(Size) .. LIST
-		Pieces[Cursor + 1] = Front
-		Pieces[Cursor + 2] = Part
-		Cursor += 2
+	local Pieces: { string } = table.create(#Parts) :: { string }
+	for Index, Part in Parts do
+		Pieces[Index] = #Part .. LIST .. Part
 	end
-
 	return table.concat(Pieces)
 end
 
 local function Unpack(Packed: string): { string }
-	local Length = #Packed
 	local Parts: { string } = {}
-	local Found = 0
 	local At = 1
-
-	while At <= Length do
-		local Count, Index = Digits(Packed, At, Length)
-
-		if Index == At or string.byte(Packed, Index) ~= 1 or Index + Count > Length then
+	while At <= #Packed do
+		local Part, Next = Read(Packed, LIST_HEAD, At)
+		if Part == nil then
 			return {}
 		end
-
-		Found += 1
-		Parts[Found] = string.sub(Packed, Index + 1, Index + Count)
-		At = Index + Count + 1
+		table.insert(Parts, Part)
+		At = Next
 	end
-
 	return Parts
 end
 

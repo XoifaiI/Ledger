@@ -18,9 +18,11 @@ local Windows = require("../../src/Core/Constants/Windows")
 local Fold = require("../../src/Record/Fold")
 local Log = require("../../src/Record/Log")
 local NewOp = require("../../src/Record/NewOp")
+local Rules = require("../../src/Record/Rules")
 local Schema = require("../../src/Record/Schema")
 local Sizes = require("../../src/Core/Constants/Sizes")
 local Tags = require("../../src/Core/Constants/Tags")
+local Transform = require("../../src/Record/Transform")
 local TxStamp = require("../../src/Record/TxStamp")
 
 local Fault = Suite.Fault
@@ -1338,6 +1340,40 @@ Cases.Case("the record of when a key absorbed its ids stays small and covers wha
 	T:Is("the ids they cover", Covered, #Record.Seen)
 	T:Is("a horizon, once ids were dropped", type(Record.Horizon), "number")
 	T:Is("the horizon, behind the newest run", type(Record.Horizon) == "number" and Record.Horizon <= T:Now() - 60, true)
+end)
+
+local function Rerun(Gates: { boolean }): Transform.Outcome
+	local Open = false
+	local List: { Rules.Rule } = {
+		Rules.Allowed(function(): boolean
+			return Open
+		end),
+		Rules.Fresh({ { Id = "keep", Kind = "Fund" }, { Id = "turn", Kind = "Fund" } } :: any, function()
+			return function(Op: any): boolean?
+				return Op.Id ~= "turn"
+			end
+		end),
+	}
+
+	return Transform.Run(function(_Key: string, Apply: (any) -> any): any
+		local Last: any = nil
+		for _, Gate in Gates do
+			Open = Gate
+			Last = Apply({ Ops = {}, Seen = {} })
+		end
+		local Before = { Ops = {}, Seen = {} }
+		return { Before = Before, After = Last or Before, Changed = Last ~= nil }
+	end, "rerun", List)
+end
+
+Cases.Case("a transform the datastore runs twice starts the second run from a fresh pass", function(T: Case)
+	local Quieted = Rerun({ false, true })
+	T:Is("a second run the guard lets through, after a first run it stopped", Quieted.Changed, true)
+	T:Is("the op the second run wrote", #Quieted.After.Ops, 1)
+
+	local Stopped = Rerun({ true, false })
+	T:Is("a second run the guard stops, after a first run that wrote", Stopped.Changed, false)
+	T:Is("ops the first run turned away, which the second run never judged", Stopped.Notes.Turned, nil)
 end)
 
 return Cases

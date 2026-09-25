@@ -6,7 +6,7 @@
 	Transform: Runs a list of rules against one key.
 
 	Each rule checks, then changes, then answers whether it still holds once the write landed. A
-	datastore can run one transform more than once. Every run clears the pass first, so nothing a rule
+	datastore can run one transform more than once. Every run starts a fresh pass, so nothing a rule
 	wrote survives into the next.
 
 	Return type: A table with Run, which gives back the record before, the record after, and the reason.
@@ -35,11 +35,15 @@ export type Outcome = {
 
 export type Update = (Key: string, Apply: (Record) -> Record?) -> { Before: Record, After: Record, Changed: boolean, Stamp: number? }
 
+local function Fresh(): Pass
+	return { Silent = false, Notes = {} }
+end
+
 local function Run(Update: Update, Key: string, List: { Rule }): Outcome
-	local Pass: Pass = Rules.New()
+	local Pass = Fresh()
 
 	local Result = Update(Key, function(Record: Record): Record?
-		Rules.Reset(Pass)
+		Pass = Fresh()
 
 		local Next: Record = Record
 		for _, Held in List do

@@ -9,18 +9,45 @@
 	and Try answers with a boolean instead. It keeps the threads that finished cleanly and uses them
 	again. Two arguments reach the function and no more. A third would be dropped without a word.
 
-	Return type: A table with Run and Try.
+	A stopped yield is raised as a value of its own that prints as its trace. Yielded tells it from a
+	throw by what it is, never by its text. It passes through an outer guard unchanged, so a yield two
+	deep still reads as a yield.
+
+	Return type: A table with Run, Try and Yielded.
 	Example usage:
 		local NoYield = require("./NoYield")
 		local Value = NoYield.Run(Callback, 1, 2)
 --]=]
 
-local Messages = require("../Core/Constants/Messages")
 local Tagged = require("./Tagged")
 local Threads = require("./Threads")
 
+type Stopped = { Message: string }
+
+local YIELDED = "the callback must complete without yielding"
+
 local DONE = newproxy(false)
 local Idle = Threads.Pool()
+
+local Yield = table.freeze({
+	__tostring = function(Raised: Stopped): string
+		return Raised.Message
+	end,
+})
+
+local function Yielded(Raised: unknown): boolean
+	return type(Raised) == "table" and getmetatable(Raised :: any) == Yield
+end
+
+local function Settled(Raised: unknown): boolean
+	return Tagged.Is(Raised) or Yielded(Raised)
+end
+
+local function Stop(Thread: thread): Stopped
+	local Trace = debug.traceback(Thread, YIELDED)
+	coroutine.close(Thread)
+	return setmetatable({ Message = Trace }, Yield) :: any
+end
 
 local function Serve(Callback: (...any) -> ...any, First: any, Second: any): ...any
 	return coroutine.yield(DONE, Callback(First, Second))
@@ -35,16 +62,14 @@ end
 
 local function Finish(Thread: thread, Success: boolean, Signal: any, ...: any): ...any
 	if not Success then
-		if Tagged.Is(Signal) then
+		if Settled(Signal) then
 			error(Signal, 0)
 		end
 		error(debug.traceback(Thread, tostring(Signal)), 2)
 	end
 
 	if Signal ~= DONE then
-		local Trace = debug.traceback(Thread, Messages.YIELDED)
-		coroutine.close(Thread)
-		error(Trace, 2)
+		error(Stop(Thread), 0)
 	end
 
 	table.insert(Idle, Thread)
@@ -53,16 +78,14 @@ end
 
 local function Answer(Thread: thread, Success: boolean, Signal: any, ...: any): (boolean, ...any)
 	if not Success then
-		if Tagged.Is(Signal) then
+		if Settled(Signal) then
 			return false, Signal
 		end
 		return false, debug.traceback(Thread, tostring(Signal))
 	end
 
 	if Signal ~= DONE then
-		local Trace = debug.traceback(Thread, Messages.YIELDED)
-		coroutine.close(Thread)
-		return false, Trace
+		return false, Stop(Thread)
 	end
 
 	table.insert(Idle, Thread)
@@ -95,4 +118,5 @@ end
 return table.freeze({
 	Run = Run,
 	Try = Try,
+	Yielded = Yielded,
 })

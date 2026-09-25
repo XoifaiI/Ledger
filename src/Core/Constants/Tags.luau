@@ -6,9 +6,9 @@
 
 	A name lives under the tag of what it was. A transfer, a transaction, a Once name and a sent hold
 	cannot collide. MEANT separates the time of a write from the mark of what the name meant, inside
-	the value an entry holds. It reads as the same byte as Shards.PART and never meets it. That one
-	separates a tally name from its shard number, in a key rather than a value. Recalling a name
-	answers Unseen, Same or Other.
+	an entry written before 6.0. Nothing writes it now. It reads as the same byte as Shards.PART and
+	never meets it. That one separates a tally name from its shard number, in a key rather than a
+	value. Recalling a name answers Unseen, Same or Other.
 
 	Return type: A table with the four tags, MEANT and the three recalls. The type is Recalled.
 	Example usage:

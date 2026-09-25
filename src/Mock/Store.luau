@@ -18,7 +18,6 @@
 		local Books = Store.New("Players", "global", Service)
 --]=]
 
-local Messages = require("../Core/Constants/Messages")
 local NoYield = require("../Util/NoYield")
 local Clock = require("../Util/Clock")
 local Datastore = require("../Core/Constants/Datastore")
@@ -228,7 +227,7 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 
 		local Ran, Next = NoYield.Try(Transform, Was, Info)
 		if not Ran then
-			if type(Next) == "string" and string.find(Next, Messages.YIELDED, 1, true) ~= nil then
+			if NoYield.Yielded(Next) then
 				error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)
 			end
 			return nil, nil

@@ -49,6 +49,12 @@ local function Entry(Held: any, Tid: any): Held?
 	return if type(To) == "string" or type(To) == "number" then Found else nil
 end
 
+local function Replaced(Holds: { [string]: Held }?, Tid: string, Hold: Held?): { [string]: Held }?
+	local Next: { [string]: Held } = table.clone(Holds or {})
+	Next[Tid] = Hold
+	return TableUtil.Some(Next)
+end
+
 local function Named(Op: Op, Balance: string?): string?
 	local Field = Op.Field
 	return if type(Field) == "string" then Field else Balance
@@ -78,12 +84,9 @@ local function Reserving(Data: Data, Op: Op, Balance: string?): Data?
 		return nil
 	end
 
-	local Holds: { [string]: Held } = table.clone(Data._Held or {})
-	Holds[Tid] = { To = To, Amount = Amount, At = At, Field = if type(Op.Field) == "string" then Op.Field else nil }
-
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) - Amount
-	Next._Held = TableUtil.Some(Holds)
+	Next._Held = Replaced(Data._Held, Tid, { To = To, Amount = Amount, At = At, Field = if type(Op.Field) == "string" then Op.Field else nil })
 
 	return Next
 end
@@ -101,14 +104,13 @@ local function Delivering(Data: Data, Op: Op, Balance: string?): Data?
 	end
 
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
-	local Received = (Data._Received or {}) :: { [string]: any }
-	if Applied.Has(Received, Tags.TRANSFER, Tid) then
+	if Applied.Has(Data._Received, Tags.TRANSFER, Tid) then
 		return nil
 	end
 
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) + Amount
-	Next._Received = Applied.Remember(Received, Applied.Key(Tags.TRANSFER, Tid), Op.At, Print)
+	Next._Received = Applied.Remember(Data._Received, Applied.Key(Tags.TRANSFER, Tid), Op.At, Print)
 
 	return Next
 end
@@ -129,12 +131,9 @@ local function Expiring(Data: Data, Op: Op, Balance: string?): Data?
 		return nil
 	end
 
-	local Rest = table.clone(Held)
-	Rest[Tid] = nil
-
 	local Next = table.clone(Data)
 	Next[Field] = (Data[Field] or 0) + Found.Amount
-	Next._Held = TableUtil.Some(Rest)
+	Next._Held = Replaced(Held, Tid, nil)
 
 	if Next[Field] < (Data[Field] or 0) then
 		warn(`{Messages.ACCUSED} giving transfer {Tid} back left the sender with less than they started with`)
@@ -157,11 +156,8 @@ local function Settling(Data: Data, Op: Op): Data?
 	end
 
 	local Print = if type(Op.Print) == "string" then Op.Print else nil
-	local Held = table.clone(Holds)
-	Held[Tid] = nil
-
 	local Next = table.clone(Data)
-	Next._Held = TableUtil.Some(Held)
+	Next._Held = Replaced(Holds, Tid, nil)
 	Next._Received = Applied.Remember(Data._Received, Applied.Key(Tags.SENT, Tid), Op.At, Print)
 
 	return Next
