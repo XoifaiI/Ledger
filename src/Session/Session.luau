@@ -222,8 +222,10 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 			end
 
 			local Blocked = TxStamp.HasPending(Stored)
+			local Sure = true
 			if Blocked then
-				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on '{self.Key}'. this answer can change once that clears`)
+				local _, Certain = self.Shape:Certain(Stored, Op.Id)
+				Sure = Certain
 			end
 
 			if Forgotten then
@@ -235,7 +237,10 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 			local Faded = not TxStamp.Holds(Stored, Op.Id) and TxStamp.Carries(Stored, Op.Id)
 			local _, Took = Rebuild.Rebuild(self, Stored, Op.Id)
 			self:Notify()
-			return Took, Blocked or Faded or Forgotten
+			if Blocked and not (Took and Sure) then
+				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was parked on '{self.Key}', and that transaction can still change whether it applies. read the key once it settles`)
+			end
+			return Took and Sure, Blocked or Faded or Forgotten
 		end)
 
 		if not Ok then

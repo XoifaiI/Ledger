@@ -19,6 +19,7 @@ local Ledger = require("../../src") :: any
 local NewOp = require("../../src/Record/NewOp")
 local Session = require("../../src/Session/Session")
 local Windows = require("../../src/Core/Constants/Windows")
+local TxStamp = require("../../src/Record/TxStamp")
 local Registry = require("../../src/Store/Registry")
 local Observer = require("../../src/Util/Observer")
 local Sweep = require("../../src/Store/Registry").Sweep()
@@ -1483,6 +1484,41 @@ Cases.Case("a commit held back by a leg that settles on the same read is written
 	T:Ok("it did not wait for a poll, the leg was already decided", T:Now() - Started < Windows.POLL)
 	T:Is("gold on disk", Bank:Amount("quickcommit"), 30)
 	T:Is("anything left pending", Bank:Pending("quickcommit"), false)
+end)
+
+Cases.Case("a commit that two parked transactions could still overturn is unresolved", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("splitcommit", { Gold = 100, Touches = 0 })
+
+	local Active = Bank:Session("splitcommit")
+	Bank:Marker("splitA", { Status = "Pending", Total = 4, Gen = "sa", At = T:Now(), Adopted = {} })
+	Bank:Marker("splitB", { Status = "Pending", Total = 4, Gen = "sb", At = T:Now(), Adopted = {} })
+	Bank:Park("splitcommit", { Id = "tx:splitA:1", Kind = "Give", Amount = -60, Tx = "splitA", TxGen = "sa", TxAt = T:Now() })
+	Bank:Park("splitcommit", { Id = "tx:splitB:1", Kind = "Fund", Amount = 60, Tx = "splitB", TxGen = "sb", TxAt = T:Now() })
+
+	local Ok, Why = Active:CommitOp({ Id = "split1", Kind = "Give", Amount = -70 } :: any):Wait()
+
+	T:Is("a commit that holds with both legs or neither, but not with only the spend", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Is("it was still written, since it holds both ways the append checks", TxStamp.Holds(Bank:Record("splitcommit"), "split1"), true)
+	T:Is("the legs are still parked", Bank:Pending("splitcommit"), true)
+	T:Warns("it says the answer can still change", "can still change whether it applies", 1)
+end)
+
+Cases.Case("a commit one parked leg cannot overturn answers true", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("surecommit", { Gold = 100, Touches = 0 })
+
+	local Active = Bank:Session("surecommit")
+	Bank:Marker("sureleg", { Status = "Pending", Total = 4, Gen = "sl", At = T:Now(), Adopted = {} })
+	Bank:Park("surecommit", { Id = "tx:sureleg:1", Kind = "Give", Amount = -50, Tx = "sureleg", TxGen = "sl", TxAt = T:Now() })
+
+	local Ok, Why = Active:Commit("Fund", { Amount = 5 }):Wait()
+
+	T:Is("a commit that holds whichever way the leg settles", Ok, true)
+	T:Is("no reason", Why, nil)
+	T:Is("the leg is still parked", Bank:Pending("surecommit"), true)
+	T:Silent("nothing says the answer can change", "can still change whether it applies")
 end)
 
 Cases.Case("a callback that says it handled a player who is still here is told they are stranded", function(T: Case)

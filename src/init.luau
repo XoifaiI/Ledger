@@ -6,16 +6,15 @@
 	Ledger: Player data as a ledger, and not as a document.
 
 	State is a pure fold of an append only log of ops, and there are no session locks. This file is
-	the whole surface a game can reach. New and NewTyped build a store. Id mints a fresh op id. Sweep
-	runs a recovery pass. CloseAll saves everything on the way down. A store takes its datastore as a
-	hook, or Mock puts it on a fake datastore that nothing outlives. It takes no scheduler, since the
-	process keeps one clock.
+	the whole surface a game can reach. New builds a store, typed when it is given the op map. Id
+	mints a fresh op id. Sweep runs a recovery pass. CloseAll saves everything on the way down. A
+	store takes its datastore as a hook, or Mock puts it on a fake datastore that nothing outlives. It
+	takes no scheduler, since the process keeps one clock.
 
-	Return type: A table with Reason, New, NewTyped, Id, Sweep and CloseAll.
+	Return type: A table with Reason, New, Id, Sweep and CloseAll.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
-		local Bank = Ledger.New({ Name = "Bank", Default = { Gold = 0 }, Reducer = Reducer })
-		local Shop = Ledger.NewTyped<<Profile, { Buy: { Item: string } }>>(Options)
+		local Shop = Ledger.New<<Profile, { Buy: { Item: string } }>>(Options)
 --]=]
 
 local RunService = game:GetService("RunService")
@@ -59,8 +58,7 @@ export type Reason = Reasons.Reason
 export type Export = {
 	read Reason: typeof(Reasons),
 
-	read New: <D>(Options: Config<D>) -> Store<D>,
-	read NewTyped: <D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>,
+	read New: <D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>,
 	read Id: () -> string,
 	read Sweep: () -> (),
 	read CloseAll: () -> (),
@@ -68,13 +66,9 @@ export type Export = {
 
 local SHUTDOWN_ATTEMPTS = 2
 
-local function New<D>(Options: Config<D>): Store<D>
-	Validate(Options)
-	return Store.New(Options)
-end
-
-local function NewTyped<D, O>(Options: TypedConfig<D, O>): TypedStore<D, O>
-	return New(Options :: any) :: any
+local function New<D, O>(Options: TypedConfig<D, O>): TypedStore<D, O>
+	Validate(Options :: any)
+	return Store.New(Options :: any) :: any
 end
 
 local function Sweeps(Visit: (Registry.Sweeper) -> ())
@@ -148,7 +142,6 @@ return table.freeze({
 	Reason = Reasons,
 
 	New = New,
-	NewTyped = NewTyped,
 	Id = Ids.Fresh,
 	Sweep = Sweep,
 	CloseAll = CloseAll,

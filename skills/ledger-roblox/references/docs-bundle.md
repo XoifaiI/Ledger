@@ -4,71 +4,73 @@
 
 ## Install [#install]
 
-<Tabs items="['Wally', 'Rojo', 'Model file', 'roblox-ts']">
+<Tabs items={['Wally', 'Rojo', 'Model file', 'roblox-ts']}>
   <Tab value="Wally">
-    ```toml
-    [dependencies]
-    Ledger = "xoifaii/ledger@5.2.1"
-    ```
+```toml
+[dependencies]
+Ledger = "xoifaii/ledger@6.1.0"
+```
   </Tab>
-
   <Tab value="Rojo">
-    Clone the repo and add `src` to your project, as `ServerStorage/Ledger` or anywhere else the server can reach.
+Clone the repo and add `src` to your project, as `ServerStorage/Ledger` or anywhere else the server can reach.
   </Tab>
-
   <Tab value="Model file">
-    Drop the `Ledger` model anywhere the server can reach. It's one module and it has no dependencies.
+Drop the `Ledger` model anywhere the server can reach. It's one module and it has no dependencies.
   </Tab>
-
   <Tab value="roblox-ts">
-    ```
-    npm install @xoifail/ledger
-    ```
-
-    See [Using Ledger from TypeScript](/docs/guides/typescript) for the line your project file needs.
+```
+npm install @xoifail/ledger
+```
+See [Using Ledger from TypeScript](/docs/guides/typescript) for the line your project file needs.
   </Tab>
 </Tabs>
 
-Ledger installs where both sides can see it, so you can keep it next to shared type definitions. It
-still only runs on the server, because only the server can reach a datastore, and requiring it from a
-client says so and stops there.
+You can put Ledger where the client can also see it, next to shared type definitions. It still only
+runs on the server, because only the server can reach a datastore. Requiring it from a client throws
+an error.
 
 ### If you code with an AI agent [#if-you-code-with-an-ai-agent]
 
-Ledger ships an agent skill. It tells the agent which call to use safely, which calls are safe to run
-on a live player's key, and what a bug that quietly duplicates money looks like in your code.
+Ledger ships an agent skill. It tells the agent which call fits each job, which calls are safe to run
+on a live player's key, and what a bug that duplicates money without an error looks like in your code.
 
 ```
 npx skills add XoifaiI/Ledger
 ```
 
 It installs for Claude Code, Codex, Cursor, Copilot, Gemini and the rest in one go, and it carries a
-copy of these docs, so it still answers when the agent can't reach the web.
+copy of these docs, so it still works when the agent can't reach the web.
 
 ## Build a store [#build-a-store]
 
 A store is one datastore name plus the rules for everything under it. Build it once, near the top of
 a server script.
 
-Start simple. One field, and a reducer that hands back the next state or `nil` to refuse:
+Start simple: one field, the ops that change it, and a reducer that returns the next state or `nil`
+to refuse:
 
 ```luau
 local Ledger = require(ServerStorage.Ledger)
 
 export type Profile = {
-	Gold: number
+	Gold: number,
 }
 
-local function Reducer(State: Profile, Op: Ledger.Op): Profile?
+export type Ops = {
+	AddGold: { Amount: number },
+	SpendGold: { Amount: number },
+}
+
+local function Reducer(State: Profile, Op: Ledger.Op<Ops>): Profile?
 	if Op.Kind == "AddGold" then
-		if type(Op.Amount) ~= "number" or Op.Amount <= 0 then
+		if Op.Amount <= 0 then
 			return nil
 		end
 		return { Gold = State.Gold + Op.Amount }
 	end
 
 	if Op.Kind == "SpendGold" then
-		if type(Op.Amount) ~= "number" or Op.Amount > State.Gold then
+		if Op.Amount <= 0 or Op.Amount > State.Gold then
 			return nil
 		end
 		return { Gold = State.Gold - Op.Amount }
@@ -77,7 +79,7 @@ local function Reducer(State: Profile, Op: Ledger.Op): Profile?
 	return nil
 end
 
-local Store = Ledger.New({
+local Store = Ledger.New<<Profile, Ops>>({
 	Name = "PlayerData",
 	Default = { Gold = 100 },
 	Reducer = Reducer,
@@ -85,8 +87,12 @@ local Store = Ledger.New({
 })
 ```
 
-The reducer takes the state and one op and gives back the next state, or `nil` to refuse it. It has
-to be pure. [Writing a reducer](/docs/concepts/reducer) covers the rules and what breaks when you
+`Ops` lists each kind of op and the fields it carries. Every write is checked against it, so a
+misspelled kind or a missing field is an error where you wrote it, and the reducer reads
+`Op.Amount` as a number. See [Typed ops](/docs/concepts/typed-ops).
+
+The reducer takes the state and one op and returns the next state, or `nil` to refuse it. It has to
+be pure. [Writing a reducer](/docs/concepts/reducer) covers the rules and what breaks when you
 don't keep them.
 
 `Balance` is optional. You only need it for [transfers](/docs/guides/transfers), and it names a
@@ -95,19 +101,24 @@ number field that's already in `Default`.
 ### Once there is more than one field [#once-there-is-more-than-one-field]
 
 Writing the next state out by hand stops working as soon as `Default` grows. Any field you don't
-mention is not in the state you handed back, so it is gone from that moment on.
+mention is not in the state you returned, so it is gone from that moment on.
 
 Copy the state and change what you need instead:
 
 ```luau
 export type Profile = {
 	Gold: number,
-	Items: { string }
+	Items: { string },
 }
 
-local function Reducer(State: Profile, Op: Ledger.Op): Profile?
+export type Ops = {
+	AddGold: { Amount: number },
+	PickUp: { Item: string },
+}
+
+local function Reducer(State: Profile, Op: Ledger.Op<Ops>): Profile?
 	if Op.Kind == "AddGold" then
-		if type(Op.Amount) ~= "number" or Op.Amount <= 0 then
+		if Op.Amount <= 0 then
 			return nil
 		end
 
@@ -117,10 +128,6 @@ local function Reducer(State: Profile, Op: Ledger.Op): Profile?
 	end
 
 	if Op.Kind == "PickUp" then
-		if type(Op.Item) ~= "string" then
-			return nil
-		end
-
 		local Next = table.clone(State)
 		Next.Items = table.clone(State.Items)
 		table.insert(Next.Items, Op.Item)
@@ -132,11 +139,11 @@ end
 ```
 
 `table.clone` is shallow, so `Items` needs a copy of its own before you touch it. The state you were
-handed is deep frozen, so writing into it throws on the line that did it rather than breaking a fold
+given is deep frozen, so writing into it throws on the line that did it rather than breaking a fold
 somewhere later.
 
-Deeper than that and the copying gets hard to read. [Advanced
-reducers](/docs/concepts/advanced-reducers) has a `SetPath` for it.
+When state is nested more than one level deep, the copying gets hard to read. [Advanced
+reducers](/docs/concepts/advanced-reducers#changing-nested-state) has a helper for it.
 
 ## Load and unload [#load-and-unload]
 
@@ -170,7 +177,7 @@ print(Session:Get().Gold)          --> 150
 ```
 
 `Apply` is instant. It runs your reducer against live state, updates it, and queues the op for the
-next save. You get back `(boolean, Reason?)`, and `false` means either your reducer refused it or
+next save. It returns `(boolean, Reason?)`, and `false` means either your reducer refused it or
 Ledger did.
 
 When you need the write to be durable before you act on it, use `Commit`:
@@ -192,8 +199,10 @@ Session:Observe():Subscribe(function(State)
 end)
 ```
 
-This fires on every change that goes through, including ones that turn up from another server when a
-transfer or a transaction settles.
+This fires on every change the session applies. A write from somewhere else, such as a transfer or
+a transaction, fires it only once the session reads the key again. That happens at the next autosave
+while it has ops queued, within two minutes while it has none, or when you call `Flush`. See
+[Transactions](/docs/guides/transactions#a-live-session-does-not-know-a-leg-wrote-to-it).
 
 ## Running without a datastore [#running-without-a-datastore]
 
@@ -201,7 +210,7 @@ transfer or a transaction settles.
 limits, no API access, no published place.
 
 ```luau
-local Store = Ledger.New({
+local Store = Ledger.New<<Profile, Ops>>({
 	Name = "PlayerData",
 	Default = { Gold = 100, Items = {} },
 	Reducer = Reducer,
@@ -209,55 +218,52 @@ local Store = Ledger.New({
 })
 ```
 
-The mock is stricter than Studio on purpose, because Studio hands you request budgets a live server
-never gets. See [Testing](/docs/guides/testing).
+The mock is stricter than Studio on purpose, because Studio has request budgets a live server never
+gets. See [Testing](/docs/guides/testing).
 
-## Naming your ops [#naming-your-ops]
+## A store that takes any op [#a-store-that-takes-any-op]
 
-Everything above takes any kind with any fields. Once the kinds settle down, write down what each one
-carries. The checker then holds every write against it, and the reducer reads its fields without a
-cast:
-
-```luau
-export type Ops = {
-	SpendGold: { Amount: number },
-	AddItem: { Item: string },
-}
-
-local Store = Ledger.NewTyped<<Profile, Ops>>(Options)
-```
-
-See [Typed ops](/docs/concepts/typed-ops).
+Leave out the two types, `Ledger.New(Options)`, and the store takes any kind with any fields. That
+suits a store whose ops are still changing. The reducer then gets `Ledger.Op`, every field reads as
+`unknown`, and the reducer has to check each field's type before it uses it. See
+[Typed ops](/docs/concepts/typed-ops).
 
 
 # Overview (https://xoifaii.github.io/LedgerDocs/docs)
 
 
 
-Ledger keeps player data as a log of changes instead of a document you overwrite. You never write
-state. You write down the change you want, a function you own decides if it's allowed, and state is
-what falls out of replaying those changes.
+Ledger stores player data as a log of changes, not as one document that each save overwrites. You
+don't set state directly. You write an op that describes a change, your reducer decides whether it
+is allowed, and the state is what you get from applying every op in order.
 
 ```luau
-local Store = Ledger.New({
+export type Profile = { Gold: number }
+
+export type Ops = {
+	Earn: { Amount: number },
+	SpendGold: { Amount: number },
+}
+
+local Store = Ledger.New<<Profile, Ops>>({
 	Name = "PlayerData",
 	Default = { Gold = 100 },
 	Reducer = function(State, Op)
 		if Op.Kind == "Earn" then
-			if type(Op.Amount) ~= "number" or Op.Amount <= 0 then
+			if Op.Amount <= 0 then
 				return nil
 			end
 			return { Gold = State.Gold + Op.Amount }
 		end
 
 		if Op.Kind == "SpendGold" then
-			if type(Op.Amount) ~= "number" or Op.Amount > State.Gold then
-				return nil -- refused, on every server, forever
+			if Op.Amount <= 0 or Op.Amount > State.Gold then
+				return nil -- refused on every server
 			end
 			return { Gold = State.Gold - Op.Amount }
 		end
 
-		return nil -- an op this build has never heard of
+		return nil -- a kind this reducer doesn't handle
 	end,
 })
 
@@ -265,64 +271,58 @@ Store:Load(Player)
 Store:Expect(Player):Apply("SpendGold", { Amount = 25 })
 ```
 
-Two servers spend the same 100 gold, both writes go through, the fold takes one and refuses the
-other. Every server agrees, every time.
+If two servers both spend the same 100 gold, both writes land. The reducer accepts the first and
+refuses the second. Every server replays the same log, so every server gets the same result.
 
-## Why there's no session lock [#why-theres-no-session-lock]
+## No session locks [#no-session-locks]
 
-A session lock stops the second writer. You pay for that in three ways. A dead server leaves a lease
-someone has to wait out. Whoever is locked waits at the join screen. And nothing can reach a player
-who is offline or on another server.
+Most datastore libraries lock a player's data to one server at a time. That has three costs:
 
-A fold that validates makes the bad state unreachable, so nothing needs unlocking when a server
-crashes. It costs discipline instead. Changes have to be ops with names, and you have to write a
-reducer.
+- A server that crashes keeps the lock until it expires.
+- A player waits at the join screen while another server holds the lock.
+- No server can write to a player who is offline or on another server.
+
+Ledger doesn't lock. Your reducer refuses any op that would break your rules, so bad state is never
+written, and a crash leaves nothing to unlock. In return, every change has to be a named op, and you
+have to write the reducer.
 
 ## What's in it [#whats-in-it]
 
 <Cards>
   <Card title="The fold" href="/docs/concepts/the-fold">
-    State is a pure fold of the log, so every server works out the same answer with no lock.
+    State is the log replayed through your reducer, so every server gets the same result without a lock.
   </Card>
-
   <Card title="Apply and Commit" href="/docs/concepts/apply-and-commit">
-    Apply is instant and local. Commit is durable and tells you whether your op won.
+    Apply changes state on this server immediately. Commit waits for the datastore and tells you whether your op went through.
   </Card>
-
   <Card title="Cross server writes" href="/docs/reference/store">
-    Edit, Transfer and Tx work on any key, online here, elsewhere, or offline.
+    Edit, Transfer and Tx write to any key, whether the player is on this server, another one, or offline.
   </Card>
-
   <Card title="Entity stores" href="/docs/guides/entity-stores">
-    String keys for clans, listings, world records. Shared state no server owns.
+    String keys for data no single player owns, like clans, listings and world records.
   </Card>
-
   <Card title="Transfers" href="/docs/guides/transfers">
-    A balance moved through an escrow, deduped by id, and it fixes itself after a crash.
+    Move a balance between two keys. Each transfer has an id, so it applies once and finishes after a crash.
   </Card>
-
   <Card title="Transactions" href="/docs/guides/transactions">
-    Two phase commit across two to four keys, which can sit in two different stores.
+    Change two to four keys all or nothing. The keys can be in different stores.
   </Card>
-
   <Card title="Once" href="/docs/concepts/once">
-    Name an op after a receipt or an order and it only ever applies once.
+    Name an op after a receipt or an order, and it applies only once.
   </Card>
-
   <Card title="Migrations" href="/docs/guides/migrations">
-    Shape upgrades with a version on them, safe to roll out one server at a time.
+    Change the shape of your data in numbered steps. Safe to roll out one server at a time.
   </Card>
-
   <Card title="Typed ops" href="/docs/concepts/typed-ops">
-    Name what each op carries and the checker holds every write against it.
+    Declare what each op carries, and every write is type checked against it.
   </Card>
 </Cards>
 
-## What it isn't [#what-it-isnt]
+## What Ledger doesn't do [#what-ledger-doesnt-do]
 
-Ledger is server side only. It doesn't replicate to clients, it doesn't do leaderboards or ordered
-stores, and it won't hide a reducer that's wrong. If your reducer reads `os.time()` or
-`math.random()`, two servers will fold the same log into different state. Ledger warns about that in
+Ledger runs on the server only. It doesn't send data to clients, and it has no leaderboards or
+ordered stores. It also can't fix a reducer that is wrong. If your reducer reads `os.time()` or
+`math.random()`, two servers replaying the same log get different state. Ledger warns about this in
 Studio.
 
 
@@ -330,83 +330,96 @@ Studio.
 
 
 
-Some of these are Roblox's and some are Ledger's. The Roblox ones you can't move. The Ledger ones
+Some of these are Roblox's and some are Ledger's. You can't change the Roblox ones. The Ledger ones
 are set below the real limit so you get a clean refusal instead of a failed save.
 
 ## Names and keys [#names-and-keys]
 
-|                | Cap           |                                                   |
-| -------------- | ------------- | ------------------------------------------------- |
-| Store name     | 47 characters | Ledger, so `<Name>_Tx` fits in the datastore's 50 |
-| Entity key     | 50 characters | Roblox                                            |
-| Transfer id    | 64 characters | Ledger                                            |
-| Transaction id | 50 characters | Ledger                                            |
+| | Cap | |
+| --- | --- | --- |
+| Store name | 47 characters | Ledger, so `<Name>_Tx` fits in the datastore's 50 |
+| Entity key | 50 characters | Roblox |
+| Transfer id | 64 characters | Ledger |
+| Transaction id | 50 characters | Ledger |
 
-Player keys are the UserId, so there's nothing to think about there. Entity keys have to be valid
-UTF-8.
+Player keys are the UserId, so they always fit. Entity keys have to be valid UTF-8.
 
 ## Size [#size]
 
-|                         | Cap    |        |
-| ----------------------- | ------ | ------ |
-| Stored value            | 4 MB   | Roblox |
-| Folded state            | 2 MB   | Ledger |
-| One op                  | 1 MB   | Ledger |
-| Unsaved ops             | 1.5 MB | Ledger |
-| Queued ops              | 4096   | Ledger |
-| Reservations on one key | 256    | Ledger |
+| | Cap | |
+| --- | --- | --- |
+| Stored value | 4 MB | Roblox |
+| Folded state | 2 MB | Ledger |
+| One op | 1 MB | Ledger |
+| Unsaved ops | 1.5 MB | Ledger |
+| Queued ops | 4096 | Ledger |
+| Reservations on one key | 256 | Ledger |
 
-State can hold numbers, strings, booleans, tables and buffers. A buffer costs about a third more than
-its length. That is what the datastore charges to store one, and what these caps count.
+State can hold numbers, strings, booleans, tables and buffers. A buffer counts as about a third more
+than its length. The datastore stores a buffer at that size, and these caps count the same size.
 
-State caps at 2 MB rather than 4, which leaves room for the ops sitting on top of the snapshot.
+State caps at 2 MB rather than 4, which leaves room for the ops stored alongside the snapshot.
 
 An op that would push state over the cap is refused with [`Full`](/docs/concepts/reasons). Ops that
 shrink it are still allowed, so a cleanup works when you're already over.
 
-Hitting the unsaved caps gives you [`Backlog`](/docs/concepts/reasons), and in practice that only
+Size also decides how often a key can be written. Roblox lets one key take 4 MB of writes a minute,
+and every write stores the whole record again. An active player saves twice a minute. A player key
+near the 2 MB cap then uses its whole per minute write limit on autosaves, and a `Commit` waits
+behind them. Keep an active player key under about 1 MB.
+
+A key many servers write to reaches the same limit sooner. Once it has taken 2,048 ops, its list of
+seen op ids alone is about 55 KB. At that size, the 4 MB a minute allows about 70 writes a minute
+before the rest of the state is counted.
+
+Hitting the unsaved caps returns [`Backlog`](/docs/concepts/reasons), and in practice that only
 happens when the datastore is down.
 
 Ledger keeps two tables of its own in the state, and they clear on different rules:
 
-|             | Holds                          | Clears after                      |
-| ----------- | ------------------------------ | --------------------------------- |
-| `_Received` | names already applied          | 30 days                           |
-| `_Held`     | units set aside for a transfer | 7 days to deliver, 8 to give back |
+| | Holds | Clears after |
+| --- | --- | --- |
+| `_Received` | names already applied | 30 days |
+| `_Held` | units set aside for a transfer | 7 days to deliver, 8 to give back |
 
-A reservation is not one of them. A hold lives in MemoryStore and takes nothing off the key.
+A reservation is not one of them. A hold lives in MemoryStore and uses no space on the key.
 
 Neither grows with uptime. Each is bounded by how much happened inside its own window.
 
 ## Applied names [#applied-names]
 
-The set of applied ids lives in the state, so it counts against the state cap. It does not grow
-without bound. Every time a name is written into it, anything already in there older than 30 days is
-dropped, whichever kind of name it is.
+The set of applied names lives in the state, so it counts against the state cap. It does not grow
+without bound. Ledger keeps the applied names in one bucket per day. Every time one is written,
+Ledger drops every day's bucket older than 30 days, for every kind of applied name. An applied name
+lasts 30 to 31 days.
 
-That sweep only rebuilds the set when something in it is actually old enough to go, so the usual
-write costs nothing.
+A write copies only the bucket for its own day. The cost of a write does not grow with the names on
+the key.
 
-One entry is about 40 bytes when Ledger picked the id, more if you named the transfer yourself, so a
-rolling 30 day window is nowhere near the state cap for any real player. An entry also carries a short
-fingerprint of what the name meant, which is what lets a name reused for a different amount answer
-[`Spent`](/docs/concepts/reasons) instead of `true`.
+One applied name is about 37 bytes when Ledger picked the id, and more if you chose the id yourself.
+A rolling 30 day window is nowhere near the state cap for any real player. An applied name also
+carries a short fingerprint of the terms. The fingerprint lets an id reused for a different amount
+return [`Spent`](/docs/concepts/reasons) instead of `true`.
 
-`ClearDelivered` runs that sweep early. It cannot drop a delivery id sooner than 30 days, because a
-sender can ask for a refund up to that point and needs the evidence to know the delivery already
-happened.
+`ClearDelivered` drops the day buckets older than 30 days now, rather than at the next write of an
+applied name. It never drops a delivery id younger than 30 days. A sender can ask for a refund up to
+that point, and the refund needs the evidence that the delivery happened.
 
-A key many players write to fills at the rate all of them write to it. Every `Tx` leg and every
-`Transfer` adds one name. One name is about 40 bytes and lasts 30 days. That is about 1,700 of
-them a day on one key before the names alone fill the state cap.
+A key that many players write to fills as fast as all of them write to it. Every `Tx` leg and every
+`Transfer` adds one applied name of about 37 bytes, kept for 30 days. That is about 1,900 a day on
+one key before the applied names alone fill the state cap. A transfer into or out of a full key then
+returns [`Full`](/docs/concepts/reasons), and the money stays where it was. The key still takes
+other writes, and it takes transfers again as old day buckets run out.
 
 `Reserve` adds no name. `Confirm` adds one only when you give it a [`Once`](/docs/concepts/once).
 Stock sold without one has no such ceiling.
 
-A key that reaches the cap stays there. `ClearDelivered` has nothing older than 30 days to drop. Spread the entity over several keys before that point, the same way `Bump` spreads
-a total. See [Entity stores](/docs/guides/entity-stores).
+While the traffic keeps up, the key stays at the cap. Each day bucket that runs out makes room, and
+the next legs and transfers fill it again. `ClearDelivered` cannot help, because nothing on the key
+is older than 30 days. Spread the entity over several keys before that point, the same way `Bump`
+spreads a total. See [Entity stores](/docs/guides/entity-stores).
 
-Naming your transfers `tip:8412` rather than after a random string keeps this set small.
+A short id such as `tip:8412` takes fewer bytes than a random string, which keeps this set smaller.
 
 ## Transactions [#transactions]
 
@@ -415,90 +428,99 @@ Between 2 and 4 legs, and a key can only appear once.
 One key doesn't need a transaction, which is why two is the minimum. `Edit` already applies to a
 single key or refuses it.
 
-The maximum is four because each leg holds up a key while it waits. A leg is written to its key
-first and sits there unresolved, and anything else writing to that key meanwhile answers
+The maximum is four because each leg blocks its key while it waits. A leg is written to its key
+first and stays parked there, and anything else writing to that key meanwhile returns
 [`Busy`](/docs/concepts/reasons). If the server running the transaction dies, another one has to
-abort it, and it may not do that until 30 seconds per leg have passed. Four legs can hold four keys
-for two minutes.
+abort it, and it may not do that until the marker has been unchanged for 30 seconds per leg. Four
+legs can block four keys for two minutes.
 
-A transaction is considered dead after 60 seconds, so another server will abort it on the original's
-behalf. Committed markers get tidied up in the background about an hour later.
+Committed markers get tidied up in the background about an hour later.
 
-A transaction id ages out after 30 days, the same as every other name. A transaction lives at most an
-hour, so 30 days covers the whole protocol many times over. What it does not cover is you reusing the
-same id a month later, which applies it again. Derive ids from the thing being settled and they are
+A transaction id ages out after 30 days, the same as every other applied name. A transaction lives at
+most an hour, so 30 days covers the whole protocol many times over. It does not cover an id reused a
+month later, which applies again. Derive ids from the thing the transaction is for, and they are
 never reused.
 
 ### One key at a time [#one-key-at-a-time]
 
 A key takes one transaction at a time. While a leg is parked on it, every other transaction touching
-that key answers [`Busy`](/docs/concepts/reasons) and stops. `Tx` does not retry a `Busy` for you,
+that key returns [`Busy`](/docs/concepts/reasons) and stops. `Tx` does not retry a `Busy` for you,
 because every server retrying at once would multiply the load on a key that is already contended.
 
 Retry it yourself with a short backoff. Measured against the mock, 8 servers depositing into one bank
 key all get through in about 3 attempts each. 32 servers take about 8 attempts each, and the cost per
 successful transaction goes from 10 requests to over 100.
 
-Plan around this for anything every player writes to, so a guild bank, a global shop, or an event pot.
-Spread the writes across keys where you can, for example one key per guild rather than one for all of
-them. Correctness never suffers from contention, only throughput.
+Plan around this for anything every player writes to, such as a guild bank, a global shop or an event
+total. Spread the writes across keys where you can, for example one key per guild rather than one for
+all of them. Correctness never suffers from contention, only throughput.
 
 ### What an operation costs [#what-an-operation-costs]
 
 Measured on the mock, for the path where nothing fails.
 
-| operation                                  | datastore requests                                                     |
-| ------------------------------------------ | ---------------------------------------------------------------------- |
-| `Peek`, `Edit`, `EditOp`, `Bump`           | 1                                                                      |
-| `Bump`, with `BumpEvery`                   | 0, and one per tally per window                                        |
-| `Peek` with a `MaxAge`, from the copy      | 0, and one MemoryStore unit                                            |
-| `Peek` with a `MaxAge`, refilling the copy | 1, and five units, on one server a minute                              |
-| `Reserve`, `Release`                       | 0, and two MemoryStore units, plus one read on the first hold of a key |
-| `Confirm`                                  | 1, and two MemoryStore units                                           |
-| `Holds`                                    | 0, and one MemoryStore unit                                            |
-| `Transfer`                                 | 3                                                                      |
-| `Tx`, 2 legs                               | 8                                                                      |
-| `Tx`, 4 legs                               | 12                                                                     |
-| `Total`, cached                            | 0, and one MemoryStore unit                                            |
-| `Total`, cold                              | 16, and five units, on one server a minute                             |
+| operation | datastore requests |
+| --- | --- |
+| `Peek`, `Edit`, `EditOp`, `Bump` | 1 |
+| `Bump`, with `BumpEvery` | 0, and one per total per window |
+| `Peek` with a `MaxAge`, from the copy | 0, and one MemoryStore unit |
+| `Peek` with a `MaxAge`, refilling the copy | 1, and five units, on one server a minute |
+| `Reserve`, `Release` | 0, and two MemoryStore units, plus one read on the first hold of a key |
+| `Confirm` | 1, and two MemoryStore units |
+| `Holds` | 0, and one MemoryStore unit |
+| `Transfer` | 3 |
+| `Tx`, 2 legs | 8 |
+| `Tx`, 4 legs | 12 |
+| `Total`, cached | 0, and one MemoryStore unit |
+| `Total`, cold | 16, and five units, on one server a minute |
 
-A transaction costs 4 requests on its marker whatever the leg count, which is why the two leg case is
-the one worth avoiding. A limit that lives on one key is a reservation, not a transaction. See
+A transaction spends 4 requests on its marker whatever the leg count, so the marker is half the cost
+of a two leg transaction. A limit that lives on one key is a reservation, not a transaction. See
 [Reservations and totals](/docs/guides/reservations).
 
 Roblox gives an experience `UpdateAsync` budget of `300 + 20 per CCU` a minute, which works out at
 about 20 writes per player per minute at any real player count. So a player can average roughly 6
 transfers or 2 two leg transactions a minute across the whole experience, before autosave takes its
-share. Autosave itself is cheap and does not scale with how busy a player is, see
+share. Autosave itself is cheap and does not scale with how busy a player is. See
 [Timing](#timing).
 
 ## Transfers [#transfers]
 
-A stranded transfer is redriven for 7 days. After that it expires and refunds. Delivered ids stay in
-the receiver's applied set for 30 days so a late retry can't pay twice.
+Recovery resends an unfinished transfer for 7 days. After that it expires and the sender gets the
+money back. Delivered ids stay in the receiver's applied names for 30 days so a late retry can't pay
+twice.
 
-Recovery handles up to 32 holds per pass, so a key with a lot stranded takes a few passes.
+Recovery handles up to 32 holds per pass, so a key with many unfinished transfers takes a few passes.
 
 ## Reservations and totals [#reservations-and-totals]
 
-A hold lasts 15 minutes, not the 30 days an applied name lasts. Fifteen minutes is the cap as well
-as the default. `Hold` sets a shorter time per reservation, and `Reserve` throws above the cap. A
-checkout that stays open longer calls `Reserve` again under the same Id. A hold lives in MemoryStore,
-so it costs the key nothing and runs out on its own. One key holds 256 at once.
+A hold lasts 15 minutes. That is both the default and the cap. `Hold` sets a shorter time per
+reservation, and `Reserve` throws above the cap. A checkout that stays open longer calls `Reserve`
+again under the same Id. A hold lives in MemoryStore, so it uses no space on the key and expires on
+its own. One key holds 256 at once.
 
 Holds share the experience's MemoryStore quota, `1000 + 120 × concurrent users` request units a
 minute, with totals, transaction leases and followed keys. A `Reserve` or `Release` is two units. A
-`Confirm` is two. A `Holds` is one. A followed key is one unit a tick on each server that follows
-it. The one server that refills the shared copy spends five units and one request each minute. The
-copy has to fit one MemoryStore item, 32 KB of your fields. A bigger key is read from the record by
-every server. Ledger says so once a window.
+`Confirm` is two. A `Holds` is one. A key read through
+[`Follow`](/docs/guides/entity-stores#following-a-key) costs one unit per tick on each server that
+follows it. A tick is every 30 seconds, and slows to every 4 minutes while the key does not change.
+`Follow` and `Peek` with a `MaxAge` read a copy of the key kept in MemoryStore. The one server that
+refills that copy spends five units and one request each minute. The copy has to fit one MemoryStore
+item, 32 KB of your fields. A bigger key is read from the record by every server, and Ledger warns
+about it at most once every 30 seconds.
 
-A total is spread over 16 keys, or the `Shards` the store names, 1 to 99. `Total` answers a sum
-cached in MemoryStore for one request unit. After 60 to 75 seconds that sum is stale. One server
-then reads every key and caches the sum again. A cold total costs that server one request per
-shard. Each server has its own limit between 60 and 75 seconds. One server refills the sum, not
-all of them. `Bump` costs one request and no units. With `BumpEvery` a server pays one request per
-tally per window, however many times it bumps.
+A total is spread over 16 keys, or the `Shards` the store names, 1 to 99. `Total` returns a sum
+cached in MemoryStore, for one request unit. Each server treats that sum as stale after its own time
+between 60 and 75 seconds. Only one server then refills it: it reads every shard, one request each,
+and caches the sum again. The other servers return the cached sum meanwhile. `Bump` costs one
+request and no units. With `BumpEvery` a server pays one request per total per window, however many
+times it bumps.
+
+Each server bumps one shard key, and one shard key takes about 80 writes a minute. With a
+`BumpEvery` of 60, that is about 80 servers on each shard. Set `Shards` to the number of servers
+that bump the total, divided by 80. The default of 16 covers about 1,300 servers. Without
+`BumpEvery`, every bump is its own write, so count bumps a minute instead of servers. Raise `Shards`
+before you need it. Never lower it.
 
 See [Reservations and totals](/docs/guides/reservations).
 
@@ -506,9 +528,9 @@ See [Reservations and totals](/docs/guides/reservations).
 
 Autosave runs every 30 seconds per session, and compacts as well when the log has gotten long.
 
-A session with nothing queued and no transaction parked on it reads every fourth turn. An idle player
-then costs one request every two minutes rather than one every 30 seconds. It writes as soon as there
-is anything to write. Only the check for what other servers did waits.
+A session with nothing queued and no transaction parked on it reads on every fourth autosave. An idle
+player then costs one request every two minutes rather than one every 30 seconds. A session with ops
+queued still writes at the next autosave. Only the read for what other servers did waits.
 
 An autosave is skipped when the server is under 4 requests of write budget, and it warns.
 
@@ -527,8 +549,10 @@ Roblox keeps 30 days of history per key. `History` pages up to 100 at a time and
 
 ## What isn't limited [#what-isnt-limited]
 
-There's no cap on how many servers write the same key at once. The fold is why. It's the one number
-you don't have to plan around.
+There's no lock, so no cap on how many servers write the same key at once. Every server folds the
+same log, so they all agree on the result. A busy key is still limited by throughput: by the write
+rate under [Size](#size), and by one transaction at a time under
+[One key at a time](#one-key-at-a-time).
 
 
 # Releases (https://xoifaii.github.io/LedgerDocs/docs/releases)
@@ -537,407 +561,287 @@ you don't have to plan around.
 
 `+` is new, `-` is gone, `!` is something you have to know about before you upgrade.
 
-## 5.2.1 [#521]
+## 6.1.0 [#610]
+
+There is now one `Ledger.New`. Give it your state and op types for a typed store, or call it plain
+for a store that takes any op. This release also closes a few ways a retry or a race could give the
+wrong result.
 
 ```diff
-+ Improved the reap system again
++ Ledger.New<<Profile, Ops>>(Options) builds a typed store. Ledger.New(Options) still builds an open one
+- Ledger.NewTyped. Use Ledger.New<<Profile, Ops>> instead
++ EditOp, CommitOp and Confirm take IdAt, the time you first sent an op with your own Id. A retry that arrives after the key has dropped that id returns Unresolved instead of applying again
++ Session:Commit compacts a full log once and tries again before it returns Full
++ Session:Commit returns Unresolved when a parked transaction could still change whether its op applies, instead of true
++ A write that arrives while a second Erase removes the key returns Busy instead of being lost
++ A transaction whose marker takes minutes to write stays on the cleanup list, so its legs are still settled if the server stops
+
+! Ledger.NewTyped is gone. Rename each call to Ledger.New, with the same type arguments and options
+! Session:Commit can return Unresolved while a transaction is parked on the key. Don't call Commit again, read the key once it settles
+```
+
+### Upgrading [#upgrading]
+
+Rename `Ledger.NewTyped` to `Ledger.New`. The arguments are the same, so nothing else changes. In
+TypeScript, `Ledger.NewTyped<Profile, Ops>(...)` becomes `Ledger.New<Profile, Ops>(...)`.
+
+Your data needs no migration, and 6.1 and 6.0 servers can run side by side. Until the deploy
+finishes, a 6.0 server ignores `IdAt` and the mark a second `Erase` leaves, and when it compacts a
+key it drops the record of which ids that key has forgotten. A 6.1 server starts that record again at
+its next compaction of the key, so finish the deploy before you rely on `IdAt`.
+
+If you retry `EditOp`, `CommitOp` or `Confirm` with your own `Id`, send `IdAt` with it. See
+[Why a retry is safe](/docs/concepts/handling-failure#why-a-retry-is-safe).
+
+## 6.0.1 [#601]
+
+A small release. `Default` now only reaches new players, and cleaning up after transactions costs
+less.
+
+```diff
++ Changing a value in Default no longer changes players who already have data. It only reaches new players
++ A migration now reaches every player, including one whose data has not been compacted yet
++ The reaper removes a transaction marker in one try instead of spending budget on retries
++ Each run of a transaction gets a marker of its own, so the reaper only ever removes the one it checked
++ The reaper checks that a marker has not changed since it looked before it removes it
++ A transaction Id whose old marker is being cleaned up can run again straight away instead of answering Busy
+```
+
+### Upgrading [#upgrading]
+
+Install the new version. Your data needs no migration.
+
+6.0.1 records a player's starting values the first time it saves them. Install it before you change
+a value in `Default`, so players who already have data keep the values they started with. A player
+that 6.0.1 has not saved yet takes the `Default` in place at that first save.
+
+A transaction Id reused for different terms answers `Busy` while its first run is still in progress,
+and `Spent` once that run went through.
+
+## 6.0.0 [#600]
+
+Most of this release is guard rails. Ledger now stops more mistakes before they reach your data, and
+a busy shared key gets a lot cheaper.
+
+```diff
++ A busy shared key folds about 30 times faster, and its applied names take about a quarter less room
++ A key that is full answers Full to a transfer instead of growing until it stops taking writes
++ Erase waits for money that is still on its way to another player, instead of taking it with the key
++ A transfer Id that two senders share can no longer settle against the wrong delivery
++ Calling Erase twice can no longer let a transfer be paid back after it arrived
++ A migration that edits Ledger's own fields gets them put back, with a warning that names the step
++ A session stops when another server erases its key, instead of showing an empty profile
++ A player who joins twice in one server keeps their data when the older copy leaves
++ Totals stay right while a deploy raises Shards
++ A copy never goes back to an older state than this server already wrote
++ Warnings show their full message instead of a table address
++ Warnings no longer blame an erase or the datastore when another server simply wrote first
++ A transaction the reaper is already cleaning up cannot be committed late
++ What Peek with a MaxAge and Follow give you is frozen, like every other read
++ A server keeps at most 256 copies of keys that nobody follows
+
+! 6.0 writes records in a new format that 5.x cannot read. Do not run the two side by side
+! Erase can answer Busy now. It means money on the key is still being sent. Try again later
+! What Peek with a MaxAge and Follow give you is frozen. Clone it before you change it
+```
+
+### Upgrading [#upgrading]
+
+Stop every 5.x server before you start 6.0, the same way you would for any shutdown. A 5.x server
+cannot read a key that 6.0 has written, so a mixed deploy fails to load some players.
+
+Your data needs no migration. Each key moves to the new format by itself the next time it is written.
+
+Two small things to check in your own code:
+
+- If you change a value you got from `Peek` with a `MaxAge` or from `Follow`, clone it first.
+- If you call `Erase`, treat `Busy` as "not yet" and call it again later. A transfer that cannot be
+  delivered is given back after 8 days, and then the erase goes through.
+
+## 5.4.1 [#541]
+
+```diff
++ Fixed Ledger.Frozen refusing a state that holds a map or array of tables
 ```
 
 ### Upgrading [#upgrading]
 
 Install the new version.
 
-## 5.2.0 [#520]
+## 5.4.0 [#540]
 
 ```diff
-+ Store:EditOp(Key, Op) appends an op with your own id. Sent again, it lands one time
-+ Ledger.Id() API to use the same method Ledger uses to generate ids
-+ Shards on the config sets how many keys a total is spread over, 1 to 99
-+ BumpEvery on the config queues bumps and writes one op per tally per window
-+ A reducer that returns a state for a kind it does not know gets a warning when the store is built
-+ In Studio, state a datastore cannot hold gets a warning at the next save, with the field named
-
-- An edit whose reducer threw answering Refused with no word of the throw
-
-! Reserve answers Busy, not Refused, when a key already holds 256. Ask again, a hold runs out in 15 minutes or less
-! With BumpEvery a Bump's Future answers once its window is written. Wait on it for a durable answer, the way Commit is. Do not wait and a crash can lose the window
++ A typed reducer can return a state whose nested tables are typed read only
++ Ledger.Frozen types a state as read only at every level, in Luau and in TypeScript
 ```
 
-### Upgrading [#upgrading-1]
-
-Install the new version. A game that reads `Refused` from `Reserve` as sold out has to read `Busy`
-as try again.
-
-## 5.1.1 [#511]
-
-```diff
-- Removed an old assert
-- A reap pass that listed all 32 shards at once and ran a small server out of list budget. The sweep sizes a reap pass from the list budget now, one shard on a small server
-```
-
-### Upgrading [#upgrading-2]
+### Upgrading [#upgrading]
 
 Install the new version.
 
-## 5.1.0 [#510]
-
-A key that every server needs is read once for the whole fleet. The measure was 5,000 servers
-that read one 4 KB settings key every 30 seconds. Without the shared copy that was 100,000
-datastore reads in ten minutes. That is 40 MB a minute on one key, against a lane of 25 MB. With
-the shared copy it was 4 reads, at one MemoryStore unit per server per minute.
+## 5.3.0 [#530]
 
 ```diff
-+ Store:Follow(Key) streams the state on one key, kept fresh from one shared copy
-+ Peek takes a MaxAge and answers a copy, this server's own first and the shared one next
-+ A Peek with a MaxAge of 0 reads the record through a claim. A fleet told to refresh reads it once
-+ A copy that a newer build folded answers Behind on an older build, the same as its record
-+ A total is a copy like a followed key. A fleet's first look at a cold pot reads the shards once
-+ Each server has its own stale limit between 60 and 75 seconds. One server refills a copy, not all of them
++ Transaction terms escape commas, brackets, = and %, so two different sets of fields never read as the same
++ Fixed a reaper bug that could half apply a transaction retried under its Id
++ Fixed WaitForLoaded answering nil for a player who rejoined mid load
+- Removed redundant checks
 
-! Follow and Peek with a MaxAge work on string keyed stores only. The copy carries your fields only, never _Received or _Held
-! A cold total costs five MemoryStore units. The two more are so the fleet can read it once
-! A followed state has to fit one MemoryStore item, 32 KB. A bigger key is read from the record
-! A copy shares the MemoryStore quota with holds, totals and leases, at one unit a tick per server
+! A transaction retried on 5.3.0 after it ran on an older server answers Spent if a leg string holds a comma, a bracket, = or %. Read the keys before you run it again under a new Id
 ```
-
-### Upgrading [#upgrading-3]
-
-Install the new version.
-
-## 5.0.1 [#501]
-
-```diff
-+ A confirm under a name an earlier confirm already spent answers Spent
-+ Reserve under a held name for another amount or field answers Spent
-
-- A key that filled up while a transaction was parked on it staying full after the transaction settled
-- An older server's compaction dropping a bump or a transfer on a field only a newer Default defines
-- Minor log improvements
-
-! A booking Id is for one purchase. Reserving under it again once the hold has gone still works, and a confirm under it then answers Spent
-! Confirm reads the hold first, so a purchase is 3 datastore calls and 7 MemoryStore units
-! A commit replayed after its op was folded into the snapshot answers Unresolved, the same as Edit
-```
-
-### Upgrading [#upgrading-4]
-
-Install the new version. The stored record does not change, and your code does not change unless
-it reuses a booking Id from one purchase to the next. Give each purchase its own Id, the order id
-is the usual one.
-
-## 5.0.0 [#500]
-
-The release that takes Ledger to 100k CCU.
-
-A hold moved off the key and into MemoryStore. A total is summed once a minute for the whole fleet
-instead of once a poll on every server. The reaper and the sweep split a pass between them rather
-than every server doing all of it. Measured at \~5,000 servers, the four workloads
-MemoryStore touches cost **1,170,705 datastore calls a minute on 4.x, to just 958 on 5.0**.
-
-| at 100k CCU, per minute                  | 4.x                   | 5.0 |
-| ---------------------------------------- | --------------------- | --- |
-| a pot every server draws every 5 seconds | 960,600 calls         | 616 |
-| reaping every shard                      | 160,004 calls         | 324 |
-| one key the whole fleet is repairing     | 50,000 repairs        | 10  |
-| 32 servers driving one key               | 101 calls per success | 8   |
-
-A purchase is 3 datastore calls and 6 MemoryStore units, and it stays there from 200 servers to
-5,000.
-
-```diff
-+ Holds live in MemoryStore and cost the key nothing
-+ Holds answers what is held on a key
-+ Total reads a sum the whole fleet shares, so a polled pot costs one MemoryStore read
-+ Transfer takes a Field, so any number field moves between keys
-+ Confirm takes your own op, so your reducer decides what a checkout takes
-+ A transaction whose key another server is driving answers Busy at once, for one MemoryStore read
-+ The reaper and the sweep do each shard and each followed key once a minute across the whole fleet
-
-- Grant, and Reserve's To
-- _Booked, and everything that read it
-- The Balance requirement on RecoverTransfers and ClearDelivered
-
-! Confirm is Confirm(Key, Id, Kind, Fields) and needs your op
-! A hold is not in the fold: Peek shows the full field, an Edit can spend held units, and that checkout is Refused
-! Reserve needs MemoryStore, which in Studio means API access on, and answers Unresolved without it
-! A hold that has gone frees its name, and Reserve no longer answers Spent
-! A hold is capped at 15 minutes, so Hold only shortens one and a longer Hold throws. Reserve again under the same Id to keep a checkout open
-! Total is up to two minutes old by default, one window for this server's sum and one for the item it came from. Pass MaxAge for fresher, or zero to read the shards every time
-! 5.0 does not read a reservation a 4.x server made. Drain them before you upgrade
-```
-
-### Upgrading [#upgrading-5]
-
-Install the new version. The stored record does not change, and a store that never called `Reserve`
-needs nothing else.
-
-**Confirm.** Give it the kind and fields of the op that spends the units, the way you would give
-`Edit`, and have your reducer refuse one the field cannot cover. A hold no longer lowers the field, so
-a reducer that spent nothing on confirm now has to.
-
-**Grant.** Reserve without `To` and move the units with `Transfer(From, To, Amount, Id, Field)`. The
-[buying sequence](/docs/guides/reservations#the-buying-sequence) is a hold and two transfers under two
-ids now.
-
-**Studio.** Turn API access on. Without MemoryStore every `Reserve` answers `Unresolved`, and a
-checkout still works, refused by your reducer when the stock has gone.
-
-<Callout type="warn">
-  If your game called `Reserve` on 4.x, drain it before you upgrade. Stop reserving, let every open
-  reservation be confirmed or released, and let the keys compact. A 5.0 server does not apply the old
-  reservation ops, so units a 4.x reservation was still holding come back to the field, and a key
-  whose log still carries one warns that it cannot be compacted until you erase it.
-</Callout>
-
-Do not roll 5.0 out alongside 4.x servers. The two fold a reservation differently, so for the length
-of the deploy the same key reads one way on an old server and another on a new one. Take the servers
-down, or accept that anything reserved in that window is voided.
 
 
 # Advanced reducers (https://xoifaii.github.io/LedgerDocs/docs/concepts/advanced-reducers)
 
 
 
-[Writing a reducer](/docs/concepts/reducer) covers the rules. This is what to do once the state is
-deep, the op kinds run past a dozen, and the if chain stops being readable.
+[Writing a reducer](/docs/concepts/reducer) covers the rules. This page is for a reducer with deep
+state and many op kinds, where one long `if` chain and cloning by hand get hard to read.
 
-Nothing here is a dependency. It's all a few lines you paste into your own project.
+It uses one small module, `Drafts`, which you copy into your project. Ledger does not ship it. The
+full source is at the [end of the page](#the-drafts-module).
 
-## Reaching into nested state [#reaching-into-nested-state]
+## One handler per op kind [#one-handler-per-op-kind]
 
-`table.clone` is shallow and the state is deep frozen, so every level you touch needs its own clone.
-Two levels down that's still fine:
-
-```luau
-local Next = table.clone(State)
-Next.Pets = table.clone(State.Pets)
-Next.Pets[Op.PetId] = table.clone(State.Pets[Op.PetId])
-Next.Pets[Op.PetId].Level += 1
-return Next
-```
-
-Three levels down it stops being readable. Forget one line and you get `attempt to modify a readonly
-table`. Forget it in a branch you rarely reach and you get a fold that disagrees with itself.
-
-Write it once instead:
+Write a table with one function for each kind in your `Ops`, and give it to `Drafts.Reducer`:
 
 ```luau
-local function SetPath<S>(State: S, Path: { any }, Value: any): S
-	local Depth = #Path
-	if Depth == 0 then
-		return Value
-	end
+local Drafts = require(ReplicatedStorage.Drafts)
+local Open = Drafts.Open
 
-	local Root = table.clone(State :: any)
-	local Node = Root
+type Pet = { Name: string, Level: number }
 
-	for Index = 1, Depth - 1 do
-		local Key = Path[Index]
-		local Held = Node[Key]
-		assert(
-			Held == nil or type(Held) == "table",
-			`SetPath: '{tostring(Key)}' holds a {typeof(Held)}, not a table`
-		)
-
-		local Fresh = if Held == nil then {} else table.clone(Held)
-		Node[Key] = Fresh
-		Node = Fresh
-	end
-
-	Node[Path[Depth]] = Value
-	return Root :: any
-end
-```
-
-The whole example above becomes one line:
-
-```luau
-return SetPath(State, { "Pets", Op.PetId, "Level" }, State.Pets[Op.PetId].Level + 1)
-```
-
-Only the path you name gets cloned. Every other subtree stays shared by reference. Ledger then
-re-freezes only what changed.
-
-Incrementing needs the old value first. Give that its own function:
-
-```luau
-local function UpdatePath<S>(State: S, Path: { any }, Change: (Held: any) -> any, Fallback: any?): S
-	local Held: any = State
-	for _, Key in Path do
-		if type(Held) ~= "table" then
-			Held = nil
-			break
-		end
-		Held = Held[Key]
-	end
-
-	return SetPath(State, Path, Change(if Held == nil then Fallback else Held))
-end
-```
-
-```luau
-return UpdatePath(State, { "Pets", Op.PetId, "Level" }, function(Level: number): number
-	return Level + 1
-end, 0)
-```
-
-Setting a path to `nil` removes that key, so there's no separate remove.
-
-Changing two or three fields at the top takes a third one, so you don't clone the root once per
-field:
-
-```luau
-local function Patch<S>(State: S, Changes: { [any]: any }): S
-	local Next = table.clone(State :: any)
-	for Key, Value in Changes do
-		Next[Key] = Value
-	end
-	return Next :: any
-end
-```
-
-```luau
-return Patch(State, { Coins = State.Coins - 250, Owned = State.Owned + 1 })
-```
-
-Those three cover it. `Patch` for fields at the top, `SetPath` to write down a path, `UpdatePath`
-to read one and write it back.
-
-## Dispatching without an if chain [#dispatching-without-an-if-chain]
-
-Past a dozen kinds a table of handlers is easier to read. It also stops you shadowing a branch by
-accident:
-
-```luau
-type Handler = (State: Profile, Op: Ledger.Op) -> Profile?
-
-local Handlers: { [string]: Handler } = {}
-
-function Handlers.SpendGold(State: Profile, Op: Ledger.Op): Profile?
-	if type(Op.Amount) ~= "number" or Op.Amount <= 0 or Op.Amount > State.Gold then
-		return nil
-	end
-	return SetPath(State, { "Gold" }, State.Gold - Op.Amount)
-end
-
-function Handlers.LevelPet(State: Profile, Op: Ledger.Op): Profile?
-	if State.Pets[Op.PetId] == nil then
-		return nil
-	end
-	return UpdatePath(State, { "Pets", Op.PetId, "Level" }, function(Level: number): number
-		return Level + 1
-	end, 0)
-end
-
-local function Reducer(State: Profile, Op: Ledger.Op): Profile?
-	local Handler = Handlers[Op.Kind]
-	if Handler == nil then
-		return nil
-	end
-	return Handler(State, Op)
-end
-```
-
-A missing handler returns `nil`, which is a refusal. An old server should refuse a kind it has never
-heard of. See [ops you don't know](/docs/concepts/reducer#ops-you-dont-know).
-
-### With named ops [#with-named-ops]
-
-A store built with [`NewTyped`](/docs/concepts/typed-ops) hands its reducer the op as one of your
-kinds, so the handler table above will not build against it. A handler typed `Ledger.Op` is wider
-than the reducer that store asks for.
-
-Narrow on `Op.Kind` first and give each kind its own function. `Ledger.OpOf` picks one kind out of
-the map:
-
-```luau
-type Ops = {
-	SpendGold: { Amount: number },
-	LevelPet: { PetId: string },
+type Profile = {
+	Gold: number,
+	Title: string?,
+	Items: { string },
+	Stats: { Level: number, Best: { Score: number } },
+	Pets: { [string]: Pet },
+	Boost: { Until: number }?,
 }
 
-local function SpendGold(State: Profile, Op: Ledger.OpOf<Ops, "SpendGold">): Profile?
-	if Op.Amount <= 0 or Op.Amount > State.Gold then
-		return nil
-	end
-	return SetPath(State, { "Gold" }, State.Gold - Op.Amount)
-end
+type Ops = {
+	AddGold: { Amount: number },
+	Buy: { Item: string },
+	Score: { Score: number },
+	Feed: { Pet: string },
+	Boost: { For: number },
+}
 
-local function LevelPet(State: Profile, Op: Ledger.OpOf<Ops, "LevelPet">): Profile?
-	if State.Pets[Op.PetId] == nil then
-		return nil
-	end
-	return SetPath(State, { "Pets", Op.PetId, "Level" }, State.Pets[Op.PetId].Level + 1)
-end
+local Kinds: Drafts.Handlers<Profile, Ops> = {
+	AddGold = function(State, Op)
+		State.Gold += Op.Amount
+		State.Title = "Rich"
+		return State
+	end,
 
-local function Reducer(State: Profile, Op: Ledger.Op<Ops>): Profile?
-	if Op.Kind == "SpendGold" then
-		return SpendGold(State, Op)
-	elseif Op.Kind == "LevelPet" then
-		return LevelPet(State, Op)
-	end
+	Buy = function(State, Op)
+		table.insert(Open(State).Items, Op.Item)
+		return State
+	end,
 
-	return nil
-end
+	Score = function(State, Op)
+		local Stats = Open(State).Stats
+		Stats.Level += 1
+		local Best = Open(Stats).Best
+		Best.Score = math.max(Best.Score, Op.Score)
+		return State
+	end,
+
+	Feed = function(State, Op)
+		local Pets = Open(State).Pets
+		if Pets[Op.Pet] == nil then
+			return nil
+		end
+		Open(Pets)[Op.Pet].Level += 1
+		return State
+	end,
+
+	Boost = function(State, Op)
+		local Boost = Open(State).Boost
+		if Boost == nil then
+			State.Boost = { Until = Op.For }
+		else
+			Boost.Until += Op.For
+		end
+		return State
+	end,
+}
+
+local Store = Ledger.New<<Profile, Ops>>({
+	Name = "PlayerData",
+	Default = {
+		Gold = 0,
+		Items = {},
+		Stats = { Level = 1, Best = { Score = 0 } },
+		Pets = {},
+	},
+	Reducer = Drafts.Reducer<<Profile, Ops>>(Kinds),
+})
 ```
 
-`Op.Amount` is a number and `Op.PetId` is a string inside their own handlers, so every `type(...)`
-check in this section is gone. Both shapes are read only, so a handler that writes to the op it was
-given stops the build whether it took `Ledger.Op<Ops>` or `Ledger.OpOf`.
+Each handler gets a copy of the state and the op, already narrowed to its kind, so `Op.Amount` in
+`AddGold` is a number. Return the state to accept the op, or `nil` to refuse it.
 
-The if chain comes back with it. A table lookup cannot tell the checker which kind it found, so
-narrowing needs the comparison. Keep the handler table and build that store with `Ledger.New` if
-the dispatch matters to you more than the field types do.
+- **Annotate the table.** `Kinds` has to be a local annotated `Drafts.Handlers<Profile, Ops>`.
+  Without the annotation its functions are not typed.
+- **Every kind needs a handler.** A kind in `Ops` with no handler is a type error. An op of a kind
+  the table does not have is refused, which is what an older server should do with a kind it has
+  never seen. See [ops you don't know](/docs/concepts/reducer#ops-you-dont-know).
+- **The op is read only.** Writing to a field of `Op` is a type error.
 
 <Callout type="warn">
-  Don't put a `__` prefix on your own kinds. Ledger reserves that for its transfer and transaction
+  Don't start your own kinds with `__`. Ledger reserves that prefix for its transfer and transaction
   ops, and `Apply` refuses them with [`Invalid`](/docs/concepts/reasons).
 </Callout>
 
-## Splitting by domain [#splitting-by-domain]
+## Changing nested state [#changing-nested-state]
 
-Once several people are adding kinds, give each domain its own file and its own slice of the state:
+A handler can write top level fields directly, like `State.Gold` above. Nested tables are read only.
+Writing `State.Stats.Level` is a type error, and it throws at runtime if the type checker misses it.
+
+`Open` makes a nested table writable. `Open(State).Items` copies `Items`, puts the copy back into
+`State`, and returns the copy. Open once for each level you go down:
 
 ```luau
--- Pets.luau
-local Pets = {}
+local Best = Open(Open(State).Stats).Best
+Best.Score += 10
+```
 
-function Pets.Handlers.Hatch(Owned: { [string]: Pet }, Op: Ledger.Op): { [string]: Pet }?
-	...
+For a map, open the map and then the entry you change:
+
+```luau
+Open(Open(State).Pets)[PetId].Level += 1
+```
+
+- Only the tables you open are copied. Everything else is shared with the old state.
+- Opening the same table again returns the same copy, so no write is lost.
+- A field that can be `nil`, like `Boost`, opens to `nil` when it is missing. Assign a new table to
+  the field on `State` instead, as the `Boost` handler does above.
+- To add or remove an entry, open the table that holds it: `Open(State).Pets[PetId] = nil`.
+
+### Helpers that read the state [#helpers-that-read-the-state]
+
+A handler's state is not a `Profile`, because its nested tables are read only. A helper that takes
+`State: Profile` does not accept it. Type the helper's parameter `Drafts.View<Profile>` instead:
+
+```luau
+local function CanAfford(State: Drafts.View<Profile>, Cost: number): boolean
+	return State.Gold >= Cost
 end
 ```
 
-Then join them at the top, translating each slice's answer back into a whole profile:
-
-```luau
-local function Reducer(State: Profile, Op: Ledger.Op): Profile?
-	local OnPets = Pets.Handlers[Op.Kind]
-	if OnPets ~= nil then
-		local Next = OnPets(State.Pets, Op)
-		return if Next == nil then nil else SetPath(State, { "Pets" }, Next)
-	end
-
-	local OnQuests = Quests.Handlers[Op.Kind]
-	if OnQuests ~= nil then
-		local Next = OnQuests(State.Quests, Op)
-		return if Next == nil then nil else SetPath(State, { "Quests" }, Next)
-	end
-
-	return nil
-end
-```
-
-A slice handler only sees its own subtree. It cannot reach across and couple two domains by accident.
-If a kind needs both, handle it at the top.
+`View` is read only, so the helper cannot change the state by mistake.
 
 ## What folding costs [#what-folding-costs]
 
 The reducer does not run once per op. It runs once when you `Apply`. It runs again for every op in
-the log, on every read that folds the record. In Studio it runs a third time, when Ledger refolds to
-check the reducer is pure.
+the log, on every read that folds the record. In Studio it runs a third time, when Ledger folds the
+log again to check the reducer is pure.
 
-Work that is O(n) in the size of your state, per op, becomes O(n squared) across a fold. Counting a
-collection to enforce a cap is the usual cause:
+A handler that loops over a table in the state repeats that loop for every op of its kind in the
+log. One fold then costs the number of ops times the size of the table. Counting a collection to
+enforce a cap is the usual cause:
 
 ```luau
 -- every Hatch walks every pet you own
@@ -950,45 +854,42 @@ if Owned >= 200 then
 end
 ```
 
-Keep the count in the state instead and move it with the collection. A log of 128 ops against a
-profile holding 200 pets is 25,600 iterations per fold, on a path that runs on every read.
+A log of 128 ops against a profile holding 200 pets is 25,600 loop steps per fold, on a path that
+runs on every read. Store the count as a field instead, and update it in the handler that adds or
+removes an entry.
 
 ## Keep the result storable [#keep-the-result-storable]
 
-Whatever the reducer returns gets written as JSON. No metatables, no functions, no NaN, no mixing
-array and string keys in one table, no holes in an array.
+Whatever the reducer returns is written as JSON. No metatables, no functions, no NaN, no mixing
+array and string keys in one table, and no gaps in an array.
 
-A hole is easy to make without noticing. The obvious way to remove an item makes one:
-
-```luau
-local Next = table.clone(State)
-Next.Items = table.clone(State.Items)
-Next.Items[Index] = nil     -- leaves a hole
-return Next
-```
-
-Use `table.remove` on the copy, or rebuild the list, so the array stays dense:
+A gap is easy to make by mistake. Setting an array entry to `nil` leaves one:
 
 ```luau
-local Items = table.clone(State.Items)
-table.remove(Items, Index)
-return SetPath(State, { "Items" }, Items)
+Open(State).Items[Index] = nil -- leaves a gap
 ```
 
-Ledger refuses to compact a record whose state it cannot store, and warns with the field name.
+Use `table.remove`, so the array stays dense:
+
+```luau
+table.remove(Open(State).Items, Index)
+```
+
+Ledger will not compact a record whose state it cannot store, and it warns with the field name.
 Nothing is lost. The log keeps growing until you fix it.
 
-## Don't error [#dont-error]
+## Refuse with nil, don't throw [#refuse-with-nil-dont-throw]
 
-Check the op and return `nil`.
+Check the values on the op and return `nil` to refuse:
 
 ```luau
-if type(Op.Amount) ~= "number" then
+if Op.Amount <= 0 then
 	return nil
 end
 ```
 
-A reducer that throws is a bug. Ledger catches it, warns with what was raised, and answers `Refused`. See [check the fields](/docs/concepts/reducer#check-the-fields).
+A handler that throws is a bug. Ledger catches it, warns with the error message, and returns
+`Refused`. See [check the fields](/docs/concepts/reducer#check-the-fields).
 
 ## A worked example [#a-worked-example]
 
@@ -996,11 +897,14 @@ A pet game, with an inventory cap, equip slots, and fusing three pets of the sam
 level higher.
 
 ```luau
+local Drafts = require(ReplicatedStorage.Drafts)
+local Open = Drafts.Open
+
 type Pet = {
 	Species: string,
 	Level: number,
 	Xp: number,
-	Locked: boolean
+	Locked: boolean,
 }
 
 type Profile = {
@@ -1010,28 +914,28 @@ type Profile = {
 	Equipped: { [string]: true },
 	Wearing: number,
 	Slots: number,
-	Discovered: { [string]: true }
+	Discovered: { [string]: true },
+}
+
+type Ops = {
+	Hatch: { PetId: string, Species: string },
+	Feed: { PetId: string, Xp: number },
+	Equip: { PetId: string },
+	Sell: { PetId: string },
+	Fuse: { PetIds: { string }, PetId: string },
 }
 
 local MAX_PETS = 200
 local FUSE_COUNT = 3
 local HATCH_COST = 250
 local LEVEL_XP = 100
-```
 
-`Owned` and `Wearing` are counts of `Pets` and `Equipped`. They are stored so no handler has to walk
-either table.
-
-`Fuse` has nine rules to check, so they get names of their own rather than nine `if`s in a row. Each
-one answers a question you could say out loud.
-
-```luau
 local function NewPet(Species: string, Level: number): Pet
 	return { Species = Species, Level = Level, Xp = 0, Locked = false }
 end
 
 -- can this one pet go into a fuse of this species at this level
-local function Fusable(State: Profile, Id: string, Species: string, Level: number): boolean
+local function Fusable(State: Drafts.View<Profile>, Id: string, Species: string, Level: number): boolean
 	local Pet = State.Pets[Id]
 	if Pet == nil then
 		return false
@@ -1042,8 +946,8 @@ local function Fusable(State: Profile, Id: string, Species: string, Level: numbe
 	return not Pet.Locked and not State.Equipped[Id]
 end
 
--- do these ids name a legal fuse, and if so what are they all
-local function FuseInput(State: Profile, Ids: { string }): Pet?
+-- do these ids name a legal fuse, and if so which pet are they all
+local function FuseInput(State: Drafts.View<Profile>, Ids: { string }): Pet?
 	local Base = State.Pets[Ids[1]]
 	if Base == nil then
 		return nil
@@ -1056,136 +960,115 @@ local function FuseInput(State: Profile, Ids: { string }): Pet?
 		end
 		Counted[Id] = true
 	end
-	return Base
+	return { Species = Base.Species, Level = Base.Level, Xp = Base.Xp, Locked = Base.Locked }
 end
+
+local Kinds: Drafts.Handlers<Profile, Ops> = {
+	Hatch = function(State, Op)
+		if State.Pets[Op.PetId] ~= nil then
+			return nil
+		end
+		if State.Owned >= MAX_PETS or State.Coins < HATCH_COST then
+			return nil
+		end
+
+		State.Coins -= HATCH_COST
+		State.Owned += 1
+		Open(State).Pets[Op.PetId] = NewPet(Op.Species, 1)
+		if State.Discovered[Op.Species] == nil then
+			Open(State).Discovered[Op.Species] = true
+		end
+		return State
+	end,
+
+	Feed = function(State, Op)
+		if Op.Xp <= 0 or State.Pets[Op.PetId] == nil then
+			return nil
+		end
+
+		local Pet = Open(Open(State).Pets)[Op.PetId]
+		local Gained = Pet.Xp + Op.Xp
+		Pet.Xp = Gained % LEVEL_XP
+		Pet.Level += Gained // LEVEL_XP
+		return State
+	end,
+
+	Equip = function(State, Op)
+		if State.Pets[Op.PetId] == nil or State.Equipped[Op.PetId] then
+			return nil
+		end
+		if State.Wearing >= State.Slots then
+			return nil
+		end
+
+		State.Wearing += 1
+		Open(State).Equipped[Op.PetId] = true
+		return State
+	end,
+
+	Sell = function(State, Op)
+		local Pet = State.Pets[Op.PetId]
+		if Pet == nil or Pet.Locked or State.Equipped[Op.PetId] then
+			return nil
+		end
+
+		State.Owned -= 1
+		State.Coins += 50 * Pet.Level
+		Open(State).Pets[Op.PetId] = nil
+		return State
+	end,
+
+	Fuse = function(State, Op)
+		if #Op.PetIds ~= FUSE_COUNT or State.Pets[Op.PetId] ~= nil then
+			return nil
+		end
+
+		local Base = FuseInput(State, Op.PetIds)
+		if Base == nil then
+			return nil
+		end
+
+		local Pets = Open(State).Pets
+		for _, Id in Op.PetIds do
+			Pets[Id] = nil
+		end
+		Pets[Op.PetId] = NewPet(Base.Species, Base.Level + 1)
+		State.Owned -= FUSE_COUNT - 1
+		return State
+	end,
+}
+
+local Store = Ledger.New<<Profile, Ops>>({
+	Name = "Pets",
+	Default = { Coins = 1000, Pets = {}, Owned = 0, Equipped = {}, Wearing = 0, Slots = 3, Discovered = {} },
+	Reducer = Drafts.Reducer<<Profile, Ops>>(Kinds),
+})
 ```
 
-Then the handlers themselves stay short.
+`Owned` and `Wearing` are counts of `Pets` and `Equipped`. They are stored so no handler has to walk
+either table.
 
-```luau
-type Handler = (State: Profile, Op: Ledger.Op) -> Profile?
+Notes on the example:
 
-local Handlers: { [string]: Handler } = {}
+**The fields are `PetId` and `Species`, not `Id` and `Kind`.** `Id` and `Kind` belong to Ledger,
+and `Op.Kind` here is already `"Hatch"`. Name your own fields something else.
 
-function Handlers.Hatch(State: Profile, Op: Ledger.Op): Profile?
-	if type(Op.PetId) ~= "string" or type(Op.Species) ~= "string" then
-		return nil
-	end
-	if State.Pets[Op.PetId] ~= nil then
-		return nil
-	end
-	if State.Owned >= MAX_PETS or State.Coins < HATCH_COST then
-		return nil
-	end
+**The caller picks the id and the random species.** The reducer cannot call `math.random`, so the
+server picks both before the write and puts them on the op.
 
-	local Next = Patch(State, { Coins = State.Coins - HATCH_COST, Owned = State.Owned + 1 })
-	Next = SetPath(Next, { "Pets", Op.PetId }, NewPet(Op.Species, 1))
+**`Counted` in `FuseInput` rejects repeated ids.** Without it, `PetIds = { "a", "a", "a" }` passes
+every other check. The fuse then removes one pet and adds a pet one level higher, so the player
+gets a higher level pet without spending the other two. The removal loop cannot catch it either,
+since removing the same key three times removes it once.
 
-	if State.Discovered[Op.Species] == nil then
-		Next = SetPath(Next, { "Discovered", Op.Species }, true)
-	end
-	return Next
-end
+**`Fusable` and `FuseInput` take `Drafts.View<Profile>`.** They only read, and a handler's state is
+not a `Profile`. See [helpers that read the state](#helpers-that-read-the-state).
 
-function Handlers.Feed(State: Profile, Op: Ledger.Op): Profile?
-	if type(Op.PetId) ~= "string" or type(Op.Xp) ~= "number" or Op.Xp <= 0 then
-		return nil
-	end
+**No handler loops over a table to count it.** `Owned` and `Wearing` change in the same handlers as
+the tables they count, so hatching the two hundredth pet costs the same as the first.
 
-	local Pet = State.Pets[Op.PetId]
-	if Pet == nil then
-		return nil
-	end
-
-	local Gained = Pet.Xp + Op.Xp
-	local Next = SetPath(State, { "Pets", Op.PetId, "Xp" }, Gained % LEVEL_XP)
-	return UpdatePath(Next, { "Pets", Op.PetId, "Level" }, function(Level: number): number
-		return Level + Gained // LEVEL_XP
-	end, 1)
-end
-
-function Handlers.Equip(State: Profile, Op: Ledger.Op): Profile?
-	if type(Op.PetId) ~= "string" then
-		return nil
-	end
-	if State.Pets[Op.PetId] == nil or State.Equipped[Op.PetId] then
-		return nil
-	end
-	if State.Wearing >= State.Slots then
-		return nil
-	end
-
-	local Next = Patch(State, { Wearing = State.Wearing + 1 })
-	return SetPath(Next, { "Equipped", Op.PetId }, true)
-end
-
-function Handlers.Sell(State: Profile, Op: Ledger.Op): Profile?
-	if type(Op.PetId) ~= "string" then
-		return nil
-	end
-
-	local Pet = State.Pets[Op.PetId]
-	if Pet == nil or Pet.Locked or State.Equipped[Op.PetId] then
-		return nil
-	end
-
-	local Next = Patch(State, { Owned = State.Owned - 1, Coins = State.Coins + 50 * Pet.Level })
-	return SetPath(Next, { "Pets", Op.PetId }, nil)
-end
-
-function Handlers.Fuse(State: Profile, Op: Ledger.Op): Profile?
-	if type(Op.PetIds) ~= "table" or #Op.PetIds ~= FUSE_COUNT then
-		return nil
-	end
-	if type(Op.PetId) ~= "string" or State.Pets[Op.PetId] ~= nil then
-		return nil
-	end
-
-	local Base = FuseInput(State, Op.PetIds)
-	if Base == nil then
-		return nil
-	end
-
-	local Next: Profile = State
-	for _, Id in Op.PetIds do
-		Next = SetPath(Next, { "Pets", Id }, nil)
-	end
-	Next = SetPath(Next, { "Pets", Op.PetId }, NewPet(Base.Species, Base.Level + 1))
-
-	return Patch(Next, { Owned = State.Owned - FUSE_COUNT + 1 })
-end
-
-local function Reducer(State: Profile, Op: Ledger.Op): Profile?
-	local Handler = Handlers[Op.Kind]
-	if Handler == nil then
-		return nil
-	end
-	return Handler(State, Op)
-end
-```
-
-Seven things in there need explaining.
-
-**The species is `Op.Species`, and the pet id is `Op.PetId`.** `Id` and `Kind` belong to Ledger, and
-`Op.Kind` here is already `"Hatch"`. Name your own fields something else or Ledger overwrites them
-with a warning.
-
-**The caller picks the id and rolls the species.** The reducer cannot call `math.random`, so both
-arrive on the op. The server rolls, then writes down what it rolled.
-
-**`Counted` in `FuseInput` is the one that matters.** Without it, `PetIds = { "a", "a", "a" }` passes every
-other check. It deletes one pet and hands back one a level higher, which is a duplication exploit.
-The removal loop cannot catch it either, since removing the same key three times removes it once.
-
-**`Fuse` chains `SetPath` down its list.** Each call clones the root and `Pets` again, which is four
-clones for three pets. That is fine here. If you were removing hundreds at once, clone `Pets` once by
-hand and write into that instead.
-
-**Nothing counts anything.** `Owned` and `Wearing` move with the tables they describe, so hatching the
-two hundredth pet costs the same as the first.
-
-**Every refusal is `nil`.** The caller gets `Refused` whether the player was broke, full, or holding a
-locked pet. If you want to tell them which, check before you write:
+**Every refusal is `nil`.** The call returns `Refused` whether the player had too few coins, had no
+free slot, or chose a locked pet. To tell them which, check before you write:
 
 ```luau
 if State.Coins < HATCH_COST then
@@ -1196,22 +1079,266 @@ end
 Session:Apply("Hatch", { PetId = HttpService:GenerateGUID(false), Species = Roll() })
 ```
 
-The reducer still checks. The check in front is for the message, and the one inside is the rule.
+The reducer still checks. The check before `Apply` only chooses the message. The check in the
+reducer enforces the rule.
+
+## The Drafts module [#the-drafts-module]
+
+Copy this into a ModuleScript called `Drafts`, anywhere your reducer can require it.
+
+```luau
+--!strict
+--!optimize 2
+
+--[=[
+
+	Drafts: Writes a reducer as one handler per op kind, on a copy of the state.
+
+	Each handler gets the state with its top level copied, so it can write top level fields and
+	return it. Nested tables stay read only. Open copies one nested table, puts the copy into its
+	parent and returns it writable. A table that is already open is not frozen, so a second Open
+	returns the same copy and keeps the first writes. The handler table has to be an annotated local, or its functions are not typed. View is
+	the state as a helper reads it. A draft is not the state type, since its nested tables are read
+	only, so a helper that only reads takes View.
+
+	Return type: A table with Reducer and Open. The types are Handlers, View, Opener and Op.
+	Example usage:
+		local Kinds: Drafts.Handlers<Profile, Ops> = { AddGold = function(State, Op) ... end }
+		local Reducer = Drafts.Reducer<<Profile, Ops>>(Kinds)
+--]=]
+
+export type function Op(Map: type): type
+	local Arms = {}
+	for Kind, Held in Map:properties() do
+		local Fields = Held.read
+		if Fields == nil then
+			continue
+		end
+		if not Fields:is("table") then
+			error(`op kind '{tostring(Kind)}' has to name the fields it carries, as a table, and it names {tostring(Fields)}`)
+		end
+
+		local Arm = types.copy(Fields)
+		for Name in Fields:properties() do
+			Arm:setwriteproperty(Name, nil)
+		end
+		Arm:setreadproperty(types.singleton("Kind"), Kind)
+		Arm:setreadproperty(types.singleton("Id"), types.string)
+		table.insert(Arms, Arm)
+	end
+
+	if #Arms == 0 then
+		return types.never
+	end
+	if #Arms == 1 then
+		return Arms[1]
+	end
+	return types.unionof(table.unpack(Arms))
+end
+
+export type function View(Shape: type): type
+	local function Frozen(Held: type, Depth: number): type
+		if Depth > 16 then
+			return Held
+		end
+		if Held:is("union") or Held:is("intersection") then
+			local Parts = {}
+			for _, Part in Held:components() do
+				table.insert(Parts, Frozen(Part, Depth + 1))
+			end
+			return if Held:is("union") then types.unionof(table.unpack(Parts)) else types.intersectionof(table.unpack(Parts))
+		end
+		if not Held:is("table") then
+			return Held
+		end
+
+		local Out = types.newtable(nil, nil, Held:metatable())
+		for Name, Field in Held:properties() do
+			if Field.read ~= nil then
+				Out:setreadproperty(Name, Frozen(Field.read, Depth + 1))
+			end
+		end
+		local Indexer = Held:readindexer()
+		if Indexer ~= nil then
+			Out:setindexer(Indexer.index, Frozen(Indexer.result, Depth + 1))
+		end
+		return Out
+	end
+
+	return Frozen(Shape, 0)
+end
+
+export type function Handlers(Shape: type, Map: type): type
+	local function Frozen(Held: type, Depth: number): type
+		if Depth > 16 then
+			return Held
+		end
+		if Held:is("union") or Held:is("intersection") then
+			local Parts = {}
+			for _, Part in Held:components() do
+				table.insert(Parts, Frozen(Part, Depth + 1))
+			end
+			return if Held:is("union") then types.unionof(table.unpack(Parts)) else types.intersectionof(table.unpack(Parts))
+		end
+		if not Held:is("table") then
+			return Held
+		end
+
+		local Out = types.newtable(nil, nil, Held:metatable())
+		for Name, Field in Held:properties() do
+			if Field.read ~= nil then
+				Out:setreadproperty(Name, Frozen(Field.read, Depth + 1))
+			end
+		end
+		local Indexer = Held:readindexer()
+		if Indexer ~= nil then
+			Out:setindexer(Indexer.index, Frozen(Indexer.result, Depth + 1))
+		end
+		return Out
+	end
+
+	if not Shape:is("table") then
+		error(`a draft needs a table state, and this one is {tostring(Shape)}`)
+	end
+
+	local Draft = types.newtable(nil, nil, Shape:metatable())
+	for Name, Field in Shape:properties() do
+		if Field.read ~= nil then
+			Draft:setproperty(Name, Frozen(Field.read, 1))
+		end
+	end
+	local Indexer = Shape:readindexer()
+	if Indexer ~= nil then
+		Draft:setindexer(Indexer.index, Frozen(Indexer.result, 1))
+	end
+	local Gives = types.optional(Frozen(Shape, 0))
+
+	local Out = types.newtable()
+	for Kind, Held in Map:properties() do
+		local Fields = Held.read
+		if Fields == nil then
+			continue
+		end
+		if not Fields:is("table") then
+			error(`op kind '{tostring(Kind)}' has to name the fields it carries, as a table, and it names {tostring(Fields)}`)
+		end
+
+		local Arm = types.copy(Fields)
+		for Name in Fields:properties() do
+			Arm:setwriteproperty(Name, nil)
+		end
+		Arm:setreadproperty(types.singleton("Kind"), Kind)
+		Arm:setreadproperty(types.singleton("Id"), types.string)
+		Out:setreadproperty(Kind, types.newfunction({ head = { Draft, Arm } }, { head = { Gives } }))
+	end
+	return Out
+end
+
+export type function Opener(Parent: type): type
+	local function Open(Held: type): type?
+		if Held:is("union") then
+			local Parts = {}
+			for _, Part in Held:components() do
+				local Opened = Open(Part)
+				if Opened ~= nil then
+					table.insert(Parts, Opened)
+				elseif Part:is("nil") then
+					table.insert(Parts, Part)
+				else
+					return nil
+				end
+			end
+			return types.unionof(table.unpack(Parts))
+		end
+		if not Held:is("table") then
+			return nil
+		end
+
+		local Out = types.newtable(nil, nil, Held:metatable())
+		for Name, Inner in Held:properties() do
+			if Inner.read ~= nil then
+				Out:setproperty(Name, Inner.read)
+			end
+		end
+		local Indexer = Held:readindexer()
+		if Indexer ~= nil then
+			Out:setindexer(Indexer.index, Indexer.result)
+		end
+		return Out
+	end
+
+	local Out = types.newtable()
+	if not Parent:is("table") then
+		return Out
+	end
+	for Name, Field in Parent:properties() do
+		if Field.read ~= nil and Field.write ~= nil then
+			local Opened = Open(Field.read)
+			if Opened ~= nil then
+				Out:setreadproperty(Name, Opened)
+			end
+		end
+	end
+	local Indexer = Parent:readindexer()
+	if Indexer ~= nil then
+		local Opened = Open(Indexer.result)
+		if Opened ~= nil then
+			Out:setindexer(Indexer.index, Opened)
+		end
+	end
+	return Out
+end
+
+type Handler = (State: any, Op: any) -> any
+
+local function Reducer<D, O>(Kinds: Handlers<D, O>): (State: D, Op: Op<O>) -> D?
+	local Held: { [string]: Handler } = Kinds :: any
+
+	return function(State: D, Given: Op<O>): D?
+		local Handle = Held[(Given :: any).Kind]
+		if Handle == nil then
+			return nil
+		end
+		return Handle(table.clone(State :: any), Given)
+	end
+end
+
+local function Open<T>(Parent: T): Opener<T>
+	local Plain: { [any]: any } = Parent :: any
+
+	return setmetatable({}, {
+		__index = function(_, Key: any): any
+			local Current = Plain[Key]
+			if type(Current) ~= "table" or not table.isfrozen(Current) then
+				return Current
+			end
+			local Inner = table.clone(Current)
+			Plain[Key] = Inner
+			return Inner
+		end,
+	}) :: any
+end
+
+return table.freeze({
+	Reducer = Reducer,
+	Open = Open,
+})
+```
 
 
 # Apply and Commit (https://xoifaii.github.io/LedgerDocs/docs/concepts/apply-and-commit)
 
 
 
-Both of them write an op. The difference is when you find out it stuck.
+Both of them write an op. The difference is when you know the op is saved.
 
-|                            | `Apply`              | `Commit`                   |
-| -------------------------- | -------------------- | -------------------------- |
-| Gives you                  | `(boolean, Reason?)` | `Future<boolean, Reason?>` |
-| Yields                     | no                   | yes, on `:Wait()`          |
-| Durable when it answers    | no                   | yes                        |
-| Costs a datastore request  | no                   | yes                        |
-| Sees other servers' writes | no                   | yes                        |
+| | `Apply` | `Commit` |
+| --- | --- | --- |
+| Returns | `(boolean, Reason?)` | `Future<boolean, Reason?>` |
+| Yields | no | yes, on `:Wait()` |
+| Durable when it returns | no | yes |
+| Costs a datastore request | no | yes |
+| Sees other servers' writes | no | yes |
 
 ## Apply [#apply]
 
@@ -1226,24 +1353,24 @@ local Ok, Why = Session:Apply("SpendGold", { Amount = 25 })
 Use it by default, for whatever the player is doing right now. Spending, picking things up,
 progression, stats.
 
-The answer is local. It knows what this server has, and not what another server appended a second
-ago. Normally a player writes from one server only, so that's fine.
+The result is local. It knows what this server has, and not what another server appended a second
+ago. Usually only one server writes to a player's key, so this rarely matters.
 
-### When the answer changes under you [#when-the-answer-changes-under-you]
+### When the result changes later [#when-the-result-changes-later]
 
 `Apply` returns `true` straight away, and the op only reaches the log on the next save. If another
-server wrote to that key in between, the fold can refuse your op when it finally lands, after you
+server wrote to that key in between, the fold can refuse your op when it is saved, after you
 already told the player it worked.
 
-You only see it when two different ops compete for the same rule. The same op twice looks fine, since
-both servers reach the same number either way. Two different ops don't:
+This only happens when an op from each server passes the reducer's check alone, but not both
+together. Two spends that together exceed the balance are the usual case:
 
 ```luau
 -- 100 gold. server A spends 80, server B spends 30, neither knows about the other
 A:Apply("SpendGold", { Amount = 80 })   -- A shows 20
 B:Apply("SpendGold", { Amount = 30 })   -- B shows 70
 
--- both ops reach the log. A's lands first, so B's would take the balance negative
+-- both ops reach the log. A's is saved first, so B's would take the balance negative
 -- and the reducer refuses it. B's player watches 70 become 20
 ```
 
@@ -1257,7 +1384,7 @@ waiting.
 ## Commit [#commit]
 
 `Commit` pushes everything queued, appends the op, waits for the datastore to take it, refolds from
-what came back, and only then answers.
+what came back, and only then returns.
 
 ```luau
 local Ok, Why = Session:Commit("GrantReward", { Item = "Sword" }):Wait()
@@ -1266,13 +1393,13 @@ if Ok then
 end
 ```
 
-Use it when you're about to do something you can't take back. Handing out a purchase, calling a
+Use it when you're about to do something you can't take back. Giving out a purchase, calling a
 webhook, telling another service the thing happened. `true` means the op is in the log, your reducer
 took it, and every server will agree from here on.
 
-The fold runs against the real record, so `Commit` sees other servers' writes. A stuck
-[transaction](/docs/guides/transactions) leg on the key can still change the answer afterwards. When
-that is possible, `Commit` says [`Unresolved`](/docs/concepts/reasons).
+The fold runs against the real record, so `Commit` sees other servers' writes. A parked
+[transaction](/docs/guides/transactions) leg on the key can still change the result afterwards. When
+that is possible, `Commit` returns [`Unresolved`](/docs/concepts/reasons).
 
 ## CommitOp [#commitop]
 
@@ -1291,17 +1418,17 @@ local Ok, Why = Session:CommitOp({
 `Id` and `Kind` are required. `Once` is optional, and it makes the op apply at most one time on that
 key. See [Once](/docs/concepts/once).
 
-## Which one [#which-one]
+## Which one to use [#which-one-to-use]
 
 Apply for gameplay, Commit for side effects.
 
-If the player wouldn't notice a rollback, `Apply`. If someone would file a ticket about it,
-`Commit`.
+If the player would not notice a rollback, use `Apply`. If a rollback would make the player report
+a problem, use `Commit`.
 
 ## Flush [#flush]
 
 `Session:Flush()` pushes queued ops without adding one. Autosave calls it. You rarely need it
-yourself, but it's there for the moment before you do something risky:
+yourself. Call it when the queued ops must be saved before your next step:
 
 ```luau
 Session:Flush():Wait()
@@ -1309,15 +1436,16 @@ Session:Flush():Wait()
 
 ## Many ops, one request [#many-ops-one-request]
 
-A flush writes the whole queue in one request. The number of ops does not change this. Use it when
-one action of a player must change more than one part of their data.
+A flush writes the whole queue in one request. The number of ops does not change this. When one
+action of a player must change more than one part of their data, queue each op with `Apply` and
+flush once.
 
-| call             | requests                                |
-| ---------------- | --------------------------------------- |
-| `Session:Apply`  | none                                    |
-| `Session:Flush`  | one, for the whole queue                |
+| call | requests |
+| --- | --- |
+| `Session:Apply` | none |
+| `Session:Flush` | one, for the whole queue |
 | `Session:Commit` | one, or two when ops are already queued |
-| `Store:Edit`     | one, and it takes one op                |
+| `Store:Edit` | one, and it takes one op |
 
 ```luau
 Session:Apply("Coins", { Amount = 500 })
@@ -1325,53 +1453,59 @@ Session:Apply("Sword")
 Session:Flush():Wait()
 ```
 
-Two ops, and one request. Three `Commit` calls cost three requests. Each `Commit` is durable before
-it answers. A `Commit` also writes the queued ops first, if there are any.
+Two ops, and one request. Two `Commit` calls would cost two requests. Each `Commit` is saved before
+it returns. A `Commit` also writes the queued ops first, if there are any.
 
-The ops go in together. Each op is still folded on its own. If the reducer refuses one op, the
-other ops stay applied. Write one op when a grant must be all or nothing. Let the reducer make each
-change for that one op. One op cannot apply in part.
+The ops are saved in one request, but each op is folded on its own. If the reducer refuses one op,
+the other ops stay applied. When a grant must be all or nothing, make it one op, and let its reducer
+branch make every change. One op applies in full or not at all.
 
 
 # Handling failures (https://xoifaii.github.io/LedgerDocs/docs/concepts/handling-failure)
 
 
 
-Most code only cares about two things: did it work, and can I ask again.
+Most code only cares about two things: did it work, and is it safe to retry.
 
 ```luau
 local Ok, Why = Store:Edit(UserId, "GrantItem", { Item = "Sword" }):Wait()
 
 if Ok then
-	-- it went through, and a retry under the same id would answer true again
+	-- it applied, and a retry under the same id would return true again
 elseif Why == Ledger.Reason.Unresolved or Why == Ledger.Reason.Busy then
-	-- no answer yet, ask again later with the same id
+	-- no result yet, retry later with the same id
 else
 	-- Refused, Spent, Closed, Backlog, Full, Invalid, Behind:
-	-- it didn't happen, and asking again with this id won't change that
+	-- it didn't apply, and a retry with this id won't change that
 end
 ```
 
-Reads answer the same way with the value in front:
+Reads return `(value?, Reason?)`, with the value first:
 
 ```luau
 local State, Why = Store:Peek(UserId):Wait()
 if State == nil then
-	-- Why says which of the failures it was
+	-- Why is the reason the read failed
 	return
 end
 ```
 
-A key nobody has ever written folds to your `Default`, so a read never gives you `nil` on success.
+A key nobody has ever written folds to your `Default`, so a read never returns `nil` on success.
 `nil` always means it failed.
 
 ## Why a retry is safe [#why-a-retry-is-safe]
 
 Every op carries an id, and an id applies at most once while the key remembers it. A key remembers
-an op while it is in the log, and for the next 2048 ops it absorbs. A retry that already went
-through answers `true` and moves nothing the second time. A [`Once`](/docs/concepts/once) name, a
-transfer id and a transaction id are remembered for 30 days instead. Use one of those for anything
-that may be retried later than the key remembers it.
+an op id while the op is in the log. After compaction, it keeps the ids of the newest 2048 compacted
+ops. A retry that already applied returns `true` and changes nothing the second time. A
+[`Once`](/docs/concepts/once) name, a transfer id and a transaction id are remembered for 30 days
+instead. Use one of those for anything that may be retried later than the key remembers it.
+
+An op you send with your own `Id`, through `EditOp`, `CommitOp` or `Confirm`, can also carry
+`IdAt`, the `os.time()` when you first sent the op. Send the same `IdAt` on every retry. When
+the key has dropped the ids from that time, the retry returns
+[`Unresolved`](/docs/concepts/reasons#unresolved) and applies nothing. Without `IdAt`, that retry
+applies a second time.
 
 The id has to be the same one. Build it before the call and keep it for the retry:
 
@@ -1380,7 +1514,7 @@ local OrderId = `order:{Receipt.PurchaseId}`
 
 local Ok, Why = Store:Edit(UserId, "Grant", { ProductId = 123, Once = OrderId }):Wait()
 if Why == Ledger.Reason.Unresolved then
-	-- same OrderId, so the retry costs nothing if the first one applied
+	-- same OrderId, so DidApply can tell whether the first call applied
 	Ok = Store:DidApply(UserId, OrderId):Wait() == true
 end
 ```
@@ -1390,31 +1524,31 @@ second time.
 
 ## Unresolved [#unresolved]
 
-Ledger doesn't know whether the write applied. `Unresolved` does not mean no. Treat it as a refusal
-and you will eventually refuse something that already went through, which costs you money.
+Ledger doesn't know whether the write applied. `Unresolved` does not mean no. If you treat it as a
+refusal and send the change again under a new id, it can apply twice.
 
-**Retry with the same id.** See above. Without an id you have no way to ask again safely.
+**Retry with the same id.** See above. A retry under a new id is not safe.
 
-**Ask instead of guessing.** [`Store:DidApply(Key, Name)`](/docs/reference/store#didapply) says
-whether a `Once` name applied. Compare it against `true`, because a failed read gives `nil`.
+**Ask instead of guessing.** [`Store:DidApply(Key, Name)`](/docs/reference/store#didapply) returns
+whether a `Once` name applied. Compare it against `true`, because a failed read returns `nil`.
 
-**In `ProcessReceipt`, answer `NotProcessedYet`.** Roblox calls you again, and the next call gets a
-straight answer. The full pattern is in [Once](/docs/concepts/once#processreceipt).
+**In `ProcessReceipt`, return `NotProcessedYet`.** Roblox calls `ProcessReceipt` again, and the next
+call gets a definite result. The full pattern is in [Once](/docs/concepts/once#processreceipt).
 
-**For a stuck leg, [`Store:Resettle(Key)`](/docs/reference/store#resettle) settles it now** instead
+**For a parked leg, [`Store:Resettle(Key)`](/docs/reference/store#resettle) settles it now** instead
 of waiting for the sweep. `true` means the key has nothing unfinished on it.
 
 ## Spent [#spent]
 
 Nothing was applied. `Spent` looks like success and it isn't.
 
-For a transfer the money is **back with the sender**. Hand out the item on a `Spent` and you have
-paid for something that was refunded.
+For a transfer the money is **back with the sender**. If you give out the item on `Spent`, the
+sender gets the item and keeps the money.
 
-`true` is the answer that means "already happened". Call `Transfer` again with an id that delivered,
-or `Tx` again with an id that committed, and you get `true` with nothing moved.
+`true` is the result that means "already happened". Call `Transfer` again with an id that delivered,
+or `Tx` again with an id that committed, and it returns `true` and moves nothing.
 
-So on `Spent`, decide what to do about a name you can't reuse. Read the keys, pick a new id, or tell
+So on `Spent`, decide what to do about an id you can't reuse. Read the keys, pick a new id, or tell
 the player it didn't go through. See [Ids and retries](/docs/guides/transfers#ids-and-retries) and
 [The id](/docs/guides/transactions#the-id).
 
@@ -1429,18 +1563,18 @@ nothing changes until the deploy finishes.
 </Callout>
 
 Pass [`OnLoadFailed`](/docs/reference/ledger#onloadfailed) if you deploy while people are playing. A
-rejoin puts them back on the same old server, so `Behind` wants a teleport. See
+rejoin puts the player back on a server with the old build, so handle `Behind` with a teleport. See
 [Rolling deploys](/docs/guides/migrations#rolling-deploys).
 
-## The rest [#the-rest]
+## Other reasons [#other-reasons]
 
-| Reason    | What to do                                                                                                                    |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `Refused` | Your own rule said no. Tell the player.                                                                                       |
-| `Busy`    | Retry in a few seconds. See [Stuck legs](/docs/guides/transactions#stuck-legs).                                               |
-| `Closed`  | The session is gone. Write before `Unload`, see [Shutting down](/docs/guides/sessions#shutting-down).                         |
-| `Backlog` | Saves aren't going through. Stop writing and look at the datastore, see [Autosave](/docs/guides/sessions#autosave).           |
-| `Full`    | Remove something first, see [Size](/docs/limits#size).                                                                        |
+| Reason | What to do |
+| --- | --- |
+| `Refused` | Your reducer returned `nil`. Tell the player. |
+| `Busy` | Retry in a few seconds. See [Parked legs](/docs/guides/transactions#parked-legs). |
+| `Closed` | The session is gone. Write before `Unload`, see [Shutting down](/docs/guides/sessions#shutting-down). |
+| `Backlog` | Saves aren't going through. Stop writing and look at the datastore, see [Autosave](/docs/guides/sessions#autosave). |
+| `Full` | Remove something first, see [Size](/docs/limits#size). |
 | `Invalid` | A bug in the calling code. Ledger warns with the field, see [What you can store](/docs/concepts/the-fold#what-you-can-store). |
 
 
@@ -1448,9 +1582,9 @@ rejoin puts them back on the same old server, so `Behind` wants a teleport. See
 
 
 
-Every op Ledger writes already has an id, so a retry can't apply twice. The catch is that the id is
-generated when the op is made, so if your code crashes and rebuilds the op, it's a different op with
-a different id, and it applies again.
+Every op Ledger writes already has an id, so a retry can't apply twice. But that id is generated
+when the op is built. If your code crashes and builds the op again, the new op has a new id, and it
+applies a second time.
 
 `Once` fixes that. You give the op a name that comes from outside your game, and Ledger applies it
 at most one time on that key.
@@ -1465,27 +1599,27 @@ Session:CommitOp({
 ```
 
 The name is remembered inside the profile, under `_Received`, so it survives a compaction, a rejoin,
-and two servers racing the same replay.
+and two servers processing the same receipt at once.
 
 ## ProcessReceipt [#processreceipt]
 
-This is what `Once` was built for. Roblox keeps calling `ProcessReceipt` until you answer
-`PurchaseGranted`. There is no timer on it. A receipt you answered `NotProcessedYet` on comes back
+This is what `Once` was built for. Roblox keeps calling `ProcessReceipt` until you return
+`PurchaseGranted`. There is no timer on it. A receipt you returned `NotProcessedYet` for comes back
 when the player buys another developer product on this server, or when they join any server in the
 experience again.
 
-Roblox can also fail to record your answer after you already said granted, so a retry follows a
-perfectly healthy grant. Two servers can even run the same receipt at the same time if the player
-joins the second one before the first answered.
+Roblox can also fail to record your return value after you returned `PurchaseGranted`, so it calls
+again for a grant that already worked. Two servers can even run the same receipt at the same time
+if the player joins the second one before the first returned.
 
 <Callout type="warn">
   Assign `MarketplaceService.ProcessReceipt` as early as you can. Roblox acknowledges receipts on its
-  own while no callback is assigned, and an acknowledged receipt can never be handed back. Assign it
+  own while no callback is assigned, and an acknowledged receipt can never be given back. Assign it
   first and let the callback yield for your store, instead of loading the store and then assigning.
 </Callout>
 
-So the grant has to happen at most once, and you still have to say granted on every replay after
-that.
+So the grant has to happen at most once, and you still have to return `PurchaseGranted` on every
+replay after that.
 
 ```luau
 MarketplaceService.ProcessReceipt = function(Receipt)
@@ -1513,16 +1647,16 @@ MarketplaceService.ProcessReceipt = function(Receipt)
 end
 ```
 
-Three things in there need explaining.
+Notes on the example:
 
 **`WaitForLoaded`, not `Get`.** The callback fires as the player joins, which can be before their
 profile is loaded, and a `ProcessReceipt` callback is allowed to yield for as long as the server
-runs. Answering `NotProcessedYet` because the session wasn't ready spends a whole retry, and the next
-one waits for another purchase or a rejoin.
+runs. If you return `NotProcessedYet` because the session wasn't loaded, Roblox does not call again
+until the player buys another product or rejoins.
 
-**`DidApply`, not the Commit result.** `Commit` tells you whether this call changed anything. The
-first one did. Every replay after it doesn't, and every replay after it is still a granted purchase.
-`DidApply` answers the question Roblox is actually asking.
+**`DidApply`, not the Commit result.** `Commit` returns whether this call applied the op. Only the
+first call does. Every replay returns `false`, but the purchase was still granted. `DidApply`
+returns whether the name ever applied, which is what `ProcessReceipt` needs.
 
 ```luau
 Store:Edit(UserId, "ProductGrant", { ProductId = 123, Once = "receipt:abc" }):Wait()
@@ -1535,29 +1669,29 @@ Store:DidApply(UserId, "receipt:abc"):Wait()
 --> true, nil
 ```
 
-A replay answers `Refused`. Your reducer answers `Refused` too, so the boolean cannot tell you which
-one happened. `DidApply` can.
+A replay returns `Refused`. When your reducer returns `nil`, the call also returns `Refused`, so the
+boolean cannot tell you which one happened. `DidApply` can.
 
-**Check `Unresolved` first.** It means there's no settled answer yet, so `DidApply` might be reading
-a fold that a stuck transaction can still flip. Answer `NotProcessedYet` and let the retry ask again
-once things are settled.
+**Check `Unresolved` first.** It means there is no settled result yet, so `DidApply` might read a
+fold that a parked transaction can still change. Return `NotProcessedYet`, and the next call checks
+again.
 
 <Callout type="warn">
-  Never answer `PurchaseGranted` for something you aren't sure went through. An unresolved purchase
+  Never return `PurchaseGranted` for something you aren't sure applied. An unresolved purchase
   is never refunded, so the player loses the Robux and gets nothing.
 </Callout>
 
-## Ids you pick yourself [#ids-you-pick-yourself]
+## Other ids to name an op with [#other-ids-to-name-an-op-with]
 
-`Once` is for any id you didn't make up on the spot. A support tool order, a webhook delivery, a
-gamepass unlock.
+A receipt is one id `Once` can use. Any id that comes from outside the call works the same way: a
+support tool order, a webhook delivery, a gamepass unlock.
 
 ### Gamepasses [#gamepasses]
 
 A gamepass has no `ProcessReceipt` and no receipt id. Roblox stores whether the player owns the pass,
 so you don't have to. You store what the pass gave them.
 
-`UserOwnsGamePassAsync` answers whether they own it. Two things about it cost money.
+`UserOwnsGamePassAsync` returns whether they own it. Two things about it need care.
 
 <Callout type="warn">
   `UserOwnsGamePassAsync` throws when the request fails, and it fails often under load. Wrap it in a
@@ -1565,11 +1699,11 @@ so you don't have to. You store what the pass gave them.
   the pass away from a player who paid for it.
 </Callout>
 
-Roblox caches the answer per player, per pass, per server. A purchase made in your experience updates
+Roblox caches the result per player, per pass, per server. A purchase made in your experience updates
 that cache when `PromptGamePassPurchaseFinished` fires, so you don't have to track it yourself. A
 purchase made outside the experience takes several minutes to reach the cache.
 
-So the only thing you have to add is the `nil`:
+So `OwnsPass` only has to add a third result, `nil`, for a failed check:
 
 ```luau
 -- true owns it, false does not, nil the check failed and you should not act on it
@@ -1639,11 +1773,11 @@ end
 `== true`, so a failed check does nothing this time. Call `GrantPass` for every pass they own. The
 reducer refuses the ones they already have, so you don't have to work out which are new.
 
-With a reducer guard like that one, the `Once` name is doing nothing you need. Keep it for a grant
-your reducer can't check, like a one off currency top up, where the name is the only thing between
-you and paying twice.
+With a reducer check like that one, you do not need the `Once` name. Keep `Once` for a grant your
+reducer can't check, like a one off currency top up. There the name is the only thing that stops a
+second grant.
 
-### Someone who isn't in this server at all [#someone-who-isnt-in-this-server-at-all]
+### Granting to a player who is not on this server [#granting-to-a-player-who-is-not-on-this-server]
 
 ```luau
 local function GrantOffline(Store, UserId: number, ProductId: number, OrderId: string): (boolean, Ledger.Reason?)
@@ -1660,18 +1794,17 @@ with a reason instead of being mistaken for "not granted".
 
 ## DidApply [#didapply]
 
-`Session:DidApply(Name)` and `Store:DidApply(Key, Name)` both answer whether a `Once` name ever
+`Session:DidApply(Name)` and `Store:DidApply(Key, Name)` both return whether a `Once` name ever
 applied on that key. The session version reads live state, returns a plain `boolean`, and can't
-fail. The store version reads the record and gives you a `Future<boolean?, Reason?>`.
+fail. The store version reads the record and returns a `Future<boolean?, Reason?>`.
 
 <Callout type="warn">
-  `Store:DidApply` answers `nil` when it couldn't read the record at all, which is not the same as
-  `false`. Compare against `true`, not truthiness, or a datastore hiccup reads as "never granted"
-  and you hand out the reward a second time.
+  `Store:DidApply` returns `nil` when it couldn't read the record at all, which is not the same as
+  `false`. Compare against `true`, not truthiness, or a failed read looks like "never granted" and
+  you give out the reward a second time.
 </Callout>
 
-It's asking about the name, not about this call, which is exactly why it's the right thing to check
-on a replay.
+`DidApply` checks the name, not this call, so it returns `true` on every replay.
 
 <Callout type="warn">
   A name lives on one key of one store. Ask `DidApply` on the store that the name was written to.
@@ -1679,28 +1812,24 @@ on a replay.
   A handler can grant on a profile store and record the sale on a second store. It then needs one
   name for each store. Check each name on its own store.
 
-  If you ask the profile store about a name on the record store, the answer is always `false`. The
-  write is refused because it is a replay. The check says that it never landed. The handler never
-  finishes, and the receipt comes back for ever.
+  If you ask the profile store about a name on the record store, the result is always `false`. The
+  write returns `Refused` because it is a replay, and the check returns `false`. The callback never
+  returns `PurchaseGranted`, so Roblox retries the receipt forever.
 </Callout>
 
-`Session:DidApply` reads live state. Live state includes the ops that wait for the next save.
-`Apply` puts a name in that queue, so the answer is `true` before the op is written. On a receipt,
-grant with `Commit`. You can also `Apply` and then `Flush`. A granted answer then means a saved
-grant.
+`Session:DidApply` reads live state, and live state includes the ops that wait for the next save.
+After `Apply`, `Session:DidApply` returns `true` before the op is saved. On a receipt, grant with
+`Commit`, or `Apply` and then `Flush`. A `true` then means a saved grant.
 
 ## How long a name is remembered [#how-long-a-name-is-remembered]
 
-Long enough that you don't have to think about it, and not so long that the set grows forever.
+30 to 31 days. Ledger groups names by the day they were applied. The next time any name is written
+to that key, Ledger removes each day older than 30 days, so the set does not grow forever.
 
-A name is written into the applied set with the time it was applied. The next time any name is
-written to that key, anything in the set older than 30 days goes. So the set is a rolling window
-rather than a pile that only gets bigger.
-
-The check for an already applied name happens before any of that, and against everything still in
-the set. So a player who wanders off for two months and comes back to a receipt Roblox is still
-retrying is fine: nothing was written while they were away, so nothing was swept, and the name is
-still sitting there.
+The check for an already applied name runs before that removal, against every name still in the
+set. Names are only removed when a new name is written. So if a player is away for two months and
+Roblox retries an old receipt when they return, the name is still in the set and the retry is
+refused.
 
 ```luau
 Store:Edit(UserId, "Grant", { Once = "old" }):Wait()
@@ -1715,40 +1844,42 @@ Store:DidApply(UserId, "old"):Wait()          --> false
 Store:Edit(UserId, "Grant", { Once = "old" }):Wait()   --> true, it applies again
 ```
 
-What it does not cover is a receipt still unsettled after 30 days of the same player buying other
-things. That means a month of your grant failing every time, which is a bigger problem than the
-dedupe.
+It does not cover a receipt that is still unsettled after 30 days while the same player buys other
+things. That only happens if your grant fails every time for a month, which is a bigger problem
+than the dedupe.
 
 <Callout type="warn">
   So `Once` is for retry windows, not for names that stay meaningful forever. A support ticket
-  reopened two months later, or an unlock you want to be permanent, is outside the window.
+  reopened two months later, or an unlock you want to be permanent, is outside the window. 
   Put that rule in the reducer instead.
 </Callout>
 
-The [gamepass example](#gamepasses) above shows both halves. `pass:{PassId}` stops the retries. The
+The [gamepass example](#gamepasses) above uses both. `pass:{PassId}` stops the retries. The
 reducer refusing on `State.Passes[Op.Pass]` is what stops a second grant a year later.
 
 ## Rules [#rules]
 
-The name has to be a non empty string. Anything else is refused with
-[`Invalid`](/docs/concepts/reasons) on every surface, and nothing applies. A name usually comes from
-outside your game, so a receipt id that arrives as `nil` gives you a reason to read.
+The name has to be a non empty string. Any other value returns [`Invalid`](/docs/concepts/reasons)
+from every method, and nothing applies. `Once = nil` is the same as leaving `Once` out: the op
+applies with no name, so a retry can apply it again. A name usually comes from outside your game, so
+check that the receipt id is there before you write.
 
 Names are namespaced, so a `Once` name can't collide with a transfer id or a transaction id even if
 they're spelled the same.
 
-Your reducer never has to dedupe. By the time it runs, `Once` has already decided. Write the branch
-as if it only ever runs one time, because it does.
+Your reducer never has to dedupe. Before your reducer runs, Ledger refuses an op whose `Once` name
+has already applied, so the op applies once. Your reducer still runs on every fold of the log, so
+keep the branch pure.
 
 Don't put `Once` on a [transaction](/docs/guides/transactions) leg. The transaction id already makes
-every leg land at most once, and Ledger throws if you pass one anyway.
+every leg apply at most once, and Ledger throws if you pass one anyway.
 
 
 # Reasons (https://xoifaii.github.io/LedgerDocs/docs/concepts/reasons)
 
 
 
-Anything that can fail tells you why. Writes answer `(boolean, Reason?)` and reads answer
+Anything that can fail tells you why. Writes return `(boolean, Reason?)` and reads return
 `(value?, Reason?)`, and there are only ten reasons. They live on `Ledger.Reason`, so you can
 compare against the constant instead of a string literal.
 
@@ -1764,11 +1895,11 @@ do about them.
 
 ## Refused [#refused]
 
-Your reducer returned `nil`. The op was legal to write, it just wasn't allowed to happen, so the
-player couldn't afford it, or already owns it, or whatever your rule was. This is the only reason
-that came from your own code, and it's the only one that's a normal part of gameplay.
+Your reducer returned `nil`. The op was valid, but your rule rejected it, for example because the
+player couldn't afford it or already owns it. This is the only reason that came from your own code,
+and it's the only one that's a normal part of gameplay.
 
-Nothing changed. Don't retry it, the answer won't be different.
+Nothing changed. Don't retry it, the result won't be different.
 
 ## Busy [#busy]
 
@@ -1776,33 +1907,35 @@ Someone else is in the middle of a transaction on that key and it hasn't finishe
 changed.
 
 Ledger puts the key on the [recovery sweep](/docs/guides/recovery#sweeping), which runs every 60
-seconds. Your own retry usually gets there first, because every read and write settles what it finds
-pending on the key before doing anything else. Retry in a few seconds.
+seconds. Your own retry usually settles it sooner, because every read and write settles what it
+finds pending on the key before doing anything else. Retry in a few seconds.
 
-`Session:Apply` also answers this when the key has hit its 1.5 MB op cap and a parked transaction is
+`Session:Apply` also returns this when the key has hit its 1.5 MB op cap and a parked transaction is
 stopping it compacting. The datastore is fine. Retry once the transaction settles.
 
-`Tx` does not retry a `Busy` for you. Every server retrying at once would pile more load onto a key
-that is already contended, so the backoff is yours to write. See
+A write to a key also returns `Busy` while a second `Erase` takes that key off the datastore. This
+lasts at most two minutes. See [Erase](/docs/guides/recovery#erase).
+
+`Tx` does not retry a `Busy` for you. Every server retrying at once would add more load to a key
+that is already contended, so your own code has to retry, with a longer wait each time. See
 [One key at a time](/docs/limits#one-key-at-a-time).
 
 ## Spent [#spent]
 
-That name is used up and nothing was applied.
+That id is used up and nothing was applied.
 
-For a transfer it means the money went **back to the sender**. The hold sat there long enough to
-expire and Ledger refunded it. The id is kept afterwards so a late retry can't pay out against a
-refund that already happened.
+For a transfer it means the money went **back to the sender**. The money stayed set aside until the
+transfer expired, and Ledger refunded it. Ledger keeps the id afterwards, so a late retry with that
+id cannot send the money again.
 
-For a transaction it means the name can't be used for what you asked. Either that name already ran for
+For a transaction it means the id can't be used for what you asked. Either that id already ran for
 a different set of keys or a different amount, or an earlier attempt was cancelled part way. Ledger
-would rather refuse than half apply it. A transfer answers `Spent` for the same reason, so asking
-again under a name that already went through, for a different amount or a different key, gets `Spent`
-instead of `true`.
+refuses it instead of applying part of it. A transfer does the same: a retry under an id that
+already applied, for a different amount or a different key, returns `Spent` instead of `true`.
 
-`Spent` says this attempt changed nothing. It does not promise the name can never work again. A name
-whose transaction was cancelled before any leg applied is free to use, and that is what lets a retry
-finish a cancelled attempt. A name that already moved money is done.
+`Spent` means this attempt changed nothing. It does not mean the id can never work again. An id
+whose transaction was cancelled before any leg applied is free to use, so a retry can finish a
+cancelled attempt. An id that already moved money cannot be used again.
 
 <Callout type="warn">
   `Spent` is not success. Nothing moved, and for a transfer the money is back where it started. See
@@ -1811,59 +1944,70 @@ finish a cancelled attempt. A name that already moved money is done.
 
 ## Held [#held]
 
-A transfer took the money and could not hand it over, because the receiving key was erased. This is
+A transfer took the money and could not deliver it, because the receiving key was erased. This is
 not "nothing happened". The amount has left the sender and is set aside with them.
 
-Ledger gives it back on its own, and recovery follows that key until it does. Tell the sender their
-money is coming back rather than that the transfer failed. Don't send it again under a new name, or
-they pay twice.
+Ledger gives it back on its own, and the recovery sweep keeps checking that key until it has. Tell
+the sender their money is coming back rather than that the transfer failed. Don't send it again
+under a new id, or they pay twice.
 
-A [reservation](/docs/guides/reservations) never answers it. A hold lives in MemoryStore and takes
-nothing off the key, so there is nothing to be set aside.
+A [reservation](/docs/guides/reservations) never returns `Held`. A hold lives in MemoryStore and
+takes nothing off the key, so there is nothing to be set aside.
 
 ## Unresolved [#unresolved]
 
 Ledger doesn't know. Either the datastore call failed in a way that might still have written, or a
 transaction leg is parked on the key and the fold can change once it settles.
 
-`Session:Apply` answers this when a transaction is parked and your op only holds if that transaction
-does not go through. Ledger folds both futures and only answers when they agree. Ask again once the
-transaction settles.
+`Session:Apply` returns this when a transaction is parked on the key and your reducer accepts the op
+only if that transaction commits, or only if it does not. Ledger folds the state both ways, and
+accepts the op only when both results agree. Retry once the transaction settles.
+
+`Session:Commit` and `Store:Edit` return this when the op was written but a transaction still parked
+on the key could change whether it applies. With two or more transactions parked, they always
+return it. Read the key once the transactions settle.
+
+A retry of an op with your own `Id` returns this when its `IdAt` is older than the ids the key still
+keeps. The key may have applied that id and then dropped it, so nothing is applied. Read the key
+before you send the op again. See
+[Why a retry is safe](/docs/concepts/handling-failure#why-a-retry-is-safe).
 
 `Unresolved` does not mean no, and it is the one that costs money if you treat it as a refusal. See
 [Unresolved](/docs/concepts/handling-failure#unresolved).
 
 ## Closed [#closed]
 
-The session is gone. The player left and it was released, or the store was destroyed. Anything you
-write to it now goes nowhere.
+The session is gone. The player left and the session was released, or the store was destroyed.
+Anything you write to it now is lost.
 
 ## Backlog [#backlog]
 
 Ops are piling up because saves aren't going through. Either 4096 ops are queued or they've hit the
-1.5 MB cap on unsaved bytes. This basically only happens when the datastore is down.
+1.5 MB cap on unsaved bytes. This usually only happens when the datastore is down.
 
-Nothing changed. This is a signal to stop writing and look at what's wrong, not to retry harder.
+Nothing changed. This is a signal to stop writing and look at what's wrong, not to retry more often.
 
 ## Full [#full]
 
-The profile is at the 2 MB cap and the op would make it bigger. Ledger lets ops through that shrink
-it, so a cleanup still works.
+The profile is at the 2 MB cap and the op would make it bigger. Ledger still accepts ops that make
+it smaller, so a cleanup still works.
 
-`Store:Edit` answers this when the key already carries 1.5 MB of ops that have not been compacted
-away. That happens when a parked transaction is stopping the key compacting. It clears once the
+`Store:Edit` returns this when the key already carries 1.5 MB of ops that have not been compacted.
+That happens when a parked transaction is stopping the key compacting. It clears once the
 transaction settles.
+
+`Store:Edit` and `Session:Commit` compact a full log once and try again before they return `Full`.
 
 Nothing changed. You need to remove something before you can add anything.
 
 ## Invalid [#invalid]
 
-The op can't be stored. Something in the fields isn't JSON, so an Instance, a function, a cyclic
-table, a table mixing array and dictionary keys, NaN, inf. Or the fields use a name Ledger reserves,
-or the kind starts with `__`. Or your reducer handed back something that wasn't a table.
+The op can't be stored. Something in the fields isn't JSON, such as an Instance, a function, a
+cyclic table, a table mixing array and dictionary keys, NaN or inf. Or the fields use a name Ledger
+reserves, or the kind starts with `__`. Or your reducer returned something that wasn't a table.
 
-`Edit`, `Apply`, `Commit` and `Tx` all answer this the same way, and for `Tx` it means one of the
-legs, so nothing was prepared on any key.
+`Edit`, `Apply`, `Commit` and `Tx` all return this the same way. For `Tx` it means one of the legs
+is invalid, and nothing was prepared on any key.
 
 Nothing changed. This is a bug in the calling code, and Ledger warns with the specific field.
 
@@ -1872,8 +2016,8 @@ Nothing changed. This is a bug in the calling code, and Ledger warns with the sp
 A newer server wrote that record and this one can't read it. Either the stored format is newer than
 this server's build, or the record needs a migration this build doesn't have.
 
-Nothing changed, and retrying is pointless. `Behind` describes which version of your game this server
-is running, so nothing about the datastore will change it. It clears when the deploy finishes and
+Nothing changed, and retrying is pointless. `Behind` is caused by the version of your game this
+server is running, not by the datastore. It clears when the deploy finishes and
 every server is on the same build.
 
 You'll only see it during a rolling deploy, and only on records a newer server already touched. If
@@ -1894,16 +2038,17 @@ you see it after a deploy has finished, someone is running an old build.
 type Reducer<S> = (State: S, Op: Op) -> S?
 ```
 
-The reducer takes the state and one op, and gives back the next state or `nil` to refuse. It's the
+The reducer takes the state and one op, and returns the next state or `nil` to refuse. It's the
 only place in your game that decides whether a change is allowed.
 
 ```luau
-local function Reducer(State: Profile, Op: Ledger.Op): Profile?
+export type Ops = {
+	SpendGold: { Amount: number },
+}
+
+local function Reducer(State: Profile, Op: Ledger.Op<Ops>): Profile?
 	if Op.Kind == "SpendGold" then
-		if type(Op.Amount) ~= "number" or Op.Amount <= 0 then
-			return nil
-		end
-		if Op.Amount > State.Gold then
+		if Op.Amount <= 0 or Op.Amount > State.Gold then
 			return nil
 		end
 
@@ -1918,8 +2063,8 @@ end
 
 ## It has to be pure [#it-has-to-be-pure]
 
-The same `(State, Op)` has to give the same answer on every server, forever. No `os.time()`, no
-`math.random()`, no `game`, no upvalues that move, no reading someone else's data. If you need the
+The same `(State, Op)` has to give the same result on every server, forever. No `os.time()`, no
+`math.random()`, no `game`, no upvalues that change, no reading someone else's data. If you need the
 time or a dice roll, work it out at the call site and put it on the op:
 
 ```luau
@@ -1927,15 +2072,15 @@ Session:Apply("DailyBonus", { At = os.time(), Roll = math.random(1, 6) })
 ```
 
 A log gets folded on two servers at two different moments. If the reducer reads the clock, those two
-folds disagree and your data quietly splits in half.
+folds disagree, and different servers hold different data with no error.
 
 <Callout type="warn">
   In Studio, Ledger refolds the log after every commit and compares it against live state. If they
-  don't match it warns and names the field that moved. That check doesn't run in production, so
-  fix what it points at rather than shipping around it.
+  don't match it warns and names the field that changed. That check doesn't run in production, so
+  fix the field it names before you ship.
 </Callout>
 
-## It has to not mutate [#it-has-to-not-mutate]
+## It must not mutate the state [#it-must-not-mutate-the-state]
 
 Return a new table. `table.clone` is shallow, so clone each nested table you touch:
 
@@ -1946,25 +2091,26 @@ Next.Gamepasses[Pass] = true
 return Next
 ```
 
-The state you get handed is deep frozen, so a mutation throws on the line that did it instead of
+The state you are given is deep frozen, so a mutation throws on the line that did it instead of
 corrupting a fold somewhere later.
 
-Cloning by hand stops reading well about three levels down. [Advanced
-reducers](/docs/concepts/advanced-reducers) has a `SetPath` that clones only the path you name.
+Cloning by hand gets hard to read a few levels down. [Advanced
+reducers](/docs/concepts/advanced-reducers#changing-nested-state) has an `Open` that copies only
+the tables you change.
 
 Freezing can't cover a buffer, because Luau has no way to freeze one. State can hold buffers, and
 Ledger copies them instead of sharing them, so writing into one can't reach another server or another
-session. It does still change the state you're holding, and the fold won't agree with itself
-afterwards. Build a new buffer instead of writing into the one you were given.
+session. It does still change the state you're holding, and a later fold of the same log gives a
+different result. Build a new buffer instead of writing into the one you were given.
 
-A buffer in `Default` works, and each key gets its own copy. Ledger used to hand every key that had
+A buffer in `Default` works, and each key gets its own copy. Ledger used to give every key that had
 not stored one yet the same buffer, so one key writing into it changed what all of them read.
 
-Don't freeze what you hand back. Ledger freezes it for you, all the way down. A table you froze
-yourself carries no promise about the tables inside it, so Ledger has to walk it in full, which costs
-more than letting Ledger do the freezing.
+Don't freeze what you return. Ledger freezes it for you, all the way down. Ledger only skips the
+tables it froze itself. It checks every table inside a table you froze, which costs more than
+letting Ledger do the freezing.
 
-## It has to not yield [#it-has-to-not-yield]
+## It must not yield [#it-must-not-yield]
 
 No `task.wait`, no `:Wait()`, no yielding datastore calls. Ledger runs the reducer inside a guard
 that errors if it yields.
@@ -1975,29 +2121,30 @@ Anything else is a bug. Ledger refuses the op with [`Invalid`](/docs/concepts/re
 
 ## Leave the reserved fields alone [#leave-the-reserved-fields-alone]
 
-`table.clone(State)` carries `_Received` and `_Held` across for free, so most reducers never think
-about them.
+`table.clone(State)` carries `_Received` and `_Held` across, so most reducers never need to handle
+them.
 
 If you build the next state from scratch and drop them, Ledger puts them back, so you can't lose the
-applied id set that way. It won't always catch you writing your own values into them. A store with a
+applied names that way. It does not always detect your own values written into them. A store with a
 `Balance` overwrites those, but a store without one keeps a hand built `_Received`, and that breaks
 the dedupe.
 
-So don't drop them, and don't write to them. Read them if you want, they're just data.
+So don't drop them, and don't write to them. You can read them. They are plain data.
 
 ## Ops you don't know [#ops-you-dont-know]
 
-Return `nil` for anything you don't recognise. Ledger treats that as a refusal, and it makes a
-rolling deploy safe. An old server that's never heard of `NewFeatureOp` refuses it instead of
-guessing at it.
+Return `nil` for anything you don't recognise. Ledger treats that as a refusal. An old server that
+has never heard of `NewFeatureOp` refuses it instead of guessing at it. This does not make every new
+kind safe during a rolling deploy. A new kind that changes a field that other kinds read needs a
+migration. See [changing the reducer](/docs/guides/migrations#changing-the-reducer).
 
-Ledger checks this when the store is built. It hands the reducer a kind nothing knows. A reducer
-that returns a state for it gets a warning at `New`. Every unknown op on that store counts as
-applied until the reducer is fixed.
+Ledger checks this when the store is built. It calls the reducer with an op of a kind your game
+never uses. A reducer that returns a state for it gets a warning at `New`. Every unknown op on that
+store counts as applied until the reducer is fixed.
 
-That's a kind you don't know yet. A kind you've deleted is the other way round, because nothing is
-ever going to accept it, and refusing one of those stops the key compacting for good. See [changing
-the reducer](/docs/guides/migrations#changing-the-reducer).
+That covers a kind you don't know yet. A kind you have deleted is different. No build will ever
+accept it, and refusing one of those stops the key compacting permanently. See [changing the
+reducer](/docs/guides/migrations#changing-the-reducer).
 
 ## What Studio checks at every save [#what-studio-checks-at-every-save]
 
@@ -2006,33 +2153,37 @@ hold gets a warning that names the field. An array with a gap, a table that mixe
 keys, and a `nan` are the usual causes. A table keyed by `UserId` is an array with gaps. Key it by
 `tostring(UserId)` instead.
 
-Live servers skip the check. A key in that state keeps taking writes and stops compacting, and the
-compaction says so.
+Live servers skip the check. A key in that state keeps taking writes and stops compacting, and
+Ledger warns each time it tries to compact the key.
 
 ## Check the fields [#check-the-fields]
 
-Ops come from your own code, but they also come back out of a datastore that's been holding them for
-weeks, possibly written by a version of your game that doesn't exist anymore. Check the types on the
-way in. A reducer that does `State.Gold -= Op.Amount` without checking `Op.Amount` is a number will
-happily hand you `nil` gold and take the profile with it.
+With your ops named, every write your game makes is checked against `Ops`, so the reducer can read
+`Op.Amount` as a number. See [Typed ops](/docs/concepts/typed-ops).
 
-Naming your ops does that checking for you. `Ledger.NewTyped` takes a map of the kind to the fields
-it carries, and then `Op.Amount` is a number inside the branch that handles it. See [Typed
-ops](/docs/concepts/typed-ops).
+That check is a type check, so it only covers the code you write. Ops read back from the datastore
+are not checked again. An op that an older version of your game wrote before a field changed type
+reaches the reducer with the old type. Maths or a comparison on the wrong type throws, and Ledger
+refuses an op whose reducer throws. A field you only store, like an item name, goes into the state
+as it is. If an older version wrote that kind with a different type, keep a `type()` check on that
+field.
+
+A store built without `Ops` gives the reducer `Ledger.Op`, where every field is `unknown`. Check the
+type of each field before you use it.
 
 ## Coming from Rodux or Redux [#coming-from-rodux-or-redux]
 
-The shape is close enough that people reach for it straight away. An op is an action, `Op.Kind` is
-`action.type`, and a handler table keyed by kind reads a lot nicer than a long `if` chain.
+The shape is similar. An op is an action, `Op.Kind` is `action.type`, and a handler table keyed by
+kind is easier to read than a long `if` chain.
 
-That part is fine. Two of the conventions are backwards here though, and both of them cost you money
-rather than throwing.
+Two Redux conventions are reversed in Ledger. Getting either one wrong can lose a purchase, and
+nothing raises an error.
 
 ### nil means refused, not unhandled [#nil-means-refused-not-unhandled]
 
 In Redux the default case returns the state unchanged, and returning nothing is an error. Here it's
 the other way round. Ledger reads any table you return as accepted, including the exact state you
-were handed. Returning `nil` is the only way to refuse.
+were given. Returning `nil` is the only way to refuse.
 
 So a Redux style default case accepts every op you never wrote a handler for:
 
@@ -2048,9 +2199,10 @@ end
 ```
 
 That isn't a harmless no-op. An op carrying a [`Once`](/docs/concepts/once) name gets that name
-written into the applied set the moment your reducer hands back a table, so the receipt is marked
-granted while nothing was granted. `DidApply` says true, the retry never comes, and the player is
-out the Robux. A transaction leg does the same thing and commits on a key that did nothing.
+written into the applied names as soon as your reducer returns a table, so the receipt is marked
+granted while nothing was granted. `DidApply` returns `true`, Roblox stops retrying, and the player
+paid Robux for nothing. A transaction leg is also marked as committed on that key, although nothing
+changed.
 
 The fix is one word:
 
@@ -2072,9 +2224,8 @@ Every handler in the table returns `nil` to refuse too, same as it would inline.
 returns a table, which here means it always accepts. A slice that wanted to refuse has no way to say
 so, because the combined result is a table either way.
 
-It's worse than losing the refusal. In Lua, a slice returning `nil` assigns `nil` into the combined
-table, which deletes that key. So the refusal doesn't just get swallowed, it takes the field with
-it.
+In Lua, a slice that returns `nil` also assigns `nil` into the combined table, which deletes that
+key. So the refusal is lost, and the field is deleted as well.
 
 Route by kind instead and let `nil` come straight back up:
 
@@ -2109,16 +2260,17 @@ end
 Each handler still owns one field, which is what you wanted `combineReducers` for. It just returns
 the whole state rather than a slice of it, so a refusal is still a refusal.
 
-### The rest of Rodux doesn't come with it [#the-rest-of-rodux-doesnt-come-with-it]
+### What Ledger does instead of the rest of Rodux [#what-ledger-does-instead-of-the-rest-of-rodux]
 
 Don't build a `Rodux.Store`. Ledger is the store, state lives in the log, and `Session:Observe()` is
-your subscribe. Two stores holding the same data is how they drift apart.
+your subscribe. If two stores hold the same data, they get out of sync.
 
 No middleware and no thunks. The reducer can't yield, so anything async happens before you call
-`Apply` or `Commit`, and the result rides in on the op.
+`Apply` or `Commit`, and you put its result on the op.
 
-No Immer style drafts either. State is deep frozen, so mutating it throws on the line that did it.
-Clone what you touch.
+Ledger has no built in Immer style drafts. State is deep frozen, so mutating it throws on the line
+that did it. Clone what you change, or copy the `Drafts` module from
+[Advanced reducers](/docs/concepts/advanced-reducers#changing-nested-state).
 
 One convention does carry over cleanly. Redux asks you to keep actions serializable by convention.
 Ledger enforces it, because ops go in a datastore, and an op that isn't JSON is refused with
@@ -2127,9 +2279,9 @@ Ledger enforces it, because ops go in a datastore, and an op that isn't JSON is 
 ## Balance and transactions [#balance-and-transactions]
 
 If the store names a `Balance` field, Ledger wraps your reducer with the transfer ops
-(`__TransferReserve`, `__TransferDeliver` and the rest) before it ever reaches you. You never handle
-those kinds and you'll never see them in your `if` chain. Same goes for transaction bookkeeping and
-`Store:Reset`.
+(`__TransferReserve`, `__TransferDeliver` and the rest). Your reducer never receives those kinds, so
+they never reach your `if` chain. The same is true for the ops that transaction bookkeeping and
+`Store:Reset` write.
 
 
 # The fold (https://xoifaii.github.io/LedgerDocs/docs/concepts/the-fold)
@@ -2146,7 +2298,7 @@ State = fold(Snapshot, Ops)
 Reading a key means loading the record and replaying its ops through your reducer. Writing a key
 means appending one op. Nothing ever overwrites state.
 
-## Why that gets rid of the lock [#why-that-gets-rid-of-the-lock]
+## Why there is no lock [#why-there-is-no-lock]
 
 Two servers appending to the same key isn't a conflict, because neither append overwrites the other.
 Both ops end up in the log, the datastore settles what order they're in, and every server that folds
@@ -2160,10 +2312,10 @@ afterwards, the same way on every server.
   it doesn't depend on anyone's clock.
 </Callout>
 
-## Refusing is part of it [#refusing-is-part-of-it]
+## Refusing an op [#refusing-an-op]
 
-Your reducer returns `nil` to refuse an op. The op is still in the log, it just doesn't contribute
-anything. So when two servers both try to spend the same last 100 gold:
+Your reducer returns `nil` to refuse an op. The op is still in the log, but it has no effect on the
+state. So when two servers both try to spend the same last 100 gold:
 
 1. Server A appends `SpendGold{100}`, server B appends `SpendGold{100}`.
 2. The log holds both of them, in whatever order the datastore settled on.
@@ -2173,20 +2325,22 @@ Both servers see the same thing. The player spent 100 gold once.
 
 ## Compaction [#compaction]
 
-A log that only ever grows would eventually hit the 4 MB value limit. Once a log gets long or heavy,
-Ledger folds it down into a fresh snapshot and drops the ops it just absorbed. Autosave does this on
-its own, and `Session:Compact()` forces it.
+A log that only ever grows would eventually hit the 4 MB value limit. Once a log has many ops or
+many bytes, Ledger folds it into a new snapshot and removes the ops it compacted. Autosave does this
+on its own, and `Session:Compact()` forces it.
 
-Your reducer never sees any of that. Compaction keeps the ids of the ops it absorbed on the record,
-under `Seen`. A retry that arrives afterwards applies nothing. `Seen` keeps the newest 2048. A
-[`Once`](/docs/concepts/once) name, a transfer id and a transaction id live inside the state, under
-`_Received`, for 30 days.
+Compaction keeps the ids of the compacted ops on the record, under `Seen`, so a retry that arrives
+afterwards applies nothing. `Seen` is not part of the state, so your reducer never sees it. `Seen`
+keeps the newest 2048 ids, and records when it compacted them. An op whose `IdAt` is older than the
+ids `Seen` still keeps returns [`Unresolved`](/docs/concepts/reasons#unresolved) and applies
+nothing. A [`Once`](/docs/concepts/once) name, a transfer id and a transaction id live inside the
+state, under `_Received`, for 30 days.
 
 ## Reserved fields [#reserved-fields]
 
 Ledger keeps its own bookkeeping in the state table, under keys starting with an underscore.
 
-`_Received` holds applied op ids, namespaced so a transfer, a transaction and a
+`_Received` holds the applied names, namespaced so a transfer id, a transaction id and a
 [Once](/docs/concepts/once) name can't collide. `_Held` holds money set aside by a
 [transfer](/docs/guides/transfers) that hasn't finished yet.
 
@@ -2196,7 +2350,7 @@ accident and Ledger puts them back. Write your own values into them and you can 
 
 ## What you can store [#what-you-can-store]
 
-Whatever a datastore can hold, so JSON. Tables, strings, numbers, booleans. No Instances, no
+Anything a datastore can store as JSON: tables, strings, numbers and booleans. No Instances, no
 Vector3, no functions, no cyclic tables, no tables that mix array and dictionary keys, no NaN or
 inf. Buffers are fine. Ledger checks this on the way in and refuses the op with
 [`Invalid`](/docs/concepts/reasons) instead of letting the save fail later.
@@ -2218,15 +2372,14 @@ make it a string.
 
 
 
-An op is `{ Id, Kind, ...whatever you passed }`. Ledger can't know which fields a kind carries, so
-`Op.Amount` reads as `unknown` in strict mode and a misspelled `Kind` is a refusal you find while
-playing.
+An op is a kind plus the fields you pass with it. Write down which kinds your game uses and which
+fields each one carries, give that list to `Ledger.New`, and every write is checked against it. A
+misspelled kind or a field of the wrong type is a type error where you wrote it, not a refusal you
+find at runtime.
 
-Name your ops and both of those become build errors.
+## Declaring your ops [#declaring-your-ops]
 
-## Naming them [#naming-them]
-
-A map of the kind to the fields that kind carries:
+`Ops` maps each kind to the fields it carries:
 
 ```luau
 export type Profile = {
@@ -2239,44 +2392,65 @@ export type Ops = {
 	Sell: { Item: string },
 	AddGold: { Amount: number },
 }
-```
 
-Then build the store with `Ledger.NewTyped` and hand it both:
-
-```luau
-local Store = Ledger.NewTyped<<Profile, Ops>>({
+local Store = Ledger.New<<Profile, Ops>>({
 	Name = "PlayerData",
 	Default = { Gold = 100, Items = {} },
 	Reducer = Reducer,
 })
 ```
 
+A kind with no fields takes an empty table:
+
+```luau
+export type Ops = {
+	Prestige: {},
+}
+
+Session:Apply("Prestige", {})
+```
+
 ## What gets checked [#what-gets-checked]
+
+Every write that names a kind:
 
 ```luau
 Session:Apply("Buy", { Item = "Sword" }) -- fine
 Session:Apply("Byu", { Item = "Sword" }) -- no kind by that name
-Session:Apply("Buy", { Item = 42 })      -- Item is a string
+Session:Apply("Buy", { Item = 42 })      -- Item has to be a string
 Session:Apply("Buy", { Amount = 5 })     -- those are AddGold's fields
 ```
 
-A call that matches no kind lists the ones that do. The error names every op your store writes.
+The error lists every kind the store has, with its fields. `Commit`, `Edit`, `Confirm`, `CommitOp`
+and `EditOp` are checked the same way.
 
-`Session:Commit` and `Store:Edit` take the same check. `Edit` has the key first.
-
-A field your kind doesn't name rides along rather than failing. That's what keeps `Once` working:
+Extra fields are allowed when every declared field is present. That is how `Once` sits beside your
+own fields:
 
 ```luau
 Session:Apply("Buy", { Item = "Sword", Once = "order1" })
 ```
 
-So a misspelled field is caught when it means the real one is missing, which is the usual way you
-make that mistake, and a spare field next to a complete set is not.
+`IdAt` sits there the same way on `Confirm`, `CommitOp` and `EditOp`. On `Apply`, `Commit` and
+`Edit` the check lets it through, and Ledger drops it with a warning, since those calls make a new
+id every time.
 
-## The reducer [#the-reducer]
+So a misspelled field is caught only because the correctly spelled field is then missing. The
+misspelled field itself is allowed as an extra.
 
-`Ledger.Op<Ops>` is the op as one of your kinds. Testing `Op.Kind` narrows to that kind, and its
-fields come out typed:
+The field names you pass to `Reserve`, `Holds`, `Transfer`, `Bump` and `Total` are checked too.
+They have to name a number field of your state:
+
+```luau
+Store:Reserve(UserId, "Gold", 1, "order1") -- fine
+Store:Reserve(UserId, "Glod", 1, "order1") -- no field by that name
+Store:Reserve(UserId, "Items", 1, "order1") -- Items isn't a number
+```
+
+## In the reducer [#in-the-reducer]
+
+Type the op as `Ledger.Op<Ops>`. Testing `Op.Kind` narrows it to that kind, and its fields have
+their types:
 
 ```luau
 local function Reducer(State: Profile, Op: Ledger.Op<Ops>): Profile?
@@ -2301,68 +2475,55 @@ local function Reducer(State: Profile, Op: Ledger.Op<Ops>): Profile?
 end
 ```
 
-`Op.Item` is a string and `Op.Amount` is a number. There's no `type(Op.Amount) == "number"` and no
-`Op.Item :: string` anywhere. Reading a field off the wrong kind is an error where you read it:
+`Op.Item` is a string and `Op.Amount` is a number, with no `type()` checks and no casts. These are
+type errors:
 
 ```luau
 if Op.Kind == "Buy" then
-	return Op.Amount -- Key 'Amount' not found in { Id: string, Item: string, Kind: "Buy" }
+	print(Op.Amount) -- Key 'Amount' not found in table '{ read Id: string, read Item: string, read Kind: "Buy" }'
+	Op.Item = "Shield" -- Property Item of table '{ read Id: string, read Item: string, read Kind: "Buy" }' is read-only
 end
 ```
 
-An op is there to be read, so its fields are read only and writing one stops the build:
+Annotate the reducer's return as `Profile?`, as above, and it has to return your state or `nil`. A
+reducer written inline in the config, with no return annotation, is not checked for that.
+
+The state you are given is frozen. Writing into it throws at runtime, and the op is
+[`Refused`](/docs/concepts/reasons). Annotate the state as `Ledger.Frozen<Profile>` to make that a
+type error too:
 
 ```luau
-Op.Item = "Shield" -- Property Item of table '{ read Id: string, read Item: string, read Kind: "Buy" }' is read-only
+Reducer = function(State: Ledger.Frozen<Profile>, Op)
+	if Op.Kind == "AddGold" then
+		State.Gold += Op.Amount -- Property Gold of table '{ read Gold: number, read Items: { [string]: boolean } }' is read-only
+	end
+	return nil
+end,
 ```
 
-Nothing reads an op after your reducer has it, so a write was only ever going to be lost. The state
-you are handed is frozen for the same reason, except that one shows up while you play, as a
-[`Refused`](/docs/concepts/reasons) op rather than an error where you wrote it.
+Arrays and maps stay writable in the type, because Luau can't mark a table's entries read only yet.
+A write into one still throws at runtime.
 
-## An op with no fields [#an-op-with-no-fields]
+For a reducer with deep state or many kinds, [Advanced reducers](/docs/concepts/advanced-reducers)
+has a table of handlers, one per kind, and an `Open` that makes nested state writable.
 
-A kind takes its fields whether or not it has any:
+Fields an older version of your game wrote are not checked again when they are read back. See
+[check the fields](/docs/concepts/reducer#check-the-fields).
 
-```luau
-export type Ops = {
-	Prestige: {},
-}
+## A store without types [#a-store-without-types]
 
-Session:Apply("Prestige", {})
-```
+`Ledger.New(Options)`, without `<<Profile, Ops>>`, builds a store that takes any kind with any
+fields. The reducer gets `Ledger.Op`, where every field is `unknown`, so it has to check each field's
+type before it uses it. That suits a store whose ops are still changing.
 
-## Your state gets checked too [#your-state-gets-checked-too]
+Adding the types later changes no call site, since both take the kind and the fields as two
+arguments. Nothing changes at runtime either.
 
-The `Field` argument to `Reserve`, `Bump` and `Total` has to name a number field on your state:
+## Naming the store and session types [#naming-the-store-and-session-types]
 
-```luau
-Store:Reserve(UserId, "Gold", 1, "order1") -- fine
-Store:Reserve(UserId, "Glod", 1, "order1") -- no field by that name
-Store:Reserve(UserId, "Name", 1, "order1") -- Name isn't a number
-```
-
-That threw at the call before. Now it doesn't build.
-
-Your reducer is held to giving back your state or `nil` as well, so one that hands back something
-else stops building instead of having its answer thrown away at runtime.
-
-## What doesn't change [#what-doesnt-change]
-
-Everything else on the store. `Peek`, `Transfer`, `Reserve`, `Tx` and the rest keep the signatures
-they have on an untyped store, and a typed store loads, folds, saves and recovers through the same
-code. Nothing about it differs at runtime.
-
-The call shape doesn't change either. Both views take the kind and the fields as two arguments, so
-moving a store to `NewTyped` doesn't touch a call site.
-
-`Ledger.New` is unchanged. A store built with it takes any kind with any fields. That's what you
-want while the ops are still moving around, and naming them is something you do when you want it.
-
-## Types [#types]
-
-`Ledger.TypedStore<D, O>` and `Ledger.TypedSession<S, O>` name the two views, the same way
-`Ledger.Store<D>` and `Ledger.Session<S>` name the open ones.
+`Ledger.TypedStore<Profile, Ops>` and `Ledger.TypedSession<Profile, Ops>` are the types of a typed
+store and its sessions, the way `Ledger.Store<Profile>` and `Ledger.Session<Profile>` are for a store
+without types:
 
 ```luau
 local function Buy(Session: Ledger.TypedSession<Profile, Ops>, Item: string)
@@ -2377,31 +2538,49 @@ See [Types](/docs/reference/types).
 
 
 
-A store with `Keys = "String"` isn't about players. The keys are names you pick, and the data
-underneath belongs to nobody in particular.
+A store with `Keys = "String"` isn't about players. The keys are names you pick, like a clan id, and
+the data under a key belongs to no single player.
 
 ```luau
+export type Clan = {
+	Members: { [string]: true },
+	Count: number,
+	Treasury: number,
+	Level: number,
+}
+
+export type Ops = {
+	Join: { UserId: string },
+	Donate: { Amount: number },
+}
+
 local MAX_MEMBERS = 50
 
-local Clans = Ledger.New({
+local Clans = Ledger.New<<Clan, Ops>>({
 	Name = "Clans",
 	Keys = "String",
 	Default = { Members = {}, Count = 0, Treasury = 0, Level = 1 },
 	Balance = "Treasury",
 	Reducer = function(State, Op)
 		if Op.Kind == "Join" then
-			local Who = tostring(Op.UserId)
-			if State.Members[Who] then
-				return nil
-			end
-			if State.Count >= MAX_MEMBERS then
+			if State.Members[Op.UserId] or State.Count >= MAX_MEMBERS then
 				return nil
 			end
 
 			local Next = table.clone(State)
 			Next.Members = table.clone(State.Members)
-			Next.Members[Who] = true
+			Next.Members[Op.UserId] = true
 			Next.Count += 1
+			return Next
+		end
+
+		if Op.Kind == "Donate" then
+			if Op.Amount <= 0 then
+				return nil
+			end
+
+			local Next = table.clone(State)
+			Next.Treasury += Op.Amount
 			return Next
 		end
 
@@ -2410,27 +2589,28 @@ local Clans = Ledger.New({
 })
 ```
 
-Two lines in there are easy to get wrong.
+Two things in there are easy to get wrong.
 
-**`tostring(Op.UserId)`, not `Op.UserId`.** A table with only number keys is an array. A UserId is a
-huge number, so `Members` becomes an array with millions of gaps. A datastore cannot store that.
-Ledger checks each op on its own, and each op passes, so the writes keep working. The key then fails
-to compact and the log grows forever. String keys make `Members` a dictionary.
+**`UserId` is a string.** A table keyed only by numbers is an array. A UserId is a huge number, so
+`Members` keyed by it would be an array with millions of gaps, and a datastore cannot store that.
+Each op succeeds on its own, so the writes keep working, but the key can no longer compact and the
+log grows forever. `UserId: string` in `Ops` makes passing a number a type error, so call
+`tostring(Player.UserId)`.
 
-**`State.Count`, not `#State.Members`.** `#` gives `0` on a dictionary, so the cap never applies. The
-clan above fills to sixty.
+**`State.Count`, not `#State.Members`.** `#` gives `0` on a dictionary, so the cap would never apply.
+Keep the count in the state and change it with the members.
 
-This is where not having a lock matters most. Twenty servers can be writing to the same clan at the
-same time, and the fold decides the membership cap the same way on all of them. There's no owner
-server, no lease, and nothing to recover if a server dies mid write.
+Entity stores have no lock either. Twenty servers can write to the same clan at once, and each one
+applies the membership cap the same way when it replays the log. There's no owner server, no lease,
+and nothing to recover if a server dies during a write.
 
-## Working with them [#working-with-them]
+## Reading and writing [#reading-and-writing]
 
 There are no sessions, because nobody is logged in to a clan. You write with `Edit` and read with
 `Peek`:
 
 ```luau
-local Ok, Why = Clans:Edit("cool-guys", "Join", { UserId = Player.UserId }):Wait()
+local Ok, Why = Clans:Edit("cool-guys", "Join", { UserId = tostring(Player.UserId) }):Wait()
 if not Ok and Why == Ledger.Reason.Refused then
 	Tell(Player, "that clan is full")
 end
@@ -2450,31 +2630,32 @@ Every method that takes a `Key` works. `Transfer`, `Tx`, `DidApply`, `History`, 
 `Reset` and `Erase` all behave the same way they do on a player store.
 
 The session methods don't. `Load`, `Unload`, `Get`, `Expect`, `IsLoaded`, `WaitForLoaded` and `Read`
-all throw on a string keyed store, because there's no player to hang a session on.
+all throw on a string keyed store, because a session belongs to a player.
 
 ## Keys [#keys]
 
 A key is a string of 1 to 50 characters and it has to be valid UTF-8. Roblox sets that limit, so
 Ledger can't raise it.
 
-A key cannot hold a `#`. Ledger puts a `#` between a tally name and its shard number, so a key that
-holds one could read as a shard of something else. `Ledger` throws where you wrote the call when a
-key holds one.
+A key cannot hold a `#`. Ledger puts a `#` between a total's name and its shard number, so a key
+with one could be read as a shard of something else. A key with a `#` in it throws an error at the
+call.
 
 Pick keys that come from something stable. A clan id, a listing id, a slug. Don't build them out of
 anything that might change, because there's no rename.
 
-## How much one key holds [#how-much-one-key-holds]
+## Transfer and Tx limits on one key [#transfer-and-tx-limits-on-one-key]
 
-A clan or a listing takes writes from every player at once. Ledger writes down the name of every
-`Tx` leg and every `Transfer` that goes through. It keeps each name for 30 days. That is about
-1,700 a day on one key before those names fill the state cap.
+A clan or a listing takes writes from every player at once. Ledger records the name of every `Tx`
+leg and every `Transfer` that goes through, and keeps each name for 30 days. One key can take about
+1,900 of these a day before the names fill the state cap. A transfer into or out of a full key then
+returns `Full`, and the money stays where it was.
 
-`Edit` writes no name. A clan that only takes `Edit` has nothing to plan around. `Reserve` writes
-none. `Confirm` writes one only when you give it a [`Once`](/docs/concepts/once).
+`Edit` and `Reserve` record no name, so a clan that only receives those is not affected. `Confirm`
+records one only when you give it a [`Once`](/docs/concepts/once).
 
-Above that rate, give the entity more than one key. One key per guild rather than one for all of
-them. See [Limits](/docs/limits#applied-names).
+Above that rate, split the data over more keys, for example one key per guild instead of one key for
+all guilds. See [Limits](/docs/limits#applied-names).
 
 ## Following a key [#following-a-key]
 
@@ -2488,61 +2669,32 @@ end)
 ```
 
 One shared copy of the key is in MemoryStore for the whole fleet. Each server reads the shared copy
-on a timer. It pushes the state only when the state changed. After 60 to 75 seconds the shared copy
-is stale. One server then reads the record and writes the shared copy again. The other servers
-answer the old copy until then. A change on any server reaches every server in at most 75 seconds
-plus one tick. A fleet of 5,000 servers costs the key one datastore read a minute, not 5,000.
+on a timer, and the subscription fires only when the state changed. After 60 to 75 seconds the
+shared copy is stale. One server then reads the record and writes the shared copy again. The other
+servers return the old copy until then. A change on any server reaches every server within 75
+seconds plus one tick. A fleet of 5,000 servers costs the key one datastore read a minute, not 5,000.
 `Peek(Key, MaxAge)` reads the same copy without a subscription.
 
-Follow a key at server start. Do not peek it there. A follow's first read is spread over its first
-tick. A peek in a server's first second is not spread. With a follow, 5,000 servers that start
-together do not reach one copy in the same second.
+Follow a key at server start, and do not peek it there. `Follow` makes its first read at a random
+point in its first tick, and `Peek` reads at once. So when 5,000 servers start together and each
+follows the key, they do not all read the shared copy in the same second.
 
 A followed key holds small state that changes slowly. The copy has to fit one MemoryStore item,
 32 KB. The copy carries your fields only. Keep anything that grows with players in one key per
 entry. Let the followed key point at those keys. A ban is one key per banned player. A log is one
 key per line. Do not follow those keys.
 
-To show a write on every server immediately, send the key over `MessagingService` from `Store:Stale()`.
-The receiver calls `Peek(Key, 0)`. That reads the record on one server and refills the shared copy
-for the others. Wait a random time of a few seconds before that call. Then the fleet does not reach
-one copy in the same instant, and one refill serves all of it. See
+To show a write on every server immediately, send the key over `MessagingService` from
+`Store:Stale()`. The receiver calls `Peek(Key, 0)`, which reads the record and refills the shared
+copy for the other servers. Wait a random few seconds before that call, so the servers don't all
+read at the same moment and one refill serves every server. See
 [Telling another server to refresh](/docs/guides/transactions#telling-another-server-to-refresh).
 
-A store with no MemoryStore reads the record on each tick. When MemoryStore stops answering, each
+A store with no MemoryStore reads the record on each tick. When MemoryStore stops responding, each
 server keeps its copy for 10 minutes. A server with no copy reads the record once in those
 10 minutes. No server waits for another server at any point.
 
-## Naming their ops [#naming-their-ops]
-
-An entity store takes [`NewTyped`](/docs/concepts/typed-ops) the same way a player store does, and
-its keys stay strings:
-
-```luau
-export type Ops = {
-	Join: { UserId: string },
-	Donate: { Amount: number },
-}
-
-local Clans = Ledger.NewTyped<<Clan, Ops>>({
-	Name = "Clans",
-	Keys = "String",
-	Balance = "Treasury",
-	Default = { Members = {}, Count = 0, Treasury = 0, Level = 1 },
-	Reducer = Reducer,
-})
-
-Clans:Edit("cool-guys", "Join", { UserId = tostring(Player.UserId) })
-```
-
-Writing `UserId: string` in the map turns the rule at the top of this page into one the checker
-holds. Passing `Player.UserId` straight in stops the build, instead of storing a number key that
-only goes wrong when the key first tries to compact.
-
-`Tx` is unchanged either way. Its legs take any kind on any store, which is what the next section
-needs.
-
-## Mixing them [#mixing-them]
+## Player and entity stores in one transaction [#player-and-entity-stores-in-one-transaction]
 
 A transaction can touch a player store and an entity store in the same commit, which is the usual
 reason to have both:
@@ -2554,15 +2706,16 @@ Players:Tx(`donate:{OrderId}`, {
 }):Wait()
 ```
 
-Both sides move or neither does. See [Transactions](/docs/guides/transactions).
+Both sides move or neither does. A leg's kind and fields are not checked against `Ops`, so a leg
+can name a kind on any store. See [Transactions](/docs/guides/transactions).
 
 
 # Migrations (https://xoifaii.github.io/LedgerDocs/docs/guides/migrations)
 
 
 
-A migration is a function that takes the old state and gives back the new one. You add them to the
-end of the list and never touch the ones already there.
+A migration is a function that takes the old state and returns the new one. Add new ones to the end
+of the list and never change the ones already there.
 
 ```luau
 local Store = Ledger.New({
@@ -2591,34 +2744,31 @@ local Store = Ledger.New({
 })
 ```
 
-The number of migrations in the list is the version. A record remembers which version it was written
-at, and when a server loads one that's behind, it runs the missing steps in order before folding.
+The number of migrations in the list is the version. A record stores the version it was written at.
+When a server loads a record with a lower version, it runs the missing steps in order before the
+fold.
 
-Migrations only run on the snapshot, at load. They never see ops.
+Migrations run on the snapshot at load. They never see ops.
 
 ## New fields don't need one [#new-fields-dont-need-one]
 
-Ledger reconciles the folded state against `Default` on every load, so a field you add to `Default`
-shows up on old profiles with its default value automatically. You only need a migration when you're
-changing something that's already there, like renaming a field or reshaping it.
+On every load Ledger adds each field of `Default` that the stored state is missing. A field you
+add to `Default` appears on old profiles with its default value. You only need a migration to change
+a field that already exists, such as renaming or reshaping it.
 
 ## Rolling deploys [#rolling-deploys]
 
-This is the part that actually needs thinking about. During a deploy you have old servers and new
-servers running at the same time, on the same data.
+During a deploy, old servers and new servers run at the same time on the same data.
 
-New servers write records stamped with the new version. An old server that reads one and doesn't
-recognise the version refuses to fold it, and errors instead. That's on purpose. The alternative is
-an old server quietly folding a record it doesn't understand and writing back a version of the
-profile with the new fields stripped out.
+New servers write records with the new version. An old server that reads one refuses to fold it.
+Otherwise it would fold a record it doesn't understand and write it back with the new fields removed.
 
-`Compatible = true` is how you say a step is safe for that. It means the migration only adds things,
-so an old server can read the record, ignore what it doesn't know, and write back without losing
-anything.
+`Compatible = true` marks a step that only adds things. An old server can read a record at that
+version, ignore the fields it doesn't know, and write it back without losing anything.
 
-Ledger keeps track of the last step that wasn't compatible. Any record at or above that point can be
-read by an older server. Anything below it can't, and the old server answers
-[`Behind`](/docs/concepts/reasons) instead of guessing.
+The floor is the version of the last step that isn't compatible. A server whose build has at least
+that many migrations can read the record. An older one returns
+[`Behind`](/docs/concepts/reasons).
 
 ```luau
 -- new build, two migrations, the first of them not compatible
@@ -2629,53 +2779,48 @@ Store:Peek(UserId):Wait()   --> nil, "Behind"
 Store:Reset(UserId):Wait()  --> false, "Behind"
 ```
 
-The version sits on the snapshot, so a key gets one the first time it compacts. Before that the
-record is only ops, and an older server reads it normally.
-
-The floor doesn't wait for a compaction. Every write stamps it, so a key can start turning an old
-server away before it has ever compacted:
+The first write to a key stores `Default` as its snapshot along with the version and the floor.
+Every later write raises the floor to the writer's floor, so a key turns an old server away from
+the first write a new server makes:
 
 ```luau
 Store:Edit(UserId, "Add", { Amount = 5 }):Wait()   --> false, "Behind"
 ```
 
-The floor is checked first, inside the transform, so nothing reaches the log. The write doesn't
-half happen and there's nothing queued behind it. The deploy clears it.
+The floor is checked inside the datastore update, before the op reaches the log, so nothing is
+written. `Behind` stops once the deploy finishes.
 
-An older server can never compact one of these records, so it can never write a snapshot in the old
-shape.
+An older server never compacts one of these records, so it never writes a snapshot in the old shape.
 
-`Behind` is the one reason it's pointless to retry, because it isn't about the datastore. It says
-this server is running an older build than the one that wrote the record, and it clears when the
-deploy finishes. Never fall back to a fresh profile on `Behind`, the stored data is fine and writing
-over it is how you lose it.
+Don't retry `Behind`. It isn't a datastore failure. It means this server runs an older build than
+the one that wrote the record, and it stops once the deploy finishes. Never fall back to a fresh
+profile on `Behind`. The stored data is fine, and writing over it loses it.
 
-So:
+In short:
 
-Adding a field, adding a table, adding a default. Mark it `Compatible = true` and old servers keep
-working straight through the deploy.
-
-Renaming, deleting, or reshaping a field. Leave it plain. Old servers will refuse those records,
-which is what you want, and the errors stop as soon as the deploy finishes.
+- Adding a field, a table or a default: mark it `Compatible = true`, and old servers keep working
+  through the deploy.
+- Renaming, deleting or reshaping a field: leave it unmarked. Old servers refuse those records with
+  `Behind` until the deploy finishes.
 
 ## Don't drop something Default still declares [#dont-drop-something-default-still-declares]
 
-If a migration removes a field but `Default` still lists it, the reconcile puts it straight back on
-every load and your migration does nothing. Nothing warns about this. Ledger cannot tell a field you
-meant to drop from one you meant to keep.
+If a migration removes a field but `Default` still lists it, the load puts it back with its default
+value and the migration has no effect. Nothing warns about this, because Ledger can't tell a field
+you meant to drop from one you meant to keep.
 
-Take it out of `Default` at the same time you write the migration to remove it.
+Remove the field from `Default` in the same change as the migration.
 
 ## Rules [#rules]
 
-Migrations have to be pure and can't yield, same as the reducer.
+Migrations have to be pure and can't yield, like the reducer.
 
-They have to return a table. Returning anything else errors on load with the step number.
+They have to return a table. Anything else throws an error at load that names the step.
 
-Leave anything starting with an underscore alone. Those are Ledger's own fields, the money set aside
-for a transfer, the applied names, the units reserved and the tally. A migration that rebuilds the
-state from scratch drops them, so Ledger puts them back after every step and names the step that did
-it. Copy the state and change what you meant to change:
+Don't change fields that start with an underscore. They are Ledger's own: the money set aside for
+a transfer, the applied names, and the totals `Bump` keeps. A migration that builds a new table drops
+them, so Ledger puts them back after every step and warns with the step number. Copy the state and
+change only what you meant to:
 
 ```luau
 -- keeps everything it did not mean to touch
@@ -2692,28 +2837,27 @@ function(State)
 end
 ```
 
-Never reorder them, never delete one, never edit one that's already shipped. The list index is the
-version, so changing it changes what every existing record means.
+Never reorder, delete or edit a migration that has shipped. The list index is the version, so
+changing the list changes what every stored version means.
 
-Version numbers only go up. A record written at a version newer than this server knows is either
-read through the compatible path or refused, never folded down.
+Versions only go up. A server reads a record with a newer version only when the floor allows it,
+and refuses it otherwise. It never migrates a record down.
 
 ## Changing the reducer [#changing-the-reducer]
 
-Ledger puts no version on the reducer. A migration changes the snapshot, not the ops. Each server
-folds a log with the reducer that it runs now, so a change to the reducer changes what the older ops
-do.
+The reducer has no version. A migration changes the snapshot, not the ops. Each server folds the log
+with the reducer it runs now, so changing the reducer changes what older ops do.
 
-Add a kind for a new rule. You can widen a kind to accept ops that it refused before. Do not narrow
-one, do not change what one does, and never use a name twice.
+Add a new kind for a new rule. You can widen a kind to accept ops it refused before. Don't narrow
+a kind, don't change what it does, and never reuse a kind name.
 
-A branch is not dead code. It builds part of the state of every record whose log still holds one of
-its ops. Keep it when the feature goes, and keep it correct through later migrations:
+Keep the branch for a kind after its feature is removed. Every record whose log still holds one of
+its ops needs it to fold. Keep it correct through later migrations too:
 
 ```luau
 -- pets were taken out of the game. the ops are still in the logs, so the rule stays
 if Op.Kind == "BuyPet" then
-	if type(Op.Cost) ~= "number" or Op.Cost > State.Gold then
+	if Op.Cost > State.Gold then
 		return nil
 	end
 
@@ -2725,35 +2869,49 @@ if Op.Kind == "BuyPet" then
 end
 ```
 
-Delete it and the fold leaves out that gold and that pet, the key stops compacting with a warning
-naming the kind, and the log grows until writes answer [`Full`](/docs/concepts/reasons). Put the
-branch back and both return.
+If you delete it, the fold leaves out that gold and that pet. The key stops compacting, with a warning
+that names the kind, and the log grows until writes return [`Full`](/docs/concepts/reasons). Putting
+the branch back restores both.
 
-`Reset` does not get a key out of that. It writes the default state as another op, so the op it cannot
-apply is still the oldest one and the log still cannot compact. It says so when you try. Only a build
-that folds the op, or erasing the key, clears it.
+`Reset` doesn't fix that. It writes the default state as another op, so the op that can't be applied
+is still the oldest one and the log still can't compact. `Reset` warns about this. Only a build that
+folds the op, or erasing the key, clears it.
 
-Do not swap it for a branch that accepts the op and changes nothing. The state goes the same way,
-and this time the key compacts, so the snapshot keeps that result:
+Don't replace it with a branch that accepts the op and changes nothing. The state loses the same
+gold and pet, but this time the key compacts, so the snapshot saves that result permanently:
 
 ```luau
--- wrong. the fold drops what the op did, and a compaction writes that down for good
+-- wrong. the fold drops what the op did, and a compaction saves that permanently
 if Op.Kind == "BuyPet" then
 	return table.clone(State)
 end
 ```
 
-Only a loaded session compacts, and only when the log is long enough, so an offline key holds its
-ops until you deploy a build that folds them.
+Only a loaded session compacts, and only when the log is long enough. An offline key keeps its ops
+until you deploy a build that folds them.
 
-A change to the reducer does not move the floor, because Ledger cannot see it. Two builds then fold
-one log by different rules during a deploy. Add a migration that gives back its state unchanged when
-the change is not safe for both:
+A change to the reducer doesn't raise the floor, because Ledger can't detect it. During the deploy,
+two builds fold one log with different rules. When that isn't safe, add an unmarked migration that
+returns the state unchanged. It raises the floor, so old servers stop writing to the key:
 
 ```luau
 Migrations = {
 	-- ...
 	function(State) return State end,  -- 3: SpendGold now checks a daily cap
+}
+```
+
+A new kind isn't always safe either. An old server refuses the new op and folds the key without it.
+If the new op changes a field that another kind reads, the old server can write an op that the new
+build refuses. For example, a new `Tax` op takes gold. An old server then writes a `SpendGold` op
+against gold the tax already took, and tells the game it went through. The new build refuses it, so
+it never applies, and the key can't compact again. When a new kind changes a field that other kinds
+read, add the same kind of migration:
+
+```luau
+Migrations = {
+	-- ...
+	function(State) return State end,  -- 4: Tax takes gold, and SpendGold reads gold
 }
 ```
 
@@ -2782,8 +2940,8 @@ for _, Entry in Rows do
 end
 ```
 
-You get back newest first. `Version` is the string you hand to `PeekVersion`, `At` is a Unix
-timestamp in seconds, and `Deleted` says whether that version was a delete.
+It returns the newest first. `Version` is the string you pass to `PeekVersion`, `At` is a Unix
+timestamp in seconds, and `Deleted` is `true` when that version was a delete.
 
 The limit is clamped between 1 and 100 and defaults to 25.
 
@@ -2796,12 +2954,12 @@ if Was then
 end
 ```
 
-This folds that old record the same way a load would, so migrations run and you get real state, not
-raw storage.
+This folds the old record the same way a load does, so migrations run and it returns the state, not
+the stored record.
 
-It's read only, and there is no restore. Writing an old snapshot back over a live profile would wipe
-whatever happened in between, including money that arrived from a transfer. To roll something back,
-look at what changed and write ops that undo it.
+It is read only, and there is no restore. Writing an old snapshot over a live profile would erase
+everything that happened since, including money that arrived from a transfer. To roll something
+back, find what changed and write ops that undo it.
 
 ## Reset [#reset]
 
@@ -2811,19 +2969,19 @@ look at what changed and write ops that undo it.
 local Ok, Why = Store:Reset(UserId):Wait()
 ```
 
-It's an op like any other, so it goes in the log and every server sees it. It keeps `_Received` and
-`_Held` across. Wiping the applied id set would let an old retry apply again, and wiping the holds
-would destroy money that is part way through a transfer.
+It is an op like any other, so it goes in the log and every server sees it. It keeps `_Received` and
+`_Held`. Clearing the applied ids would let an old retry apply again, and clearing `_Held` would
+destroy money that is part way through a transfer.
 
-A server won't reset a record written at a version it doesn't know, so you can't accidentally
-downgrade a profile during a deploy.
+A server won't reset a record written at a version it doesn't know, so a reset can't downgrade a
+profile during a deploy.
 
-It can answer [`Unresolved`](/docs/concepts/reasons) if a stuck transaction leg on that key would
-change the outcome. Ask again. The reset has not failed.
+It can return [`Unresolved`](/docs/concepts/reasons) when a transaction leg parked on the key could
+change the result. Call it again later. Nothing was written.
 
 ## Erase [#erase]
 
-`Erase` throws the record away. This is your GDPR button.
+`Erase` deletes the player data on a key. Use it for GDPR deletion requests.
 
 ```luau
 local Gone, Why = Store:Erase(UserId):Wait()
@@ -2832,71 +2990,72 @@ if not Gone then
 end
 ```
 
-Check the answer. If you are erasing to satisfy a deletion request, `false` means it did not happen
-and you have not finished the job.
+Check the result. `false` means nothing was erased, so a deletion request is not done yet.
 
-First it passes on whatever this key still owes somebody else, so a normal erase doesn't take
-something with it that was on its way out. That means money set aside for a transfer that has not
-finished, and units a `Reserve` set aside with a `To`. If a receiver won't take one of them, Ledger
-names what was left and how much, and you settle that one yourself.
+First it delivers any transfers this key was part way through sending. If a receiver doesn't accept
+one, `Erase` returns `Busy` and changes nothing. Call it again later. A transfer that can't be
+delivered is refunded once it is 8 days old, so an `Erase` after that succeeds.
 
-Money arriving is a different problem, because another server can be delivering to this key while you
-erase it. So an erase leaves a tombstone in place of the record instead of removing the key. Anything
-sent to a tombstoned key is refused and the sender keeps the money set aside.
+Money arriving is different, because another server can be delivering to this key while you erase
+it. So an erase replaces the record with a tombstone instead of removing the key. A transfer to a
+tombstoned key is refused, and the sender keeps the money set aside.
 
-**The tombstone lasts 8 days.** A write to the key does not clear it. That is the point: the erase
-has to outlast anything still in flight to the key, and a session on another server has no idea the
-erase happened. By the end of the window no transfer can still be unfinished.
+**The tombstone lasts 8 days.** A write to the key doesn't clear it. The tombstone has to outlast
+every transfer still on its way to the key, and after 8 days none can be.
 
-A key can still be written to and read while it holds a tombstone. It folds from `Default` like a
-fresh profile. Only money sent to it is turned away.
+You can still read and write a tombstoned key. It folds from `Default` like a new profile. Only
+transfers to it are refused.
 
-The tombstone holds a timestamp, your `Default`, and the applied names the key had built up. It holds
-no other player data. To remove the key outright, call `Erase` again after the 8 days.
+The tombstone holds a timestamp, your `Default`, and the key's applied names. It holds no other
+player data. To remove the key completely, call `Erase` again after the 8 days. If the key still
+holds names from the last 30 days, that call keeps the tombstone and warns, because a refund may
+still need to check those names. Call `Erase` again after they expire.
 
-Keeping the names matters more than it sounds. `ProcessReceipt` retries until you answer
-`PurchaseGranted`, and Roblox can retry one you already granted. If an erase dropped the names, that
-retry would read as never granted and pay out a second time. So a read of an erased key comes back as
-a fresh profile, and a receipt already paid out is still refused.
+While that second `Erase` removes the key, a write to the key returns
+[`Busy`](/docs/concepts/reasons). This lasts at most 2 minutes.
 
-The refund to a turned away sender is not immediate. Their money stays set aside until the transfer
-is overdue, which is the same 8 days, and then the recovery sweep gives it back. Forcing
-`RecoverTransfers` on the sender before that does nothing, on purpose: a refund paid early could
-still be delivered afterwards and pay twice.
+The names matter. `ProcessReceipt` retries until you return `PurchaseGranted`, and Roblox can retry
+one you already granted. If an erase dropped the names, that retry would look like a new purchase
+and pay out again. So a read of an erased key returns a new profile, but a receipt already paid out
+is still refused.
 
-Erasing a player who's still in the server warns. Unload them first:
+A refused sender isn't refunded at once. Their money stays set aside until the transfer is overdue,
+after the same 8 days, and then the sweeper refunds it. Calling `RecoverTransfers` on the sender
+before that does nothing, on purpose: a refund paid early could still be delivered later and pay
+twice.
+
+Erasing a player who is still in the server warns. Unload them first:
 
 ```luau
 Store:Unload(Player)
 Store:Erase(Player.UserId):Wait()
 ```
 
-A session on **another** server knows nothing about the erase, and it cannot bring the key back. A
-session is fenced to the tombstone as it stood when it took the key. Its writes are turned away and it
-closes itself. `Flush`, `Release` and `Commit` answer [`Refused`](/docs/concepts/reasons) rather than
-report a save that never happened.
+A session on **another** server that loaded the key before the erase can't bring the data back. Its
+next save is refused, and the session closes. `Flush`, `Release` and `Commit` then return
+[`Refused`](/docs/concepts/reasons) instead of reporting a save that never happened.
 
-Whatever that session had queued dies with it, so get the player off every server before you erase
-them. Ledger warns on the erased key when a write arrives, which tells you somebody is still holding
-it.
+The ops that session had queued are lost, so remove the player from every server before you erase
+them. The server holding the session warns when it closes, with the key and the number of unsaved
+ops.
 
-The erase is still a version, so `History` shows it and the data is recoverable through `PeekVersion`
-for 30 days. Roblox keeps that history whatever Ledger does, so know about it before you erase
-someone for a legal reason.
+The erase is still a version, so `History` lists it, and `PeekVersion` can read the old data for 30
+days. Roblox keeps that history whatever Ledger does, so keep it in mind when you erase someone for a
+legal reason.
 
 ## Sweeping [#sweeping]
 
-Ledger runs a background sweeper that finishes stranded transfers, settles stuck transaction legs,
-and tidies up old transaction markers. It picks up keys it saw a problem on, so most of the time it
-sorts itself out and you never notice.
+Ledger runs a background sweeper that finishes unfinished transfers, settles parked transaction
+legs, and deletes old transaction markers. It goes back to the keys where it saw a problem, so you
+usually don't need to do anything.
 
-`Ledger.Sweep()` forces a pass right now. It's useful in a test, or in a live incident when you want
-something dealt with immediately instead of on the next tick.
+`Ledger.Sweep()` runs a pass now. Use it in a test, or during a live incident when you don't want to
+wait for the next pass.
 
 ## Support tooling [#support-tooling]
 
-The store methods that take a key all work on players who aren't here, so a support tool doesn't
-need the player online:
+Every store method that takes a key works on a player who is offline or on another server, so a
+support tool doesn't need the player online:
 
 ```luau
 local State, Why = Store:Peek(UserId):Wait()
@@ -2913,51 +3072,52 @@ Store:Edit(UserId, "GrantItem", {
 local Applied = Store:DidApply(UserId, `support:{TicketId}`):Wait() == true
 ```
 
-Put a `Once` name on anything a support tool writes. Someone will click the button twice.
+Put a `Once` name on every op a support tool writes, because someone will click the button twice.
 
-It stops the double click, and it stops a retry minutes or days later. It does not stop the same
-ticket being fulfilled again months later, because the name is only remembered for a rolling 30 days.
-If a reopened ticket has to stay fulfilled for good, record that in the state your reducer can see
+It stops the second click, and a retry minutes or days later. It doesn't stop the same ticket being
+fulfilled again months later, because a name is kept for 30 days.
+If a reopened ticket has to stay fulfilled permanently, record that in the state your reducer can see
 and refuse on it there. See [how long a name is remembered](/docs/concepts/once#how-long-a-name-is-remembered).
 
 ## Editing storage directly [#editing-storage-directly]
 
-A datastore editor plugin shows you Ledger's record, not the player's data:
+A datastore editor plugin shows Ledger's record, not the player's state:
 
 ```luau
 {
 	Snapshot = { Gold = 100 },   -- the state as of the last compaction
 	Ops = { ... },               -- changes since then, not folded in yet
 	Seen = { ... },              -- op ids already applied
-	Version = 3, Floor = 1, Envelope = 1
+	Version = 3, Floor = 1, Envelope = 2
 }
 ```
 
-The number someone came looking for is inside `Snapshot`, and on its own it is not the current value,
-because everything in `Ops` still replays over it.
+The value you are looking for is inside `Snapshot`, but it isn't the current value, because every op
+in `Ops` still applies on top of it.
 
 <Callout type="warn">
-  Replacing the value with a plain state table wipes the player. With no `Snapshot` field, Ledger
-  folds from your `Default` and reads them as a brand new profile. What you typed sits on the record
-  as a field nothing looks at, until the next compaction drops it.
+  Replacing the record with a plain state table erases the player. With no `Snapshot` field, Ledger
+  folds from your `Default` and reads a new profile. What you typed stays on the record as a field
+  nothing reads, until the next compaction removes it.
 </Callout>
 
-The rest, in the order they cost you:
+Other mistakes, worst first:
 
-* **Editing `Snapshot` while `Ops` has anything in it.** Your edit goes in, then the ops replay over
-  the top. Set gold to 1000 with a pending spend of 50 and the fold answers 950.
-* **Deleting `Seen`.** That is the dedupe window for ops already compacted away, so an old retry can
-  apply a second time.
-* **Removing an op that has a `Tx` field.** That is a parked [transaction](/docs/guides/transactions)
-  leg. The marker still counts it, so the transaction can half apply or sit stuck until it is reaped.
-* **Clearing `_Held` or `_Received` inside `Snapshot`.** `_Held` is money set aside for a transfer
+- **Editing `Snapshot` while `Ops` has anything in it.** Your edit is saved, then the ops apply on
+  top. Set gold to 1000 with a spend of 50 still in `Ops`, and the fold returns 950.
+- **Deleting `Seen`.** It holds the ids of ops already compacted, so an old retry can apply a second
+  time.
+- **Removing an op that has a `Tx` field.** That is a parked [transaction](/docs/guides/transactions)
+  leg. The marker still counts it, so the transaction can apply on only some keys, or stay stuck
+  until it is cleaned up.
+- **Clearing `_Held` or `_Received` inside `Snapshot`.** `_Held` is money set aside for a transfer
   that has not finished, so deleting it destroys that money. `_Received` is the delivery evidence, so
   deleting it lets the same transfer pay twice.
-* **Raising `Envelope`** is the one safe mistake. Every server answers
-  [`Behind`](/docs/concepts/reasons) and refuses to touch the record rather than misreading it.
+- **Raising `Envelope`** is the only safe mistake. Every server returns
+  [`Behind`](/docs/concepts/reasons) and won't touch the record, instead of misreading it.
 
-Use the api instead. It goes through your reducer and the log rather than around them, and it works
-whether or not the player is online or on this server:
+Use the API instead. It goes through your reducer and the log, and it works whether the player is
+online, on another server, or offline:
 
 ```luau
 Store:Inspect(UserId):Wait()   -- see what is actually on the key first
@@ -2965,30 +3125,30 @@ Store:Edit(UserId, "GrantItem", { Item = "Sword", Once = `support:{TicketId}` })
 Store:Reset(UserId):Wait()     -- back to Default, keeping _Received and _Held
 ```
 
-`Reset` keeps the two reserved fields, which hand editing would not. `Once` makes the double click
+`Reset` keeps `_Received` and `_Held`, which a hand edit wouldn't. `Once` makes a second click
 safe.
 
-One last thing if you do edit storage. A live session does not see it until its next autosave refold,
-so up to 30 seconds, and the ops it has already queued were worked out against the state before your
-edit.
+If you do edit storage, a live session doesn't see the change until its next autosave reads the key.
+That is within 30 seconds when it has ops queued, and within 2 minutes when it has none. The ops it
+already queued were checked against the state before your edit.
 
 
 # Reservations and totals (https://xoifaii.github.io/LedgerDocs/docs/guides/reservations)
 
 
 
-Two problems look like they need a transaction and don't.
+Two problems look like they need a transaction but don't.
 
 The first is a limit: 500 copies of a sword, 40 raid places, one seat per table. The second is a
-total: an event pot, a kill counter, a donation tally.
+total: an event prize pool, a kill counter, a donation total.
 
-Both are cheaper and simpler on a single key than across two, and each has its own tool.
+Both are cheaper and simpler on one key than across two, and each has its own methods.
 
 ## Reserve, Confirm, Release [#reserve-confirm-release]
 
-A reservation holds units of a number field on one key. The hold lives in MemoryStore, not on the
-key: the field still reads what it was, and `Holds` says how much of it is spoken for. A second
-buyer is turned away at `Reserve`, before checkout rather than at it.
+A reservation holds units of a number field on one key. The hold is stored in MemoryStore, not on
+the key. The field keeps its value, and `Holds` returns how much of it is held. When nothing is left
+to hold, `Reserve` refuses the next buyer before checkout starts.
 
 ```luau
 local Shop = Ledger.New({
@@ -3007,16 +3167,16 @@ if not Ok then
 end
 ```
 
-`Stock` still reads 500, `Holds("sword", "Stock")` reads 1, and the next `Reserve` sees 499 to give.
-Two things can happen to the hold:
+`Stock` is still 500, `Holds("sword", "Stock")` returns 1, and the next `Reserve` can hold up to 499.
+A hold ends in one of two ways:
 
 ```luau
 Shop:Confirm("sword", OrderId, "Sell", { Count = 1 }):Wait()   -- your op spends the unit, stock is 499
 Shop:Release("sword", OrderId):Wait()                           -- the hold goes, stock was never touched
 ```
 
-`Confirm` takes the kind and fields of your own op, the ones you would give `Edit`. Your reducer
-decides what a checkout takes off the key and refuses one the field cannot cover:
+`Confirm` takes the kind and fields of your own op, the same ones you would pass to `Edit`. Your
+reducer decides what a checkout takes from the key, and refuses one the field can't cover:
 
 ```luau
 -- in your reducer
@@ -3028,24 +3188,30 @@ if Op.Kind == "Sell" then
 end
 ```
 
-That reducer is the gate. A hold is advice about who gets to checkout first, and it is not in the
-fold, so an `Edit` can spend units somebody holds and their `Confirm` is then `Refused`. A hold that
-was lost, or never made because the MemoryStore was down, costs the same: one refused checkout and
-never an oversell. Show players `Holds` rather than the field when "3 left" has to mean it.
+The reducer is what enforces the limit. A hold only decides who gets to check out first, and it is
+not part of the fold, so an `Edit` can spend units someone holds, and their `Confirm` then returns
+`Refused`. A hold that was lost, or never made because MemoryStore was down, has the same effect: one
+refused checkout, never an oversell. Show players the field minus `Holds` when "3 left" has to be
+accurate.
 
-Asking to reserve under a name that already holds the same thing answers `true` and holds nothing
-extra, so a retry is safe. Under a different amount or field it answers `Spent`. Confirming twice
-spends once while the key remembers the op. The key remembers an op while it is in the log, and for
-the next 2048 ops it absorbs. Once a hold has gone, a new hold can be taken under the same name. A
-confirm under it does not sell again while the key remembers the first confirm. Give each purchase
-its own Id. A confirm that may be retried later than the key remembers it needs a
-[`Once`](/docs/concepts/once), see [Confirm](/docs/reference/store#confirm).
+`Reserve` with an id that already holds the same amount of the same field returns `true` and holds
+nothing more, so a retry is safe. With a different amount or field it returns `Spent`.
+
+`Confirm` twice with one id spends once while the key still has that op's id. The key keeps an id
+while the op is in the log, and for the next 2048 ops it compacts. After a hold ends, a new hold can
+use the same id, but a `Confirm` under it doesn't sell again while the key has the first confirm's
+id. Give each purchase its own id.
+
+A confirm you may retry later than that needs `IdAt` in its fields: the time you first sent it, the
+same on every retry. Once the key has dropped the id, the retry returns
+[`Unresolved`](/docs/concepts/reasons) and sells nothing. See
+[Confirm](/docs/reference/store#confirm).
 
 ### One key is one item [#one-key-is-one-item]
 
-`"sword"` and `"shield"` are separate keys with separate records, so they hold separate stock.
-`Default` is not a template for an item. It is the starting state of a key nothing has written yet,
-and the stock of each item arrives as an op like anything else:
+`"sword"` and `"shield"` are separate keys with separate records, so each has its own stock.
+`Default` is not a template for an item. It is the state of a key nothing has written to yet, and
+each item's stock is set by an op like any other change:
 
 ```luau
 -- in your reducer
@@ -3059,34 +3225,34 @@ Shop:Edit("sword", "Restock", { Amount = 500 }):Wait()
 Shop:Edit("shield", "Restock", { Amount = 1000 }):Wait()
 ```
 
-Start the default at zero. A key nobody has written still folds to it, so a default of 500 means a
-misspelled item id has 500 in stock and `Reserve` says yes to all of it. Give the restock a
-[`Once`](/docs/concepts/once) name if it should land one time however many servers run it.
+Start the default at zero. A key nobody has written to still folds to it, so with a default of 500 a
+misspelled item id has 500 in stock and `Reserve` accepts all of it. Give the restock a
+[`Once`](/docs/concepts/once) name if it should apply once however many servers run it.
 
-The second argument to `Reserve` is a field, so one key can hold several pools. Keep that for units
-that share a limit. One key is one write queue, and putting every item on one key makes every
-purchase wait behind every other.
+The second argument to `Reserve` is a field, so one key can hold several pools. Only do that for
+units that share a limit. Each key has one write queue, so putting every item on one key makes every
+purchase wait for every other.
 
-### Nobody has to clean up [#nobody-has-to-clean-up]
+### Holds expire on their own [#holds-expire-on-their-own]
 
-A hold lasts 15 minutes and then runs out on its own. Nothing has to give it back, because nothing
-was taken. `Hold` on the options sets a shorter one. Fifteen minutes is the cap as well as the
-default, so `Hold` can only shorten a hold. A `Hold` above the cap throws where you wrote the call.
+A hold expires after 15 minutes. Nothing has to be returned, because nothing was taken. The `Hold`
+option sets a shorter time. Fifteen minutes is both the default and the maximum, so `Hold` can only
+shorten a hold. A `Hold` above the maximum throws an error at the call.
 
-A checkout that stays open longer calls `Reserve` again under the same Id. That moves the end of the
-hold out and holds nothing extra. Call `Release` when the player walks away, so the next buyer does
-not wait the 15 minutes.
+For a checkout that stays open longer, call `Reserve` again with the same id. That extends the hold
+and holds nothing more. Call `Release` when the player leaves checkout, so the next buyer doesn't
+wait 15 minutes.
 
-One key holds 256 at once. Past that `Reserve` answers [`Busy`](/docs/concepts/reasons).
-Holds are being made faster than they are confirmed or released. A hold runs out in 15
-minutes or less. Ask again shortly. `Refused` means the stock cannot cover the units.
+One key can have 256 holds at once. Past that, `Reserve` returns [`Busy`](/docs/concepts/reasons),
+which means holds are being made faster than they are confirmed or released. Every hold expires
+within 15 minutes, so try again shortly. `Refused` means the field can't cover the units.
 
-The stock a hold is judged against is what the key read last. A refusal reads the key again before
-it answers, so a restock is seen. `Reserve` needs MemoryStore, which in Studio means API access on.
-Without it `Reserve` answers [`Unresolved`](/docs/concepts/reasons) and checkout falls to first come,
-which the reducer enforces.
+`Reserve` checks a hold against the last value it read from the key. Before it refuses, it reads the
+key again, so it sees a restock. `Reserve` needs MemoryStore, which in Studio means API access has to
+be on. Without it, `Reserve` returns [`Unresolved`](/docs/concepts/reasons), and checkout falls back
+to first come, first served, which the reducer enforces.
 
-## Handing the units to another key [#handing-the-units-to-another-key]
+## Moving the units to another key [#moving-the-units-to-another-key]
 
 `Confirm` spends the units where they are. `Transfer` with a field moves them somewhere else:
 
@@ -3094,18 +3260,18 @@ which the reducer enforces.
 Shop:Transfer("sword", tostring(Player.UserId), 1, OrderId .. ":unit", "Stock"):Wait()
 ```
 
-That is the same three op transfer a balance takes, on the field you name, so it is escrowed on the
-way, deduped by its id, and finished or given back by the recovery sweep if the server dies between
-the legs. See [Transfers](/docs/guides/transfers).
+That is the same three op transfer a balance uses, on the field you name. The units are set aside on
+the way, the transfer applies once per id, and the sweeper finishes or refunds it if the server stops
+between the steps. See [Transfers](/docs/guides/transfers).
 
-A transfer id belongs to one transfer, and the field is part of what it means, so the price and the
-unit of a purchase carry two ids. The same id on a different field answers
+A transfer id belongs to one transfer, and the field is part of that transfer, so the price and the
+unit of a purchase need two ids. The same id on a different field returns
 [`Spent`](/docs/concepts/reasons).
 
 ## The buying sequence [#the-buying-sequence]
 
-The order matters, because a server can die between any two calls. This order recovers from all of
-them:
+The order matters, because a server can stop between any two calls. This order recovers from a stop
+at any point:
 
 ```luau
 Shop:Reserve("sword", "Stock", 1, OrderId):Wait()
@@ -3118,27 +3284,29 @@ A transfer moves a field between two keys of one store, so both keys have to sui
 mode. A player keyed store cannot hold a key called `"shop"`, and a string keyed store cannot take a
 `UserId` as a number. Ledger throws at the call when a key does not suit the store.
 
-Both transfers are idempotent under their ids, so running the whole thing again after a crash lands
-each exactly once. A transfer under a name that already moved answers finished. The hold runs out on
-its own once the unit has left the shop, or sooner if you `Release` it.
+Each transfer applies once per id, so running the whole sequence again after a crash applies each
+one exactly once. A transfer whose id already moved returns `true`. The hold expires once the unit has
+left the shop, or sooner if you `Release` it.
 
-Die before the payment and nothing was taken. Die between the two transfers and running the sequence
-again pays nothing twice and hands the unit over once.
+If the server stops before the payment, nothing was taken. If it stops between the two transfers,
+running the sequence again charges once and delivers the unit once.
 
-A purchase that stays on one key is simpler: `Confirm` with your own op, and put a
-[`Once`](/docs/concepts/once) name on any op that grants something elsewhere so `DidApply` can answer
-whether it went through. Don't use the reservation name for that. Once the key compacts, a repeat `Confirm`
-answers [`Unresolved`](/docs/concepts/reasons), and a confirmed, a released and an expired hold all
-leave the same absence.
+A purchase that stays on one key is simpler: `Confirm` with your own op. Put a
+[`Once`](/docs/concepts/once) name on any op that grants something on another key, so `DidApply` can
+return whether it applied. Don't use the reservation id for that. After the key compacts, a repeated
+`Confirm` returns [`Unresolved`](/docs/concepts/reasons), and a confirmed, a released and an expired
+hold all look the same: no hold.
 
 ## Bump and Total [#bump-and-total]
 
 A total is the other shape. Nothing is limited, a lot of servers add to it, and you want the sum.
 
-One key can only be written by one server at a time, so a key that every server writes spends its
-time retrying. `Bump` spreads the total over 16 keys and gives each server its own, so they stop
-queueing behind each other. `Shards` on the config sets the count, 1 to 99. Raise it for a large
-fleet. Never lower it on a live store. The bumps on the top shards then leave every total.
+Only one server can write a key at a time, so a key that every server writes to spends most of its
+time retrying. `Bump` spreads the total over 16 keys and gives each server its own, so servers don't
+wait for each other. `Shards` in the config sets the number of keys, 1 to 99. For a large fleet,
+raise it to about one shard per 80 servers that bump the total. See
+[Limits](/docs/limits#reservations-and-totals). Never lower it on a live store: the bumps on the
+removed shards would drop out of every total.
 
 ```luau
 local Events = Ledger.New({
@@ -3148,47 +3316,46 @@ local Events = Ledger.New({
 	Reducer = Reducer
 })
 
-Events:Bump("summerpot", "Gold", 25):Wait()
+Events:Bump("summer", "Gold", 25):Wait()
 
-local Pot = Events:Total("summerpot", "Gold"):Wait()
+local Pool = Events:Total("summer", "Gold"):Wait()
 ```
 
-`Total` answers a sum cached in MemoryStore for one request unit. One server a minute reads every
-shard and refills it. Read it on a timer.
+`Total` returns a sum cached in MemoryStore, for one request unit. Once a minute, one server reads
+every shard and updates the cached sum. Read it on a timer.
 
-A game that bumps on every action sets `BumpEvery` on the store, in seconds up to 60. The server
-then queues its bumps and writes one op per tally per window. `Bump` answers a Future that
-completes when the window is written. Wait on it the way you wait on `Commit`, or do not and it is
-hopeful like `Apply`. A server that crashes loses the bumps of its last window.
+If your game bumps on every action, set `BumpEvery` on the store, in seconds up to 60. The server
+then queues its bumps and writes one op per total per window. `Bump` returns a Future that completes
+when the window is written. Wait on it like `Commit`, or don't wait and treat it like `Apply`. A
+server that crashes loses the bumps of its last window.
 
-`Total` answers what has been added, not what the 16 keys hold. `Bump` keeps its own running count on
-each shard and never touches the field your reducer owns, so the `Default` never counts toward the
-total. A tally nobody has added to reads 0.
+`Total` returns what has been added, not the sum of the field on the 16 keys. `Bump` keeps its own
+count on each shard and never changes the field your reducer owns, so `Default` never counts toward
+the total. A total nobody has added to returns 0.
 
 ### A total can only go up [#a-total-can-only-go-up]
 
-`Bump` refuses anything that is not positive. No shard can see the others, so no shard knows the sum,
-and nothing can hold a limit across them.
+`Bump` refuses any amount that isn't positive. No shard can read the others, so no shard knows the
+sum, and nothing can enforce a limit across them.
 
-That is the whole difference between the two tools. A reservation can hold a limit because everything
-is on one key. A total gives that up to get the writes.
+That is the difference between the two. A reservation can enforce a limit because everything is on
+one key. A total gives that up so many servers can write at once.
 
-If you need both, split the stock into fixed pools and reserve against a pool. Each pool holds its
-own share, so the limit survives. One pool empties before another, so fall through to the next.
+If you need both, split the stock into fixed pools on separate keys and reserve from one pool. Each
+pool enforces its own share, so the overall limit holds. When one pool runs out, try the next.
 
-## Which one, and when it really is a transaction [#which-one-and-when-it-really-is-a-transaction]
+## Which tool to use [#which-tool-to-use]
 
-|                                                              |                                       |
-| ------------------------------------------------------------ | ------------------------------------- |
-| The limit is a property of one key                           | `Reserve` and `Confirm`               |
-| Units held on one key end up on another                      | `Reserve` and `Transfer` with a field |
-| Add only, no limit, many servers                             | `Bump`                                |
-| A balance moves between two keys                             | [`Transfer`](/docs/guides/transfers)  |
-| Two keys must change together and one change can't be undone | [`Tx`](/docs/guides/transactions)     |
+| | |
+| --- | --- |
+| The limit is a property of one key | `Reserve` and `Confirm` |
+| Units held on one key end up on another | `Reserve` and `Transfer` with a field |
+| Add only, no limit, many servers | `Bump` |
+| A balance moves between two keys | [`Transfer`](/docs/guides/transfers) |
+| Two keys must change together and one change can't be undone | [`Tx`](/docs/guides/transactions) |
 
-The question that sorts them is what an undo would look like. If you can describe it, you want a
-reservation or a transfer. If the undo is asking the other player to give the sword back, you want a
-transaction.
+To choose, ask what undoing it would take. If you can write that as an op, use a reservation or a
+transfer. If undoing it means asking the other player to give the sword back, use a transaction.
 
 Trading a sword for a shield is a real transaction. Selling a sword from a shop is not.
 
@@ -3196,25 +3363,25 @@ Trading a sword for a shield is a real transaction. Selling a sword from a shop 
 
 Measured on the fake datastore, 100 limited stock purchases:
 
-|                                      | Requests |
-| ------------------------------------ | -------- |
-| A transaction across buyer and shelf | 800      |
-| Reserve and confirm                  | 201      |
+| | Requests |
+| --- | --- |
+| A transaction across buyer and shelf | 800 |
+| Reserve and confirm | 201 |
 
-`Reserve` and `Release` cost no datastore request at all, two MemoryStore request units each, and the
-first hold on a key reads it once. `Confirm` costs one request and two units. Moving the units to
-another key is a transfer, three requests.
+`Reserve` and `Release` cost no datastore requests, only two MemoryStore request units each, and the
+first hold on a key reads the key once. `Confirm` costs one request and two units. Moving the units to
+another key is a transfer, which costs three requests.
 
-A hold never queues on the key, so 500 buyers reserving at once are answered by MemoryStore and only
-the ones who got a hold go on to write. That is what the transaction version could not do.
+A hold never waits in the key's write queue. When 500 buyers reserve at once, MemoryStore handles
+them, and only the buyers who got a hold go on to write. A transaction can't do that.
 
 
 # Sessions (https://xoifaii.github.io/LedgerDocs/docs/guides/sessions)
 
 
 
-A session is one player's data live on this server. You get one from `Load` and it stays around
-until `Unload` or the store is destroyed.
+A session is one player's data loaded on this server. `Load` creates it, and it stays until `Unload`
+or until the store is destroyed.
 
 ## The lifecycle [#the-lifecycle]
 
@@ -3232,18 +3399,17 @@ game:BindToClose(function()
 end)
 ```
 
-`Load` yields while it reads the record and folds it. If that fails, the player gets kicked with a
-message asking them to rejoin, which is better than letting them play on a blank profile and
-overwrite the real one. If you want to answer differently depending on why it failed, pass
+`Load` yields while it reads the record and folds it. If that fails, Ledger kicks the player with a
+message asking them to rejoin, so they never play on an empty profile that could overwrite the real
+one. To handle each failure reason differently, pass
 [`OnLoadFailed`](/docs/reference/ledger#onloadfailed) when you build the store.
 
-Calling `Load` twice for the same player warns and does nothing the second time. If the player
-leaves while the load is still going, Ledger notices and releases the session instead of leaving it
-hanging around.
+Calling `Load` a second time for the same player warns and does nothing. If the player leaves while
+the load is still running, Ledger releases the session when the load finishes.
 
-`Unload` cancels the autosave timer, pushes everything queued, and yields until it's durable.
+`Unload` stops the autosave timer, writes every queued op, and yields until they are saved.
 
-A session you kept a reference to still answers after that. It refuses every write with
+A reference you kept to the session still works after that, but every write returns
 [`Closed`](/docs/concepts/reasons):
 
 ```luau
@@ -3255,22 +3421,19 @@ Session:Apply("Add", { Amount = 1 })   --> false, "Closed"
 
 ## Getting the session [#getting-the-session]
 
-There are four ways, and which one you want depends on whether you can cope with it not being there.
+Which method to use depends on what should happen when the player isn't loaded.
 
-`Store:Get(Player)` gives you the session or `nil`. Use it when not loaded is a normal thing that can
-happen.
+`Store:Get(Player)` returns the session, or `nil`. Use it when the player not being loaded is normal.
 
-`Store:Expect(Player)` gives you the session or throws. Use it in code that only runs after you know
-the player is loaded, so you get an error instead of a silent `nil` if you're wrong.
+`Store:Expect(Player)` returns the session, or throws an error. Use it in code that only runs once
+the player is loaded, so a mistake throws an error instead of returning `nil`.
 
-`Store:IsLoaded(Player)` is just the boolean.
+`Store:IsLoaded(Player)` returns a boolean.
 
-`Store:WaitForLoaded(Player)` yields until the session is there and gives it back, or gives `nil` if
-the player left before it finished. This is the one for callbacks that fire during a join, like
-`ProcessReceipt`.
+`Store:WaitForLoaded(Player)` yields until the session is loaded and returns it, or returns `nil` if
+the player left first. Use it in callbacks that can run during a join, like `ProcessReceipt`.
 
-There's also `Store:Read(Player)`, which gives you the state table directly or `nil`, for when you
-only want to look at something.
+`Store:Read(Player)` returns the state table, or `nil`. Use it when you only need to read.
 
 ```luau
 Store:IsLoaded(Player)        --> false
@@ -3284,30 +3447,29 @@ Store:Read(Player)            --> { Gold = 0 }
 ```
 
 These seven take the `Player`: `Load`, `Unload`, `Get`, `Expect`, `IsLoaded`, `WaitForLoaded` and
-`Read`. Every other method takes a key, so pass `Player.UserId`. `Store:Peek(Player)` throws and says
-what it wanted.
+`Read`. Every other method takes a key, so pass `Player.UserId`. `Store:Peek(Player)` throws an error
+that says it wants a key.
 
 ## Autosave [#autosave]
 
-Every session autosaves on a 30 second timer. It pushes queued ops, and if the log has gotten long
-or heavy it compacts as well.
+Every session autosaves every 30 seconds. It writes the queued ops, and compacts the log if it has
+grown too long or too large.
 
-If the server is out of datastore budget, the autosave is skipped and Ledger warns. That's the point
-where ops start piling up, and if it keeps going you'll start seeing
-[`Backlog`](/docs/concepts/reasons) on writes.
+If the server is out of datastore budget, the autosave is skipped and Ledger warns. Ops keep
+queueing, and if it goes on, writes start returning [`Backlog`](/docs/concepts/reasons).
 
-A session with nothing queued and no transaction parked on its key reads every two minutes instead.
-It has nothing to write, so it only checks what other servers wrote. That read is how a player who
-was sent gold or traded with finds out.
+A session with nothing queued and no transaction leg parked on its key reads the key every two
+minutes instead. It has nothing to write, so it only picks up what other servers wrote. That read is
+how a session sees gold another player sent, or a trade.
 
-[`Store:Stale()`](/docs/reference/store#stale) names each key this server changes, so you can flush
-that session at once rather than wait for the read. See
+[`Store:Stale()`](/docs/reference/store#stale) fires with each key this server writes with `Edit`,
+`Transfer` or `Tx`, so you can flush that session at once instead of waiting for the read. See
 [Transactions](/docs/guides/transactions#a-live-session-does-not-know-a-leg-wrote-to-it).
 
 ## Log size [#log-size]
 
-`Session.LogSize` is how many ops are in the stored log, and `Session.LogBytes` is roughly how many
-bytes those ops plus the queued ones take. Both are read only and mostly useful for a debug readout.
+`Session.LogSize` is the number of ops in the stored log, and `Session.LogBytes` is roughly the size
+in bytes of those ops plus the queued ones. Both are read only, and mostly useful for a debug display.
 
 A queued op counts in `LogBytes` but not in `LogSize`, because it is not in the stored log yet:
 
@@ -3317,19 +3479,20 @@ Session:Apply("Add", { Amount = 5 })
 Session.LogSize, Session.LogBytes   --> 0, 54
 ```
 
-You don't need to watch them. Autosave compacts on its own. `Session:Compact()` is there if you want
-to force it, like right before you do something that's about to write a lot.
+You don't need to watch them, because autosave compacts on its own. Call `Session:Compact()` to
+compact now, for example right before something that writes a lot.
 
 ## Shutting down [#shutting-down]
 
-`Ledger.CloseAll()` is the whole shutdown path. It stops the background sweeper, tells every store's
-queue to skip ahead to the last write, saves every live session, and yields until all of it is done.
+`Ledger.CloseAll()` handles the whole shutdown. It stops the background sweeper, and on each key it
+drops every queued datastore call except the newest, which returns `Closed` to the dropped callers.
+Then it saves every loaded session and yields until everything is done.
 
-Put it in `BindToClose` and don't put anything else there. Roblox gives you a limited window on
-shutdown, and `CloseAll` is already built to spend it in the right order.
+Put it in `BindToClose` with nothing else. Roblox gives a server limited time to shut down, and
+`CloseAll` does the steps in the right order to fit.
 
-`Store:Destroy()` does the same for one store and takes it out of the registry, so you can build
-another one with that name. You mostly want this in tests.
+`Store:Destroy()` does the same for one store and frees its name, so you can build another store with
+that name. This is mostly for tests.
 
 ## Watching state [#watching-state]
 
@@ -3339,28 +3502,29 @@ local Connection = Session:Observe():Subscribe(function(State)
 end)
 ```
 
-It fires on every change that goes through, which includes ones that came from another server and
-turned up when a transfer or transaction settled. It does not fire for a refused op, because nothing
-changed.
+It fires on every change that is applied, including changes from another server that arrive when the
+session reads the key, such as a transfer or a transaction. It doesn't fire for a refused op, because
+nothing changed.
 
-A listener here runs on the thread doing the write and must not yield. `Store:Stale()` is the one
-stream that lets a listener yield.
+A listener runs on the thread doing the write, so it must not yield. `Store:Stale()` is the only
+observer whose listeners can yield.
 
-Nothing disconnects your listeners for you. A released session stops pushing, so they never fire
-again, and if you didn't store the connection anywhere it gets collected with the session. If you
-did store it, disconnect it yourself. See [Observer](/docs/reference/observer).
+Ledger never disconnects your listeners. A released session stops pushing, so they never fire again,
+and a connection you didn't store is garbage collected with the session. If you did store it,
+disconnect it yourself. See [Observer](/docs/reference/observer).
 
 
 # Testing (https://xoifaii.github.io/LedgerDocs/docs/guides/testing)
 
 
 
-## The mock [#the-mock]
+## The mock datastore [#the-mock-datastore]
 
-`Mock = true` puts a store on an in memory datastore. No API access, no published place, no network.
+`Mock = true` runs a store on an in memory datastore instead of `DataStoreService`. It needs no API
+access, no published place and no network. Nothing it saves outlives the server.
 
 ```luau
-local Store = Ledger.New({
+local Store = Ledger.New<<Profile, Ops>>({
 	Name = "Test",
 	Default = { Gold = 0 },
 	Reducer = Reducer,
@@ -3368,56 +3532,63 @@ local Store = Ledger.New({
 })
 ```
 
+The mock enforces the same limits as the real datastore:
+
+- Names and keys up to 50 characters, and values up to 4 MB as JSON. Only values JSON can hold.
+- The request budget for this server and for the whole experience, refilled over a minute, with a
+  queue of 30 requests behind each.
+- The throughput cap on each key: 25 MB read and 4 MB written per minute.
+- Versions kept for 30 days, and key listings in pages.
+
+It is stricter than Studio. Studio gives a server a larger request budget than a live server gets,
+so code that fits in Studio can run out of budget live. The mock uses the live budgets.
+
+It does not model the 4 second read cache, a read that is a few seconds behind another server's
+write, or throttling inside Roblox's backend.
+
 ### Sizing it [#sizing-it]
 
-Pass a table instead of `true` to say what size of server to pretend to be.
+Pass a table instead of `true` to set the size of server the mock acts as:
 
-`Players` is how many players to size the request budget for, since Roblox's budget formula is a base
-plus a per player allowance. Set it to what a real server of yours looks like.
+| Option | Default | What it sets |
+| --- | --- | --- |
+| `Players` | `0` | Players on this server. Sizes this server's request budget. |
+| `CCU` | `Players` | Players in the whole experience. Sizes the experience's request budget. |
+| `Throttled` | `true` | Whether the budgets and caps are enforced. |
 
-There are two budgets. One is for this server and one is for the whole experience. `Players` sizes the
-first, `CCU` sizes the second, and `CCU` defaults to `Players`. The smaller one stops you first:
+A request has to fit both budgets, so the smaller one is the limit:
 
 ```luau
-Mock = { Players = 30 }                --> 900 writes, 1260 reads, 65 lists
-Mock = { Players = 30, CCU = 10000 }   --> 1260 writes, 1260 reads, 65 lists
+Mock = { Players = 30 }              --> 900 writes, 1260 reads, 65 lists a minute
+Mock = { Players = 30, CCU = 10000 } --> 1260 writes, 1260 reads, 65 lists a minute
 ```
 
-Leave `CCU` alone to test against the tighter of the two. Raise it to see what a server does once the
-experience budget is no longer the limit.
+With `CCU` left at its default, the experience budget is the tighter limit on writes. Raise `CCU` to
+test a server where only its own budget limits it.
 
-`Throttled` defaults to true and is what makes the mock worth using. With it on you get real request
-budgets, real refill rates, real queueing, and a real throughput cap per key. Turn it off with
-`Throttled = false` when you're testing logic and don't want to wait around.
+Set `Throttled = false` to test logic without waiting on budgets. Leave it on to test how your code
+behaves under live limits.
 
-The fake datastore is sized once. The first store built with `Mock` sets it, and a later one asking for
-a different size throws where it was written. A plain `Mock = true` joins whatever is already there.
+Every store built with `Mock` shares one fake datastore, and the first one sets its size. A later
+store that asks for a different size throws. `Mock = true` uses the size that is already set.
 
-<Callout type="warn">
-  The mock is stricter than Studio on purpose. Studio hands you request budgets a live server never
-  gets, so code that's fine in Studio can fall over the moment it's on a real server with 40 people
-  in it. If it passes against the mock it'll pass live.
-</Callout>
+## Checks that only run in Studio [#checks-that-only-run-in-studio]
 
-What the mock keeps from the real thing: the 50 character name and key limits, the 4 MB value limit,
-30 versions of history, JSON only values, and paged listing.
+In Studio, Ledger checks two things each time a session saves:
 
-## Studio checks [#studio-checks]
+- It replays the log and compares the result with the live state. A difference means your reducer
+  is not deterministic, and the warning names the field that differs.
+- It checks that the state can be stored, and names the field that can't.
 
-Some checks only run in Studio, because they cost too much to run live.
+Both cost too much to run on a live server, so a live server gives no warning. Fix what they report
+in Studio.
 
-Ledger refolds the log after every commit and compares it against live state. If they don't match,
-your reducer isn't deterministic, and the warning names the field that moved.
+## Writing a test [#writing-a-test]
 
-That is a bug to fix. The check only runs in Studio, so on a live server you get no warning and the
-same broken behaviour.
-
-## Writing tests [#writing-tests]
-
-The pattern that works is: build the store on the mock, drive it, assert on `Peek`.
+Build the store on the mock, write to it, then check the result with `Peek`:
 
 ```luau
-local Store = Ledger.New({
+local Store = Ledger.New<<Profile, Ops>>({
 	Name = "Test",
 	Default = { Gold = 100 },
 	Reducer = Reducer,
@@ -3426,21 +3597,26 @@ local Store = Ledger.New({
 })
 
 Store:Edit(1, "SpendGold", { Amount = 30 }):Wait()
-assert(Store:Peek(1):Wait().Gold == 70)
+
+local State = Store:Peek(1):Wait()
+assert(State ~= nil and State.Gold == 70)
 
 Store:Destroy()
 ```
 
-`Store:Destroy()` frees the name, so the next test can build a store called `Test` again. Without it
-you'll get a name clash.
+Call `Store:Destroy()` at the end of each test. It frees the store's name, so the next test can
+build a store with the same name. Building two live stores with one name throws.
+
+The fake datastore keeps its data for as long as the server runs, and `Destroy` does not clear it.
+A later test that reads the same key sees what an earlier test wrote. Give each test its own keys.
 
 
 # Transactions (https://xoifaii.github.io/LedgerDocs/docs/guides/transactions)
 
 
 
-`Tx` writes to several keys at once and guarantees all of them took it or none of them did. The keys
-can be in two different stores, and none of them have to be online.
+`Tx` writes to several keys at once and guarantees that either every write is applied or none is.
+The keys can be in two different stores, and none of them needs a loaded session.
 
 ```luau
 local Ok, Why = Store:Tx(`trade:{TradeId}`, {
@@ -3454,23 +3630,23 @@ sword, the buyer doesn't lose the gold. There's no window where one of those is 
 isn't.
 
 <Callout type="warn">
-  A transaction is the most expensive thing Ledger does, and a lot of the work it gets handed belongs
-  somewhere cheaper. Selling limited stock, holding a place, counting a pot: those are all one key.
+  A transaction is the most expensive thing Ledger does, and many jobs people use it for can be done
+  more cheaply. Selling limited stock, reserving a slot and keeping a total each need only one key.
   Read [Reservations and totals](/docs/guides/reservations) first.
 
-  What sorts them is whether two keys really have to change together, and whether either change could
-  be undone afterwards. Trading a sword for a shield needs this. Selling a sword from a shop does not.
+  Use a transaction only when two keys must change together, and neither change could be undone
+  afterwards. Trading a sword for a shield needs this. Selling a sword from a shop does not.
 </Callout>
 
 ## The id [#the-id]
 
-The id comes first and it's required. It has to be a stable name derived from the thing you're
-settling, so a trade id, an order id, a match id. Never build it from the clock, and never mint one
-inside the `Tx` call.
+The id comes first and it's required. It has to be stable and derived from the thing the
+transaction is for, such as a trade id, an order id or a match id. Never build it from the clock,
+and never create one inside the `Tx` call.
 
-A stable id is what makes a retry safe. Running the same id again doesn't do it twice. It finds every leg
-already settled and answers `true` having moved nothing, so an `Unresolved` you want to chase is just
-the same call again:
+A stable id is what makes a retry safe. Running the same id again doesn't do it twice. It finds every
+leg already settled and returns `true` having moved nothing, so to retry an `Unresolved`, make the
+same call again:
 
 ```luau
 local Ok, Why = Store:Tx(`trade:{TradeId}`, Legs):Wait()
@@ -3479,21 +3655,23 @@ if Why == Ledger.Reason.Unresolved then
 end
 ```
 
-The legs have to match on every attempt. Ledger records what a name meant next to the name, so the
-same id run again for a different set of keys or a different amount answers
-[`Spent`](/docs/concepts/reasons) rather than `true`. That holds however long ago the first one ran.
-Pass the same legs on the retry and you get the `true` you are chasing.
+The legs have to match on every attempt. Ledger keeps a fingerprint of the legs with the id, so the
+same id run again for a different set of keys or a different amount returns
+[`Spent`](/docs/concepts/reasons) rather than `true`. Ledger keeps the id for 30 days, the same as
+every [applied name](/docs/limits#applied-names). After that the id is forgotten, and running it
+again applies it again.
 
 Ids are 1 to 50 characters.
 
 ### Where the id comes from [#where-the-id-comes-from]
 
-Two of the three you get handed, one you have to invent.
+A purchase and a request from outside the game each come with an id. A trade does not, so you
+create one.
 
-**A purchase** gives you `ReceiptInfo.PurchaseId`. Roblox keeps calling `ProcessReceipt` with the same
-one until you return `PurchaseGranted`, so it survives a server restart as well as a retry.
+**A purchase** comes with `ReceiptInfo.PurchaseId`. Roblox keeps calling `ProcessReceipt` with the
+same one until you return `PurchaseGranted`, so it survives a server restart as well as a retry.
 
-**A trade** gives you nothing, so mint the id when the trade opens rather than when it commits:
+**A trade** has no id, so create one when the trade opens rather than when it commits:
 
 ```luau
 local function OpenTrade(A: Player, B: Player)
@@ -3508,21 +3686,22 @@ end
 Store:Tx(`trade:{Trade.Id}`, Legs):Wait()
 ```
 
-`Ledger.Id` is fine there because it's minted once and held. What breaks is generating one inside
-the `Tx` call, since every retry would be a new transaction and apply the money again.
+`Ledger.Id` is fine there because it's created once and stored on the trade. What breaks is
+generating one inside the `Tx` call, since every retry would be a new transaction and move the money
+again.
 
 **Anything from outside**, a webhook or your own website, should use the sender's order id. They're
 the ones who retry, so their id is the one that stays the same when they do.
 
-The rule underneath all three: the id has to live at least as long as whatever might retry it. For a
-purchase Roblox holds it. For a trade only the hosting server would retry, so that server's memory is
-enough. If you can't name what would retry, you don't need a durable id at all.
+In all three cases, the id has to last at least as long as anything that might retry the call. For
+a purchase Roblox stores it. For a trade only the hosting server would retry, so that server's memory
+is enough. If nothing would retry the call, the id does not need to outlive it.
 
 ## The legs [#the-legs]
 
 Between two and four legs. Each one names a key and an op.
 [Limits](/docs/limits#transactions) explains where those two numbers come from. Read it before you
-reach for a fourth leg.
+add a fourth leg.
 
 ```luau
 {
@@ -3537,16 +3716,16 @@ reach for a fourth leg.
 Use `UserId` when the target store uses player keys and `Key` when it uses string keys. Ledger
 checks which one the target store wants and throws if you gave it the wrong one.
 
-A transaction can only touch a key once, so two legs pointing at the same key is an error rather
-than something it tries to merge.
+A transaction can only touch a key once. Ledger throws if two legs name the same key, and does not
+merge them.
 
-Don't put `Once` on a leg. The transaction id already makes every leg land at most one time, and
-Ledger throws if it sees one.
+Don't put `Once` on a leg. The transaction id already makes every leg apply at most once, and Ledger
+throws if it sees one.
 
-### A leg will not land on an erased key [#a-leg-will-not-land-on-an-erased-key]
+### A leg will not apply to an erased key [#a-leg-will-not-apply-to-an-erased-key]
 
-A key that was [erased](/docs/guides/recovery) turns a leg away for the 8 days its tombstone lasts,
-and the whole transaction answers [`Refused`](/docs/concepts/reasons) with a warning naming the key.
+A key that was [erased](/docs/guides/recovery) refuses a leg for the 8 days its tombstone lasts, and
+the whole transaction returns [`Refused`](/docs/concepts/reasons) with a warning naming the key.
 Nothing is applied to any of the other keys.
 
 ```luau
@@ -3558,7 +3737,7 @@ Store:Tx("order1", {
 }):Wait()   --> false, Refused
 ```
 
-Once the tombstone runs out the key takes legs again.
+Once the tombstone runs out the key accepts legs again.
 
 ### A leg reads what is stored, not what a session is holding [#a-leg-reads-what-is-stored-not-what-a-session-is-holding]
 
@@ -3566,9 +3745,9 @@ Every leg folds the record on the datastore. A live session that has taken ops t
 [`Apply`](/docs/concepts/apply-and-commit) has not written them yet, so a leg on that player's key
 does not see them.
 
-That bites hardest on a player who just joined. Grant them something with `Apply`, list it for sale a
+This mostly affects a player who just joined. Grant them something with `Apply`, list it for sale a
 few seconds later, and the leg reads a key that has never been written, which folds to your `Default`.
-The reducer sees an empty inventory and a new player, refuses, and the whole transaction answers
+The reducer sees an empty inventory and a new player, refuses, and the whole transaction returns
 [`Refused`](/docs/concepts/reasons).
 
 ```luau
@@ -3581,7 +3760,7 @@ Store:Tx(`listing:{ListingId}`, {
 }):Wait()   --> false, Refused
 ```
 
-Two ways round it. Flush first if the session is on this server:
+There are two fixes. Flush first if the session is on this server:
 
 ```luau
 Session:Flush():Wait()
@@ -3596,20 +3775,20 @@ Session:Commit("GrantItem", { Item = ItemId }):Wait()
 Prefer `Commit` for anything a transaction will later depend on. A flush only works while the session
 is on the server running the transaction, and the seller may be on another one or offline.
 
-Waiting does not fix it. An autosave writes what was queued when it ran, so the newest applies are
-still unwritten whenever the transaction lands.
+Waiting does not fix it. An autosave writes only what was queued when it ran, so ops applied after it
+are still unsaved when the transaction runs.
 
 ### A live session does not know a leg wrote to it [#a-live-session-does-not-know-a-leg-wrote-to-it]
 
-The record carries the change the moment `Tx` answers `true`. A session already open on that key does
+The record carries the change the moment `Tx` returns `true`. A session already open on that key does
 not. It holds its own copy and only picks an outside write up when it folds the record again.
 
 A session with nothing queued and nothing parked reads every two minutes, so a player who just bought
 something waits that long to see it arrive. Nothing is wrong and nothing is at risk. They are reading
 a copy that has not caught up.
 
-[`Store:Stale()`](/docs/reference/store#stale) carries the keys this server has changed. Subscribe
-once, and flush the session on every key it names:
+[`Store:Stale()`](/docs/reference/store#stale) is a stream of the keys this server has changed.
+Subscribe once, and flush the session on every key it names:
 
 ```luau
 Profiles:Stale():Subscribe(function(Key)
@@ -3629,22 +3808,24 @@ That re-reads the key, folds it again, and pushes anything the session still had
 fires [`Observe`](/docs/reference/session), so a UI bound to the session updates on its own.
 
 The stream names every key the transaction touched, so the buyer and the seller both refresh. It
-costs one request per key with a session here, and only on a purchase.
+costs one request for each changed key that has a session on this server, and nothing while no key
+changes.
 
 A cross store transaction pushes each leg onto its own store's stream, so subscribe on both stores.
 
-This listener yields, which the stale stream allows. The ones on `Session:Observe()` may not. See
-[Observer](/docs/reference/observer#listeners-that-may-yield).
+This listener yields, which the stale stream allows. Listeners on `Session:Observe()` may not yield.
+See [Observer](/docs/reference/observer#listeners-that-may-yield).
 
-A player on another server is not on this stream. Their server holds them, so their server does the
-flush, and the next section is how you ask it to.
+A player on another server is not on this stream. Their session is on that server, so that server
+has to flush it. The next section shows how to ask it to.
 
 ### Telling another server to refresh [#telling-another-server-to-refresh]
 
 Ledger can't reach another server. Your game can, so send the key over `MessagingService` and let the
 server holding that player do the flush.
 
-Drive it from the same stream. Flush a key with a session here, and publish one without:
+Drive it from the same stream. If the key has a session on this server, flush it. Otherwise publish
+the key, so the server that has the session can flush it:
 
 ```luau
 local MessagingService = game:GetService("MessagingService")
@@ -3680,27 +3861,27 @@ Profiles:Stale():Subscribe(function(Key)
 end)
 ```
 
-The buyer sees the purchase in a moment either way. Without this they wait for the ordinary two
-minute read.
+With this, the buyer sees the purchase within a moment, whichever server they are on. Without it
+they wait for the ordinary two minute read.
 
-**Send the key and nothing else.** The other server re-reads the key itself, so the record stays the
-only thing either server believes. A message carrying the new inventory would be a second copy of the
-truth, and a dropped or repeated one would put the two servers out of step.
+**Send the key and nothing else.** The other server re-reads the key itself, so the stored record
+stays the only source of state. A message that carried the new inventory would be a second copy, and
+a dropped or repeated message would leave the two servers disagreeing.
 
-**Treat it as a nudge, not a guarantee.** `MessagingService` is best effort and rate limited, and
-`PublishAsync` throws once you hit a limit, which is why the call above is wrapped. A message that
-never arrives costs that player the ordinary two minute read. Nothing is lost either way, so there is
-no need to confirm delivery or retry.
+**Delivery is not guaranteed.** `MessagingService` is best effort and rate limited, and
+`PublishAsync` throws once you hit a limit, which is why the call above is wrapped. If a message
+never arrives, the player sees the change at the ordinary two minute read. Nothing is lost either
+way, so there is no need to confirm delivery or retry.
 
 Publishing only when the player isn't here keeps most purchases off the topic entirely.
 
-### What throws and what answers [#what-throws-and-what-answers]
+### Errors thrown and reasons returned [#errors-thrown-and-reasons-returned]
 
-The shape of a leg is your code, so getting it wrong throws where you wrote it. A key the target
-store won't take, a missing or oversized id, the wrong number of legs, the same key twice, a `Once`
-on a leg, a `Store` that Ledger didn't build.
+The shape of a leg is your code, so getting it wrong throws where you wrote it. Each of these throws:
+a key the target store won't take, a missing or oversized id, the wrong number of legs, the same key
+twice, a `Once` on a leg, and a `Store` that Ledger didn't build.
 
-What's *in* `Fields` is data, so it answers instead:
+A bad value inside `Fields` is data, not code, so `Tx` returns `Invalid` instead of throwing:
 
 ```luau
 local Ok, Why = Store:Tx(`trade:{TradeId}`, {
@@ -3709,67 +3890,85 @@ local Ok, Why = Store:Tx(`trade:{TradeId}`, {
 }):Wait()
 
 if Why == Ledger.Reason.Invalid then
-	-- a field can't be stored, so an Instance, a NaN from that multiply, a reserved name
+	-- a field can't be stored, for example an Instance, a NaN from that multiply, a reserved name
 end
 ```
 
-That's the same split `Edit` uses, and the same [`Invalid`](/docs/concepts/reasons). Nothing is
-prepared on any key when it happens, so there's nothing to clean up.
+`Edit` handles bad fields the same way, with the same [`Invalid`](/docs/concepts/reasons). Nothing
+is prepared on any key when it happens, so there's nothing to clean up.
 
 ## How it decides [#how-it-decides]
 
 Each leg gets prepared on its key first. A prepared op is written into the log but carries a stamp
-that makes the fold skip it, so it's sitting there doing nothing.
+that makes the fold skip it, so it has no effect yet. A prepared leg is called parked until the
+transaction settles.
 
 Once every leg is prepared, Ledger writes the outcome to a marker key. That single write is the
 moment the transaction commits, and there's exactly one of them, so two servers racing the same
 transaction can't disagree about what happened.
 
-Committing takes the stamps off, which is what makes the ops start counting. Aborting removes them.
+Committing removes the stamps, so the fold starts including the ops. Aborting removes the ops.
 
-If any leg's reducer refuses during prepare, the whole thing aborts and every other leg gets its op
-pulled back out.
+If any leg's reducer refuses during prepare, the whole transaction aborts and Ledger removes the
+prepared op from every other leg.
 
-## Stuck legs [#stuck-legs]
+## Parked legs [#parked-legs]
 
-If the server dies between preparing a leg and writing the outcome, that leg sits there stamped.
-Anything that reads the key sees a pending leg, so it can't just pretend it isn't there.
+If the server dies between preparing a leg and writing the outcome, that leg stays parked on its key.
+Anything that reads the key sees the parked leg.
 
 A few things clear it. Any read or write on that key tries to settle it first. The background
-sweeper picks up keys it knows have pending legs. And a transaction that's older than a minute is
-considered dead, so another server will abort it on its behalf.
+sweeper picks up keys it knows have parked legs. And once a transaction's marker has not changed for
+30 seconds per leg, a minute for two legs and two minutes for four, it counts as abandoned. The next
+server that reads it aborts it.
 
-While it's stuck, writes to that key answer [`Busy`](/docs/concepts/reasons), and `Edit` or `Reset`
-can answer `Unresolved` when the stuck leg would change the verdict. Neither means it failed. Both
-mean ask again in a moment.
+While a leg is parked, writes to that key return [`Busy`](/docs/concepts/reasons), and `Edit` or
+`Reset` can return `Unresolved` when the parked leg would change the verdict. Neither means it
+failed. Both mean ask again in a moment.
 
-Ask again yourself. `Tx` does not retry a `Busy` internally, because a key under contention is the
-last place to send more traffic:
+`Tx` does not retry `Busy` itself, because retrying at once adds load to a key that is already
+contended. Retry it yourself, with a delay that grows each time. The same id makes a retry safe, so
+`Unresolved` can be retried the same way:
 
 ```luau
-local Ok, Why
-for _ = 1, 6 do
-	Ok, Why = Store:Tx(`trade:{TradeId}`, Legs):Wait()
-	if Ok or Why ~= Ledger.Reason.Busy then
-		break
+local MAX_ATTEMPTS = 5
+local BASE_DELAY = 0.5 -- seconds
+
+local function TxWithRetry(Id: string, Legs: { Ledger.TxLeg }): (boolean, Ledger.Reason?)
+	local Ok, Why = Store:Tx(Id, Legs):Wait()
+	for Attempt = 1, MAX_ATTEMPTS - 1 do
+		if Ok or (Why ~= Ledger.Reason.Busy and Why ~= Ledger.Reason.Unresolved) then
+			break
+		end
+
+		-- the delay doubles each attempt, with jitter so servers that collided don't retry in step
+		task.wait(BASE_DELAY * 2 ^ (Attempt - 1) * (0.5 + math.random()))
+		Ok, Why = Store:Tx(Id, Legs):Wait()
 	end
-	task.wait(0.2 + math.random() * 0.3)
+	return Ok, Why
 end
+
+local Ok, Why = TxWithRetry(`trade:{TradeId}`, Legs)
 ```
 
-A key every player writes to is a throughput limit rather than a correctness one. See
+The waits add up to about 7.5 seconds. Another server's lease on the keys is released when its
+transaction finishes, usually well within that time, and lasts at most 10 seconds. A leg left by a
+crashed server is not aborted until its marker has been unchanged for 30 seconds per leg. If `Busy`
+comes back after the last attempt, tell the player to try again rather than retrying for longer.
+
+A key that every player writes to limits throughput, not correctness. See
 [One key at a time](/docs/limits#one-key-at-a-time).
 
-You can force a pass with `Ledger.Sweep()`.
+`Ledger.Sweep()` runs a sweeper pass immediately.
 
 ## Marker cleanup [#marker-cleanup]
 
-Committed markers get tidied up in the background once they're old enough that nothing could still
-be asking about them. That happens on the store named `<YourStore>_Tx`, which Ledger creates
-alongside yours.
+The sweeper deletes a committed marker about an hour after it last changed, and an aborted one after
+5 minutes. Markers are kept on the store named `<YourStore>_Tx`, which Ledger creates alongside
+yours.
 
-That's also why store names cap at 47 characters instead of the datastore's 50. Ledger needs the
-three for `_Tx`.
+That is why store names cap at 47 characters instead of the datastore's 50. Ledger needs the three
+characters for `_Tx`.
 
 ## Mixing stores [#mixing-stores]
 
@@ -3783,10 +3982,11 @@ local Ok, Why = Players:Tx(`donate:{OrderId}`, {
 Both stores have to have been built by `Ledger.New` in this server. A leg naming something else
 throws.
 
-## When not to reach for it [#when-not-to-reach-for-it]
+## When not to use it [#when-not-to-use-it]
 
-If you're moving one balance one direction, use a [transfer](/docs/guides/transfers). It's one
-protocol instead of two phases, it self heals, and it doesn't leave a key `Busy` while it runs.
+If you're moving one balance one direction, use a [transfer](/docs/guides/transfers). It costs 3
+requests where a two leg transaction costs 8, finishes on its own after a crash, and doesn't leave a
+key `Busy` while it runs.
 
 `Tx` is for when two different kinds of change have to happen together.
 
@@ -3812,13 +4012,13 @@ local Ok, Why = Store:Transfer(FromUserId, ToUserId, 250):Wait()
 `Balance` names the field it moves. It has to be a number field that's already in `Default`, and
 without it `Transfer` throws.
 
-## What actually happens [#what-actually-happens]
+## What happens [#what-happens]
 
 It's three steps, not one write.
 
 **Reserve.** Ledger appends an op to the sender that takes the money out of the balance and puts it
-in `_Held` under a transfer id. If the sender doesn't have enough, your reducer never even sees it,
-the reserve is refused and you get `Refused`.
+in `_Held` under a transfer id. If the sender doesn't have enough, Ledger refuses the reserve without
+calling your reducer, and `Transfer` returns `Refused`.
 
 **Deliver.** It appends an op to the receiver that adds the money and records the transfer id in
 their `_Received`.
@@ -3826,39 +4026,40 @@ their `_Received`.
 **Settle.** It goes back to the sender and drops the hold, because the money has arrived.
 
 Money is only ever in one of three places: the sender's balance, the sender's `_Held`, or the
-receiver's balance. There's no moment where it's in two, and no moment where it's in none. That's
-what makes it safe to crash halfway.
+receiver's balance. There's no moment where it's in two, and no moment where it's in none. So a crash
+partway through cannot lose or duplicate money.
 
-## Crashing halfway [#crashing-halfway]
+## If a server crashes during a transfer [#if-a-server-crashes-during-a-transfer]
 
 If the server dies between reserve and deliver, the money is sitting in the sender's `_Held`. It's
 out of their balance so they can't spend it twice, and it hasn't arrived yet.
 
-Ledger picks that up on its own. A background sweeper notices held money and finishes the job, and
-the sender's next load kicks off a recovery too. You don't have to write a cron job for this and you
-shouldn't call `RecoverTransfers` by hand in normal operation.
+Ledger picks that up on its own. A background sweeper notices held money and completes the transfer,
+and the sender's next load starts a recovery too. You don't need to schedule anything for this, and
+you shouldn't call `RecoverTransfers` by hand in normal operation.
 
 If the receiver turns out to be gone or the delivery keeps failing, the hold eventually expires and
 the money goes back to the sender.
 
 ## Ids and retries [#ids-and-retries]
 
-By default each transfer gets a fresh id, which means calling it twice moves the money twice. That's
-usually what you want for a trade.
+By default each transfer gets a fresh id, which means calling it twice moves the money twice. That is
+only safe when the call is never retried, such as a one off tip. A trade can be retried, so give it
+an id.
 
-When it's a retry of the same logical transfer, name it:
+When a call might be a retry of the same transfer, pass an id:
 
 ```luau
 local Ok, Why = Store:Transfer(From, To, 250, `trade:{TradeId}`):Wait()
 ```
 
-Now a second call with that id doesn't move anything again. You get `true` back, because the transfer
-already went through. That's the answer to retry on, and it stays `true` however many times you ask.
+Now a second call with that id doesn't move anything again. It returns `true`, because the transfer
+already went through. Every retry with that id within 30 days returns `true`, so retrying is safe.
 
-The amount and the receiver have to match on every attempt. A name that already went through, asked
-again for a different amount or a different key, answers [`Spent`](/docs/concepts/reasons). Ledger
-records what a name meant next to the name, so it can tell an honest retry from the same name being
-reused for something else.
+The amount and the receiver have to match on every attempt. Calling again with the same id but a
+different amount or receiver returns [`Spent`](/docs/concepts/reasons). Ledger keeps a fingerprint of
+the amount and both keys with each id, so it can tell a retry from an id reused for a different
+transfer.
 
 Ids are 1 to 64 characters. The id has to be the same string on every attempt, so make it once and
 keep it somewhere the retry can read it:
@@ -3871,57 +4072,58 @@ Store:Transfer(From, To, 250, HttpService:GenerateGUID(false)):Wait()
 Store:Transfer(From, To, 250, `trade:{Trade.Id}`):Wait()
 ```
 
-The second line uses a GUID too. It works because the GUID was made once and the retry reads the same
-one. Making a GUID at the call site is what breaks. Every attempt is then a different transfer, so
-Ledger has nothing to match it against and the money moves again.
-
-`TradeId` is whatever already names that trade. If nothing names it yet, make the id when the trade
-opens and store it on the trade, next to the two players and the offer. An order id, a match id and a
-receipt id all work the same way.
+`Trade.Id` is whatever already names that trade, and it can be a GUID too. What matters is that it
+was made once, so every retry reads the same one. If nothing names the trade yet, make the id when
+the trade opens and store it on the trade, next to the two players and the offer. An order id, a
+match id and a receipt id all work the same way.
 
 Never build an id from the clock. Never build one from the amount and the two keys either. The same
-two players can trade the same amount twice, and you would swallow the second trade as a duplicate.
+two players can trade the same amount twice, and Ledger would treat the second trade as a retry of
+the first and skip it.
 
 [Where the id comes from](/docs/guides/transactions#where-the-id-comes-from) covers the three cases
 and how long each id has to survive.
 
-## Reading the answer [#reading-the-answer]
+## Checking the result [#checking-the-result]
 
 `true` means the money moved and both sides are settled.
 
 `Refused` means the sender didn't have it. An amount that isn't positive and finite throws at the call
-site instead, because that's a bug in the caller rather than an answer about the money.
+site instead, because that's a bug in the caller rather than a result about the money.
 
-`Spent` means the hold sat there long enough to expire and the money went **back to the sender**.
-Nothing moved and that id is finished, so don't hand anything over on it. A transfer that actually
-went through answers `true`, not this.
+`Spent` has two meanings, and both come only from a call with an id. Either the id already went
+through for a different amount or a different key, or the hold sat there long enough to expire and
+the money went **back to the sender**. Either way nothing moved on this call, so don't give anything
+out on it. A transfer that actually went through returns `true`, not this.
 
-`Busy` means a transaction is holding the sender's key. Ledger has already scheduled a cleanup pass,
-try again shortly.
+`Busy` means a transaction is holding the sender's key. Ledger has already scheduled a cleanup pass.
+Try again shortly.
 
 `Unresolved` means the reserve went through but the delivery didn't finish. The money is set aside
-and Ledger will either finish it or refund it on its own. Don't retry with a new id, that would move
-it twice, and don't tell the player it failed.
+and Ledger will either finish it or refund it on its own. Don't retry with a new id, because that
+would move it twice. Don't tell the player it failed.
 
-## Housekeeping [#housekeeping]
+## Cleanup [#cleanup]
 
 Delivered transfer ids sit in the receiver's `_Received` so a redelivery can't pay twice. They're
 dropped after 30 days, which is well past the point any retry could still turn up.
 
-`Store:ClearDelivered(Key)` forces that pass early. You basically never need it.
+`Store:ClearDelivered(Key)` drops the ids that are already past 30 days now, rather than at the next
+write of an id to the key. You rarely need it.
 
-`Store:RecoverTransfers(Key)` forces a recovery on one key. The sweeper already does this, so it's
-here for a support tool, or for a live incident where you want one key dealt with right now.
+`Store:RecoverTransfers(Key)` forces a recovery on one key. The sweeper already does this, so use it
+from a support tool, or in a live incident where you want one key dealt with right now.
 
-Both are about money moving between keys, so both want a store that names a `Balance` field. On a
+Both are about money moving between keys, so both require a store that names a `Balance` field. On a
 store without one they throw where you called them.
 
 <Callout type="warn">
-  `Store:Erase(Key)` passes on any money the key was sending out, including money recovery had
-  stopped retrying because the key could still have been given it back. After that it turns away
-  anything sent to the key and answers [`Held`](/docs/concepts/reasons), so the sender gets it back
-  instead of losing it. That lasts a full 8 days, and a write to the key does not cut it short. If a
-  receiver won't take one, it names what was left and you settle that one yourself. See
+  `Store:Erase(Key)` first delivers the money the key was still sending. That includes transfers
+  between 7 and 8 days old, which recovery has stopped resending while it waits to give them back.
+  If a receiver does not take one, `Erase` returns [`Busy`](/docs/concepts/reasons) and changes
+  nothing, so call it again later. After an erase, a transfer sent to the key is refused with
+  [`Held`](/docs/concepts/reasons), and the sender gets the money back instead of losing it. That
+  lasts 8 days, and a write to the key does not end it early. See
   [Erase](/docs/guides/recovery#erase).
 </Callout>
 
@@ -3944,11 +4146,11 @@ rest of these pages describe. Every type is there under `Ledger.`, with the name
 npm install @xoifail/ledger
 ```
 
-## Getting it into the place [#getting-it-into-the-place]
+## Adding it to your project [#adding-it-to-your-project]
 
 roblox-ts only syncs `node_modules/@rbxts` on its own. This package lives under `@xoifail`, so if
-you don't tell Rojo about that folder the require fails at runtime with a module it can't find. Add
-one line to `default.project.json`, next to the `@rbxts` one:
+you don't tell Rojo about that folder, the require fails at runtime because the module can't be
+found. Add one line to `default.project.json`, next to the `@rbxts` one:
 
 ```json
 "node_modules": {
@@ -3958,7 +4160,7 @@ one line to `default.project.json`, next to the `@rbxts` one:
 }
 ```
 
-Then import it in a server script. It still asserts it's on the server, same as in Luau.
+Then import it in a server script. As in Luau, it throws if a client requires it.
 
 ```ts
 import Ledger from "@xoifail/ledger";
@@ -3966,9 +4168,9 @@ import Ledger from "@xoifail/ledger";
 
 ## Calling it [#calling-it]
 
-There's nothing to learn here. The declaration knows which methods take a self, so you write dot
-calls everywhere and the compiler puts the colon in where Ledger wants one. Futures still have
-`Wait`, and the `(boolean, Reason?)` every write answers with comes out as a pair you destructure:
+The declaration knows which methods take a self, so you write dot calls everywhere and the compiler
+turns them into colon calls where Ledger needs them. Futures still have `Wait`, and the
+`(boolean, Reason?)` every write returns is a tuple you destructure:
 
 ```ts
 const [ok, why] = session.Apply("SpendGold", { Amount: 25 });
@@ -3976,10 +4178,11 @@ const [state, readWhy] = store.Peek(userId).Wait();
 ```
 
 `Ledger.Reason` is both the type and the constants, so `why === Ledger.Reason.Busy` works the same
-way it does in Luau, and a `switch` over it can end in `never`.
+way it does in Luau. In a `switch` over it that handles every reason, the `default` case narrows to
+`never`.
 
 The one thing to decide is where the state type comes from. `Ledger.New` reads it off the reducer or
-off `Default`, whichever you've annotated. When both are inline, say it yourself:
+off `Default`, whichever you've annotated. When neither is annotated, pass the type explicitly:
 
 ```ts
 const Store = Ledger.New<Profile>({ Name: "PlayerData", Default: { Gold: 100 }, Reducer });
@@ -3987,7 +4190,7 @@ const Store = Ledger.New<Profile>({ Name: "PlayerData", Default: { Gold: 100 }, 
 
 ## Typed ops [#typed-ops]
 
-This is where the declaration earns its place. Name the ops as an interface and hand `NewTyped`
+Typed ops are where the declaration helps most. Name the ops as an interface and give `Ledger.New`
 both types:
 
 ```ts
@@ -4002,7 +4205,7 @@ interface Ops {
 	Prestige: {};
 }
 
-const Store = Ledger.NewTyped<Profile, Ops>({
+const Store = Ledger.New<Profile, Ops>({
 	Name: "PlayerData",
 	Default: { Gold: 100, Items: {} },
 	Reducer: (state, op) => {
@@ -4017,28 +4220,41 @@ const Store = Ledger.NewTyped<Profile, Ops>({
 ```
 
 `op.Kind === "Buy"` narrows `op` to that arm, so `op.Item` is a string in there and `op.Amount` is
-an error. Every write is held against the map, and the refusals are the ones the
+a type error. Every write is checked against the map, and the type errors are the ones the
 [typed ops](/docs/concepts/typed-ops) page lists:
 
 ```ts
 session.Apply("Buy", { Item: "Sword" });                 // fine
-session.Apply("Buy", { Item: "Sword", Once: "order1" }); // fine, Once rides along
+session.Apply("Buy", { Item: "Sword", Once: "order1" }); // fine, Once is allowed on any write
 session.Apply("Byu", { Item: "Sword" });                 // no kind by that name
 session.Apply("Buy", { Item: 42 });                      // Item is a string
 session.Apply("Buy", { Amount: 5 });                     // those are AddGold's fields
 store.Reserve(userId, "Items", 1, "order1");             // Items isn't a number field
 ```
 
-There's one check the Luau side doesn't have. A kind that doesn't name its fields as an object,
-`Buy: string`, stops the build at `NewTyped` rather than being ignored.
+There's one check the Luau side doesn't have. If a kind's fields are not an object type, for example
+`Buy: string`, the build fails at `Ledger.New`. Luau ignores it.
 
-On a store built with `New`, the op's fields all read as `unknown`, so narrow them with `typeIs`
-the way the Luau examples use `type()`.
+On a store built without an `Ops` type, the op's fields all read as `unknown`, so narrow them with
+`typeIs` the way the Luau examples use `type()`.
+
+## Frozen state [#frozen-state]
+
+The state your reducer is given is frozen at runtime. `Ledger.Frozen` marks it read only in the type,
+at every depth, arrays and maps included. Annotate the state with it, and a write that would throw at
+runtime is a type error instead:
+
+```ts
+Reducer: (state: Ledger.Frozen<Profile>, op) => {
+	state.Items[op.Item] = true; // Index signature in type '{ readonly [x: string]: boolean; }' only permits reading
+	return { ...state, Items: { ...state.Items, [op.Item]: true } }; // fine
+},
+```
 
 ## The fields you can't pass [#the-fields-you-cant-pass]
 
-`Id`, `Kind` and `OnceAt` belong to Ledger. In Luau, passing one in `Fields` warns and gets
-overwritten. In TypeScript it doesn't build. `Once` is the one that's yours, and it's allowed on
+`Id`, `Kind` and `OnceAt` are reserved by Ledger. In Luau, passing one in `Fields` warns and gets
+overwritten. In TypeScript it is a type error. `Once` is the one you may pass, and it's allowed on
 every write, typed or not.
 
 ## Migrations [#migrations]
@@ -4060,42 +4276,43 @@ Migrations: [
 
 ## Waiting with a timeout [#waiting-with-a-timeout]
 
-`Wait()` gives you the values. `Wait(seconds)` can give you nothing at all, so in that overload
-every value in the pair is optional and the checker makes you deal with it. The
-[Future](/docs/reference/future) page says why you don't want a timeout on a write anyway.
+`Wait()` returns the values. `Wait(seconds)` returns nothing if it times out, so in that overload
+every value in the pair is optional and the type checker makes you handle `undefined`. The
+[Future](/docs/reference/future) page explains why you don't want a timeout on a write anyway.
 
-## Two names [#two-names]
+## `Ledger.Record` and `Ledger.OpMap` [#ledgerrecord-and-ledgeropmap]
 
-`Ledger.Record<D>` is what `Inspect` hands back, the same as in Luau. It shadows TypeScript's own
-`Record` inside the `Ledger` namespace, which nothing in there needs.
+`Ledger.Record<D>` is what `Inspect` returns, the same as in Luau. Inside the `Ledger` namespace it
+hides TypeScript's built in `Record`, which Ledger's declaration does not use.
 
-`Ledger.OpMap` is what every op map is held against. You never write it yourself. If you're seeing it
-in an error, one of your kinds isn't naming its fields as an object.
+`Ledger.OpMap` is the type every op map is checked against. You never write it yourself. If you see
+it in an error, one of your kinds isn't naming its fields as an object.
 
 ## What isn't checked [#what-isnt-checked]
 
-Which methods a store takes still depends on `Keys`, and that's not in the type. `Load`, `Get` and
-the other player methods throw at the call on a string keyed store, and `Bump` and `Total` throw on a
-player one, exactly as they do in Luau.
+Which methods a store accepts still depends on its `Keys` option, and that's not in the type.
+`Load`, `Get` and the other player methods throw at the call on a string keyed store, and `Bump` and
+`Total` throw on a player one, exactly as they do in Luau.
 
 
 # Future (https://xoifaii.github.io/LedgerDocs/docs/reference/future)
 
 
 
-Anything in Ledger that touches the datastore gives you a `Future` rather than yielding on the spot.
+Every Ledger method that touches the datastore returns a `Future` instead of yielding.
 
 ```luau
 local Job = Store:Peek(UserId)   -- already running
 local State = Job:Wait()         -- yields here
 ```
 
-The important part is that the work starts when you call the method, not when you call `Wait`. The
-callback is spawned straight away on its own thread. `Wait` only parks your thread until it's done.
+The work starts when you call the method, not when you call `Wait`. The callback starts at once on
+its own thread. `Wait` only yields your thread until the callback finishes.
 
 ## Running two at once [#running-two-at-once]
 
-Because they're eager, starting several and waiting afterwards runs them together:
+The work starts at the call, so if you start several Futures and then wait, they run at the same
+time:
 
 ```luau
 local A = Store:Peek(FirstUserId)
@@ -4104,8 +4321,8 @@ local B = Store:Peek(SecondUserId)
 print(A:Wait().Gold + B:Wait().Gold)
 ```
 
-Both reads are already running while you sit on the first `Wait`. Writing it as
-`Store:Peek(First):Wait() + Store:Peek(Second):Wait()` costs you two round trips instead of one.
+Both reads are already running while the first `Wait` yields.
+`Store:Peek(First):Wait() + Store:Peek(Second):Wait()` runs the two requests one after the other.
 
 ## Wait [#wait]
 
@@ -4113,18 +4330,18 @@ Both reads are already running while you sit on the first `Wait`. Writing it as
 Job:Wait(Timeout: number?) -> T...
 ```
 
-Yields until the callback finishes and gives you whatever it returned. If it's already finished,
-`Wait` returns immediately without yielding at all, so don't lean on it as a way to give up a frame.
+Yields until the callback finishes, then returns what the callback returned. If the callback already
+finished, `Wait` returns at once and does not yield. Do not use it to wait for a frame.
 
 Waiting more than once is fine, and so is waiting from several threads.
 
 <Callout type="warn">
-  `Wait` returns **nothing** if the callback errored or the timeout ran out. Not `false`, not `nil`
-  as a deliberate answer, just no values at all, which lands in your locals as `nil`.
+  `Wait` returns **no values** if the callback errored or the timeout ran out. Every local you
+  assign from it is then `nil`.
 </Callout>
 
-Every Ledger method answers with a [reason](/docs/concepts/reasons) rather than throwing, so in
-normal use you don't hit this. A failed `Peek` gives you `(nil, Unresolved)`, not nothing at all:
+Ledger methods return a [reason](/docs/concepts/reasons) instead of throwing, so a failed call
+still returns values. A failed `Peek` returns `(nil, Unresolved)`:
 
 ```luau
 local State, Why = Store:Peek(UserId):Wait()
@@ -4134,10 +4351,9 @@ if State == nil then
 end
 ```
 
-A timeout still bites, and so does any Future you build yourself. In both cases the missing first
-return is `nil`, which is falsy, so `if Ok then` and `if State == nil then` both do the right thing.
-You lose `Why` though. It comes back `nil` as well, so a timeout reads exactly like a failure.
-`Happened` answers `false` for both, so it cannot tell them apart either.
+A timeout returns no values. The first local is then `nil`, so `if Ok then` and
+`if State == nil then` still take the failure branch. `Why` is `nil` as well, so a timeout looks the
+same as a failure. `Happened` returns `false` for both, so it cannot tell them apart either.
 
 ## Timeout [#timeout]
 
@@ -4145,14 +4361,14 @@ You lose `Why` though. It comes back `nil` as well, so a timeout reads exactly l
 local Ok, Why = Store:Edit(UserId, "GrantItem", { Item = "Sword" }):Wait(10)
 ```
 
-After 10 seconds your thread resumes with no values. The work carries on in the background, it isn't
-cancelled, and if it finishes later the result is still there for a second `Wait`.
+After 10 seconds your thread resumes with no values. The work is not cancelled. It keeps running,
+and when it finishes a second `Wait` returns its result.
 
 <Callout type="warn">
-  Don't put a timeout on a write. `(nil, nil)` looks the same as a refusal, so a caller reads a
-  timeout as "it didn't happen" and asks again under a new name, which moves the money twice. The
-  timeout doesn't cancel the write either. Call `Wait()` with no timeout to get the real answer, and
-  let the [reason](/docs/concepts/reasons) tell you what happened.
+  Don't put a timeout on a write. A timed out `Wait` returns no values, so the caller treats it as
+  a refusal. If it then retries with a new id, the write applies twice. The timeout does not cancel
+  the write either. Call `Wait()` with no timeout to get the real result, and read the
+  [reason](/docs/concepts/reasons) to see what happened.
 </Callout>
 
 ## Happened [#happened]
@@ -4163,8 +4379,8 @@ Job:Happened(Wait: boolean?) -> boolean
 
 Whether the callback ran to completion without erroring.
 
-Called while the job is still going it gives you `false` straight away rather than waiting. So the
-plain form is for after you already waited:
+While the callback is still running, `Happened()` returns `false` at once and does not wait. Call it
+after you have waited:
 
 ```luau
 local Job = Store:Peek(UserId)
@@ -4175,8 +4391,8 @@ if not Job:Happened() then
 end
 ```
 
-Pass `true` and it waits for the answer first. That's the one to use when you only care whether it
-worked and never wanted the value:
+`Happened(true)` waits for the callback to finish first. Use it when you need to know whether the
+call succeeded but do not need its return values:
 
 ```luau
 local Job = Store:ClearDelivered(UserId)
@@ -4188,31 +4404,31 @@ if not Job:Happened(true) then
 end
 ```
 
-`Happened(true)` yields exactly like `Wait` does, so don't reach for it somewhere that can't yield.
+`Happened(true)` yields exactly like `Wait` does, so don't call it somewhere that can't yield.
 
-This is the only way to tell an empty result apart from a failure.
+Once the callback has finished, `Happened` tells a callback that returned no values from one that
+errored.
 
 <Callout type="warn">
-  `Happened` answers whether the callback ran, not whether what you asked for worked. A refused
-  `Edit` gives you a future that ran perfectly well and answered `(false, Refused)`, so
-  `Happened()` is `true`. Read the boolean for the outcome, `Happened` for whether there is an
+  `Happened` returns whether the callback ran, not whether what you asked for worked. A refused
+  `Edit` returns a Future whose callback finished without an error and returned `(false, Refused)`,
+  so `Happened()` is `true`. Read the boolean for the outcome, `Happened` for whether there is an
   outcome at all.
 </Callout>
 
-It has one rough edge. A job that's still running and a job that failed both report
-`false`, so straight after a `Wait` that timed out you get `false` from a job that's doing fine and
-will finish a moment later. If you used a timeout, use `Happened(true)`. It waits for the job before
-it answers, so the answer means something.
+`Happened()` returns `false` both while the callback is still running and after it errored. Straight
+after a `Wait` that timed out, it can return `false` for a callback that finishes a moment later. If
+you used a timeout, use `Happened(true)`. It waits for the callback to finish before it returns.
 
 ## Errors don't propagate [#errors-dont-propagate]
 
-A callback that throws is caught. Ledger warns with `Future callback errored:` and the message, the
-future settles as not happened, and `Wait` gives you nothing. It will not rethrow into your thread,
-so a `pcall` around `:Wait()` catches nothing useful.
+A callback that throws is caught. Ledger warns with the error message, `Happened` returns `false`,
+and `Wait` returns no values. The error is not thrown again in your thread, so a `pcall` around
+`:Wait()` catches nothing.
 
-If you want a failed read to throw in your own code, check `Happened` and raise it yourself.
+To make a failed read throw in your own code, check `Happened` and call `error` yourself.
 
-## Fire and forget [#fire-and-forget]
+## Not waiting on a Future [#not-waiting-on-a-future]
 
 You don't have to wait at all. The work still runs.
 
@@ -4220,8 +4436,8 @@ You don't have to wait at all. The work still runs.
 Store:ClearDelivered(UserId)  -- no :Wait(), still happens
 ```
 
-Reasonable for maintenance calls. Not reasonable for anything you're about to act on, since you have
-no idea whether it worked.
+This is fine for maintenance calls. Do not do it for a call whose result you act on next, because you
+cannot know whether it worked.
 
 
 # Ledger (https://xoifaii.github.io/LedgerDocs/docs/reference/ledger)
@@ -4235,24 +4451,25 @@ local Ledger = require(ServerStorage.Ledger)
 ## Ledger.New [#ledgernew]
 
 ```luau
-Ledger.New<D>(Options: Config<D>) -> Store<D>
+Ledger.New<D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>
 ```
 
-Builds a store. Throws on anything wrong with the options, at build time, rather than letting it
-misbehave later.
+Builds a store. Throws when you call it if any option is invalid. Call it as `Ledger.New(Options)`
+for a store that takes any op, or as `Ledger.New<<Profile, Ops>>(Options)` for one that checks
+every write against your ops. See [Typed stores](#typed-stores).
 
-| Option         | Type                                                                 |                                                                                                                                           |
-| -------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `Name`         | `string`                                                             | Required. The datastore name, 1 to 47 characters.                                                                                         |
-| `Reducer`      | `(State, Op) -> State?`                                              | Required. See [Writing a reducer](/docs/concepts/reducer).                                                                                |
-| `Default`      | `D`                                                                  | Required. The fresh state table.                                                                                                          |
-| `Balance`      | `string?`                                                            | Names a number field for [transfers](/docs/guides/transfers).                                                                             |
-| `Migrations`   | `{ Migration }?`                                                     | See [Migrations](/docs/guides/migrations).                                                                                                |
-| `Keys`         | `"Player" \| "String"`                                               | Defaults to `"Player"`.                                                                                                                   |
-| `Shards`       | `number?`                                                            | How many keys a total is spread over, 1 to 99. Defaults to 16. Only ever raise it. See [Bump](/docs/reference/store#bump).                |
-| `BumpEvery`    | `number?`                                                            | Seconds between the writes of queued bumps, up to 60. Leave it out and every `Bump` is one write. See [Bump](/docs/reference/store#bump). |
-| `OnLoadFailed` | `((Player, Reason) -> boolean)?`                                     | What to do when a load fails. See below.                                                                                                  |
-| `Mock`         | `boolean \| { Players: number?, CCU: number?, Throttled: boolean? }` | Puts this store on an in memory datastore, sized how you ask. See [Testing](/docs/guides/testing).                                        |
+| Option | Type | |
+| --- | --- | --- |
+| `Name` | `string` | Required. The datastore name, 1 to 47 characters. |
+| `Reducer` | `(State, Op) -> State?` | Required. See [Writing a reducer](/docs/concepts/reducer). |
+| `Default` | `D` | Required. The fresh state table. |
+| `Balance` | `string?` | Names a number field for [transfers](/docs/guides/transfers). |
+| `Migrations` | `{ Migration }?` | See [Migrations](/docs/guides/migrations). |
+| `Keys` | `"Player" \| "String"` | `"Player"` keys by UserId, `"String"` by any string. Defaults to `"Player"`. |
+| `Shards` | `number?` | How many keys a total is spread over, 1 to 99. Defaults to 16. Only ever raise it. See [Bump](/docs/reference/store#bump). |
+| `BumpEvery` | `number?` | How often queued bumps are written, in seconds, up to 60. Leave it out and every `Bump` is one write. See [Bump](/docs/reference/store#bump). |
+| `OnLoadFailed` | `((Player, Reason) -> boolean)?` | What to do when a load fails. See below. |
+| `Mock` | `boolean \| { Players: number?, CCU: number?, Throttled: boolean? }` | Puts this store on an in memory datastore, with the player count, CCU and throttling you give. See [Testing](/docs/guides/testing). |
 
 The name caps at 47 rather than the datastore's 50 because Ledger also creates `<Name>_Tx` for
 transaction markers.
@@ -4266,8 +4483,8 @@ one.
 ### OnLoadFailed [#onloadfailed]
 
 A load that fails kicks the player with "Your data failed to load, please rejoin". `OnLoadFailed`
-takes that decision instead. It gets the player and the [reason](/docs/concepts/reasons), and returns
-whether it dealt with them. `true` and Ledger leaves them alone, `false` and it kicks.
+replaces that kick. It receives the player and the [reason](/docs/concepts/reasons). Return `true`
+if you handled the player, and Ledger does nothing more. Return `false` and Ledger kicks them.
 
 ```luau
 local Store = Ledger.New({
@@ -4285,24 +4502,21 @@ local Store = Ledger.New({
 })
 ```
 
-`Behind` means a newer build wrote the record, so a rejoin puts them on the same old server and fails
-again. `Unresolved` is usually a datastore outage, where a rejoin is the right answer.
+`Behind` means a newer build wrote the record. A rejoin can put the player on an old server again,
+and the load fails again. `Unresolved` is usually a datastore outage, where rejoining is the right
+fix.
 
-It can yield, so a teleport works. Anything waiting in `WaitForLoaded` is released before it runs.
+It can yield, so a teleport works. Every `WaitForLoaded` call for that player returns `nil` before
+`OnLoadFailed` runs.
 
 If it throws, Ledger warns and kicks. If it returns `true` and the player is still in the server with
 no data, Ledger warns about that too.
 
-Only for `Keys = "Player"` stores. Passing it on a `Keys = "String"` store throws at build time.
+Only for `Keys = "Player"` stores. Passing it to a string keyed store makes `Ledger.New` throw.
 
-## Ledger.NewTyped [#ledgernewtyped]
+### Typed stores [#typed-stores]
 
-```luau
-Ledger.NewTyped<D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>
-```
-
-Builds a store that knows what its ops carry. `D` is your state and `O` is a map of the kind to the
-fields that kind carries. Give it both:
+Give `Ledger.New` your state type and a map of your op kinds, and the store checks every write:
 
 ```luau
 export type Ops = {
@@ -4310,18 +4524,16 @@ export type Ops = {
 	AddGold: { Amount: number },
 }
 
-local Store = Ledger.NewTyped<<Profile, Ops>>({
+local Store = Ledger.New<<Profile, Ops>>({
 	Name = "PlayerData",
 	Default = { Gold = 100, Items = {} },
 	Reducer = Reducer,
 })
 ```
 
-`Apply`, `Commit` and `Edit` then check the kind against the ones you named and the fields against
-what that kind carries. Your reducer gets `Ledger.Op<Ops>`, which narrows on `Op.Kind`.
-
-It takes every option `Ledger.New` takes and validates them the same way. The store it builds is the
-same object and behaves identically at runtime. See [Typed ops](/docs/concepts/typed-ops).
+`Apply`, `Commit` and `Edit` then check the kind against the ones you named, and the fields against
+what that kind carries. Your reducer gets `Ledger.Op<Ops>`, which narrows on `Op.Kind`. At runtime
+the store is the same either way. See [Typed ops](/docs/concepts/typed-ops).
 
 ## Ledger.Id [#ledgerid]
 
@@ -4330,8 +4542,8 @@ Ledger.Id() -> string
 ```
 
 Creates a short id that is different on every server and on every call. It is the id Ledger puts on
-its own ops. Use it for an op you build yourself, a transfer or a transaction. Mint it one time and
-keep it for every retry.
+its own ops. Use it for an op you build yourself, a transfer or a transaction. Create it once and
+use the same id for every retry.
 
 ```luau
 local Op = { Id = Ledger.Id(), Kind = "GrantReward", Item = "Sword" }
@@ -4361,8 +4573,9 @@ Ledger.Reason.Behind
 Ledger.Sweep() -> ()
 ```
 
-Forces a background maintenance pass right now: finish stranded transfers, settle stuck transaction
-legs, tidy up old markers. The sweeper does this on its own, so this is for tests and incidents.
+Runs a sweeper pass now. It finishes unfinished transfers, settles parked transaction legs and
+removes old transaction markers. The sweeper does this on its own, so this is for tests and
+incidents.
 
 ## Ledger.CloseAll [#ledgercloseall]
 
@@ -4370,10 +4583,16 @@ legs, tidy up old markers. The sweeper does this on its own, so this is for test
 Ledger.CloseAll() -> ()
 ```
 
-Shuts everything down. Stops the sweeper, tells every queue to skip ahead to the last write, saves
-every live session, and yields until it's all done.
+Shuts everything down, in this order:
 
-Put this in `BindToClose` and nothing else.
+1. Stops the sweeper.
+2. For each key, keeps only the newest datastore call that is waiting in the queue. The calls it
+   drops return `Closed`.
+3. Cuts datastore retries to 2 attempts.
+4. Stops every `Follow` timer, writes every queued bump, and saves every live session.
+5. Yields until those saves finish.
+
+Call it from `BindToClose`, and put nothing else in that callback.
 
 ```luau
 game:BindToClose(function()
@@ -4393,6 +4612,7 @@ Ledger.Op<O>
 Ledger.OpOf<O, K>
 Ledger.OpMap
 Ledger.Reducer<S, O>
+Ledger.Frozen<S>
 Ledger.Reason
 Ledger.KeyLike
 Ledger.KeysMode
@@ -4420,12 +4640,13 @@ Session:Observe():Subscribe(function(State)
 end)
 ```
 
-An observer is a stream of values you can subscribe to. Ledger pushes the new state onto one every
-time a change goes through, and it hands you that same stream from `Session:Observe()`.
+An observer is a stream of values you can subscribe to. Ledger has three:
 
-`Store:Stale()` is the second stream Ledger gives you. It carries the keys this server changed, not
-a state table. `Store:Follow()` is the third stream. It carries the state on one key that every
-server reads. Everything on this page works on all three.
+- `Session:Observe()` pushes the session's new state after every accepted change.
+- `Store:Stale()` pushes the keys this server changed, not a state table.
+- `Store:Follow()` pushes the state on one key that every server reads.
+
+Everything on this page works on all three.
 
 ## Subscribe [#subscribe]
 
@@ -4443,21 +4664,20 @@ end)
 Connection:Disconnect()
 ```
 
-It fires on every accepted change, including ones that came from another server and turned up when a
-transfer or transaction settled. It does not fire for a refused op, since nothing changed.
+It fires on every accepted change. That includes changes from another server that arrive when a
+transfer or transaction settles. It does not fire for a refused op, since nothing changed.
 
 It does not fire on subscribe either. If you need the current value first, call `Session:Get()`
 yourself.
 
 ## Listeners run inline [#listeners-run-inline]
 
-Your listener is called on the thread doing the write, not on a fresh one. Two consequences.
+Your listener is called on the thread doing the write, not on a new thread. This has two results.
 
-It must not yield. No `task.wait`, no `:Wait()`. Ledger runs it inside a guard that errors if it
-does. If you need to yield, hand the work to `task.spawn` and get out.
+It must not yield. No `task.wait`, no `:Wait()`. A listener that yields is stopped with an error,
+and Ledger warns. If you need to yield, start the work with `task.spawn` and return.
 
-A listener that throws is caught and warned, and the rest of the listeners still run. One broken HUD
-update won't stop the others.
+A listener that throws is caught, Ledger warns, and the other listeners still run.
 
 Listeners are called over a snapshot of the list, so subscribing or disconnecting from inside a
 listener is safe and takes effect on the next push rather than partway through this one.
@@ -4465,10 +4685,10 @@ listener is safe and takes effect on the next push rather than partway through t
 ### Listeners that may yield [#listeners-that-may-yield]
 
 `Store:Stale()` is the one stream that does not work this way. Ledger calls each of its listeners on
-a fresh thread, so they can yield. A `Flush` or a `PublishAsync` inside one is fine.
+a new thread, so they can yield. A `Flush` or a `PublishAsync` inside one is fine.
 
 Ledger warns when a listener runs for 10 seconds without returning. Every pushed key holds a thread
-until its listener returns, so one that never returns costs a thread per write.
+until its listener returns, so a listener that never returns leaks one thread per write.
 
 ## Map [#map]
 
@@ -4545,19 +4765,19 @@ end):Subscribe(print)
 ## Chains are lazy [#chains-are-lazy]
 
 `Map`, `Filter`, `Changed` and `Use` don't do anything until something subscribes to the end of the
-chain. The first subscriber wires it up to the source, and the last one to disconnect tears it back
-down.
+chain. The first subscriber connects the chain to its source. When the last subscriber disconnects,
+the chain disconnects from its source.
 
-So building a chain and never subscribing costs nothing, and a chain whose subscribers have all gone
-stops pulling from the session on its own.
+So a chain that nobody subscribes to does no work. A chain whose subscribers have all disconnected
+stops listening to its source.
 
 ## Cleaning up [#cleaning-up]
 
 Nothing disconnects your listeners for you. The session does not clear its observers when the player
-leaves, it only stops pushing to them, so they stay connected and never fire again.
+leaves. It only stops pushing to them, so they stay connected and never fire again.
 
-In practice that's fine. Ledger drops the session when the player leaves, and if you didn't keep the
-connection anywhere it gets collected along with it.
+You usually do not need to disconnect them. Ledger drops the session when the player leaves. If you
+did not keep the connection anywhere, it is garbage collected with the session.
 
 If you did store connections somewhere long lived, disconnect them yourself:
 
@@ -4587,11 +4807,11 @@ end)
 Observer:Destroy() -> ()
 ```
 
-Drops every listener and runs the teardown.
+Disconnects every listener and disconnects the observer from its source.
 
 <Callout type="warn">
-  Don't call this on `Session:Observe()`. It hands back the session's own stream rather than a copy,
-  so destroying it kills change notifications for everything else watching that player. Destroy your
+  Don't call this on `Session:Observe()`. It returns the session's own stream, not a copy, so
+  destroying it stops change notifications for every other subscriber on that session. Destroy your
   own chains if you want, never the source.
 </Callout>
 
@@ -4643,8 +4863,8 @@ State.Bag.Items[1] = "sword"   --> attempt to modify a readonly table
 Session:Observe() -> Observer<S>
 ```
 
-Fires on every change that goes through, including ones from another server that turned up when a
-transfer or transaction settled. Doesn't fire for a refused op.
+Fires on every accepted change. That includes changes from another server that arrive when a
+transfer or transaction settles. Doesn't fire for a refused op.
 
 ```luau
 Session:Observe():Subscribe(function(State)
@@ -4652,8 +4872,8 @@ Session:Observe():Subscribe(function(State)
 end)
 ```
 
-This is the session's own stream, not a copy, so `Session:Observe() == Session:Observe()`. `Destroy`
-on it removes Ledger's own subscribers too, so don't call it. See
+This is the session's own stream, not a copy, so `Session:Observe() == Session:Observe()`. Don't
+call `Destroy` on it. That removes every subscriber, Ledger's own included. See
 [Observer](/docs/reference/observer) for the chain methods and cleanup.
 
 ### DidApply [#didapply]
@@ -4666,10 +4886,9 @@ Whether a [`Once`](/docs/concepts/once) name ever applied on this key. Reads liv
 doesn't yield.
 
 <Callout type="warn">
-  Live state includes the ops that wait for the next save. `Apply` puts a name in that queue, so
-  `DidApply` gives `true` before the op is written. It tells you that the name applied. It does not
-  tell you that the name is saved. To be sure that it is saved, use `Commit`, or use `Apply` and
-  then `Flush`.
+  Live state includes the ops that wait for the next save. After `Apply` queues an op with a
+  `Once` name, `DidApply` returns `true` before the op is saved. It tells you the name applied, not
+  that it is saved. To know it is saved, use `Commit`, or `Apply` and then `Flush`.
 </Callout>
 
 ## Writing [#writing]
@@ -4680,13 +4899,13 @@ doesn't yield.
 Session:Apply(Kind: string, Fields: { [any]: any }?) -> (boolean, Reason?)
 ```
 
-Instant and local. Runs the reducer, updates state, tells observers, queues the op for the next save.
-Never touches the datastore.
+Instant and local. Runs the reducer, updates state, pushes to observers, and queues the op for the
+next save. Never touches the datastore.
 
 Use it for gameplay. See [Apply and Commit](/docs/concepts/apply-and-commit).
 
 On a session from a [typed store](/docs/concepts/typed-ops) the `Kind` and the `Fields` are checked
-against the ops you named. `Commit` and `CommitOp` take the same check.
+against the ops you named. `Commit` and `CommitOp` are checked the same way.
 
 ### Commit [#commit]
 
@@ -4694,10 +4913,21 @@ against the ops you named. `Commit` and `CommitOp` take the same check.
 Session:Commit(Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>
 ```
 
-Pushes everything queued, appends the op, waits for the datastore, refolds, then answers. `true`
-means it's durable and every server will agree.
+Writes everything queued, appends the op, waits for the datastore, folds the record again, then
+returns. `true` means the op is applied and saved.
 
-Use it for anything you can't take back.
+If the log is full, `Commit` compacts it once and tries again. It returns `Full` if the log is still
+full.
+
+When a transaction is parked on the key, `Commit` waits up to 65 seconds for it to settle. If it is
+still parked and could change whether the op applies, `Commit` returns `Unresolved`. With two or
+more transactions parked it always does, because it cannot check every way they can settle.
+
+The op is already written, so don't call `Commit` again: that writes a second op with a new id.
+Read the key once the transaction settles, or use `CommitOp` with your own `Id`, which is safe to
+retry.
+
+Use it for any change you cannot undo.
 
 ### CommitOp [#commitop]
 
@@ -4717,8 +4947,15 @@ Session:CommitOp({
 }):Wait()
 ```
 
-`Id`, `Kind` and `OnceAt` belong to Ledger. Passing them in `Fields` through `Apply` or `Commit`
-warns and gets overwritten.
+`IdAt` is optional. It is the time you first sent an op whose `Id` you chose, in Unix seconds as
+`os.time()` returns it. Send the same value on every retry. A key keeps the ids of its last 2048
+compacted ops. If the key has dropped ids that were compacted after `IdAt`, it cannot tell whether
+your op applied. The commit then returns `Unresolved`, applies nothing and warns. An `IdAt` that is
+not a number returns `Invalid`. A time later than now counts as now.
+
+`Id`, `Kind` and `OnceAt` belong to Ledger. If you pass them in `Fields` to `Apply` or `Commit`,
+Ledger warns and overwrites them. `Apply` and `Commit` make a new id on every call, so Ledger warns
+and drops an `IdAt` passed to them.
 
 ## Saving [#saving]
 
@@ -4728,7 +4965,7 @@ warns and gets overwritten.
 Session:Flush() -> Future<boolean, Reason?>
 ```
 
-Pushes queued ops without adding one. What autosave calls. `false` comes with a
+Writes queued ops without adding one. Autosave calls this. `false` comes with a
 [reason](/docs/concepts/reasons) and the ops stay queued for next time.
 
 ### Compact [#compact]
@@ -4737,8 +4974,8 @@ Pushes queued ops without adding one. What autosave calls. `false` comes with a
 Session:Compact() -> Future<boolean, Reason?>
 ```
 
-Folds the log down into a fresh snapshot and drops the ops it absorbed. Autosave does this when the
-log gets long, so you rarely need it.
+Folds the logged ops into a new snapshot and removes the compacted ops from the log. Autosave does
+this when the log gets long, so you rarely need it.
 
 ### Release [#release]
 
@@ -4746,12 +4983,12 @@ log gets long, so you rarely need it.
 Session:Release() -> Future<boolean, Reason?>
 ```
 
-Marks the session closed and pushes what's left. `Apply`, `Commit` and `CommitOp` then answer
-[`Closed`](/docs/concepts/reasons). `Flush` still works, it adds no op.
+Marks the session closed and writes what is left. `Apply`, `Commit` and `CommitOp` then return
+[`Closed`](/docs/concepts/reasons). `Flush` still works, because it adds no op.
 
 Use `Store:Unload` instead. `Release` closes the session and tells the store nothing, so `IsLoaded`
-stays `true`, `Get` still hands back the closed session, and the autosave timer keeps running.
-`Unload` does both halves.
+stays `true`, `Get` still returns the closed session, and the autosave timer keeps running.
+`Unload` closes the session and also removes it from the store.
 
 
 # Store (https://xoifaii.github.io/LedgerDocs/docs/reference/store)
@@ -4760,7 +4997,7 @@ stays `true`, `Get` still hands back the closed session, and the autosave timer 
 
 A store owns one datastore name, every key under it, and every session live on this server.
 
-Methods marked player only throw on a store with `Keys = "String"`.
+A method marked "Player only" throws when you call it on a string keyed store.
 
 ## Sessions [#sessions]
 
@@ -4773,8 +5010,8 @@ Store:Load(Player: Player) -> ()
 Player only. Yields while it reads and folds the record, then starts a 30 second autosave. Kicks the
 player if the load fails.
 
-Calling it twice for the same player warns and does nothing. If they leave mid load, the session is
-released instead of being left around.
+Calling it twice for the same player warns and does nothing. If the player leaves during the load,
+Ledger releases the session and does not keep it.
 
 ### Unload [#unload]
 
@@ -4782,7 +5019,7 @@ released instead of being left around.
 Store:Unload(Player: Player) -> ()
 ```
 
-Player only. Cancels the autosave, pushes queued ops, yields until they're durable.
+Player only. Cancels the autosave, writes queued ops, and yields until they are saved.
 
 ### Get [#get]
 
@@ -4814,8 +5051,8 @@ Player only.
 Store:WaitForLoaded(Player: Player) -> Session<D>?
 ```
 
-Player only. Yields until the session exists. Gives `nil` if the player left first. This is the one
-for `ProcessReceipt`.
+Player only. Yields until the session exists. Returns `nil` if the player left first. Use it in
+`ProcessReceipt`.
 
 ### Read [#read]
 
@@ -4823,7 +5060,8 @@ for `ProcessReceipt`.
 Store:Read(Player: Player) -> D?
 ```
 
-Player only. The state table, or `nil`. Shorthand for `Get` then `Get()`.
+Player only. The state table, or `nil` if the player is not loaded. Same as
+`Store:Get(Player):Get()`.
 
 ## Reading any key [#reading-any-key]
 
@@ -4833,23 +5071,27 @@ Player only. The state table, or `nil`. Shorthand for `Get` then `Get()`.
 Store:Peek(Key: KeyLike, MaxAge: number?) -> Future<D?, Reason?>
 ```
 
-Reads the record and folds it. It works for any key, with the player here, on another server, or
-offline. Without `MaxAge` there is no cache. Each call costs one request.
+Reads the record and folds it. It works for any key, whether the player is on this server, on
+another server, or offline. Without `MaxAge` there is no cache. Each call costs one request.
 
-`MaxAge` answers a copy instead. This server keeps a copy of the key. While that copy is younger
-than `MaxAge` seconds, `Peek` answers it with no call. After that, `Peek` reads the shared copy in
-MemoryStore for one request unit. The whole fleet reads that one shared copy. After 60 to 75 seconds
-the shared copy is stale. One server then reads the record and writes the shared copy again. The
-other servers answer the old copy until then. Each server has its own limit between 60 and
-75 seconds. One server refills the copy, not all of them.
+With `MaxAge`, `Peek` returns a copy of the key instead. There are two copies:
 
-A `MaxAge` of 0 reads the record now, through the same claim. When the whole fleet is told to
-refresh at the same time, only one server reads the record. The copy carries your fields only.
-`_Received` and `_Held` are not on it. `Peek` with a `MaxAge` works on string keyed stores only. See
+- This server's own copy. While it is younger than `MaxAge` seconds, `Peek` returns it and makes no
+  request.
+- A copy in MemoryStore that every server reads. When this server's copy is older than `MaxAge`,
+  `Peek` reads the shared copy for one request unit.
+
+The shared copy goes stale after 60 to 75 seconds. Each server picks its own limit in that range.
+One server then reads the record and writes the shared copy again. The other servers return the old
+copy until it has.
+
+A `MaxAge` of 0 reads the record now. If many servers ask at the same time, only one of them reads
+the record. The copy holds your fields only. Ledger's own fields, such as `_Received` and `_Held`,
+are not on it. `Peek` with a `MaxAge` works on string keyed stores only. See
 [Following a key](/docs/guides/entity-stores#following-a-key).
 
 A key nobody has written folds to your `Default`. `nil` always means the read failed, and the reason
-says why. `Behind` means a newer server wrote the key. Try again on any other reason.
+tells you why. `Behind` means a newer build wrote the key. On any other reason, try again.
 
 ### DidApply [#didapply]
 
@@ -4859,8 +5101,8 @@ Store:DidApply(Key: KeyLike, Id: string) -> Future<boolean?, Reason?>
 
 Whether a [`Once`](/docs/concepts/once) name ever applied on that key.
 
-`nil` means it could not read the record, which is not the same as `false`. Compare against `true`
-rather than trusting truthiness, or a failed read reads as "never granted" and you grant twice.
+`nil` means it could not read the record, which is not the same as `false`. Compare against `true`.
+If you only test truthiness, a failed read looks like "never granted" and you grant twice.
 
 ### History [#history]
 
@@ -4888,16 +5130,18 @@ Folds an old version. Read only, there's no restore. See [Recovery](/docs/guides
 Store:Edit(Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>
 ```
 
-Appends one op to any key and waits for the answer. Works whether or not the target is online.
+Appends one op to any key and waits for the result. Works whether or not the target is online.
 
 If the key has a live session on this server, `Edit` still goes through the log, so the session picks
 it up on its next fold.
 
-Can answer `Unresolved` when a stuck transaction leg would change the verdict. An edit that leg can't
-affect answers straight away.
+Can return `Unresolved` when a parked transaction leg on the key could change whether the op is
+accepted. An edit that leg cannot affect returns at once.
 
-On a store built with [`NewTyped`](/docs/concepts/typed-ops) the `Kind` is held against the kinds you
-named and the `Fields` against what that kind carries.
+On a [typed store](/docs/concepts/typed-ops) the `Kind` is checked against the kinds you named, and
+the `Fields` against what that kind carries.
+
+`Edit` makes a new id on every call, so Ledger warns and drops an `IdAt` in `Fields`.
 
 ### EditOp [#editop]
 
@@ -4905,12 +5149,12 @@ named and the `Fields` against what that kind carries.
 Store:EditOp(Key: KeyLike, Op: Op) -> Future<boolean, Reason?>
 ```
 
-Appends an op you built yourself, with your own `Id`. The same op sent again lands one time. Use it
-to retry an edit that answered `Unresolved`. `Edit` creates a new id on every call. A retried `Edit`
-can apply twice.
+Appends an op you built yourself, with your own `Id`. The same op sent again applies only once. Use
+it to retry an edit that returned `Unresolved`. `Edit` creates a new id on every call. A retried
+`Edit` can apply twice.
 
 Create the id with [`Ledger.Id`](/docs/reference/ledger#ledgerid) and keep it for the retry. An op
-needs a string `Id` and a string `Kind`. `Invalid` is the answer when either is missing, or when a
+needs a string `Id` and a string `Kind`. `Invalid` is returned when either is missing, or when a
 field cannot be stored. Ledger copies the op. The table you pass is never changed.
 
 ```luau
@@ -4921,10 +5165,16 @@ if not Ok and Why == Ledger.Reason.Unresolved then
 end
 ```
 
-A retry after the key has compacted answers `Unresolved`. The op is in the snapshot by then, and
-the record cannot say whether that id took.
+A retry after the key has compacted the op returns `Unresolved`. The op is in the snapshot by then,
+and the record cannot say whether that id was applied.
 
-On a store built with `NewTyped` the op is held against the kinds you named.
+A key keeps the ids of its last 2048 compacted ops. After it drops the id, a retry applies the op
+again. To stop that, set `IdAt` on the op. `IdAt` is the time you first sent the op, in Unix
+seconds as `os.time()` returns it. Send the same value on every retry. If the key has dropped ids
+that were compacted after `IdAt`, the write returns `Unresolved`, applies nothing and warns. An
+`IdAt` that is not a number returns `Invalid`. A time later than now counts as now.
+
+On a typed store the op is checked against the kinds you named.
 
 ### Transfer [#transfer]
 
@@ -4937,11 +5187,11 @@ field your `Default` declares. Leave it out to move the `Balance` field, which n
 name one.
 
 `From` and `To` have to be different. `Amount` has to be positive and finite. `Id` is 1 to 64
-characters when given, and giving one makes a retry safe. A name belongs to one transfer: the same
-`Id` with a different field, amount or pair of keys answers [`Spent`](/docs/concepts/reasons).
+characters when given, and giving one makes a retry safe. An `Id` belongs to one transfer. The same
+`Id` with a different field, amount or pair of keys returns [`Spent`](/docs/concepts/reasons).
 
-A delivery into a key that was erased answers [`Held`](/docs/concepts/reasons). The money left the
-sender and waits with them until recovery gives it back.
+A delivery into a key that was erased returns [`Held`](/docs/concepts/reasons). The amount has
+already left the sender. It stays set aside on the sender's key until recovery refunds it.
 
 See [Transfers](/docs/guides/transfers).
 
@@ -4953,33 +5203,34 @@ Store:Reserve(Key: KeyLike, Field: string, Amount: number, Id: string, Options: 
 }?) -> Future<boolean, Reason?>
 ```
 
-Holds `Amount` of a number field on one key, under the name `Id`, in MemoryStore. The key itself
+Holds `Amount` of a number field on one key, under `Id`, in MemoryStore. The key itself
 does not change: `Peek` shows the full field, and `Holds` shows what is held. `Field` has to name a
 number field your `Default` declares. `Id` is 1 to 64 characters.
 
 On a [typed store](/docs/concepts/typed-ops) that rule is checked, so a `Field` that isn't a number
-field of your state stops the build rather than throwing at the call. `Bump`, `Total`, `Holds` and
+field of your state is a type error. `Bump`, `Total`, `Holds` and
 `Transfer` take the same check.
 
-Asking again under a name already held answers `true` and holds nothing extra. Once a hold has gone,
-confirmed, released or run out, the same name can be used again.
+Asking again under an `Id` already held returns `true` and holds nothing extra. After a hold is
+confirmed, released or runs out, its `Id` can be used again.
 
-Asking for more than the field has, counting what is already held, answers `Refused`. Asking while
-a key already holds 256 answers `Busy`. A hold runs out in 15 minutes or less. Ask again shortly.
-The stock a hold is judged against is what the key read last, and a refusal reads the key again
-before it answers, so a restock is seen.
+Asking for more than the field has, counting what is already held, returns `Refused`. A key can
+have at most 256 holds at once. Asking for another returns `Busy`. A hold runs out in 15 minutes or
+less, so ask again later. A hold is checked against the last value Ledger read from the key. Before
+it returns `Refused`, Ledger reads the key again, so a restock is counted.
 
 `Hold` is how long to keep it, in seconds. The cap and the default are both 15 minutes, so `Hold`
 can only shorten a hold. A `Hold` above the cap throws where you wrote the call. Reserve again under
-the same Id to move the end of a hold out. A hold nobody takes runs out on its own. Nothing gives it
-back, since nothing was taken.
+the same `Id` to extend a hold. A hold that nobody confirms runs out on its own. There is nothing to
+refund, because the key never changed.
 
-A hold is not in the fold. An `Edit` can spend units another player holds, and that player's
-`Confirm` is then `Refused`. Nothing is oversold, one checkout fails.
+A hold is not part of the key's state. An `Edit` can spend units another player holds, and that
+player's `Confirm` then returns `Refused`. Nothing is oversold. One checkout fails.
 
-MemoryStore has to be reachable, which in Studio means API access on. A store with no MemoryStore, or
-one whose MemoryStore is down, answers [`Unresolved`](/docs/concepts/reasons) and holds nothing. The
-reducer still refuses at checkout, so a lost hold costs a refused checkout and never an oversell.
+MemoryStore has to be reachable. In Studio that means API access is on. A store with no MemoryStore,
+or one whose MemoryStore is down, returns [`Unresolved`](/docs/concepts/reasons) and holds nothing.
+The reducer still refuses at checkout, so a lost hold can cause a refused checkout but never an
+oversell.
 
 The first hold on a key costs one datastore read and four MemoryStore request units. Every hold after
 that costs two units, and a `Release` costs two.
@@ -4992,7 +5243,7 @@ See [Reservations](/docs/guides/reservations).
 Store:Holds(Key: KeyLike, Field: string) -> Future<number?, Reason?>
 ```
 
-Answers how many units of `Field` are held on `Key` right now. A key nothing holds answers `0`.
+Returns how many units of `Field` are held on `Key` right now. A key nothing holds returns `0`.
 Costs one MemoryStore request unit.
 
 `nil` and [`Unresolved`](/docs/concepts/reasons) mean the MemoryStore could not be read, never that
@@ -5006,24 +5257,30 @@ Store:Confirm(Key: KeyLike, Id: string, Kind: string, Fields: table?) -> Future<
 
 Spends what `Id` holds, with your own op. `Kind` and `Fields` are what you would give `Edit`, so your
 reducer decides what a checkout takes off the key and refuses one the field cannot cover. The op's id
-derives from `Id`, so a retry lands once. The hold is let go once the op has gone through.
+comes from `Id`, so a retry applies only once. The hold is released after the op is applied.
 
-A confirm needs no hold behind it. The reducer is the gate whether a hold stood or not, so a checkout
-whose hold ran out, or was never made because the MemoryStore was down, still sells what is there.
+A confirm needs no hold. The reducer decides whether the checkout is accepted, with or without a
+hold. A checkout whose hold ran out, or was never made because the MemoryStore was down, still sells
+what is there.
 
 On a [typed store](/docs/concepts/typed-ops) `Kind` and `Fields` are checked the way `Edit` checks
 them.
 
-The key remembers the op while it is in the log, and for the next 2048 ops it absorbs. A confirm
-replayed inside that window spends nothing more. Once the op is in the snapshot, the reply is
-[`Unresolved`](/docs/concepts/reasons). The record cannot say whether that op took or was turned
-away. Once the key has forgotten the op, a replay sells the units again.
+The key keeps the op's id while the op is in the log, and for the next 2048 ops it compacts. A
+confirm replayed inside that window spends nothing more. Once the op is compacted into the snapshot,
+the reply is [`Unresolved`](/docs/concepts/reasons). The record cannot say whether that op was
+applied or refused.
 
-`Fields` can carry a [`Once`](/docs/concepts/once). A named confirm replayed after the key has
-forgotten its op answers `Refused`, and `DidApply` answers `true` for 30 days. A name costs the key
-40 bytes for 30 days. A key that sells 1,700 units a day fills its state with names in a month. Give
-a confirm a name only when it may be retried later than the key remembers it. Put the name for the
-grant on the player's key.
+`Fields` can carry an `IdAt`, the same as on [`EditOp`](#editop). It is the time you first sent the
+confirm, in Unix seconds. Send the same value on every retry. If the key has dropped ids that were
+compacted after `IdAt`, a replay returns `Unresolved`, sells nothing and warns. Without `IdAt`, a
+replay after the key drops the id sells the units again.
+
+`Fields` can carry a [`Once`](/docs/concepts/once). A confirm with a `Once` name that is replayed
+after the key drops its id returns `Refused`, and `DidApply` returns `true` for 30 days. A name adds
+40 bytes to the key for 30 days. A key that sells 1,700 units a day fills its state with names in a
+month. Give a confirm a `Once` only when you need a lasting answer from `DidApply`. Put the `Once`
+for the grant on the player's key.
 
 Costs one datastore request and two MemoryStore request units.
 
@@ -5033,9 +5290,9 @@ Costs one datastore request and two MemoryStore request units.
 Store:Release(Key: KeyLike, Id: string) -> Future<boolean, Reason?>
 ```
 
-Lets go of what `Id` holds. Nothing on the key changes, since nothing was taken.
+Releases what `Id` holds. Nothing on the key changes, because nothing was taken.
 
-Answers `Refused` when nothing is held under that name, and [`Unresolved`](/docs/concepts/reasons)
+Returns `Refused` when nothing is held under that `Id`, and [`Unresolved`](/docs/concepts/reasons)
 when the MemoryStore could not be read to find out. Costs two MemoryStore request units.
 
 ### Bump [#bump]
@@ -5046,18 +5303,21 @@ Store:Bump(Name: string, Field: string, Amount: number) -> Future<boolean, Reaso
 
 String keyed stores only. Adds `Amount` to a total spread over 16 keys, named `<Name>#0` to
 `<Name>#15`. Each server writes its own shard, so servers do not queue behind each other on one key.
-`Shards` on the config sets the count, 1 to 99. Only ever raise it on a live store. A lower count
-stops reading the top shards, and their bumps leave every total.
+`Shards` on the config sets the count, 1 to 99. Only ever raise it on a live store. With a lower
+count Ledger stops reading the highest shards, so the amounts in them drop out of every total.
+During the deploy that raises it, an old server sums only the shards it knows. Its totals are short
+until that server stops. The cached sum is kept per shard count, so a new server caches its own sum
+over every shard and never reads an old server's short one.
 
-`Amount` has to be positive. A total is spread over keys that cannot see each other, so nothing can be
-taken back out of one. Anything with a limit belongs on a single key, where `Reserve` can hold it.
+`Amount` has to be positive. A total is spread over keys that cannot see each other, so nothing can
+be taken back out of one. Anything with a limit belongs on a single key, where `Reserve` can hold it.
 
 A store built with `BumpEvery` queues its bumps. Every `BumpEvery` seconds the server writes one
-op per tally with the sum of its queued bumps. `Bump` then answers one Future shared by every bump
-of that tally in the window. Wait on it and it answers once the window is written, the way `Commit`
-does. Do not wait and the bump is hopeful, the way `Apply` is. `Destroy` and `CloseAll` write what
-is queued. A server that crashes loses the bumps of its last window. Your own server's totals show
-a queued bump immediately.
+op per total with the sum of its queued bumps. `Bump` then returns one Future shared by every bump
+of that total in the window. If you wait on it, it returns once the window is saved, the same as
+`Commit`. If you do not wait, the bump is not saved yet, the same as `Apply`. `Destroy` and
+`CloseAll` write what is queued. A server that crashes loses the bumps of its last window. Your own
+server's totals show a queued bump immediately.
 
 ### Total [#total]
 
@@ -5065,22 +5325,22 @@ a queued bump immediately.
 Store:Total(Name: string, Field: string, MaxAge: number?) -> Future<number?, Reason?>
 ```
 
-Answers the sum cached in MemoryStore, for one request unit. After 60 to 75 seconds that sum is
-stale. One server then reads every shard and caches the sum again. The other servers answer the
-old sum until then. A total from another server is at most 90 seconds behind, plus the time one
-refill takes. Each server has its own limit between 60 and 75 seconds. One server refills the sum,
-not all of them. Your own server's bumps show in its totals immediately.
+Returns the sum cached in MemoryStore, for one request unit. The cached sum goes stale after 60 to
+75 seconds. Each server picks its own limit in that range. One server then reads every shard and
+caches the sum again. The other servers return the old sum until then. A total from another server
+is at most 90 seconds behind, plus the time one refill takes. Your own server's bumps show in its
+totals immediately.
 
-`MaxAge` answers this server's own last sum with no call while that sum is younger than `MaxAge`
-seconds. A pot drawn every five seconds costs nothing between its own refills.
+With `MaxAge`, `Total` returns this server's own last sum and makes no request while that sum is
+younger than `MaxAge` seconds. A total read every five seconds makes no requests between refills.
 
-It answers what has been added, not what the keys hold. Each shard starts at the value
-your `Default` gives the field. That baseline is taken off the sum. A tally nobody has added to
+It returns what has been added, not what the keys hold. Each shard starts at the value
+your `Default` gives the field. That baseline is taken off the sum. A total nobody has added to
 reads 0 for any `Default`.
 
-MemoryStore has to be reachable. In Studio that means API access on. A store whose hook has no
-MemoryStore, or whose MemoryStore is down, reads every shard each time and answers the same sum.
-It says so once.
+MemoryStore has to be reachable. In Studio that means API access is on. A store with no MemoryStore,
+or whose MemoryStore is down, reads every shard each time and returns the same sum. Ledger warns
+once when this happens.
 
 ### Tx [#tx]
 
@@ -5089,17 +5349,21 @@ Store:Tx(Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>
 ```
 
 Commits 2 to 4 legs all or nothing. `Id` comes first and is required, 1 to 50 characters, and has to
-be stable across retries. Running the same id again answers `true` and moves nothing.
+be stable across retries. Running the same id again returns `true` and moves nothing.
 
-A leg's shape throws, so a bad key, a duplicate key, a `Once` on a leg. A leg's `Fields` answer
-[`Invalid`](/docs/concepts/reasons) instead, the same as `Edit`, and nothing is prepared when they do.
+A malformed leg throws. That covers a bad key, a key used twice, and a `Once` on a leg. `Fields`
+that cannot be stored return [`Invalid`](/docs/concepts/reasons) instead, the same as `Edit`, and
+nothing is prepared.
 
-Before it drives, a transaction leases each of its keys in MemoryStore for ten seconds. A second
-server after the same keys answers `Busy` at once, for one request unit and no datastore call,
-instead of driving into the first server's legs and learning the same `Busy` eight requests later.
-The lease only orders who tries. The marker still decides, no server waits on another, a server that
-cannot reach MemoryStore drives as before, and a lease nobody lets go of answers `Busy` for at most
-ten seconds. A two leg transaction spends 8 request units on its leases.
+Before it writes any leg, a transaction leases each of its keys in MemoryStore for ten seconds. If
+another server already holds a lease on one of those keys, `Tx` returns `Busy` at once. That costs
+one request unit and no datastore requests. Without the lease, the second server would find the same
+`Busy` after eight requests.
+
+The lease only decides which server tries first. The transaction marker still decides the outcome.
+No server waits for another. A server that cannot reach MemoryStore runs the transaction without
+leases. A lease that is never released makes `Tx` return `Busy` for at most ten seconds. A two leg
+transaction spends 8 request units on its leases.
 
 See [Transactions](/docs/guides/transactions).
 
@@ -5110,10 +5374,10 @@ Store:Reset(Key: KeyLike) -> Future<boolean, Reason?>
 ```
 
 Puts the key back to `Default`, keeping `_Received` and `_Held`. A record written at a version this
-server doesn't know answers [`Behind`](/docs/concepts/reasons) rather than `Refused`, because
-nothing turned the write down, this server just can't read what's there.
+server doesn't know returns [`Behind`](/docs/concepts/reasons), not `Refused`. Nothing refused the
+write. This server cannot read what is on the key.
 
-A key with a transaction parked on it answers [`Busy`](/docs/concepts/reasons). Resetting it would
+A key with a transaction parked on it returns [`Busy`](/docs/concepts/reasons). Resetting it would
 throw away a leg the transaction still counts as committed. Settle it with `Resettle` first.
 
 ### Inspect [#inspect]
@@ -5123,8 +5387,8 @@ Store:Inspect(Key: KeyLike) -> Future<Record?, Reason?>
 ```
 
 The record itself rather than the state it folds to: the snapshot, the ops not yet compacted into it,
-the applied ids, and the version. `Peek` answers what the player has, `Inspect` answers what is on
-the key.
+the applied ids, and the version. `Peek` returns the folded state. `Inspect` returns the stored
+record.
 
 ```luau
 local Record = Store:Inspect(UserId):Wait()
@@ -5136,7 +5400,7 @@ if Record then
 end
 ```
 
-What it hands back is frozen, like everything else Ledger gives you. To change a key, use `Edit`,
+What it returns is frozen, like everything else Ledger returns. To change a key, use `Edit`,
 `Reset` or `Erase`.
 
 ### Erase [#erase]
@@ -5145,18 +5409,26 @@ What it hands back is frozen, like everything else Ledger gives you. To change a
 Store:Erase(Key: KeyLike) -> Future<boolean, Reason?>
 ```
 
-Throws the record away and leaves a tombstone. Anything the key still owes someone else goes first:
-money it was part way through sending, and units a `Reserve` set aside with a `To`. Ledger names
-whatever it could not pass on before the key went. For 8 days the tombstone refuses anything sent to
-the key, so money still being sent returns to whoever sent it.
+Throws the record away and leaves a tombstone. First, Ledger delivers any transfer the key is still
+sending. If it cannot deliver one, `Erase` returns [`Busy`](/docs/concepts/reasons) and changes
+nothing. Call it again later. A transfer that cannot be delivered is refunded once it is 8 days
+old, so an `Erase` after that goes through. For 8 days the tombstone refuses transfers sent to the
+key, and each one goes back to its sender.
 See [Erase](/docs/guides/recovery#erase).
 
-The tombstone holds for the full 8 days even if the key is written to again. A session on another
-server knows nothing about the erase and keeps saving, and those writes no longer cancel the
-tombstone. Ledger warns when one arrives, because it means the player is still live somewhere. Get
-them off every server before erasing them.
+The tombstone lasts the full 8 days, even if the key is written to again. An `Edit` to the key in
+that time is written and does not remove the tombstone. A session that loaded the key before the
+erase cannot save to it. On its next save, the server that holds the session warns and closes it.
+Its unsaved ops are not written, `Apply` and `Commit` then return `Closed`, and `Flush` returns
+`Refused`. Get the player off every server before you erase them.
 
-A key with a transaction parked on it answers [`Busy`](/docs/concepts/reasons), the same as `Reset`.
+An `Erase` that finds a tombstone that has run out removes the key from the datastore. For up to 2
+minutes while it does, a write to the key returns `Busy`. If the key still holds `Once` names or
+transfer and transaction ids from the last 30 days, Ledger keeps the record and warns. Erase it again
+after they run out. A write after the tombstone runs out clears it, and the next `Erase` leaves a new
+tombstone.
+
+A key with a transaction parked on it returns [`Busy`](/docs/concepts/reasons), the same as `Reset`.
 
 `false` means the record is still there. Check it before you tell anyone their data is gone.
 
@@ -5179,17 +5451,16 @@ end)
 
 These writes push a key:
 
-| method                             | what it pushes                           |
-| ---------------------------------- | ---------------------------------------- |
-| `Edit`, `Confirm`, `Bump`, `Reset` | the key it wrote                         |
-| `Transfer`                         | both keys                                |
-| `Tx`                               | every leg key, onto that leg's own store |
+| method | what it pushes |
+| --- | --- |
+| `Edit`, `Confirm`, `Bump`, `Reset` | the key it wrote |
+| `Transfer` | both keys |
+| `Tx` | every leg key, onto that leg's own store |
 
 Nothing else pushes. A write the reducer refuses pushes nothing, and so does a read, an `Erase` and
 every maintenance method.
 
-`Session:Apply` and `Session:Commit` push nothing either. That session already holds the change, so
-it has nothing to catch up on.
+`Session:Apply` and `Session:Commit` push nothing either. That session already holds the change.
 
 The key is a string. A player store keys on the `UserId`, so call `tonumber` on it before you look
 the player up.
@@ -5206,11 +5477,11 @@ Use it to flush a session the moment another part of your game writes to its key
 Store:Follow(Key: KeyLike) -> Observer<D>
 ```
 
-A stream of the state on one key. Ledger keeps it fresh from the shared copy. Subscribe once. Ledger
-reads the shared copy on a timer. The timer runs every 30 seconds while the key changes. It slows to
-every 4 minutes while the key does not change. Ledger pushes the state only when it changed. The
-first tick pushes the state as it is. A subscribe pushes nothing. Call `Peek` with a `MaxAge` for
-the value now.
+A stream of the state on one key. You subscribe once, and Ledger keeps the value current from the
+shared copy. Ledger reads the shared copy on a timer. The timer starts at 30 seconds. Each time the
+key has not changed, the interval doubles, up to 4 minutes. When the key changes, it goes back to
+30 seconds. Ledger pushes the state only when it changed. The first read pushes the state as it is.
+Subscribing pushes nothing, so call `Peek` with a `MaxAge` for the current value.
 
 ```luau
 Settings:Follow("config"):Subscribe(function(Config)
@@ -5220,9 +5491,10 @@ end)
 
 The timer starts with the first listener. It stops when the last listener disconnects. `Destroy`
 stops it too. A write on this server shows on this server's stream immediately. A write on another
-server shows after the shared copy is refilled and this server ticks. That takes at most 75 seconds
-plus one tick. It is faster when that server tells this one to refresh. Ledger hands back one stream
-per key. `Follow` works on string keyed stores only. See
+server shows after the shared copy is refilled and this server reads it on its timer. That takes at
+most 75 seconds plus one interval. To show it sooner, the writing server can send the key over
+`MessagingService`, and the receiver calls `Peek(Key, 0)`. Calling `Follow` again with the same key
+returns the same observer. `Follow` works on string keyed stores only. See
 [Following a key](/docs/guides/entity-stores#following-a-key).
 
 Listeners run inline and must not yield, the same as `Session:Observe()`. See
@@ -5236,11 +5508,12 @@ Listeners run inline and must not yield, the same as `Session:Observe()`. See
 Store:Resettle(Key: KeyLike) -> Future<boolean, Reason?>
 ```
 
-Settles any transaction leg parked on the key and finishes any transfer set aside on it. `true` means
-nothing is left unfinished. `Busy` means a leg is still waiting on a decision, so try again later.
+Settles any transaction leg parked on the key and finishes any unfinished transfer on it. `true`
+means nothing is left unfinished. `Busy` means a leg is still waiting on a decision, so try again
+later.
 
-The recovery sweep calls this for you every minute. It is here for the case the sweep warns about,
-where it is already following its limit of keys or has given up on one after five goes.
+The sweeper calls this for you every minute. Call it yourself when the sweeper warns that it is
+already tracking 256 keys, or that it stopped retrying a key after five attempts.
 
 ### RecoverTransfers [#recovertransfers]
 
@@ -5248,8 +5521,8 @@ where it is already following its limit of keys or has given up on one after fiv
 Store:RecoverTransfers(Key: KeyLike) -> Future<boolean, Reason?>
 ```
 
-Forces stranded transfers on one key to finish or refund. The sweeper already does this, so it's for
-support tools.
+Makes the unfinished transfers on one key finish or refund now. The sweeper already does this, so it
+is for support tools.
 
 ### ClearDelivered [#cleardelivered]
 
@@ -5257,7 +5530,7 @@ support tools.
 Store:ClearDelivered(Key: KeyLike) -> Future<boolean, Reason?>
 ```
 
-Drops delivered transfer ids older than 30 days from the key. Happens on its own.
+Drops delivered transfer ids older than 30 days from the key. Ledger also does this on its own.
 
 Both this and `RecoverTransfers` work on any store, since a transfer can move any number field.
 
@@ -5275,7 +5548,7 @@ throws afterwards.
 
 
 
-Everything here is exported off the top level module, so `Ledger.Op`, `Ledger.Store` and so on.
+Everything here is exported from the top level module, as `Ledger.Op`, `Ledger.Store` and so on.
 
 ## Op [#op]
 
@@ -5293,14 +5566,11 @@ One change. `Id` and `Kind` are Ledger's, everything else is yours.
 as one of the kinds you named, so testing `Op.Kind` narrows to that kind and its fields come out
 typed. See [Typed ops](/docs/concepts/typed-ops).
 
-`Id`, `Kind` and `OnceAt` are reserved. Passing any of them in `Fields` warns and gets overwritten.
+`Id`, `Kind` and `OnceAt` are reserved. If you pass any of them in `Fields`, Ledger warns and
+overwrites them.
 
 `Once` is yours to set, and it's what makes the op apply at most one time on that key. See
 [Once](/docs/concepts/once).
-
-Every method that can fail answers `(value?, Reason?)` or `(boolean, Reason?)`. Nothing in Ledger
-throws into a Future, so `Wait` never comes back empty on you. See
-[Reasons](/docs/concepts/reasons).
 
 ## OpOf [#opof]
 
@@ -5308,22 +5578,49 @@ throws into a Future, so `Wait` never comes back empty on you. See
 type OpOf<O, K> = { Id: string, Kind: K } & index<O, K>
 ```
 
-One kind out of your op map, for a reducer that gives each kind its own function. See [with named
-ops](/docs/concepts/advanced-reducers#with-named-ops).
+The op type for one kind in your op map. Use it to type a function that handles a single kind.
 
 ```luau
 local function SpendGold(State: Profile, Op: Ledger.OpOf<Ops, "SpendGold">): Profile?
-	return SetPath(State, { "Gold" }, State.Gold - Op.Amount)
+	local Next = table.clone(State)
+	Next.Gold -= Op.Amount
+	return Next
 end
 ```
+
+For a table of handlers, one per kind, see [Advanced reducers](/docs/concepts/advanced-reducers#one-handler-per-op-kind).
 
 ## Reducer [#reducer]
 
 ```luau
-type Reducer<S, O = any> = (State: S, Op: Op<O>) -> S?
+type Reducer<S, O = any> = (State: S, Op: Op<O>) -> (S | Frozen<S>)?
 ```
 
 See [Writing a reducer](/docs/concepts/reducer).
+
+## Frozen [#frozen]
+
+```luau
+type Frozen<S>
+```
+
+Your state with every field read only, at every depth. At runtime, the state Ledger passes you is
+already frozen this way. Annotate a reducer's state with it, and a write into a nested table is a
+type error:
+
+```luau
+type Hero = { Gold: number, Stats: { Level: number } }
+
+Reducer = function(State: Ledger.Frozen<Hero>, Op)
+	local Next = table.clone(State)
+	Next.Stats.Level += 1 -- Property Level of table '{ read Level: number }' is read-only
+	return Next
+end,
+```
+
+An array or a map stays writable in the type, and so does what it holds, because Luau can't make an
+indexer read only yet. A write into one still throws at runtime. In TypeScript `Ledger.Frozen`
+covers arrays and maps as well.
 
 ## Reason [#reason]
 
@@ -5333,8 +5630,10 @@ type Reason =
 	| "Backlog" | "Full" | "Invalid" | "Behind" | "Held"
 ```
 
-Compare against `Ledger.Reason.Refused` and friends rather than the literals. See
-[Reasons](/docs/concepts/reasons).
+Compare against the `Ledger.Reason` constants, such as `Ledger.Reason.Refused`, not the string
+literals. See [Reasons](/docs/concepts/reasons).
+
+Every method that can fail returns `(value?, Reason?)` or `(boolean, Reason?)`.
 
 ## KeyLike [#keylike]
 
@@ -5342,8 +5641,8 @@ Compare against `Ledger.Reason.Refused` and friends rather than the literals. Se
 type KeyLike = number | string
 ```
 
-A UserId on a player store, a key string on an entity store. Ledger checks which one the store wants
-and throws with what it expected.
+A UserId on a player store, a key string on a string keyed store. If the key does not fit the store,
+Ledger throws, and the error message names what the store expects.
 
 ## KeysMode [#keysmode]
 
@@ -5365,14 +5664,14 @@ type Config<D> = {
 }
 ```
 
-What `Ledger.New` takes. See [Ledger.New](/docs/reference/ledger#ledgernew).
+The options of a store that takes any op. See [Ledger.New](/docs/reference/ledger#ledgernew).
 
 ## TypedConfig [#typedconfig]
 
 ```luau
 type TypedConfig<D, O> = {
 	read Name: string,
-	read Reducer: (State: D, Op: Op<O>) -> D?,
+	read Reducer: (State: D, Op: Op<O>) -> unknown,
 	read Default: D,
 	read Balance: string?,
 	read Migrations: { Migration }?,
@@ -5381,8 +5680,8 @@ type TypedConfig<D, O> = {
 }
 ```
 
-What `Ledger.NewTyped` takes. The reducer gets the op as one of the kinds you named, and it has to
-give back your state or `nil`. See [Typed ops](/docs/concepts/typed-ops).
+What `Ledger.New` takes. The reducer gets the op as one of the kinds you named. Annotate its return
+as your state or `nil` to have that checked. See [Typed ops](/docs/concepts/typed-ops).
 
 ## TypedStore and TypedSession [#typedstore-and-typedsession]
 
@@ -5391,9 +5690,9 @@ type TypedStore<D, O>
 type TypedSession<S, O>
 ```
 
-What `Ledger.NewTyped` hands back, and what `Store:Expect` gives you on one. They carry the same
-methods as `Store<D>` and `Session<S>`, with `Apply`, `Commit` and `Edit` checked against the ops you
-named.
+`TypedStore` is what `Ledger.New<<Profile, Ops>>` returns. `TypedSession` is what `Store:Expect`
+returns on a typed store. They have the same methods as `Store<D>` and `Session<S>`, with `Apply`,
+`Commit` and `Edit` checked against the ops you named.
 
 ```luau
 local function Buy(Session: Ledger.TypedSession<Profile, Ops>, Item: string)
@@ -5429,11 +5728,19 @@ type Record<D> = {
 	Floor: number?,
 	Envelope: number?,
 	Erased: number?,
+	Removing: number?,
+	Horizon: number?,
+	Absorbed: { { At: number, Count: number } }?,
 }
 ```
 
-What [`Store:Inspect`](/docs/reference/store) hands back. It's a frozen copy, so nothing you do to it
-reaches what the server folds from.
+What [`Store:Inspect`](/docs/reference/store#inspect) returns. It is a frozen copy. To change the
+key, use `Edit`, `Reset` or `Erase`.
+
+`Erased` is when the key was last erased. `Removing` is set while a second erase removes the key.
+`Horizon` is the time of the newest compaction whose ids the key has dropped, or of the last erase.
+An op whose `IdAt` is earlier than `Horizon` is not written. `Absorbed` counts how many ids each
+compaction added to `Seen`, and when.
 
 ## Migration [#migration]
 
@@ -5482,12 +5789,12 @@ type HistoryEntry = {
 }
 ```
 
-`At` is Unix seconds. `Version` is what you hand to `PeekVersion`.
+`At` is Unix seconds. `Version` is what you give to `PeekVersion`.
 
 ## Future [#future]
 
-What every method that touches the datastore hands back. The work starts at the call, `:Wait()`
-parks your thread until it's done.
+What every method that touches the datastore returns. The work starts at the call. `:Wait()`
+yields your thread until the work finishes.
 
 ```luau
 local Job = Store:Peek(UserId)
@@ -5495,13 +5802,16 @@ DoSomethingElse()
 local State = Job:Wait()
 ```
 
-See [Future](/docs/reference/future) for timeouts, error handling, and why a failed read gives you
+Ledger methods return a reason instead of throwing inside the Future, so `Wait` returns values. The
+exception is a `Wait` with a timeout that runs out. It returns no values.
+
+See [Future](/docs/reference/future) for timeouts, error handling, and why a failed read returns
 `nil`.
 
 ## Observer [#observer]
 
-What `Session:Observe()` and `Store:Stale()` hand back. Subscribe for every change that goes
-through, and chain with `Map`, `Filter` and `Changed`.
+What `Session:Observe()`, `Store:Stale()` and `Store:Follow()` return. Subscribe to get every
+accepted change, and chain with `Map`, `Filter`, `Changed` and `Use`.
 
 ```luau
 Session:Observe():Subscribe(function(State)
@@ -5513,7 +5823,7 @@ See [Observer](/docs/reference/observer).
 
 ## Typing your own state [#typing-your-own-state]
 
-Write the state type yourself and let the store carry it:
+Write the state type and the ops yourself and give both to `New`:
 
 ```luau
 export type Profile = {
@@ -5521,17 +5831,23 @@ export type Profile = {
 	Items: { string },
 }
 
-local function Reducer(State: Profile, Op: Ledger.Op): Profile?
+export type Ops = {
+	AddGold: { Amount: number },
+	PickUp: { Item: string },
+}
+
+local function Reducer(State: Profile, Op: Ledger.Op<Ops>): Profile?
 	-- ...
 end
 
-local Store: Ledger.Store<Profile> = Ledger.New({
+local Store: Ledger.TypedStore<Profile, Ops> = Ledger.New<<Profile, Ops>>({
 	Name = "PlayerData",
-	Default = { Gold = 100, Items = {} } :: Profile,
+	Default = { Gold = 100, Items = {} },
 	Reducer = Reducer,
 })
 ```
 
-`Session:Get()` then gives you a `Profile`, and the reserved fields stay out of your type. They're
-there at runtime, your reducer passes them through with `table.clone`, and you don't have to declare
-them.
+A store built without `Ops` is annotated `Ledger.Store<Profile>`.
+
+`Session:Get()` then returns a `Profile`, and the reserved fields stay out of your type. They exist
+at runtime, and `table.clone` in your reducer copies them. You don't have to declare them.

@@ -3,13 +3,13 @@
 --[=[
     Typed: naming your ops, so a write is checked and a reducer needs no casts.
 
-    Ledger.New takes any kind and any fields. That is the right thing when a store is young and the
-    ops are still moving around, and it is what every other example here uses.
+    Ledger.New on its own takes any kind and any fields. That is the right thing when a store is
+    young and the ops are still moving around, and it is what every other example here uses.
 
-    Ledger.NewTyped takes a map of the kinds this store writes and what each one carries. A kind is
-    then held against the kinds that exist, the fields against what that kind carries, and a reducer
-    that tests Op.Kind reads the fields of that arm directly. Nothing changes when it runs. The two
-    build the same store.
+    Ledger.New<<Profile, Ops>> also takes a map of the kinds this store writes and what each one
+    carries. A kind is then held against the kinds that exist, the fields against what that kind
+    carries, and a reducer that tests Op.Kind reads the fields of that arm directly. Nothing changes
+    when it runs. The two build the same store.
 
     these are illustrations, not modules.
 --]=]
@@ -78,7 +78,7 @@ end
 --[[ building it. the two type arguments are what the checker holds every write against ]]
 
 local function Open(): Ledger.TypedStore<Profile, Ops>
-	return Ledger.NewTyped<<Profile, Ops>>({
+	return Ledger.New<<Profile, Ops>>({
 		Name = "Shop",
 		Default = { Gold = 100, Items = {} },
 		Reducer = Reducer,

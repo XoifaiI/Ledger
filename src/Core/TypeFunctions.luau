@@ -102,12 +102,18 @@ export type function OpUnion(Map: type): type
 end
 
 export type function Overloads(Map: type, Shape: type): type
-	if not Map:is("table") then
-		return Shape
-	end
-
 	local Lead = Shape:parameters().head or {}
 	local Gives = Shape:returns()
+
+	if not Map:is("table") then
+		local Open = {}
+		for _, Param in Lead do
+			table.insert(Open, Param)
+		end
+		table.insert(Open, types.string)
+		table.insert(Open, types.optional(types.newtable(nil, { index = types.any, readresult = types.any, writeresult = types.any })))
+		return types.newfunction({ head = Open }, { head = Gives.head, tail = Gives.tail })
+	end
 
 	local Calls = {}
 	for Kind, Held in Map:properties() do
@@ -139,6 +145,27 @@ end
 
 export type function NumberKeys(Shape: type): type
 	if not Shape:is("table") then
+		return types.string
+	end
+
+	local Named = {}
+	for Field, Held in Shape:properties() do
+		if Held.read == types.number then
+			table.insert(Named, Field)
+		end
+	end
+
+	if #Named == 0 then
+		return types.never
+	end
+	if #Named == 1 then
+		return Named[1]
+	end
+	return types.unionof(table.unpack(Named))
+end
+
+export type function FieldOf(Map: type, Shape: type): type
+	if not Map:is("table") or not Shape:is("table") then
 		return types.string
 	end
 

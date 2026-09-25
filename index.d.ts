@@ -222,8 +222,10 @@ declare namespace Ledger {
 
 	interface Entries {
 		readonly Reason: { readonly [R in Reason]: R };
-		readonly New: <D extends object>(this: void, options: Config<D>) => Store<D>;
-		readonly NewTyped: <D extends object, O extends OpMap<O>>(this: void, options: TypedConfig<D, O>) => TypedStore<D, O>;
+		readonly New: {
+			<D extends object>(this: void, options: Config<D>): Store<D>;
+			<D extends object, O extends OpMap<O>>(this: void, options: TypedConfig<D, O>): TypedStore<D, O>;
+		};
 		readonly Id: (this: void) => string;
 		readonly Sweep: (this: void) => void;
 		readonly CloseAll: (this: void) => void;

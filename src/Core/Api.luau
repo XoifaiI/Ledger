@@ -107,7 +107,7 @@ export type Store<D> = StoreCommon<D, string> & {
 	Tx: (self: any, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 }
 
-export type TypedStore<D, O> = StoreCommon<D, TypeFunctions.NumberKeys<D>> & {
+export type TypedStore<D, O> = StoreCommon<D, TypeFunctions.FieldOf<O, D>> & {
 	Get: (self: any, Player: Player) -> TypedLive<D, O>?,
 	Expect: (self: any, Player: Player) -> TypedLive<D, O>,
 	WaitForLoaded: (self: any, Player: Player) -> TypedLive<D, O>?,
@@ -135,7 +135,7 @@ export type Config<D> = ConfigCommon<D> & {
 }
 
 export type TypedConfig<D, O> = ConfigCommon<D> & {
-	read Reducer: (State: D, Op: TypeFunctions.OpUnion<O>) -> (D | TypeFunctions.Frozen<D>)?,
+	read Reducer: (State: D, Op: TypeFunctions.OpUnion<O>) -> unknown,
 }
 
 type DriftState = { Gold: number }
