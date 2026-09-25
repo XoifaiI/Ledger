@@ -8,7 +8,7 @@
   <Tab value="Wally">
 ```toml
 [dependencies]
-Ledger = "xoifaii/ledger@6.1.0"
+Ledger = "xoifaii/ledger@6.2.0"
 ```
   </Tab>
   <Tab value="Rojo">
@@ -560,6 +560,33 @@ rate under [Size](#size), and by one transaction at a time under
 
 
 `+` is new, `-` is gone, `!` is something you have to know about before you upgrade.
+
+## 6.2.0 [#620]
+
+A transaction makes one datastore call fewer, and a session notices an erase when it compacts. Most
+of this release is internal cleanup that you cannot see.
+
+```diff
++ A transaction makes one datastore call fewer. A two leg transaction now makes 8 calls instead of 9
++ Session:Compact on a key another server erased closes the session and returns false with Refused, instead of true
++ A store with BumpEvery does less work for each Bump that waits for its window
++ An applied name from before 6.0 with no time Ledger can read counts as run out at once, instead of after the next write
+
+! The error Session:Apply throws when your reducer yields is an error object now, not a string. Call tostring on it before you match its text
+! A 6.2 server does not look for a transaction marker that a 6.0.0 or older server wrote. Read Upgrading if a server still runs 6.0.0
+```
+
+### Upgrading [#upgrading]
+
+Install the new version. Your data needs no migration, and 6.2 servers can run beside 6.0.1 and 6.1
+servers.
+
+If a server still runs 6.0.0 or older, finish that deploy first. Those servers write each
+transaction marker under the transaction Id, and a 6.2 server does not look there. While both run, a
+6.2 server that drives an Id that an older server is still driving returns `Busy`. That lasts until
+the older run times out, about a minute later. Money is safe either way.
+
+If you `pcall` `Session:Apply` and read the error as a string, call `tostring` on it first.
 
 ## 6.1.0 [#610]
 
