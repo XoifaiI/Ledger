@@ -23,6 +23,8 @@ local Sizes = require("../../src/Core/Constants/Sizes")
 local Tags = require("../../src/Core/Constants/Tags")
 local TxStamp = require("../../src/Record/TxStamp")
 
+local Fault = Suite.Fault
+
 type Case = Suite.Case
 type Fixture = Suite.Fixture
 
@@ -80,7 +82,7 @@ local function Canon(Value: any): string
 end
 
 local APPENDED = `\{Bytes=16,Envelope=2,Ops=\{1=\{Amount=5,Id="v2case00000000:1",Kind="Add"\},2=\{Amount=7,Id="v2case00000000:2",Kind="Add"\}\},Seen=\{\},Snapshot=\{Gold=0,N=0\},Version=0\}`
-local COMPACTED = `\{Bytes=17,Envelope=2,Floor=0,Ops=\{\},Seen=\{1="v2case00000000:1",2="v2case00000000:2"\},Snapshot=\{Gold=12,N=2\},Version=0\}`
+local COMPACTED = `\{Absorbed=\{1=\{At=1700000000,Count=2\}\},Bytes=17,Envelope=2,Floor=0,Ops=\{\},Seen=\{1="v2case00000000:1",2="v2case00000000:2"\},Snapshot=\{Gold=12,N=2\},Version=0\}`
 
 Cases.Case("a reducer cannot write into the snapshot a fold starts from", function(T: Case)
 	local Store = T:Store({
@@ -957,6 +959,78 @@ Cases.Case("erasing a key whose tomb has run out takes its record off the datast
 	T:Is("the record is off the datastore", OnDisk(Bank, "gonerec"), false)
 end)
 
+Cases.Case("an edit that meets an erase taking the key off is turned away rather than lost", function(T: Case)
+	local Bank = T:Bank("nodeA")
+	local Other = T:Bank("nodeB")
+	Bank:Seed("leaverec", { Gold = 100 })
+	T:Is("the first erase", (Bank.Store:Erase("leaverec"):Wait()), true)
+	T:Advance(Windows.TOMB + 60)
+
+	local Late: any = nil
+	local Spec = Bank:Fault(Fault.Removes():OnKey("leaverec"):Only(1):Meddle(function()
+		Late = table.pack(Other.Store:Edit("leaverec", "Fund", { Amount = 5 }):Wait())
+	end))
+	T:Is("erasing it again", (Bank.Store:Erase("leaverec"):Wait()), true)
+	Bank:Healed()
+
+	T:Is("the edit ran inside the removal", Spec.Fired == 1 and Late ~= nil, true)
+	T:Is("the edit", Late and Late[1], false)
+	T:Is("the reason", Late and Late[2], "Busy")
+	T:Is("the record is off the datastore", OnDisk(Bank, "leaverec"), false)
+	T:Ok("the same edit once the key is gone", (Other.Store:Edit("leaverec", "Fund", { Amount = 5 }):Wait()))
+	T:Is("the gold it wrote", Bank:Amount("leaverec"), 5)
+end)
+
+Cases.Case("an erase whose removal fails turns writes away only for a short while", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("stuckrec", { Gold = 100 })
+	T:Is("the first erase", (Bank.Store:Erase("stuckrec"):Wait()), true)
+	T:Advance(Windows.TOMB + 60)
+
+	Bank:NoRetries()
+	Bank:Fault(Fault.Removes():OnKey("stuckrec"))
+	T:Is("erasing it again", (Bank.Store:Erase("stuckrec"):Wait()), true)
+	Bank:Healed()
+
+	T:Is("the record is still there", OnDisk(Bank, "stuckrec"), true)
+	local _, Why = Bank.Store:Edit("stuckrec", "Fund", { Amount = 5 }):Wait()
+	T:Is("an edit straight after", Why, "Busy")
+
+	T:Advance(Windows.LEAVING + 1)
+	T:Ok("an edit once the mark has run out", (Bank.Store:Edit("stuckrec", "Fund", { Amount = 5 }):Wait()))
+	T:Is("the gold it wrote", Bank:Amount("stuckrec"), 5)
+	T:Is("the mark, cleared by that write", Bank:Record("stuckrec").Removing, nil)
+end)
+
+Cases.Case("a commit onto a key another server filled compacts it and is written", function(T: Case)
+	Sizes.Set({ Log = 4096 })
+	local Bank = T:Bank("nodeA")
+	local Other = T:Bank("nodeB")
+	local Active: any = Bank:Session("fullcommit")
+	for Index = 1, 7 do
+		T:Ok(`another server's edit {Index}`, (Other.Store:Edit("fullcommit", "Fund", { Amount = 1, Pad = string.rep("x", 500) }):Wait()))
+	end
+	T:Is("the ops waiting on the key", #Bank:Record("fullcommit").Ops, 7)
+
+	local Ok, Why = Active:Commit("Fund", { Amount = 10, Pad = string.rep("y", 500) }):Wait()
+	T:Is("the commit", Ok, true)
+	T:Is("the reason", Why, nil)
+	T:Is("the gold", Bank:Amount("fullcommit"), 17)
+end)
+
+Cases.Case("a commit onto a key compaction cannot shrink answers full", function(T: Case)
+	Sizes.Set({ Log = 4096 })
+	local Bank = T:Bank()
+	local Active: any = Bank:Session("fullwedge")
+	Bank:Append("fullwedge", { { Id = "legacy:1", Kind = "Legacy", Payload = string.rep("x", 3500) } :: any })
+
+	local Ok, Why = Active:Commit("Fund", { Amount = 10, Pad = string.rep("y", 500) }):Wait()
+	T:Is("the commit", Ok, false)
+	T:Is("the reason", Why, "Full")
+	T:Warns("it said the key is full", "even after compacting")
+	T:Is("the gold", Bank:Amount("fullwedge"), 0)
+end)
+
 Cases.Case("a key whose oldest op this build will not apply stops taking writes", function(T: Case)
 	Sizes.Set({ Value = 65536, State = 4096, Op = 1024, Log = 2048, Compact = 512 })
 
@@ -1146,6 +1220,124 @@ Cases.Case("an append whose op does not come back from the datastore says so", f
 	end)
 
 	T:Is("it names the rule that did not hold", Says ~= nil and string.find(Says, "did not all come back", 1, true) ~= nil, true)
+end)
+
+local function Churn(T: Case, Held: Fixture, Key: string, Rounds: number, Size: number?, Kind: string?, Fields: any?)
+	local Active: any = Held:Session(Key)
+	for _ = 1, Rounds do
+		T:Advance(60)
+		for _ = 1, Size or 600 do
+			Active:Apply(Kind or "Stamp", Fields)
+		end
+		Active:Flush():Wait()
+		Active:Compact():Wait()
+	end
+end
+
+local function Remembers(Held: Fixture, Key: string, Id: string): boolean
+	local Record = Held:Record(Key)
+	for _, Op in Record.Ops do
+		if Op.Id == Id then
+			return true
+		end
+	end
+	return table.find(Record.Seen, Id) ~= nil
+end
+
+Cases.Case("an op retried once its id has aged out of the key answers unresolved rather than applying twice", function(T: Case)
+	local Bank = T:Bank()
+	local Op: any = { Id = "grant:1", Kind = "Fund", Amount = 10, IdAt = T:Now() }
+	T:Ok("the first edit", (Bank.Store:EditOp("agedop", Op):Wait()))
+	T:Is("a retry while the key still keeps the id", (Bank.Store:EditOp("agedop", Op):Wait()), true)
+
+	Churn(T, Bank, "agedop", 5)
+	T:Is("the key no longer keeps the id", Remembers(Bank, "agedop", "grant:1"), false)
+
+	local Ok, Why = Bank.Store:EditOp("agedop", Op):Wait()
+	T:Is("the retry", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Warns("it said the key no longer keeps the id", "no longer keeps ids")
+	T:Is("the gold, granted once", Bank:Amount("agedop"), 10)
+end)
+
+Cases.Case("a new op sent after a key dropped old ids is written, even from a clock a little behind", function(T: Case)
+	local Bank = T:Bank()
+	Churn(T, Bank, "newop", 5)
+	T:Is("the key has dropped ids", Bank:Record("newop").Horizon ~= nil, true)
+
+	T:Ok("an op sent now", (Bank.Store:EditOp("newop", { Id = "fresh:1", Kind = "Fund", Amount = 1, IdAt = T:Now() } :: any):Wait()))
+	T:Ok("an op from a clock five seconds behind", (Bank.Store:EditOp("newop", { Id = "fresh:2", Kind = "Fund", Amount = 1, IdAt = T:Now() - 5 } :: any):Wait()))
+	T:Is("the gold", Bank:Amount("newop"), 2)
+end)
+
+Cases.Case("a confirm retried once its id has aged out of the key answers unresolved rather than selling twice", function(T: Case)
+	local Shelf = T:Shelf()
+	local Sent = T:Now()
+	T:Ok("the first confirm", (Shelf.Store:Confirm("agedshop", "order1", "Sell", { IdAt = Sent }):Wait()))
+
+	Churn(T, Shelf, "agedshop", 5, nil, "Restock", { Count = 0 })
+	T:Is("the key no longer keeps the id", Remembers(Shelf, "agedshop", "cf:order1"), false)
+
+	local Ok, Why = Shelf.Store:Confirm("agedshop", "order1", "Sell", { IdAt = Sent }):Wait()
+	T:Is("the retry", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Is("the stock, sold once", Shelf:Stored("agedshop").Stock, 9)
+	T:Silent("the id was not warned about as an extra field", "only means something")
+end)
+
+Cases.Case("a commit retried once its id has aged out of the key answers unresolved rather than applying twice", function(T: Case)
+	local Bank = T:Bank()
+	local Active: any = Bank:Session("agedcommit")
+	local Op: any = { Id = "commit:1", Kind = "Fund", Amount = 10, IdAt = T:Now() }
+	T:Ok("the first commit", (Active:CommitOp(table.clone(Op)):Wait()))
+
+	Churn(T, Bank, "agedcommit", 5)
+	T:Is("the key no longer keeps the id", Remembers(Bank, "agedcommit", "commit:1"), false)
+
+	local Ok, Why = Active:CommitOp(table.clone(Op)):Wait()
+	T:Is("the retry", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Warns("it said the key no longer keeps the id", "no longer keeps ids")
+	T:Is("the gold, granted once", Bank:Amount("agedcommit"), 10)
+end)
+
+Cases.Case("an op retried from before its key was erased answers unresolved", function(T: Case)
+	local Bank = T:Bank()
+	local Op: any = { Id = "grant:2", Kind = "Fund", Amount = 10, IdAt = T:Now() }
+	T:Ok("the first edit", (Bank.Store:EditOp("erasedop", Op):Wait()))
+	T:Advance(60)
+	T:Ok("the erase", (Bank.Store:Erase("erasedop"):Wait()))
+
+	local Ok, Why = Bank.Store:EditOp("erasedop", Op):Wait()
+	T:Is("the retry", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Is("the gold on the erased key", Bank:Amount("erasedop"), 0)
+end)
+
+Cases.Case("IdAt on an op whose id Ledger picks is dropped with a warning, and a wrong one is refused", function(T: Case)
+	local Bank = T:Bank()
+	T:Ok("an edit carrying IdAt", (Bank.Store:Edit("idatedit", "Fund", { Amount = 1, IdAt = T:Now() - 3600 }):Wait()))
+	T:Warns("it said IdAt means nothing there", "only means something")
+	T:Is("the op it wrote carries no IdAt", Bank:Record("idatedit").Ops[1].IdAt, nil)
+
+	local Ok, Why = Bank.Store:EditOp("idatedit", { Id = "bad:1", Kind = "Fund", Amount = 1, IdAt = "yesterday" } :: any):Wait()
+	T:Is("an op whose IdAt is not a time", Ok, false)
+	T:Is("the reason", Why, "Invalid")
+end)
+
+Cases.Case("the record of when a key absorbed its ids stays small and covers what it keeps", function(T: Case)
+	local Bank = T:Bank()
+	Churn(T, Bank, "runs", 60, 50)
+
+	local Record = Bank:Record("runs")
+	local Covered = 0
+	for _, Run in Record.Absorbed or {} do
+		Covered += Run.Count
+	end
+	T:Is("the runs it keeps, at most sixteen", #(Record.Absorbed or {}) <= 16, true)
+	T:Is("the ids they cover", Covered, #Record.Seen)
+	T:Is("a horizon, once ids were dropped", type(Record.Horizon), "number")
+	T:Is("the horizon, behind the newest run", type(Record.Horizon) == "number" and Record.Horizon <= T:Now() - 60, true)
 end)
 
 return Cases

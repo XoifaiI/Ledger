@@ -9,7 +9,8 @@
 	names. Reset puts a key back to the default state, and Erase buries it. These are the only paths
 	that throw data away, so each says what went with it. Erase answers Busy while money on the key is
 	still being sent. The first erase leaves a tombstone. Only an erase that finds an old one removes
-	the key, and only once the key holds no name a refund could still check.
+	the key, and only once the key holds no name a refund could still check. That erase marks the
+	tomb it writes as being removed, so a write that meets it answers Busy and is not deleted with it.
 
 	Return type: A table with Failed. It writes Repair, ReapMarkers, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:
@@ -305,11 +306,14 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		end
 
 		local Steps = self.Migrations
+		local At = Clock.Now()
 		local Named = false
+		local Removing = false
 		local Late: string? = nil
 		local Ok, Replaced = pcall(function(): Record
-			return self:Records():Entomb(Resolved, Clock.Now(), function(Record: Record): Record
+			return self:Records():Entomb(Resolved, At, function(Record: Record): Record
 				Named = false
+				Removing = false
 				Late = nil
 				local Fine, State = pcall(function(): any
 					return self:Fold(Record)
@@ -324,7 +328,8 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 				local Names = if Fine and type(State) == "table" then State._Received else nil
 				local Young = Applied.Prune(Names, Clock.Now()) or Names
 				if type(Young) ~= "table" or next(Young) == nil then
-					return { Ops = {}, Seen = {} }
+					Removing = Record.Erased ~= nil and not Log.Entombed(Record)
+					return { Ops = {}, Seen = {}, Removing = if Removing then At else nil }
 				end
 
 				Named = true
@@ -370,7 +375,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 			warn(
 				`Ledger: erased '{Resolved}' again and kept its record. it still holds names from the last {Windows.PRUNE // Windows.DAY} days, and a refund may have to check them. erase it again after they run out`
 			)
-		elseif Before.Erased ~= nil and not Log.Entombed(Before) then
+		elseif Removing then
 			local Reached, Gone, Cause = pcall(function(): (boolean, any)
 				return self.Wrapper:RemoveAsync(Resolved)
 			end)

@@ -11,6 +11,9 @@
 	left holding money part way through a move. A key with no room for the op is compacted once and
 	tried again before it answers Full.
 
+	An op the record turned away as doubted answers Unresolved. Its id was first sent before the
+	oldest id the key still keeps, so the key cannot say whether it landed.
+
 	Shows is for a caller whose op can land and still leave nothing behind, because a later op undid
 	it. It is asked once of the settled record and names the reason.
 
@@ -103,9 +106,9 @@ function Store.WatchHeld(self: Store, Key: string, State: any)
 	end
 end
 
-function Store.Append(self: Store, Key: string, Op: Op, Guard: Allow?): (Record, number?)
-	local Stored, _, _, Stamp = self:Records():Append(Key, { Op }, Guard)
-	return Stored, Stamp
+function Store.Append(self: Store, Key: string, Op: Op, Guard: Allow?): (Record, number?, boolean)
+	local Stored, _, _, Stamp, Doubted = self:Records():Append(Key, { Op }, Guard)
+	return Stored, Stamp, #Doubted > 0
 end
 
 function Store.Swelling(self: Store, Key: string, Record: Record)
@@ -229,19 +232,19 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return Ruling.Allowed
 	end
 
-	local function Attempt(): (boolean, any, number?)
-		return pcall(function(): (Record, number?)
+	local function Attempt(): (boolean, any, number?, boolean?)
+		return pcall(function(): (Record, number?, boolean)
 			return self:Append(Key, Op, Judge)
 		end)
 	end
 
-	local Landed, Result, Stamp = Attempt()
+	local Landed, Result, Stamp, Doubted = Attempt()
 	if not Landed and Errors.Reason(Result) == FULL then
 		local Packed = pcall(function()
 			self:Records():Compact(Key, self:Format())
 		end)
 		if Packed then
-			Landed, Result, Stamp = Attempt()
+			Landed, Result, Stamp, Doubted = Attempt()
 		end
 	end
 
@@ -267,6 +270,10 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	end
 
 	local Stored: Record = Result
+	if Doubted then
+		warn(`Ledger: {What} on '{Key}' was not written. its Id may have gone through already, and '{Key}' no longer keeps ids from when it was first sent. read the key to see whether it landed`)
+		return false, UNRESOLVED
+	end
 	if Guard ~= nil and not Guard(Stored) then
 		return false, Denied or REFUSED
 	end

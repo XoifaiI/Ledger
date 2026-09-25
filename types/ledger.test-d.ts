@@ -159,6 +159,7 @@ export function Positives(): void {
 	shop.EditOp(1, { Id: Ledger.Id(), Kind: "Buy", Item: "Shield" });
 	shop.Reserve(1, "Gold", 5, "cart:1", { Hold: 60 });
 	shop.Confirm(1, "cart:1", "Buy", { Item: "Sword" });
+	shop.Confirm(1, "cart:4", "Buy", { Item: "Sword", IdAt: 1700000000 });
 	shop.Release(1, "cart:1");
 	shop.Transfer(1, 2, 5, "tip:1", "Gold");
 	const [holding, holdingWhy] = shop.Holds(1, "Gold").Wait();
@@ -172,8 +173,11 @@ export function Positives(): void {
 	open.Apply("Ping");
 	open.Commit("ProductGrant", { ProductId: 1, Once: "receipt:1" });
 	open.CommitOp({ Id: "op-2", Kind: "AddGold", Amount: 5 });
+	open.CommitOp({ Id: "op-3", Kind: "AddGold", Amount: 5, IdAt: 1700000000 });
 	bank.Edit("42", "AddGold", { Amount: 5 });
 	bank.EditOp("42", { Id: "op-4", Kind: "AddGold", Amount: 5 });
+	bank.EditOp("42", { Id: "op-6", Kind: "AddGold", Amount: 5, IdAt: 1700000000 });
+	bank.Confirm("42", "cart:5", "AddGold", { Amount: 1, IdAt: 1700000000 });
 	bank.Confirm("42", "cart:2", "AddGold", { Amount: 1 });
 	bank.Confirm("42", "cart:3", "Ping");
 
@@ -266,6 +270,10 @@ export function Negatives(): void {
 	open.Apply("AddGold", { Kind: "Sell" });
 	// @ts-expect-error OnceAt belongs to Ledger
 	open.Apply("AddGold", { Amount: 5, OnceAt: 1 });
+	// @ts-expect-error IdAt only means something on an op whose Id you chose
+	open.Apply("AddGold", { Amount: 5, IdAt: 1 });
+	// @ts-expect-error IdAt is a time
+	shop.Confirm(1, "cart:1", "Buy", { Item: "Sword", IdAt: "now" });
 
 	// @ts-expect-error Items is not a number field
 	shop.Reserve(1, "Items", 5, "cart:1");

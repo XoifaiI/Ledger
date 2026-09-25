@@ -8,7 +8,8 @@
 	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, compact it or trim it.
 	An append adds only the ops the record does not already have, so running one twice applies once.
 	Every write first asks whether this build may write the record at all. The first write to a key
-	stores the state the key starts from, whether it is an append or a parked leg. A read and a write
+	stores the state the key starts from, whether it is an append or a parked leg. An erase forgets
+	every id on the key, so it sets the horizon to the time it ran. A read and a write
 	that changed the record hand back the stamp the datastore put on it, so a copy of the record can
 	be ordered against another without comparing two servers' clocks.
 
@@ -52,6 +53,23 @@ export type Resolution = Types.Resolution
 export type Verdict = Types.Verdict
 export type Prepared = Types.Prepared
 export type Fated = Types.Fated
+
+local function Runs(Held: any, Count: number): { Shapes.Run }?
+	if type(Held) ~= "table" then
+		return nil
+	end
+
+	local Kept: { Shapes.Run } = {}
+	local Covered = 0
+	for _, Run in Held do
+		if type(Run) ~= "table" or type(Run.At) ~= "number" or type(Run.Count) ~= "number" or Run.Count < 1 or Run.Count ~= Run.Count // 1 then
+			return nil
+		end
+		Covered += Run.Count
+		table.insert(Kept, { At = Run.At, Count = Run.Count })
+	end
+	return if Covered <= Count and #Kept > 0 then Kept else nil
+end
 
 local function Materialize(Value: any): Record
 	if type(Value) ~= "table" then
@@ -102,6 +120,13 @@ local function Materialize(Value: any): Record
 	if type(Value.Erased) ~= "number" then
 		Value.Erased = nil
 	end
+	if type(Value.Removing) ~= "number" then
+		Value.Removing = nil
+	end
+	if type(Value.Horizon) ~= "number" or Value.Horizon ~= Value.Horizon then
+		Value.Horizon = nil
+	end
+	Value.Absorbed = Runs(Value.Absorbed, #Seen)
 	if type(Value.Floor) ~= "number" then
 		Value.Floor = nil
 	end
@@ -256,7 +281,7 @@ function Log.ReadVersion(self: Log, Key: string, Version: string): Record
 	return Materialize(Value)
 end
 
-function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string }, number?)
+function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string }, number?, { string })
 	local Owned = false
 	for _, Op in Ops do
 		assert(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
@@ -273,6 +298,7 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Ru
 		{
 			Rules.Legible(Key, self.Known),
 			Rules.Allowed(Guard),
+			Rules.Kept(Key),
 			Rules.Fresh(Ops, Sift),
 			Rules.Capped(Key, Owned),
 			Rules.Based(self.Base, self.Known),
@@ -281,8 +307,8 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Ru
 		}
 	)
 
-	local Turned, Waiting = Outcome.Notes.Turned, Outcome.Notes.Waiting
-	return Outcome.After, if type(Turned) == "table" then Turned else {}, if type(Waiting) == "table" then Waiting else {}, Outcome.Stamp
+	local Turned, Waiting, Doubted = Outcome.Notes.Turned, Outcome.Notes.Waiting, Outcome.Notes.Doubted
+	return Outcome.After, if type(Turned) == "table" then Turned else {}, if type(Waiting) == "table" then Waiting else {}, Outcome.Stamp, if type(Doubted) == "table" then Doubted else {}
 end
 
 function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record
@@ -295,6 +321,8 @@ function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Recor
 		local Body: Record = if Bury ~= nil then Bury(Record) else { Ops = {}, Seen = {} }
 		Body.Ops = {}
 		Body.Seen = {}
+		Body.Absorbed = nil
+		Body.Horizon = At
 		Body.Envelope = Kinds.ENVELOPE
 		Body.Erased = At
 		return Body

@@ -8,7 +8,8 @@
 	Every window is in seconds. How long a hold and the item it lives in last. How long a cached total
 	is trusted, and how long a lease on a transaction's keys lasts. How often a follower reads its
 	copy, the slowest it backs off to, and the most a copy may add to the window before it judges an
-	item stale, so a fleet does not judge one item stale in the same instant. The cap on one pass of
+	item stale, so a fleet does not judge one item stale in the same instant. How long an erase that is
+	taking a key off turns writes to it away. The cap on one pass of
 	background work is here too. A window that follows from another is derived here, and asserts hold
 	the order they have to keep.
 
@@ -46,6 +47,7 @@ local BREAKER = 2 * MINUTE
 local FOLLOW = AUTOSAVE
 local FOLLOW_CAP = 4 * MINUTE
 local COPY_SLACK = TALLY_CLAIM
+local LEAVING = 2 * MINUTE
 
 local TOMB = REDRIVE + EXPIRE_MARGIN
 local ONCE_MARGIN = REDRIVE
@@ -69,6 +71,7 @@ assert(
 	BOOK_MARGIN > 0,
 	"the item a hold lives in outlives the longest hold it can carry by this margin, so the stock it caches is still there for the reservation after one runs out. no margin at all would take the item away with the hold and send that reservation to the record"
 )
+assert(LEAVING > 0 and LEAVING < TOMB, "a key an erase is taking off turns writes away for less time than a tomb lasts, or a removal that failed would lock the key for longer than the erase itself")
 assert(POLL < TX, "a session polling for a parked leg has to look more than once before it gives up on the transaction")
 assert(
 	SWEEP * Transactions.SHARDS <= REAP,
@@ -125,6 +128,7 @@ return table.freeze({
 	FOLLOW = FOLLOW,
 	FOLLOW_CAP = FOLLOW_CAP,
 	COPY_SLACK = COPY_SLACK,
+	LEAVING = LEAVING,
 
 	TOMB = TOMB,
 	ONCE_MARGIN = ONCE_MARGIN,

@@ -7,7 +7,10 @@
 
 	Overgrown and Worthwhile say whether a key is worth compacting. They read a share of the snapshot
 	for a large state and a count for a small one. Packed does the fold. It absorbs the run of ops at
-	the front this build can apply, keeps the rest, and moves the absorbed ids to Seen.
+	the front this build can apply, keeps the rest, and moves the absorbed ids to Seen. Seen keeps a
+	fixed count, so each compaction notes how many ids it absorbed and when. Dropping the oldest ids
+	moves the horizon to the newest time among them. An id no run covers came from before the runs
+	and moves nothing. The runs are capped, and merging two keeps the later time.
 
 	An op taken in only because a transaction was parked names those transactions. Packed absorbs it
 	only while none of them has left its name on the key. A transaction that committed leaves an
@@ -25,6 +28,7 @@
 		if Compact.Overgrown(Record) then Fold() end
 --]=]
 
+local Clock = require("../Util/Clock")
 local TableUtil = require("../Util/TableUtil")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
@@ -40,9 +44,11 @@ local Types = require("./Types")
 
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
+type Run = Shapes.Run
 type Schema<S> = Types.Shape<S>
 
 local SEEN_LIMIT = 2048
+local RUNS = 16
 
 local COMPACT_OPS = 128
 local COMPACT_CEILING = 512
@@ -184,6 +190,39 @@ local function Hint(Snapshot: any): (string, boolean)
 	return ` (largest field '{tostring(Name)}' at {Best} bytes)`, Storable.Bookkeeping(tostring(Name))
 end
 
+local function Dropped(Runs: { Run }, Total: number, Overflow: number, Horizon: number?): ({ Run }, number?)
+	local Covered = 0
+	for _, Run in Runs do
+		Covered += Run.Count
+	end
+
+	local Drop = Overflow - (Total - Covered)
+	local Kept: { Run } = {}
+	local Newest = Horizon
+	for _, Run in Runs do
+		if Drop <= 0 then
+			table.insert(Kept, Run)
+			continue
+		end
+
+		Newest = if Newest == nil then Run.At else math.max(Newest, Run.At)
+		if Run.Count > Drop then
+			table.insert(Kept, { At = Run.At, Count = Run.Count - Drop })
+		end
+		Drop -= Run.Count
+	end
+	return Kept, Newest
+end
+
+local function Merged(Runs: { Run }): { Run }
+	local Held = Runs
+	while #Held > RUNS do
+		local First, Second = Held[1], Held[2]
+		Held = table.move(Held, 3, #Held, 2, { { At = math.max(First.At, Second.At), Count = First.Count + Second.Count } })
+	end
+	return Held
+end
+
 local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 	if TxStamp.HasPending(Record) then
 		return nil
@@ -212,11 +251,19 @@ local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 	for Index = 1, Taken do
 		table.insert(Seen, Record.Ops[Index].Id)
 	end
+	local Runs: { Run } = table.clone(Record.Absorbed or {})
+	if Taken > 0 then
+		table.insert(Runs, { At = Clock.Now(), Count = Taken })
+	end
+
+	local Horizon = Record.Horizon
 	local Keep = math.max(SEEN_LIMIT, Taken)
 	local Overflow = #Seen - Keep
 	if Overflow > 0 then
+		Runs, Horizon = Dropped(Runs, #Seen, Overflow, Horizon)
 		Seen = table.move(Seen, Overflow + 1, #Seen, 1, {})
 	end
+	Runs = Merged(Runs)
 
 	local Steps = Format.Migrations
 	local Stored = Record.Version or 0
@@ -229,6 +276,9 @@ local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 		Ops = Held,
 		Seen = Seen,
 		Erased = Record.Erased,
+		Removing = Record.Removing,
+		Horizon = Horizon,
+		Absorbed = if #Runs > 0 then Runs else nil,
 		Version = if Ahead then Stored else #Steps,
 		Floor = if Ahead then Record.Floor or Stored else Schema.FloorOf(Steps),
 	}

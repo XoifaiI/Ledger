@@ -1084,6 +1084,40 @@ Cases.Case("a drive slower than a transaction puts its marker on the list again 
 	T:Is("its key, back on the list once the drive finished", Bank:Rolled()[Key], true)
 end)
 
+Cases.Case("a marker opened after a reaper judged its list entry goes back on the list before a leg is parked", function(T: Case)
+	local Bank = T:Bank("nodeA")
+	local Reaper = T:Bank("nodeB")
+	Bank.Store:Edit("stopA", "Fund", { Amount = 100 }):Wait()
+	Bank.Store:Edit("stopB", "Fund", { Amount = 100 }):Wait()
+	local Stalled = Bank:MarkerFault(Fault.Updates():OnPrefix(Transactions.DECISION):Only(1):Stall(Windows.REAP_GRACE + 60))
+	local Stopped = Bank:Fault(Fault.Updates():OnKey("stopA"):Only(1):Meddle(function()
+		coroutine.yield()
+	end))
+
+	T:Spawn(function()
+		Bank.Store
+			:Tx("stop1", {
+				{ Key = "stopA", Kind = "Give", Fields = { Amount = -10 } },
+				{ Key = "stopB", Kind = "Give", Fields = { Amount = 10 } },
+			})
+			:Wait()
+	end)
+	T:Until(function(): boolean
+		return Stalled.Fired == 1
+	end)
+	T:Advance(Windows.REAP_GRACE + 30)
+	Reaper.Store:ReapMarkers()
+	T:Until(function(): boolean
+		return Stopped.Fired == 1
+	end)
+
+	local Held = Bank:Mark("stop1")
+	local Key = if type(Held) == "table" and type(Held.Gen) == "string" then Marker.KeyOf(Held.Gen) else "none"
+	T:Is("the server stopped at its first leg", Stopped.Fired, 1)
+	T:Is("its marker stands", Key ~= "none", true)
+	T:Is("its key, back on the list before any leg", Bank:Rolled()[Key], true)
+end)
+
 Cases.Case("a name reused with fields that print alike is still spent", function(T: Case)
 	local Bank = T:Bank()
 

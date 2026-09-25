@@ -5,7 +5,8 @@
 
 	Rebuild: Pushes the queued ops to the log, and builds the state again.
 
-	Push reads back which ops actually landed rather than trusting the call that returned. Append
+	Push reads back which ops actually landed rather than trusting the call that returned. Roomed
+	compacts a key its append found full and tries once more, for a push and a commit alike. Append
 	carries the fence, which is the erase mark the key had at load. A write lands only while that mark
 	is unchanged or has run out, and Fenced drops a mark that has. A push the fence turns away closes
 	the session and drops what it could not write. So does a rebuild that reads a fresh erase mark.
@@ -15,7 +16,7 @@
 	still queued ops on top. It counts the log the way the record's own cap counts it, as an array
 	with a separator after each op.
 
-	Return type: A table with Fenced, Append, Push, Rebuild, ApplyPending, SumBytes and SEPARATOR.
+	Return type: A table with Fenced, Append, Roomed, Push, Rebuild, ApplyPending, SumBytes and SEPARATOR.
 	Example usage:
 		local Rebuild = require("./Rebuild")
 		local Stored, Whole = Rebuild.Push(Active)
@@ -105,12 +106,12 @@ local function Fenced(Erased: number?): number?
 	return Erased
 end
 
-local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string })
+local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string }, { string })
 	local Fence = self.Fence
-	local Stored, Turned, Waiting = self.Log:Append(self.Key, Ops, function(Record: Record): boolean
+	local Stored, Turned, Waiting, _, Doubted = self.Log:Append(self.Key, Ops, function(Record: Record): boolean
 		return Record.Erased == Fence or (not Rules.Entombed(Record) and Fenced(Fence) == nil)
 	end, Sifted(self))
-	return Stored, Turned, Waiting
+	return Stored, Turned, Waiting, Doubted
 end
 
 local function Close<S>(self: Session<S>)
@@ -120,12 +121,12 @@ local function Close<S>(self: Session<S>)
 	self.Pending = {}
 end
 
-local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string })
-	local Ok, Stored, Turned, Waiting = pcall(function(): (Record, { string }, { string })
+local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string }, { string })
+	local Ok, Stored, Turned, Waiting, Doubted = pcall(function(): (Record, { string }, { string }, { string })
 		return Append(self, Batch)
 	end)
 	if Ok then
-		return Stored, Turned, Waiting
+		return Stored, Turned, Waiting, Doubted
 	end
 	if Errors.Reason(Stored) ~= Reasons.Full then
 		error(Stored, 0)
@@ -280,6 +281,7 @@ end
 return table.freeze({
 	Fenced = Fenced,
 	Append = Append,
+	Roomed = Roomed,
 	Push = Push,
 	Rebuild = Rebuild,
 	ApplyPending = ApplyPending,

@@ -6,8 +6,10 @@
 	NewOp: Builds an op that has a new unique id.
 
 	The id is what makes an append that runs twice apply once. Stamp puts the time on a caller's Once
-	name and refuses one stamped outside the window a name is kept for. Check is everything an op has
-	to pass before it is offered anywhere: stamped, then held against what a datastore can store.
+	name and refuses one stamped outside the window a name is kept for. IdAt is when an op whose id
+	the caller chose was first sent. A key refuses such an op as doubted once it may have forgotten
+	that id, so New drops IdAt from an id it mints. Check is everything an op has to pass before it
+	is offered anywhere: stamped, dated, then held against what a datastore can store.
 
 	Return type: A table with New and Check.
 	Example usage:
@@ -46,10 +48,31 @@ local function Stamp(Op: Op): (boolean, string?)
 	return true, nil
 end
 
+local function Dated(Op: Op): (boolean, string?)
+	local Loose: { [any]: any } = Op :: any
+	local At = Loose.IdAt
+	if At == nil then
+		return true, nil
+	end
+	if type(At) ~= "number" or At ~= At then
+		return false, "IdAt has to be the time in seconds this op was first sent"
+	end
+
+	local Now = Clock.Now()
+	if At > Now then
+		Loose.IdAt = Now
+	end
+	return true, nil
+end
+
 local function Check(Op: Op): (boolean, string?)
 	local Named, Unnamed = Stamp(Op)
 	if not Named then
 		return false, Unnamed
+	end
+	local Timed, Untimed = Dated(Op)
+	if not Timed then
+		return false, Untimed
 	end
 	return Storable.Op(Op)
 end
@@ -62,11 +85,15 @@ local function NewOp(Kind: string, Fields: { [any]: any }?): Op
 	if Op.Id ~= nil or Op.Kind ~= nil or Op.OnceAt ~= nil or Op.Booking ~= nil then
 		warn(`Ledger: op '{Kind}' passed Id, Kind, OnceAt or Booking in its fields. those belong to Ledger, so they got overwritten`)
 	end
+	if Op.IdAt ~= nil then
+		warn(`Ledger: op '{Kind}' passed IdAt, which only means something on an op whose Id you chose, with EditOp, CommitOp or Confirm. it was dropped`)
+	end
 
 	Op.Id = Ids.Fresh()
 	Op.Kind = Kind
 	Op.OnceAt = nil
 	Op.Booking = nil
+	Op.IdAt = nil
 
 	return Op :: Op
 end

@@ -8,8 +8,9 @@
 	Drive parks a leg on each key, writes one decision to the marker, and resolves every leg against
 	that decision. The marker decides and not the server that asked, so a coordinator that stops
 	leaves a marker any other server can finish from. A pass that may open a generation puts the key
-	of its marker on the cleanup list first, and every leg names that key. A later pass of the same
-	drive joins the marker an earlier pass opened.
+	of its marker on the cleanup list first, and every leg names that key. A marker that opened later
+	than a reaper may judge that entry goes on the list again before any leg is parked. A later pass
+	of the same drive joins the marker an earlier pass opened.
 
 	Return type: A table with Drive.
 	Example usage:
@@ -49,6 +50,8 @@ local FULL = Reasons.Full
 local UNRESOLVED = Reasons.Unresolved
 
 local Canon = Digest.Canon
+
+local LATE = Windows.REAP_GRACE - Windows.BUCKET
 
 local function PrepareLeg(Leg: Leg, Op: Op, PerLeg: number?): Log.Prepared
 	local Verdict = Leg.Log:Prepare(Leg.Key, Op, Leg.Shape)
@@ -156,7 +159,9 @@ local function RunOnce(
 	Floor: number,
 	PerLeg: number?,
 	Fresh: string,
-	Own: string?
+	Own: string?,
+	Home: string,
+	Carried: number
 ): Pass
 	local Created, Gen, Born, Minted, Key = Marker.Create(TxStore, Txid, #Legs, Keys, Terms, Fresh, Own)
 	if Created == Transactions.MISMATCH then
@@ -168,6 +173,9 @@ local function RunOnce(
 	end
 
 	local Decides: string = Key
+	if Minted and Clock.Now() - Carried >= LATE then
+		Cleanup.Carry(TxStore, Cleanup.Mine(Home), Home, { Decides })
+	end
 	Stamped(Ops, Decides, Gen, Born, Print)
 
 	if Created == Transactions.HUSK then
@@ -261,6 +269,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 	local Print = Digest.Of(Mark.Pack({ Keys, Shape }))
 
 	local Added = Clock.Now()
+	local Carried = Added
 	local Fresh = Ids.Fresh()
 	local Rolled: { string } = { Marker.KeyOf(Fresh) }
 	if not Cleanup.Carry(TxStore, Cleanup.Mine(Home), Home, Rolled) then
@@ -281,9 +290,10 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 				break
 			end
 			table.insert(Rolled, Next)
+			Carried = Clock.Now()
 		end
 
-		local Attempt = RunOnce(TxStore, Legs, Ops, Id, Keys, Shape, Print, Floor, PerLeg, Fresh, Own)
+		local Attempt = RunOnce(TxStore, Legs, Ops, Id, Keys, Shape, Print, Floor, PerLeg, Fresh, Own, Home, Carried)
 		Floor = Attempt.Reached
 		Parked = Attempt.Parked
 		Own = Attempt.Held or Own

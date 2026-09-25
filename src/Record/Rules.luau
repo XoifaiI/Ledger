@@ -8,13 +8,15 @@
 	A rule has a check, a change and a test that must hold after the write. Each part is optional. A
 	pass is what a rule remembers between those parts, and every run clears it first.
 
-	Legible refuses a record a newer build wrote. Allowed runs the caller's guard. Fresh adds only the
-	ops the record lacks, and lets a sift turn one away or hold one back for a later write. Capped
-	refuses once the log is too long. Based stores the state a key starts from on its first write, so
-	a later Default reaches only a key nobody has written. Format raises the version floor. Tomb
-	stamps the envelope.
+	Legible refuses a record a newer build wrote. Allowed runs the caller's guard. Kept answers Busy
+	while an erase is taking the key off, so nothing lands between its tomb and its removal. Fresh
+	adds only the ops the record lacks, and lets a sift turn one away or hold one back for a later
+	write. It holds back an op first sent before the horizon, since the record may have forgotten
+	its id, and names it as doubted. Capped refuses once the log is too long. Based stores the state a key starts from on its
+	first write, so a later Default reaches only a key nobody has written. Format raises the version
+	floor. Tomb stamps the envelope, and clears an erase mark or a removal mark that has run out.
 
-	Return type: A table with New, Reset, Readable, Entombed, Settle and the seven rules. The types are Pass, Rule and Sift.
+	Return type: A table with New, Reset, Readable, Entombed, Leaving, Settle and the eight rules. The types are Pass, Rule and Sift.
 	Example usage:
 		local Rules = require("./Rules")
 		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
@@ -68,6 +70,11 @@ local function Entombed(Record: Record): boolean
 	return type(At) == "number" and Clock.Now() - At <= Windows.TOMB
 end
 
+local function Leaving(Record: Record): boolean
+	local At = Record.Removing
+	return type(At) == "number" and Clock.Now() - At <= Windows.LEAVING
+end
+
 local function Readable(Key: string, Known: number?, Record: Record)
 	local Floor = Record.Floor
 	if type(Known) ~= "number" or type(Floor) ~= "number" or Floor <= Known then
@@ -99,6 +106,19 @@ local function Allowed(Guard: ((Record) -> boolean)?): Rule
 	}
 end
 
+local function Kept(Key: string): Rule
+	return {
+		Name = "kept",
+		Check = function(Record: Record): Reasons.Reason?
+			if not Leaving(Record) then
+				return nil
+			end
+
+			return Errors.Raise(Reasons.Busy, `'{Key}' is being taken off the datastore by an erase, so nothing can be added to it. try again once it is gone`)
+		end,
+	}
+end
+
 local function Fresh(Ops: { Op }, Sift: Sift?): Rule
 	return {
 		Name = "fresh",
@@ -117,11 +137,18 @@ local function Fresh(Ops: { Op }, Sift: Sift?): Rule
 			local Take = if Sift ~= nil then Sift(Record) else nil
 			local Turned: { string } = {}
 			local Waiting: { string } = {}
+			local Doubted: { string } = {}
+			local Horizon = Record.Horizon
 
 			local Had = #Record.Ops
 			for _, Op in Ops do
 				if Wanted[Op.Id] then
 					Wanted[Op.Id] = nil
+					local Sent = Op.IdAt
+					if type(Horizon) == "number" and type(Sent) == "number" and Sent < Horizon then
+						table.insert(Doubted, Op.Id)
+						continue
+					end
 					if Take ~= nil then
 						local Taken = Take(Op)
 						if Taken == nil then
@@ -139,6 +166,7 @@ local function Fresh(Ops: { Op }, Sift: Sift?): Rule
 
 			Pass.Notes.Turned = Turned
 			Pass.Notes.Waiting = Waiting
+			Pass.Notes.Doubted = Doubted
 			if #Record.Ops == Had then
 				return nil
 			end
@@ -215,6 +243,9 @@ local function Tomb(): Rule
 			if not Entombed(Record) then
 				Record.Erased = nil
 			end
+			if not Leaving(Record) then
+				Record.Removing = nil
+			end
 			return Record
 		end,
 	}
@@ -228,10 +259,12 @@ return table.freeze({
 	Settle = Settle,
 	Legible = Legible,
 	Allowed = Allowed,
+	Kept = Kept,
 	Fresh = Fresh,
 	Capped = Capped,
 	Based = Based,
 	Format = Format,
 	Tomb = Tomb,
 	Entombed = Entombed,
+	Leaving = Leaving,
 })

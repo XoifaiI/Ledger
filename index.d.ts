@@ -10,12 +10,22 @@ declare namespace Ledger {
 		readonly Id?: never;
 		readonly Kind?: never;
 		readonly OnceAt?: never;
+		readonly IdAt?: never;
+	};
+
+	type ConfirmFields<F> = F & {
+		readonly Once?: string;
+		readonly Id?: never;
+		readonly Kind?: never;
+		readonly OnceAt?: never;
+		readonly IdAt?: number;
 	};
 
 	interface OpenOp {
 		readonly Id: string;
 		readonly Kind: string;
 		readonly Once?: string;
+		readonly IdAt?: number;
 		readonly [field: string]: unknown;
 	}
 
@@ -23,6 +33,7 @@ declare namespace Ledger {
 		readonly Id: string;
 		readonly Kind: K;
 		readonly Once?: string;
+		readonly IdAt?: number;
 	} & Readonly<O[K]>;
 
 	type Op<O extends OpMap<O> = never> = [O] extends [never] ? OpenOp : { [K in keyof O & string]: OpOf<O, K> }[keyof O & string];
@@ -68,6 +79,9 @@ declare namespace Ledger {
 		readonly Floor?: number;
 		readonly Envelope?: number;
 		readonly Erased?: number;
+		readonly Removing?: number;
+		readonly Horizon?: number;
+		readonly Absorbed?: ReadonlyArray<{ readonly At: number; readonly Count: number }>;
 	}
 
 	interface HoldOptions {
@@ -171,7 +185,7 @@ declare namespace Ledger {
 		WaitForLoaded(player: Player): Session<D> | undefined;
 		Edit<F extends object>(key: KeyLike, kind: string, fields?: Fields<F>): Future<[boolean, Reason | undefined]>;
 		EditOp(key: KeyLike, op: Op): Future<[boolean, Reason | undefined]>;
-		Confirm<F extends object>(key: KeyLike, id: string, kind: string, fields?: Fields<F>): Future<[boolean, Reason | undefined]>;
+		Confirm<F extends object>(key: KeyLike, id: string, kind: string, fields?: ConfirmFields<F>): Future<[boolean, Reason | undefined]>;
 		Tx(id: string, legs: ReadonlyArray<TxLeg>): Future<[boolean, Reason | undefined]>;
 	}
 
@@ -181,7 +195,7 @@ declare namespace Ledger {
 		WaitForLoaded(player: Player): TypedSession<D, O> | undefined;
 		Edit<K extends keyof O & string>(key: KeyLike, kind: K, fields: Fields<O[K]>): Future<[boolean, Reason | undefined]>;
 		EditOp(key: KeyLike, op: Op<O>): Future<[boolean, Reason | undefined]>;
-		Confirm<K extends keyof O & string>(key: KeyLike, id: string, kind: K, fields: Fields<O[K]>): Future<[boolean, Reason | undefined]>;
+		Confirm<K extends keyof O & string>(key: KeyLike, id: string, kind: K, fields: ConfirmFields<O[K]>): Future<[boolean, Reason | undefined]>;
 		Tx(id: string, legs: ReadonlyArray<TxLeg>): Future<[boolean, Reason | undefined]>;
 	}
 

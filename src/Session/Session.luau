@@ -8,7 +8,9 @@
 	Apply is hopeful: it folds against live state, answers at once, and queues the op. Commit writes
 	before it answers, and a commit whose op has already been folded into the snapshot cannot be
 	answered and says so. A commit the sift held back writes again a few times at most, since nothing
-	but that count paces it. Flush pushes what is queued, Compact folds the log into a snapshot, and
+	but that count paces it. A commit that finds the log full compacts it once, as a flush does, and
+	answers Full if it is full still. A commit whose IdAt is older than the ids the key still keeps
+	answers Unresolved and is not written. Flush pushes what is queued, Compact folds the log into a snapshot, and
 	Release is the last save on the way out. The fence is taken on load and dropped once the erase it
 	marks has run out. A session the fence or a newer build stopped keeps nothing queued and answers
 	why on every save after.
@@ -57,6 +59,7 @@ local BACKLOG = Reasons.Backlog
 local INVALID = Reasons.Invalid
 local UNRESOLVED = Reasons.Unresolved
 local BEHIND = Reasons.Behind
+local FULL = Reasons.Full
 
 local function Rejected(Why: Reason?): Future<boolean, Reason?>
 	return Future.Completed(false, Why)
@@ -195,8 +198,10 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		local Ok, Accepted, Stuck = pcall(function(): (boolean, boolean)
 			Rebuild.Push(self)
 
+			local Forgotten = false
 			local function Land(): (Record, { string })
-				local Written, _, Waiting = Rebuild.Append(self, { Op })
+				local Written, _, Waiting, Doubted = Rebuild.Roomed(self, { Op })
+				Forgotten = #Doubted > 0
 				return self:Settled(Written), Waiting
 			end
 
@@ -221,13 +226,23 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on '{self.Key}'. this answer can change once that clears`)
 			end
 
+			if Forgotten then
+				warn(
+					`Ledger: commit '{Op.Kind}' was not written. its Id may have gone through already, and '{self.Key}' no longer keeps ids from when it was first sent. read the key to see whether it landed`
+				)
+			end
+
 			local Faded = not TxStamp.Holds(Stored, Op.Id) and TxStamp.Carries(Stored, Op.Id)
 			local _, Took = Rebuild.Rebuild(self, Stored, Op.Id)
 			self:Notify()
-			return Took, Blocked or Faded
+			return Took, Blocked or Faded or Forgotten
 		end)
 
 		if not Ok then
+			if Errors.Reason(Accepted) == FULL then
+				warn(`Ledger: commit '{Op.Kind}' was not written, '{self.Key}' holds more unsaved ops than it can take even after compacting`)
+				return false, FULL
+			end
 			warn(`Ledger: commit '{Op.Kind}' could not be written, though it might still have gone through: {Accepted}`)
 			return false, UNRESOLVED
 		end

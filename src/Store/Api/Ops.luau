@@ -9,7 +9,8 @@
 	the MemoryStore item and never touch the key. Transfer and Tx run a protocol over more than one
 	key, and add the keys to the sweep when they cannot finish.
 
-	A confirm carries the hold it spends, so a name reused after an earlier confirm answers Spent. A
+	A confirm carries the hold it spends, so a name reused after an earlier confirm answers Spent. Its
+	id comes from the name, so an IdAt in its fields stays on the op, where an Edit drops one. A
 	hold item is kept inside the map's item cap, and outlives the longest hold by one margin so the
 	stock it caches is still there for the next reservation.
 
@@ -519,8 +520,17 @@ function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fiel
 	assert(type(Kind) == "string" and #Kind > 0, "Confirm needs the Kind of the op that spends the units, after the Id")
 	assert(Fields == nil or type(Fields) == "table", `Confirm '{Kind}' Fields must be a table when given`)
 
-	local Op = NewOp.New(Kind, Fields)
+	local Sent = if Fields ~= nil then (Fields :: any).IdAt else nil
+	local Plain: { [any]: any }? = Fields
+	if Fields ~= nil and Sent ~= nil then
+		local Loose: { [any]: any } = table.clone(Fields)
+		Loose.IdAt = nil
+		Plain = Loose
+	end
+
+	local Op = NewOp.New(Kind, Plain)
 	Op.Id = `{Bookings.CONFIRM_ID}:{Rid}`
+	Op.IdAt = Sent
 	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
 		warn(`Ledger: Confirm rejected op '{Kind}', {Wrong}`)
