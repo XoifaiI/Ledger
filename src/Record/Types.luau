@@ -23,7 +23,7 @@ type Reducer<S> = Shapes.Reducer<S>
 type Migration = Shapes.Migration
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 
-export type Outcome = { Before: Record<any>, After: Record<any>, Changed: boolean, Stamp: number? }
+export type Outcome = { Before: Record<any>, After: Record<any>, Changed: boolean, Stamp: number?, Again: boolean? }
 
 export type Resolution = { Record: Record<any>, Counts: { [string]: number } }
 
@@ -58,7 +58,13 @@ export type LogImpl = {
 	Update: (self: Log, Key: string, Apply: (Record<any>) -> Record<any>?) -> Outcome,
 	Read: (self: Log, Key: string) -> (Record<any>, number?),
 	ReadVersion: (self: Log, Key: string, Version: string) -> Record<any>,
-	Append: (self: Log, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?, Sift: ((Record<any>) -> (Op) -> boolean?)?) -> (Record<any>, { string }, { string }, number?, { string }),
+	Append: (
+		self: Log,
+		Key: string,
+		Ops: { Op },
+		Guard: ((Record<any>) -> boolean)?,
+		Sift: ((Record<any>) -> (Op) -> boolean?)?
+	) -> (Record<any>, { string }, { string }, number?, { string }, boolean),
 	Entomb: (self: Log, Key: string, At: number, Bury: ((Record<any>) -> Record<any>)?) -> Record<any>,
 	Prepare: (self: Log, Key: string, Op: Op, Format: Shape<any>) -> Prepared,
 	Resolve: (self: Log, Key: string, Rulings: { [string]: Verdict }) -> Resolution,

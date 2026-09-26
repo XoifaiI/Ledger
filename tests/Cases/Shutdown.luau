@@ -401,4 +401,30 @@ Cases.Case("CloseAll in the middle of a transaction leaves the money on one side
 	T:Is("nothing is left parked on the receiver", Bank:Pending("txB"), false)
 end)
 
+Cases.Case("CloseAll stops the sweep timer without killing a pass part way through a key's write", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("swept", { Gold = 100 })
+	local Active = Bank:Session("swept")
+	Active:Apply("Fund", { Amount = 5 })
+	Hold(T, Bank, 1, Active)
+
+	Sweep:Add(Bank.Store:Swept(), "swept")
+	local Spec = Bank:Fault(Fault.Reads():OnKey("swept"):Stall(5))
+	local Before = Sweep.Ticker
+	Sweep.Ticker = SetInterval(T.Turn, 1, function()
+		Sweep:Pass()
+	end)
+	T:Until(function(): boolean
+		return Spec.Fired > 0
+	end)
+	T:Ok("the pass is part way through a read on the key", Bank.Store.Wrapper.Queues["swept"] ~= nil)
+
+	Ledger.CloseAll()
+	T:Wait(10)
+	Sweep.Ticker = Before
+
+	T:Is("the session's op landed", Bank:Amount("swept"), 105)
+	T:Is("the session knows it was released", Active.Released, true)
+end)
+
 return Cases

@@ -12,7 +12,8 @@
 	tried again before it answers Full.
 
 	An op the record turned away as doubted answers Unresolved. Its id was first sent before the
-	oldest id the key still keeps, so the key cannot say whether it landed.
+	oldest id the key still keeps, so the key cannot say whether it landed. So does an op turned
+	away on a try that followed a lost answer, since the try before may have landed and been erased.
 
 	Shows is for a caller whose op can land and still leave nothing behind, because a later op undid
 	it. It is asked once of the settled record and names the reason.
@@ -97,8 +98,8 @@ local function Weigh(self: Store, Op: Op, Guard: Allow?, Record: Record): Ruling
 	return { Allowed = not Swollen, Applied = true, Swollen = Swollen, Doubt = Doubt }
 end
 
-local function Attempt(self: Store, Key: string, Op: Op, Judge: Allow): (boolean, any, number?, boolean?)
-	return pcall(function(): (Record, number?, boolean)
+local function Attempt(self: Store, Key: string, Op: Op, Judge: Allow): (boolean, any, number?, boolean?, boolean?)
+	return pcall(function(): (Record, number?, boolean, boolean)
 		return self:Append(Key, Op, Judge)
 	end)
 end
@@ -127,9 +128,9 @@ function Store.WatchHeld(self: Store, Key: string, State: any)
 	end
 end
 
-function Store.Append(self: Store, Key: string, Op: Op, Guard: Allow?): (Record, number?, boolean)
-	local Stored, _, _, Stamp, Doubted = self:Records():Append(Key, { Op }, Guard)
-	return Stored, Stamp, #Doubted > 0
+function Store.Append(self: Store, Key: string, Op: Op, Guard: Allow?): (Record, number?, boolean, boolean)
+	local Stored, _, _, Stamp, Doubted, Again = self:Records():Append(Key, { Op }, Guard)
+	return Stored, Stamp, #Doubted > 0, Again
 end
 
 function Store.Swelling(self: Store, Key: string, Record: Record)
@@ -238,13 +239,13 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return Ruling.Allowed
 	end
 
-	local Landed, Result, Stamp, Doubted = Attempt(self, Key, Op, Judge)
+	local Landed, Result, Stamp, Doubted, Again = Attempt(self, Key, Op, Judge)
 	if not Landed and Errors.Reason(Result) == FULL then
 		local Packed = pcall(function()
 			self:Records():Compact(Key, self:Format())
 		end)
 		if Packed then
-			Landed, Result, Stamp, Doubted = Attempt(self, Key, Op, Judge)
+			Landed, Result, Stamp, Doubted, Again = Attempt(self, Key, Op, Judge)
 		end
 	end
 
@@ -286,6 +287,10 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return false, UNRESOLVED
 	end
 	if not Ruling.Applied then
+		if Again then
+			warn(`Ledger: {What} on '{Key}' may have gone through on a try whose answer was lost, and the record it met again no longer shows it. read the key to see whether it landed`)
+			return false, UNRESOLVED
+		end
 		return false, REFUSED
 	end
 

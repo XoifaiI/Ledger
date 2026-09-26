@@ -7,7 +7,9 @@
 
 	Each key has its own queue, so writes to one key stay in order. It is handed the scheduler its
 	retries wait on and the hook its calls go to, and carries both for everything underneath it.
-	ONCE is the limit for a call that must not be tried a second time.
+	ONCE is the limit for a call that must not be tried a second time. A transform is told, as its
+	third argument, that it runs again after an earlier try gave the datastore a write and then
+	failed. That write may have landed, since a call can fail after it wrote.
 
 	Return type: A table with New and ONCE.
 	Example usage:
@@ -24,7 +26,7 @@ local KeyedRetryQueue = require("./KeyedRetryQueue")
 
 type ThreadQueue = ThreadQueue.ThreadQueue
 type Handler = KeyedRetryQueue.Handler
-type Transform = (any, DataStoreKeyInfo) -> ...any
+type Transform = (any, DataStoreKeyInfo, boolean) -> ...any
 
 export type Limits = KeyedRetryQueue.Limits
 
@@ -108,9 +110,18 @@ function DataStoreWrapper.GetAsync(self: DataStoreWrapper, Key: string, Handler:
 end
 
 function DataStoreWrapper.UpdateAsync(self: DataStoreWrapper, Key: string, Transform: Transform, Handler: Handler?, Limits: Limits?): (boolean, any, DataStoreKeyInfo?)
+	local Offered = false
 	return self:AttemptAsync(Key, function(Store: Engine.Store)
+		local Again = Offered
+		local function Run(Current: any, KeyInfo: DataStoreKeyInfo): ...any
+			return Transform(Current, KeyInfo, Again)
+		end
 		return Store:UpdateAsync(Key, function(Current: any, KeyInfo: DataStoreKeyInfo)
-			return NoYield.Run(Transform, Current, KeyInfo)
+			local Results = table.pack(NoYield.Run(Run, Current, KeyInfo))
+			if Results[1] ~= nil then
+				Offered = true
+			end
+			return table.unpack(Results, 1, Results.n)
 		end)
 	end, Handler, Limits)
 end

@@ -116,9 +116,11 @@ end
 local function Over(Held: Recent): number
 	local Mark = Held.Mark
 	local Floor = Held.Floor or Held.At
+	local Reached = Held.Reached
 	local Sum = 0
 	for _, Bucket in Held.Bumps do
-		if if Mark ~= nil then Bucket.Seq > Mark else Bucket.At > Floor then
+		local Count = Bucket.Count
+		if if Mark ~= nil then Bucket.Seq > Mark elseif Reached ~= nil and Count ~= nil then Count > Reached else Bucket.At > Floor then
 			Sum += Bucket.Amount
 		end
 	end
@@ -130,22 +132,23 @@ local function Sealed(Held: Recent, Seq: number)
 	Held.Sealed = if Shut ~= nil and Shut > Seq then Shut else Seq
 end
 
-local function Bumped(Held: Recent, Seq: number, Now: number, Amount: number)
+local function Bumped(Held: Recent, Seq: number, Now: number, Amount: number, Count: number?)
 	local Bumps = Held.Bumps
 	local Last = Bumps[#Bumps]
 	local Shut = Held.Sealed
-	if Last ~= nil and Last.At == Now and (Shut == nil or Last.Seq > Shut) then
+	if Count == nil and Last ~= nil and Last.Count == nil and Last.At == Now and (Shut == nil or Last.Seq > Shut) then
 		Last.Amount += Amount
 		return
 	end
-	table.insert(Bumps, { Seq = Seq, At = Now, Amount = Amount })
+	table.insert(Bumps, { Seq = Seq, At = Now, Amount = Amount, Count = Count })
 end
 
-local function Remember(Held: Recent, Sum: number, At: number, Seen: number, Mark: number?, Floor: number?): number
+local function Remember(Held: Recent, Sum: number, At: number, Seen: number, Mark: number?, Floor: number?, Reached: number?): number
 	Held.Sum = Sum
 	Held.At = At
 	Held.Seen = Seen
 	Held.Floor = Floor or At
+	Held.Reached = Reached
 	Held.Mark = if Mark ~= nil then Mark elseif At == Held.OwnAt then Held.OwnMark else nil
 	if Mark ~= nil then
 		Held.OwnAt = At
@@ -278,6 +281,20 @@ local function Answered(self: Store, Held: Types.Queued, Ok: boolean, Why: Reaso
 		Resume(Thread, Ok, Why)
 	end
 	table.clear(Held.Threads)
+end
+
+local function Landed(self: Store, Key: string, Op: Op, Field: string, What: string): (boolean, Reason?, number?)
+	local Count: number? = nil
+	local Ok, Why = self:Written(Key, Op, What, nil, nil, function(Latest: Record): Reason?
+		local Read, State = pcall(function(): any
+			return self:Fold(Latest)
+		end)
+		if Read then
+			Count = Tally.Counted(State, Field)
+		end
+		return nil
+	end)
+	return Ok, Why, Count
 end
 
 function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
@@ -660,12 +677,12 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 	local Key = Tally.Shard(Name, Tally.Mine(self.Node, self.Shards))
 	local Op = Tally.Bump(Field, Amount)
 	return Future.New(function(): (boolean, Reason?)
-		local Ok, Why = self:Written(Key, Op, `add {Amount} to '{Name}'`)
+		local Ok, Why, Count = Landed(self, Key, Op, Field, `add {Amount} to '{Name}'`)
 		if Ok then
 			local Now = Clock.Now()
 			local Held = self:Kept(Slot, Now)
 			self.Bumped += 1
-			Bumped(Held, self.Bumped, Now, Amount)
+			Bumped(Held, self.Bumped, Now, Amount, Count)
 		end
 		return Ok, Why
 	end)
@@ -689,7 +706,7 @@ function Store.Flushed(self: Store)
 		local Amount = Held.Amount
 		Flushing[Slot] = (Flushing[Slot] or 0) + Amount
 		local Key = Tally.Shard(Held.Name, Tally.Mine(self.Node, self.Shards))
-		local Ok, Why = self:Written(Key, Tally.Bump(Held.Field, Amount), `add {Amount} to '{Held.Name}'`)
+		local Ok, Why, Count = Landed(self, Key, Tally.Bump(Held.Field, Amount), Held.Field, `add {Amount} to '{Held.Name}'`)
 
 		local Left = (Flushing[Slot] or 0) - Amount
 		Flushing[Slot] = if Left > 0 then Left else nil
@@ -697,7 +714,7 @@ function Store.Flushed(self: Store)
 			local Now = Clock.Now()
 			local Recent = self:Kept(Slot, Now)
 			self.Bumped += 1
-			Bumped(Recent, self.Bumped, Now, Amount)
+			Bumped(Recent, self.Bumped, Now, Amount, Count)
 		end
 		Answered(self, Held, Ok, Why)
 	end
@@ -733,6 +750,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 				Sealed(Held, Counted)
 				local Sum = 0
 				local Read: { number } = table.create(Count) :: { number }
+				local Counts: { number } = table.create(Count) :: { number }
 				for Index, Key in Tally.Keys(Name, Count) do
 					Read[Index] = Clock.Now()
 					local Ok, State = pcall(function(): any
@@ -742,7 +760,9 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 						return nil, nil, Failed(`read a shard of '{Name}' for`, Key, State)
 					end
 
-					Sum += Tally.Counted(State, Field)
+					local Reached = Tally.Counted(State, Field)
+					Counts[Index] = Reached
+					Sum += Reached
 					if Key == Own then
 						Counted = self.Bumped
 						Sealed(Held, Counted)
@@ -750,7 +770,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 				end
 
 				Mark = Counted
-				return Tally.Item(Sum, Read), nil, nil
+				return Tally.Item(Sum, Read, Counts), nil, nil
 			end,
 		}
 
@@ -759,7 +779,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 		if Sum == nil then
 			return nil, Why or UNRESOLVED
 		end
-		return Remember(Held, Sum, Held.At, Held.Seen, Mark, Tally.Since(State, Mine)) + Waiting(self, Slot), nil
+		return Remember(Held, Sum, Held.At, Held.Seen, Mark, Tally.Since(State, Mine), Tally.Reached(State, Mine)) + Waiting(self, Slot), nil
 	end)
 end
 

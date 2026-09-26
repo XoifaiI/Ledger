@@ -7,11 +7,14 @@
 
 	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, compact it or trim it.
 	An append adds only the ops the record does not already have, so running one twice applies once.
-	Every write first asks whether this build may write the record at all. The first write to a key
-	stores the state the key starts from, whether it is an append or a parked leg. An erase forgets
-	every id on the key, so it sets the horizon to the time it ran. A read and a write
-	that changed the record hand back the stamp the datastore put on it, so a copy of the record can
-	be ordered against another without comparing two servers' clocks.
+	Every write first asks whether this build may write the record at all, unless it finds its own
+	earlier attempt already there. The first write to a key stores the state the key starts from,
+	whether it is an append or a parked leg. An erase forgets every id on the key, so it sets the
+	horizon to the time it ran. An erase that meets the mark it stamped itself landed once already,
+	and writes nothing more. A read and a write that changed the record hand back the stamp the
+	datastore put on it, so a copy of the record can be ordered against another without comparing
+	two servers' clocks. A write that ran again after a try that failed once it had given the
+	datastore a write says so, since that write may have landed. An append hands this back last.
 
 	Return type: A table with New.
 	Example usage:
@@ -221,10 +224,12 @@ end
 function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 	local Before: Record = nil :: any
 	local Wrote = false
+	local Retried = false
 	local Raised: any = nil
 
-	local Ok, Value, Info = self.Wrapper:UpdateAsync(Key, function(Current: any): Record?
+	local Ok, Value, Info = self.Wrapper:UpdateAsync(Key, function(Current: any, _: DataStoreKeyInfo, Again: boolean): Record?
 		Wrote = false
+		Retried = Again
 		Raised = nil
 
 		local Fine, Next = pcall(function(): Record?
@@ -251,9 +256,9 @@ function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 	assert(Wrote == (Value ~= nil), `the write to '{Key}' disagreed with the datastore about whether it happened`)
 
 	if Value == nil then
-		return { Before = Before, After = Before, Changed = false }
+		return { Before = Before, After = Before, Changed = false, Again = Retried }
 	end
-	return { Before = Before, After = Materialize(Value), Changed = true, Stamp = Stamped(Info) }
+	return { Before = Before, After = Materialize(Value), Changed = true, Stamp = Stamped(Info), Again = Retried }
 end
 
 function Log.Read(self: Log, Key: string): (Record, number?)
@@ -272,7 +277,7 @@ function Log.ReadVersion(self: Log, Key: string, Version: string): Record
 	return Materialize(Value)
 end
 
-function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string }, number?, { string })
+function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string }, number?, { string }, boolean)
 	local Owned = false
 	for _, Op in Ops do
 		assert(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
@@ -287,6 +292,7 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Ru
 		end,
 		Key,
 		{
+			Rules.Landed(Ops),
 			Rules.Legible(Key, self.Known),
 			Rules.Allowed(Guard),
 			Rules.Kept(Key),
@@ -299,11 +305,19 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Ru
 	)
 
 	local Turned, Waiting, Doubted = Outcome.Notes.Turned, Outcome.Notes.Waiting, Outcome.Notes.Doubted
-	return Outcome.After, if type(Turned) == "table" then Turned else {}, if type(Waiting) == "table" then Waiting else {}, Outcome.Stamp, if type(Doubted) == "table" then Doubted else {}
+	return Outcome.After,
+		if type(Turned) == "table" then Turned else {},
+		if type(Waiting) == "table" then Waiting else {},
+		Outcome.Stamp,
+		if type(Doubted) == "table" then Doubted else {},
+		Outcome.Again == true
 end
 
 function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record
 	return self:Update(Key, function(Record: Record): Record?
+		if Record.Erased == At then
+			return nil
+		end
 		self:Legible(Key, Record)
 		if TxStamp.HasPending(Record) then
 			Errors.Raise(Reasons.Busy, `'{Key}' has a transaction parked on it, so it cannot be erased yet. wait for that to settle`)

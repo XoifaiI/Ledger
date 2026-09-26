@@ -368,6 +368,25 @@ Cases.Case("two servers reaping at once: one lists a shard while the other skips
 	T:Is("the money it moved is untouched", Gold(One, "reapB"), 10)
 end)
 
+Cases.Case("a server whose walk back is due on a shard another server holds still lists that older block", function(T: Case)
+	local One, Two = Pair(T)
+	Funded(One, "oldA", "oldB")
+	T:Ok("the transaction", (Move(One, "oldA", "oldB", 10, "old1")))
+	local Written = Cleanup.Block(T:Now())
+	T:Advance(3 * 1000 * Windows.BUCKET + Windows.REAP)
+	local Back = Cleanup.Block(T:Now()) - Written
+	local Own = Cleanup.Mine("nodeA")
+
+	T.Service:GetHashMap(MAP):SetAsync(Shard(Two, Own), "nodeC", Windows.PASS_LEASE)
+	Two.Store.Reaping = { Resume = Own, Shard = Own, Back = Back }
+	Two.Store:ReapMarkers(1)
+
+	T:Ok("the marker's block is behind the two a pass lists anyway", Back >= 2)
+	T:Is("the marker is gone", One:Mark("old1"), nil)
+	T:Is("the walk moved on to the next shard", Two.Store.Reaping.Shard, (Own + 1) % Transactions.SHARDS)
+	T:Is("the money it moved is untouched", Gold(One, "oldB"), 10)
+end)
+
 Cases.Case("a followed key another server holds is skipped without counting as a try", function(T: Case)
 	local One = T:Bank("nodeA")
 	Funded(One, "holdA", "holdB")

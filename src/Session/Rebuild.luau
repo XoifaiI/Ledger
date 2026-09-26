@@ -106,12 +106,12 @@ local function Fenced(Erased: number?): number?
 	return Erased
 end
 
-local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string }, { string })
+local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string }, { string }, boolean)
 	local Fence = self.Fence
-	local Stored, Turned, Waiting, _, Doubted = self.Log:Append(self.Key, Ops, function(Record: Record): boolean
+	local Stored, Turned, Waiting, _, Doubted, Again = self.Log:Append(self.Key, Ops, function(Record: Record): boolean
 		return Record.Erased == Fence or (not Rules.Entombed(Record.Erased) and Fenced(Fence) == nil)
 	end, Sifted(self))
-	return Stored, Turned, Waiting, Doubted
+	return Stored, Turned, Waiting, Doubted, Again
 end
 
 local function Close<S>(self: Session<S>)
@@ -121,12 +121,12 @@ local function Close<S>(self: Session<S>)
 	self.Pending = {}
 end
 
-local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string }, { string })
-	local Ok, Stored, Turned, Waiting, Doubted = pcall(function(): (Record, { string }, { string }, { string })
+local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string }, { string }, boolean)
+	local Ok, Stored, Turned, Waiting, Doubted, Again = pcall(function(): (Record, { string }, { string }, { string }, boolean)
 		return Append(self, Batch)
 	end)
 	if Ok then
-		return Stored, Turned, Waiting, Doubted
+		return Stored, Turned, Waiting, Doubted, Again
 	end
 	if Errors.Reason(Stored) ~= Reasons.Full then
 		error(Stored, 0)

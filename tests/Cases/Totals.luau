@@ -18,6 +18,7 @@
 local Suite = require("../Suite")
 
 local Ledger = require("../../src") :: any
+local Clock = require("../../src/Util/Clock")
 local Engine = require("../../src/Util/Engine")
 local MemoryStore = require("../../src/Core/Constants/MemoryStore")
 local Shards = require("../../src/Core/Constants/Shards")
@@ -468,7 +469,7 @@ Cases.Case("a cache key carries every part's length, so a colon in a name cannot
 	T:Is("the long field's total again, from the cache", Store:Total("pot", Long):Wait(), 9)
 end)
 
-Cases.Case("a bump in the same second as another server's refill shows at the next refill, and never twice", function(T: Case)
+Cases.Case("a bump in the same second as another server's refill shows at once, and never twice", function(T: Case)
 	local A = T:Vault("nodeA")
 	local B = T:Vault("nodeB")
 	A.Store:Total("pot", FIELD):Wait()
@@ -488,7 +489,35 @@ Cases.Case("a bump in the same second as another server's refill shows at the ne
 	T:Is("an own bump in the second of an own refill, at once", OwnAtOnce, 5)
 	T:Is("the other server's refill", Refilled, 5)
 	T:Is("the bumping server on the other's sum, not counted twice", Theirs, 5)
-	T:Is("an own bump in the second of another's refill, held back", Lagging, 5)
+	T:Is("an own bump in the second of another's refill, at once", Lagging, 8)
+	T:Is("the same bump once the sum is refilled, once", Caught, 8)
+end)
+
+Cases.Case("on a sum an older server refilled without counts, a bump in the same second as that refill waits for the next", function(T: Case)
+	local A = T:Vault("nodeA")
+	local B = T:Vault("nodeB")
+	A.Store:Total("pot", FIELD):Wait()
+	B.Store:Total("pot", FIELD):Wait()
+
+	A.Store:Bump("pot", FIELD, 5):Wait()
+	T:Advance(STALE)
+	B.Store:Total("pot", FIELD):Wait()
+
+	local Map = T.Service:GetHashMap(Shards.MAP)
+	local Held: any = Map:GetAsync(Slot(A.Store, "pot"))
+	local Counted = Held.State.Counts ~= nil
+	Held.State.Counts = nil
+	Map:SetAsync(Slot(A.Store, "pot"), Held, KEEP)
+
+	local Theirs = A.Store:Total("pot", FIELD):Wait()
+	A.Store:Bump("pot", FIELD, 3):Wait()
+	local Lagging = A.Store:Total("pot", FIELD):Wait()
+	T:Advance(STALE)
+	local Caught = A.Store:Total("pot", FIELD):Wait()
+
+	T:Ok("the refill wrote counts before they were taken out", Counted)
+	T:Is("the bumping server on the older sum, not counted twice", Theirs, 5)
+	T:Is("an own bump in the second of that refill, held back", Lagging, 5)
 	T:Is("the same bump once the sum is refilled", Caught, 8)
 end)
 
@@ -564,6 +593,35 @@ Cases.Case("an own bump landing while another server reads the shards shows at o
 	T:Ok("the bump landed inside the refill", Landed)
 	T:Is("the refill, which read the bumping server's shard before the bump", Refilled, 0)
 	T:Is("the bumping server's own total, at once", Own, 50)
+	T:Is("its total a window later", Later, 50)
+end)
+
+Cases.Case("an own bump another server already summed is not laid over again when that server's clock runs behind", function(T: Case)
+	local A = T:Vault("nodeA")
+	local B = T:Vault("nodeB")
+	A.Store:Total("pot", FIELD):Wait()
+	B.Store:Total("pot", FIELD):Wait()
+	T:Advance(STALE + 20)
+
+	T:Ok("the bump lands", A.Store:Bump("pot", FIELD, 50):Wait())
+	T:Advance(1)
+
+	local Turn: any = T.Turn
+	local Behind = setmetatable({
+		Now = function(): number
+			return Turn.Now() - 20
+		end,
+	}, { __index = Turn })
+	Clock.Use(Behind :: any)
+	local Refilled = B.Store:Total("pot", FIELD):Wait()
+	Clock.Use(Turn)
+
+	local Own = A.Store:Total("pot", FIELD):Wait()
+	T:Advance(STALE)
+	local Later = A.Store:Total("pot", FIELD):Wait()
+
+	T:Is("the refill, which read the bump", Refilled, 50)
+	T:Is("the bumping server's total, from that refill", Own, 50)
 	T:Is("its total a window later", Later, 50)
 end)
 

@@ -20,7 +20,7 @@
 	on their own and never have to be migrated. Every shape starts with the shard and the minute,
 	which is all a prefix listing reads, so one listing finds them all.
 
-	Return type: A table with Key, Named, Block, Blocks, At, Mine, Add, Carry and BACK.
+	Return type: A table with Key, Named, Block, Blocks, Older, At, Mine, Add, Carry and BACK.
 	Example usage:
 		local Cleanup = require("./Cleanup")
 		Cleanup.Add(TxStore, "trade1")
@@ -104,6 +104,13 @@ local function Blocks(Slot: number, Now: number, Older: number?): { string }
 		table.insert(Held, Prefix(Slot, Current - Older))
 	end
 	return Held
+end
+
+local function Older(Slot: number, Now: number, Back: number?): { string }
+	if Back == nil or Back < 2 or Block(Now) - Back < 0 then
+		return {}
+	end
+	return { Prefix(Slot, Block(Now) - Back) }
 end
 
 local function At(Held: string): number?
@@ -198,6 +205,7 @@ return table.freeze({
 	Named = Named,
 	Block = Block,
 	Blocks = Blocks,
+	Older = Older,
 	At = At,
 	Mine = Mine,
 	Add = Add,

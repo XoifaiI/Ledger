@@ -11,6 +11,10 @@
 	still being sent. The first erase leaves a tombstone. Only an erase that finds an old one removes
 	the key, and only once the key holds no name a refund could still check. That erase marks the
 	tomb it writes as being removed, so a write that meets it answers Busy and is not deleted with it.
+	What an erase names is the record its tomb replaced, kept from the run that wrote it. A retry
+	after a lost answer finds that tomb and writes nothing, so it cannot name an empty one instead. A
+	reset turns a parked leg away only while its own op is not on the key yet. One parked after the
+	reset landed is no reason to call that reset busy.
 
 	Return type: A table with Failed. It writes Repair, ReapMarkers, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:
@@ -105,8 +109,12 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 					and self:Affords(Reads, Transactions.REAP_FLOOR)
 					and self:TxAffords(Lists, Transactions.REAP_LISTS)
 			end,
-			Claim = function(Shard: number): Types.Claimed
-				return self:Claim(Mark.Cached({ "reap", self.TxWrapper.Name, tostring(Shard) }), Windows.PASS_LEASE)
+			Claim = function(Shard: number, Block: number?): Types.Claimed
+				local Named = { "reap", self.TxWrapper.Name, tostring(Shard) }
+				if Block ~= nil then
+					table.insert(Named, tostring(Block))
+				end
+				return self:Claim(Mark.Cached(Named), Windows.PASS_LEASE)
 			end,
 		})
 	end)
@@ -304,7 +312,7 @@ function Store.Reset(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Why = self:Written(Resolved, Op, "reset", function(Record: Record): boolean
-			if TxStamp.HasPending(Record) then
+			if TxStamp.HasPending(Record) and not TxStamp.Carries(Record, Op.Id) then
 				Errors.Raise(BUSY, `'{Resolved}' has a transaction parked on it, so it cannot be reset yet. wait for that to settle`)
 			end
 			return (Record.Version or 0) <= Known
@@ -341,9 +349,11 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 
 		local At = Clock.Now()
 		local Burial: Burial = { Plan = PLAIN }
+		local Found: Record? = nil
 		local Ok, Replaced = pcall(function(): Record
 			return self:Records():Entomb(Resolved, At, function(Record: Record): Record
 				local Body
+				Found = Record
 				Body, Burial = Tomb(self, Record, At)
 				if Body == nil then
 					return Errors.Raise(BUSY, `'{Resolved}' took a transfer while it was being erased`)
@@ -361,7 +371,7 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 			return false, Failed("erase", Resolved, Replaced)
 		end
 
-		local Before = Replaced :: Record
+		local Before = Found or Replaced :: Record
 		self:Buried(Resolved, Before)
 
 		local Held = self.Bookings

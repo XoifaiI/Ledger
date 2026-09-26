@@ -7,7 +7,8 @@
 
 	Each rule checks, then changes, then answers whether it still holds once the write landed. A
 	datastore can run one transform more than once. Every run starts a fresh pass, so nothing a rule
-	wrote survives into the next.
+	wrote survives into the next. Again says the last run followed a try that failed after it gave
+	the datastore a write.
 
 	Return type: A table with Run, which gives back the record before, the record after, and the reason.
 	Example usage:
@@ -31,9 +32,10 @@ export type Outcome = {
 	Stamp: number?,
 	Refused: Reason?,
 	Notes: { [string]: any },
+	Again: boolean?,
 }
 
-export type Update = (Key: string, Apply: (Record) -> Record?) -> { Before: Record, After: Record, Changed: boolean, Stamp: number? }
+export type Update = (Key: string, Apply: (Record) -> Record?) -> { Before: Record, After: Record, Changed: boolean, Stamp: number?, Again: boolean? }
 
 local function Fresh(): Pass
 	return { Silent = false, Notes = {} }
@@ -90,6 +92,7 @@ local function Run(Update: Update, Key: string, List: { Rule }): Outcome
 		Stamp = Result.Stamp,
 		Refused = Pass.Refused,
 		Notes = Pass.Notes,
+		Again = Result.Again,
 	}
 end
 

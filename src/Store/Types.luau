@@ -141,6 +141,7 @@ export type Copy = {
 export type Recent = Copy & {
 	Sum: number,
 	Floor: number?,
+	Reached: number?,
 	Mark: number?,
 	Sealed: number?,
 	OwnAt: number?,
@@ -243,7 +244,7 @@ export type StoreImpl<D> = {
 	WatchHeld: (self: Store<D>, Key: string, State: any) -> (),
 	Stale: (self: Store<D>) -> Observer.Observer<string>,
 	Went: (self: Store<D>, Key: string) -> (),
-	Append: (self: Store<D>, Key: string, Op: Op, Guard: Allow?) -> (Record, number?, boolean),
+	Append: (self: Store<D>, Key: string, Op: Op, Guard: Allow?) -> (Record, number?, boolean, boolean),
 	Maintain: (self: Store<D>, Key: string, Record: Record) -> Record,
 	Applies: (self: Store<D>, Op: Op, Record: Record) -> (boolean, boolean, boolean),
 	Swollen: (self: Store<D>, Op: Op, Record: Record) -> boolean,

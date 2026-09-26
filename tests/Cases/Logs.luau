@@ -1376,4 +1376,75 @@ Cases.Case("a transform the datastore runs twice starts the second run from a fr
 	T:Is("ops the first run turned away, which the second run never judged", Stopped.Notes.Turned, nil)
 end)
 
+Cases.Case("a write that landed but lost its answer, and whose retry meets a newer build, answers Unresolved and not Behind", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("k", { Gold = 10 })
+
+	Bank:Fault(Fault.Updates():OnKey("k"):Only(1):Swallow())
+	Bank:Fault(Fault.Updates():OnKey("k"):Only(2):Meddle(function()
+		Bank.Direct:UpdateAsync("k", function(Current: any): any
+			local Record = table.clone(Current)
+			Record.Floor = 1
+			Record.Version = 1
+			return Record
+		end)
+	end))
+
+	local Ok, Why = Bank.Store:Edit("k", "Fund", { Amount = 5 }):Wait()
+	T:Is("the edit, whose first try landed", Ok, false)
+	T:Is("the reason, since this build cannot read the record to say what the op did", Why, "Unresolved")
+	T:Is("the op is on the key once", #Bank:Record("k").Ops, 1)
+end)
+
+Cases.Case("a write that landed but lost its answer, and whose retry meets an erase its reducer refuses, answers Unresolved and not Refused", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("g", { Gold = 60 })
+
+	Bank:Fault(Fault.Updates():OnKey("g"):Only(1):Swallow())
+	Bank:Fault(Fault.Updates():OnKey("g"):Only(2):Meddle(function()
+		Bank.Direct:UpdateAsync("g", function(Current: any): any
+			local Tomb = table.clone(Current)
+			Tomb.Ops = {}
+			Tomb.Seen = {}
+			Tomb.Snapshot = nil
+			Tomb.Erased = T:Now()
+			Tomb.Horizon = T:Now()
+			return Tomb
+		end)
+	end))
+
+	local Ok, Why = Bank.Store:Edit("g", "Give", { Amount = -50 }):Wait()
+	T:Is("the edit, whose first try landed before the erase", Ok, false)
+	T:Is("the reason, since that try may have gone through", Why, "Unresolved")
+	T:Warns("it says the try before may have landed", "may have gone through on a try whose answer was lost", 1)
+	T:Is("nothing was written on the erased key", #Bank:Record("g").Ops, 0)
+end)
+
+Cases.Case("a reset that landed but lost its answer, and whose retry meets a parked leg, still answers", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("r", { Gold = 70 })
+
+	Bank:Fault(Fault.Updates():OnKey("r"):Only(1):Swallow())
+	Bank:Fault(Fault.Updates():OnKey("r"):Only(2):Meddle(function()
+		Bank:Marker("later", { Status = "Pending", Total = 2, Gen = "lg", At = T:Now(), Adopted = {} })
+		Bank:Park("r", { Id = "tx:later:1", Kind = "Fund", Amount = 5, Tx = "later", TxGen = "lg", TxAt = T:Now() })
+	end))
+
+	local Ok, Why = Bank.Store:Reset("r"):Wait()
+	T:Ok("the reset answered, rather than throwing", Ok == true or Why ~= nil)
+	T:Ok("and it did not say no to a reset that landed", Ok == true or Why == "Unresolved")
+	T:Silent("nothing threw in the background", "work Ledger was doing in the background threw")
+	T:Is("the leg is still parked", Bank:Pending("r"), true)
+end)
+
+Cases.Case("a write its reducer refuses on the first try still answers Refused", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("h", { Gold = 10 })
+
+	local Ok, Why = Bank.Store:Edit("h", "Give", { Amount = -50 }):Wait()
+	T:Is("the edit", Ok, false)
+	T:Is("the reason", Why, "Refused")
+	T:Silent("nothing says a try may have landed", "may have gone through on a try whose answer was lost")
+end)
+
 return Cases

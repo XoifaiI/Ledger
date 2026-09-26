@@ -10,8 +10,9 @@
 	answered and says so. A commit the sift held back writes again a few times at most, since nothing
 	but that count paces it. A commit that finds the log full compacts it once, as a flush does, and
 	answers Full if it is full still. A commit whose IdAt is older than the ids the key still keeps
-	answers Unresolved and is not written. Flush pushes what is queued, Compact folds the log into a snapshot, and
-	Release is the last save on the way out. The fence is taken on load and dropped once the erase it
+	answers Unresolved and is not written. A commit whose op landed, or may have landed on a try whose
+	answer was lost, and then went with an erase answers Unresolved and not Refused. Flush pushes what
+	is queued, Compact folds the log into a snapshot, and Release is the last save on the way out. The fence is taken on load and dropped once the erase it
 	marks has run out. A session the fence or a newer build stopped keeps nothing queued and answers
 	why on every save after.
 
@@ -203,9 +204,13 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 			Rebuild.Push(self)
 
 			local Forgotten = false
+			local Wrote = false
+			local Maybe = false
 			local function Land(): (Record, { string })
-				local Written, _, Waiting, Doubted = Rebuild.Roomed(self, { Op })
+				local Written, _, Waiting, Doubted, Again = Rebuild.Roomed(self, { Op })
 				Forgotten = #Doubted > 0
+				Wrote = Wrote or TxStamp.Carries(Written, Op.Id)
+				Maybe = Maybe or Again
 				return self:Settled(Written), Waiting
 			end
 
@@ -234,11 +239,12 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 
 			local Faded = not TxStamp.Holds(Stored, Op.Id) and TxStamp.Carries(Stored, Op.Id)
 			local _, Took = Rebuild.Rebuild(self, Stored, Op.Id)
+			local Lost = not TxStamp.Carries(Stored, Op.Id) and (Wrote or Maybe and self.Stopped ~= nil)
 			self:Notify()
 			if Blocked and not (Took and Sure) then
 				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was parked on '{self.Key}', and that transaction can still change whether it applies. read the key once it settles`)
 			end
-			return Took and Sure, Blocked or Faded or Forgotten
+			return Took and Sure, Blocked or Faded or Forgotten or Lost
 		end)
 
 		if not Ok then

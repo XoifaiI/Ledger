@@ -9,6 +9,8 @@
 	pass is what a rule remembers between those parts, and every run starts a fresh one. Entombed
 	and Leaving each take the time a mark was set, since that time is all they read.
 
+	Landed stops a run that finds every op already on the key, since an earlier attempt landed and
+	only its answer was lost. It runs first, so a write that landed is never answered as refused.
 	Legible refuses a record a newer build wrote. Allowed runs the caller's guard. Kept answers Busy
 	while an erase is taking the key off, so nothing lands between its tomb and its removal. Fresh
 	adds only the ops the record lacks, and lets a sift turn one away or hold one back for a later
@@ -17,10 +19,10 @@
 	first write, so a later Default reaches only a key nobody has written. Format raises the version
 	floor. Tomb stamps the envelope, and clears an erase mark or a removal mark that has run out.
 
-	Return type: A table with Readable, Entombed, Leaving, Settle and the eight rules. The types are Pass, Rule and Sift.
+	Return type: A table with Readable, Entombed, Leaving, Settle and the nine rules. The types are Pass, Rule and Sift.
 	Example usage:
 		local Rules = require("./Rules")
-		local List = { Rules.Legible(Key, Known), Rules.Fresh(Ops) }
+		local List = { Rules.Landed(Ops), Rules.Legible(Key, Known), Rules.Fresh(Ops) }
 --]=]
 
 local Clock = require("../Util/Clock")
@@ -32,6 +34,7 @@ local Reasons = require("../Core/Constants/Reasons")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
 local Windows = require("../Core/Constants/Windows")
+local TxStamp = require("./TxStamp")
 
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
@@ -67,6 +70,21 @@ local function Readable(Key: string, Known: number?, Record: Record)
 	end
 
 	Errors.Raise(Reasons.Behind, `'{Key}' was written by a newer build with more migrations than this server has, so this server must not add to it. finish the deploy`)
+end
+
+local function Landed(Ops: { Op }): Rule
+	return {
+		Name = "landed",
+		Check = function(Record: Record, Pass: Pass): Reasons.Reason?
+			for _, Op in Ops do
+				if not TxStamp.Carries(Record, Op.Id) then
+					return nil
+				end
+			end
+			Pass.Silent = true
+			return nil
+		end,
+	}
 end
 
 local function Legible(Key: string, Known: number?): Rule
@@ -239,6 +257,7 @@ end
 return table.freeze({
 	Readable = Readable,
 	Settle = Settle,
+	Landed = Landed,
 	Legible = Legible,
 	Allowed = Allowed,
 	Kept = Kept,

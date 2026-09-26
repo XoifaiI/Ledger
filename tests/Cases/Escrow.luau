@@ -1500,4 +1500,16 @@ Cases.Case("a transfer keeps the print it has always had, even for keys that hol
 	T:Is("player keys", Transfer.Terms(123, 456, 10), Digest.Of("(Amount=number:10,From=string:123,To=string:456)"))
 end)
 
+Cases.Case("an erase that landed but lost its answer still names the gold it destroyed", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("e", { Gold = 40 })
+
+	Bank:Fault(Fault.Updates():OnKey("e"):Only(1):Swallow())
+
+	local Ok = Bank.Store:Erase("e"):Wait()
+	T:Is("the erase", Ok, true)
+	T:Is("gold on the erased key", Bank:Amount("e"), 0)
+	T:Warns("the gold the erase destroyed, named once", "erasing 'e' destroyed 40 Gold", 1)
+end)
+
 return Cases

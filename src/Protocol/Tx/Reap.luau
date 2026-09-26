@@ -12,9 +12,13 @@
 	shard and gives back where it stopped.
 
 	A pass with a Claim asks it before each shard and skips a shard another server holds. A skipped
-	shard still counts as walked. A Bounded pass whose Claim cannot reach its map stops after one
-	shard and gives back the next one. One server still covers every shard, over as many passes as
-	there are shards. Only the background pass is bounded. An operator gets the whole walk.
+	shard still counts as walked. A walk back claims the older block it is due to list apart from the
+	shard, so the servers whose walks meet on one block list it once between them. A server that finds
+	that block claimed counts it as walked, and one whose shard is held elsewhere still lists the block
+	it claimed. Servers that meet on a shard would otherwise stall each other's walk back, and an old
+	marker could wait for weeks. A Bounded pass whose Claim cannot reach its map stops after one shard
+	and gives back the next one. One server still covers every shard, over as many passes as there are
+	shards. Only the background pass is bounded. An operator gets the whole walk.
 
 	Three questions run the pass and each answers one word rather than a pair of flags. Reading the
 	keys a marker names proves it Finished, still Holding, or Unreadable. A marker is then Kept for a
@@ -60,7 +64,7 @@ export type Reaping = {
 	Shards: number?,
 	Older: { Shard: number, Back: number, Cursor: Bookmark? }?,
 	Afford: (() -> boolean)?,
-	Claim: ((Shard: number) -> Claimed)?,
+	Claim: ((Shard: number, Block: number?) -> Claimed)?,
 }
 
 type Walk = {
@@ -361,27 +365,34 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		local Left = Walk.Room - Walk.Looked
 		local Looks = if Lease.Outcome == Transactions.TAKEN or Shard == Own then Left else math.min(Share, Left)
 		local Back = if Cursor ~= nil and Cursor.Shard == Shard then Cursor.Back else nil
+		local Aside: Claimed = if Back ~= nil and Claim ~= nil then Claim(Shard, Cleanup.Block(Walk.Now) - Back) else ABSENT
+		local Walked = Aside.Outcome == Transactions.HELD
 		local Ended: Ending = DONE
 		if Pending ~= nil and Pending.Shard == Shard then
 			Pending = nil
 		end
-		if Lease.Outcome ~= Transactions.HELD then
-			local Prefixes = Cleanup.Blocks(Shard, Walk.Now, Back)
-			for Index, Prefix in Prefixes do
-				local From = if Bookmark ~= nil and Bookmark.Shard == Shard and Bookmark.Prefix == Prefix then Bookmark.Cursor else nil
-				local Rest
-				Ended, Rest = Listed(Walk, Prefix, Looks, From)
-				Pending = Marked(Shard, Prefix, Rest)
-				if Back ~= nil and Index == #Prefixes and Ended ~= STOPPED then
-					Rotated = true
-				end
-				if Ended ~= DONE then
-					break
-				end
+		if Back ~= nil and Walked then
+			Rotated = true
+		end
+		local Due = if Walked then nil else Back
+		local Prefixes = if Lease.Outcome == Transactions.HELD then Cleanup.Older(Shard, Walk.Now, Due) else Cleanup.Blocks(Shard, Walk.Now, Due)
+		for Index, Prefix in Prefixes do
+			local From = if Bookmark ~= nil and Bookmark.Shard == Shard and Bookmark.Prefix == Prefix then Bookmark.Cursor else nil
+			local Rest
+			Ended, Rest = Listed(Walk, Prefix, Looks, From)
+			Pending = Marked(Shard, Prefix, Rest)
+			if Back ~= nil and Index == #Prefixes and Ended ~= STOPPED then
+				Rotated = true
+			end
+			if Ended ~= DONE then
+				break
 			end
 		end
 		if Lease.Outcome == Transactions.TAKEN and Ended ~= DONE then
 			Lease.Release()
+		end
+		if Aside.Outcome == Transactions.TAKEN and Ended ~= DONE then
+			Aside.Release()
 		end
 		if Ended == STOPPED then
 			return Walk.Reaped, Shard, Rotated, Pending

@@ -1713,6 +1713,83 @@ Cases.Case("a commit on a session whose key another server erased stops the sess
 	T:Warns("it says why, once", "was erased while this session was live", 1)
 end)
 
+Cases.Case("a commit that landed and then waited on a parked leg while another server erased the key is unresolved, not refused", function(T: Case)
+	local Here = T:Bank("nodeA")
+	local There = T:Bank("nodeB")
+	Here:Seed("lategone", { Gold = 100, Touches = 0 })
+	local Active = Here:Session("lategone")
+	Here:Marker("lateleg", { Status = "Pending", Total = 4, Gen = "ll", At = T:Now(), Adopted = {} })
+	Here:Park("lategone", { Id = "tx:lateleg:1", Kind = "Give", Amount = -50, Tx = "lateleg", TxGen = "ll", TxAt = T:Now() })
+
+	local Erased = false
+	T:Spawn(function()
+		T:Wait(Windows.POLL + 1)
+		Here:Marker("lateleg", { Status = "Aborted", Total = 4, Gen = "ll", At = T:Now(), Adopted = {} })
+		There.Store:Resettle("lategone"):Wait()
+		Erased = (There.Store:Erase("lategone"):Wait())
+	end)
+
+	local Ok, Why = Active:CommitOp({ Id = "late1", Kind = "Fund", Amount = 5 } :: any):Wait()
+
+	T:Ok("the other server erased the key while the commit waited", Erased)
+	T:Warns("the erase counted the gold the commit added", "erasing 'lategone' destroyed 105 Gold", 1)
+	T:Is("the commit", Ok, false)
+	T:Is("the reason, since the op went through before the erase", Why, "Unresolved")
+	T:Is("the session, closed", Active.Released, true)
+	T:Warns("it says why, once", "was erased while this session was live", 1)
+end)
+
+Cases.Case("a commit that landed but lost its answer, and whose retry meets another server's erase, is unresolved, not refused", function(T: Case)
+	local Here = T:Bank("nodeA")
+	Here:Seed("lostgone", { Gold = 100, Touches = 0 })
+	local Active = Here:Session("lostgone")
+
+	Here:Fault(Fault.Updates():OnKey("lostgone"):Only(1):Swallow())
+	Here:Fault(Fault.Updates():OnKey("lostgone"):Only(2):Meddle(function()
+		Here.Direct:UpdateAsync("lostgone", function(Current: any): any
+			local Tomb = table.clone(Current)
+			Tomb.Ops = {}
+			Tomb.Seen = {}
+			Tomb.Snapshot = nil
+			Tomb.Erased = T:Now()
+			Tomb.Horizon = T:Now()
+			return Tomb
+		end)
+	end))
+
+	local Ok, Why = Active:CommitOp({ Id = "lost1", Kind = "Fund", Amount = 5 } :: any):Wait()
+
+	T:Is("the commit, whose first try landed", Ok, false)
+	T:Is("the reason, since that try may have gone through", Why, "Unresolved")
+	T:Is("the session, closed", Active.Released, true)
+	T:Is("the key, erased", Here:Record("lostgone").Erased ~= nil, true)
+	T:Warns("it says why, once", "was erased while this session was live", 1)
+end)
+
+Cases.Case("a commit whose write met another server's erase on its first try is still refused", function(T: Case)
+	local Here = T:Bank("nodeA")
+	Here:Seed("racegone", { Gold = 100, Touches = 0 })
+	local Active = Here:Session("racegone")
+
+	Here:Fault(Fault.Updates():OnKey("racegone"):Only(1):Meddle(function()
+		Here.Direct:UpdateAsync("racegone", function(Current: any): any
+			local Tomb = table.clone(Current)
+			Tomb.Ops = {}
+			Tomb.Seen = {}
+			Tomb.Snapshot = nil
+			Tomb.Erased = T:Now()
+			Tomb.Horizon = T:Now()
+			return Tomb
+		end)
+	end))
+
+	local Ok, Why = Active:CommitOp({ Id = "race1", Kind = "Fund", Amount = 5 } :: any):Wait()
+
+	T:Is("the commit", Ok, false)
+	T:Is("the reason, since no try of it wrote", Why, "Refused")
+	T:Is("the session, closed", Active.Released, true)
+end)
+
 local function Outspent(T: Case, UserId: number): (Fixture, any, any)
 	local Players = T:Store({ Keys = "Player", Default = Reducers.MONEY, Reducer = Reducers.Banker })
 	Players:Seed(tostring(UserId), { Gold = 10, Touches = 0 })

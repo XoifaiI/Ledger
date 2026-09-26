@@ -88,8 +88,8 @@ Cases.Case("a fleet reaping one window lists each shard once, and every other se
 	end
 
 	T:Is("shards listed by the whole fleet, plus the one older block the rotation lists", Lists, SHARDS + 1)
-	T:Is("units the first server spent, a read and a write per shard and no release", Spent[1], SHARDS * 3)
-	T:Is("units the last server spent, one read per shard", Spent[SERVERS], SHARDS)
+	T:Is("units the first server spent, a read and a write per shard and for the older block it claims, and no release", Spent[1], (SHARDS + 1) * 3)
+	T:Is("units the last server spent, one read per shard and one for the older block another server claimed", Spent[SERVERS], SHARDS + 1)
 	T:Is("the marker is gone", First:Mark("fleet1"), nil)
 	T:Is("its name is off the cleanup list", First:Rolled()["fleet1"], nil)
 	T:Is("the money it moved is untouched", First:State("fleetB").Gold, 10)
@@ -168,7 +168,8 @@ Cases.Case("a shard with more names than one walk looks at is handed down the fl
 
 	T:Is("markers planted on one shard", Planted, ROOM * 2 + ROOM // 4)
 	T:Is("markers the fleet reaped", Reaped, Planted)
-	T:Is("walks the fleet made, three on the full shard, one on each other, and an older block per rotation", Walks, SHARDS - 1 + 3 + Rotated)
+	T:Ok("servers whose walk back was due on an older block", Rotated > 1)
+	T:Is("walks the fleet made, three on the full shard, one on each other, and the older block once, by the server that claimed it", Walks, SHARDS - 1 + 3 + 1)
 	T:Is("markers left", #First:Marks(), 0)
 end)
 
