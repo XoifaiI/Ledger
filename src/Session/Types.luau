@@ -18,6 +18,7 @@
 local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local ThreadQueue = require("../Util/ThreadQueue")
 local Shapes = require("../Core/Shapes")
 local Reasons = require("../Core/Constants/Reasons")
 local LogTypes = require("../Record/Types")
@@ -26,6 +27,7 @@ type Future<T...> = Future.Future<T...>
 type Observer<T> = Observer.Observer<T>
 type Subject<T> = Observer.Subject<T>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
+type ThreadQueue = ThreadQueue.ThreadQueue
 type Op = Shapes.Op
 type Record<S> = Shapes.Record<S>
 type Reason = Reasons.Reason
@@ -60,6 +62,7 @@ export type Session<S> = setmetatable<{
 	Parked: number,
 	Applied: { [string]: boolean },
 	Pending: { Op },
+	Pushes: ThreadQueue,
 	LogSize: number,
 	LogBytes: number,
 	StateBytes: number,

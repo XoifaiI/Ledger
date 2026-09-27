@@ -27,6 +27,7 @@ local Future = require("../Util/Future")
 local Observer = require("../Util/Observer")
 local TableUtil = require("../Util/TableUtil")
 local DataStoreWrapper = require("../Util/DataStoreWrapper")
+local ThreadQueue = require("../Util/ThreadQueue")
 local Errors = require("../Core/Errors")
 local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
@@ -91,6 +92,7 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 			Parked = 0,
 			Applied = {},
 			Pending = {},
+			Pushes = ThreadQueue.New(Records.Wrapper.Scheduler),
 			LogSize = 0,
 			LogBytes = 0,
 			StateBytes = 0,

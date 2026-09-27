@@ -349,6 +349,7 @@ end
 
 Cases.Case("two servers reaping at once: one lists a shard while the other skips it and walks on", function(T: Case)
 	local One, Two = Pair(T)
+	One:Walked()
 	Funded(One, "reapA", "reapB")
 	T:Ok("the transaction", (Move(One, "reapA", "reapB", 10, "reap1")))
 	T:Advance(Windows.REAP + 60)
@@ -361,29 +362,33 @@ Cases.Case("two servers reaping at once: one lists a shard while the other skips
 	end))
 	One.Store:ReapMarkers()
 
-	T:Is("shards the other server listed while this one held the first, every one but that, plus its older block", Inside, Transactions.SHARDS)
+	T:Is("shards the other server listed while this one held the first, every one but that", Inside, Transactions.SHARDS - 1)
 	T:Is("where the other server's next pass starts, a whole round on", Two.Store.Reaping.Resume, Cleanup.Mine("nodeB"))
 	T:Is("the marker is gone", One:Mark("reap1"), nil)
 	T:Is("its name is off the cleanup list", One:Rolled()["reap1"], nil)
 	T:Is("the money it moved is untouched", Gold(One, "reapB"), 10)
 end)
 
-Cases.Case("a server whose walk back is due on a shard another server holds still lists that older block", function(T: Case)
+Cases.Case("an old block on a shard another server holds is left to that server, and cleared once its lease runs out", function(T: Case)
 	local One, Two = Pair(T)
+	One:Walked()
 	Funded(One, "oldA", "oldB")
 	T:Ok("the transaction", (Move(One, "oldA", "oldB", 10, "old1")))
 	local Written = Cleanup.Block(T:Now())
 	T:Advance(3 * 1000 * Windows.BUCKET + Windows.REAP)
-	local Back = Cleanup.Block(T:Now()) - Written
 	local Own = Cleanup.Mine("nodeA")
 
 	T.Service:GetHashMap(MAP):SetAsync(Shard(Two, Own), "nodeC", Windows.PASS_LEASE)
-	Two.Store.Reaping = { Resume = Own, Shard = Own, Back = Back }
-	Two.Store:ReapMarkers(1)
+	Two.Store:ReapMarkers()
+	local Held = One:Mark("old1")
 
-	T:Ok("the marker's block is behind the two a pass lists anyway", Back >= 2)
-	T:Is("the marker is gone", One:Mark("old1"), nil)
-	T:Is("the walk moved on to the next shard", Two.Store.Reaping.Shard, (Own + 1) % Transactions.SHARDS)
+	T:Advance(Windows.PASS_LEASE + 1)
+	Two.Store:ReapMarkers()
+
+	T:Ok("the marker's block is behind the one before the newest", Cleanup.Block(T:Now()) - Written >= 2)
+	T:Ok("the marker while another server held its shard", Held ~= nil)
+	T:Is("the marker once that lease ran out", One:Mark("old1"), nil)
+	T:Is("the shard's mark, past the marker's block", One:Mark(Cleanup.Low(Own)) > Written, true)
 	T:Is("the money it moved is untouched", Gold(One, "oldB"), 10)
 end)
 
@@ -414,6 +419,7 @@ end)
 
 Cases.Case("a background reap walks one shard a pass, and an operator still gets the whole walk", function(T: Case)
 	local One = T:Bank("nodeA")
+	One:Walked()
 	Funded(One, "downA", "downB")
 	Faulted(One, Fault.Updates())
 
@@ -428,7 +434,7 @@ Cases.Case("a background reap walks one shard a pass, and an operator still gets
 	T:Is("shards a background pass listed with the map down", First, 1)
 	T:Is("the shard its next pass starts on, one past the one it walked", Onward, (Cleanup.Mine("nodeA") + 1) % Transactions.SHARDS)
 	T:Is("shards the pass after that listed", Second, 1)
-	T:Is("shards an operator's reap listed, plus the older block the rotation lists", Listed.Count - First - Second, Transactions.SHARDS + 1)
+	T:Is("shards an operator's reap listed", Listed.Count - First - Second, Transactions.SHARDS)
 	T:Warns("it said the map did not answer", "did not answer")
 end)
 
@@ -517,6 +523,7 @@ end)
 
 Cases.Case("a crashed holder's lease on a shard runs out and the next pass takes it", function(T: Case)
 	local One = T:Bank("nodeA")
+	One:Walked()
 	local Dead = Cleanup.Mine("nodeA")
 	T.Service:GetHashMap(MAP):SetAsync(Shard(One, Dead), "gone", Windows.PASS_LEASE)
 
@@ -527,8 +534,8 @@ Cases.Case("a crashed holder's lease on a shard runs out and the next pass takes
 	T:Advance(Windows.PASS_LEASE + 1)
 	One.Store:ReapMarkers()
 
-	T:Is("shards listed while a dead server held one, plus the older block the rotation lists", Skipping, Transactions.SHARDS)
-	T:Is("shards listed once its lease ran out, plus the older block", Listed.Count - Skipping, Transactions.SHARDS + 1)
+	T:Is("shards listed while a dead server held one, every other one", Skipping, Transactions.SHARDS - 1)
+	T:Is("shards listed once its lease ran out, every one", Listed.Count - Skipping, Transactions.SHARDS)
 end)
 
 Cases.Case("a starved server takes no lease on a shard or a followed key, and Resettle takes none at all", function(T: Case)

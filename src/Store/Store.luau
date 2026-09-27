@@ -76,7 +76,7 @@ local function Batching(Every: number?): Types.Batched?
 end
 
 local function Rotation(): Types.Reaping
-	return { Resume = nil, Shard = 0, Back = 2 }
+	return { Resume = nil, Cursor = nil, Lows = {}, Busy = nil, Turn = false }
 end
 
 local function Metering(): Types.Meter

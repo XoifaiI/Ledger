@@ -8,10 +8,18 @@
 	A transaction writes the key of each marker it may open here before it opens one, so no marker
 	exists without one. Names are spread over shards and buckets of time. A key holds up to a limit,
 	then the next key of that bucket takes the rest. Any one key costs a bounded read and write. A
-	name the reaper cannot clear yet is carried onto a newer key.
+	name the reaper looked at and cannot clear yet is carried onto a newer key.
 
 	Each store remembers which part of a bucket to write to next. Two stores keep their own keys, and
 	neither one fills the other's.
+
+	A block is a thousand minutes of one shard. Each shard has a mark in the marker store, the oldest
+	block that may still hold a key. A name is only ever written in the minute it is written, so a
+	block takes no new key once it is sealed, an hour after it ends. The reaper lists from the mark
+	and moves it on only past a block it found empty once sealed. A run of blocks that starts on a
+	round number is listed with one shorter prefix, ten or a hundred blocks at a time, so a long
+	empty stretch costs few listings. Raise only ever moves a mark forward. A shard with no mark
+	starts REACH blocks back, as far as the walk back of 6.2.0 went.
 
 	A key has been three shapes. It carried the shard and the minute, then a part number after that,
 	and now the server's name before the part. A pass reads all three, since a deploy is not
@@ -20,7 +28,7 @@
 	on their own and never have to be migrated. Every shape starts with the shard and the minute,
 	which is all a prefix listing reads, so one listing finds them all.
 
-	Return type: A table with Key, Named, Block, Blocks, Older, At, Mine, Add, Carry and BACK.
+	Return type: A table with Key, Named, Block, Prefix, Span, Sealed, Open, Low, Raise, At, Mine, Add, Carry and REACH.
 	Example usage:
 		local Cleanup = require("./Cleanup")
 		Cleanup.Add(TxStore, "trade1")
@@ -42,7 +50,8 @@ local PART_WIDTH = 3
 local SLOT_WIDTH = 2
 local BLOCK_WIDTH = 7
 local BLOCK = 10 ^ (WIDTH - BLOCK_WIDTH)
-local BACK = Windows.STUCK // (BLOCK * Windows.BUCKET) + 2
+local SEAL = Windows.REAP + Windows.REAP_GRACE + Windows.BUCKET
+local REACH = Windows.STUCK // (BLOCK * Windows.BUCKET) + 2
 local NODE_MOST = Datastore.MAX_KEY - (#Transactions.RESERVED + SLOT_WIDTH + WIDTH + PART_WIDTH + 3)
 
 assert(Transactions.SHARDS <= 10 ^ SLOT_WIDTH, "a cleanup list key writes its shard in two digits, so more shards than that would write keys the reaper cannot read back")
@@ -51,13 +60,14 @@ assert(
 	"a listing prefix is the front of a key's minute, so a block has to be written in fewer digits than the minute it cuts down, or no prefix would ever match a key and nothing would be reaped"
 )
 assert(
-	BLOCK * Windows.BUCKET >= Windows.REAP + Windows.REAP_GRACE + Windows.BUCKET,
-	"a listing block has to hold every minute a marker can still be waiting to be judged, or a pass that lists the current block and the one before it would miss a key"
+	BLOCK * Windows.BUCKET >= SEAL,
+	"a block has to last longer than the hour after it ends in which a late name can still land in it, or two blocks could be open at once and a mark could pass one that still takes keys"
 )
 
 local DIGITS = string.rep("%d", WIDTH)
 local FORMAT = `{Transactions.RESERVED}%02d:%0{WIDTH}d:%s:%0{PART_WIDTH}d`
 local HEAD = `{Transactions.RESERVED}%02d:%0{BLOCK_WIDTH}d`
+local LOW = `{Transactions.RESERVED}low:%02d`
 local NAMED = `^{Transactions.RESERVED}%d%d:({DIGITS}):%w+:%d+$`
 local PARTED = `^{Transactions.RESERVED}%d%d:({DIGITS}):%d+$`
 local WHOLE = `^{Transactions.RESERVED}%d%d:({DIGITS})$`
@@ -94,23 +104,37 @@ local function Prefix(Slot: number, Held: number): string
 	return string.format(HEAD, Slot, Held)
 end
 
-local function Blocks(Slot: number, Now: number, Older: number?): { string }
-	local Current = Block(Now)
-	local Held = { Prefix(Slot, Current) }
-	if Now - Current * BLOCK * Windows.BUCKET < Windows.REAP + Windows.REAP_GRACE + Windows.BUCKET then
-		table.insert(Held, Prefix(Slot, Current - 1))
+local function Span(Slot: number, First: number, Last: number): (string, number)
+	local Size = 1
+	local Digits = BLOCK_WIDTH
+	while Digits > 1 and First % (Size * 10) == 0 and First + Size * 10 - 1 <= Last do
+		Size *= 10
+		Digits -= 1
 	end
-	if Older ~= nil and Older >= 2 and Current - Older >= 0 then
-		table.insert(Held, Prefix(Slot, Current - Older))
-	end
-	return Held
+	return string.format(`{Transactions.RESERVED}%02d:%0{Digits}d`, Slot, First // Size), Size
 end
 
-local function Older(Slot: number, Now: number, Back: number?): { string }
-	if Back == nil or Back < 2 or Block(Now) - Back < 0 then
-		return {}
-	end
-	return { Prefix(Slot, Block(Now) - Back) }
+local function Sealed(Held: number, Now: number): boolean
+	return Now - (Held + 1) * BLOCK * Windows.BUCKET >= SEAL
+end
+
+local function Open(Now: number): number
+	local Current = Block(Now)
+	return if Sealed(Current - 1, Now) then Current else Current - 1
+end
+
+local function Low(Slot: number): string
+	return string.format(LOW, Slot)
+end
+
+local function Raise(TxStore: DataStoreWrapper, Slot: number, To: number): boolean
+	local Ok = TxStore:UpdateAsync(Low(Slot), function(Current: any): number?
+		if type(Current) == "number" and Current >= To then
+			return nil
+		end
+		return To
+	end)
+	return Ok
 end
 
 local function At(Held: string): number?
@@ -204,11 +228,15 @@ return table.freeze({
 	Key = Key,
 	Named = Named,
 	Block = Block,
-	Blocks = Blocks,
-	Older = Older,
+	Prefix = Prefix,
+	Span = Span,
+	Sealed = Sealed,
+	Open = Open,
+	Low = Low,
+	Raise = Raise,
 	At = At,
 	Mine = Mine,
 	Add = Add,
 	Carry = Carry,
-	BACK = BACK,
+	REACH = REACH,
 })

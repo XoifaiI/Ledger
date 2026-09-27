@@ -73,6 +73,7 @@ end
 Cases.Case("a fleet reaping one window lists each shard once, and every other server pays one read per shard", function(T: Case)
 	local Servers = Fleet(T)
 	local First = Servers[1]
+	First:Walked()
 	Funded(First, "fleetA", "fleetB")
 	T:Ok("the transaction", (Move(First, "fleetA", "fleetB", 10, "fleet1")))
 	T:Advance(Windows.REAP + 60)
@@ -87,9 +88,9 @@ Cases.Case("a fleet reaping one window lists each shard once, and every other se
 		Lists += Listed.Count
 	end
 
-	T:Is("shards listed by the whole fleet, plus the one older block the rotation lists", Lists, SHARDS + 1)
-	T:Is("units the first server spent, a read and a write per shard and for the older block it claims, and no release", Spent[1], (SHARDS + 1) * 3)
-	T:Is("units the last server spent, one read per shard and one for the older block another server claimed", Spent[SERVERS], SHARDS + 1)
+	T:Is("shards listed by the whole fleet, each once", Lists, SHARDS)
+	T:Is("units the first server spent, a read and a write per shard, and no release", Spent[1], SHARDS * 3)
+	T:Is("units the last server spent, one read per shard", Spent[SERVERS], SHARDS)
 	T:Is("the marker is gone", First:Mark("fleet1"), nil)
 	T:Is("its name is off the cleanup list", First:Rolled()["fleet1"], nil)
 	T:Is("the money it moved is untouched", First:State("fleetB").Gold, 10)
@@ -145,6 +146,7 @@ end)
 Cases.Case("a shard with more names than one walk looks at is handed down the fleet until it is empty", function(T: Case)
 	local Servers = Fleet(T)
 	local First = Servers[1]
+	First:Walked()
 
 	local Planted = 0
 	for _, Count in { ROOM, ROOM, ROOM // 4 } do
@@ -158,18 +160,15 @@ Cases.Case("a shard with more names than one walk looks at is handed down the fl
 
 	local Walks = 0
 	local Reaped = 0
-	local Rotated = 0
 	for _, Held in Servers do
 		local Listed = Listing(Held)
 		Reaped += Held.Store:ReapMarkers()
 		Walks += Listed.Count
-		Rotated += if Held.Store.Reaping.Shard ~= 0 then 1 else 0
 	end
 
 	T:Is("markers planted on one shard", Planted, ROOM * 2 + ROOM // 4)
 	T:Is("markers the fleet reaped", Reaped, Planted)
-	T:Ok("servers whose walk back was due on an older block", Rotated > 1)
-	T:Is("walks the fleet made, three on the full shard, one on each other, and the older block once, by the server that claimed it", Walks, SHARDS - 1 + 3 + 1)
+	T:Is("walks the fleet made, three on the full shard and one on each other", Walks, SHARDS - 1 + 3)
 	T:Is("markers left", #First:Marks(), 0)
 end)
 

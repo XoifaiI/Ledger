@@ -1091,6 +1091,51 @@ Cases.Case("a shared transfer name sent again after its delivery id left seen ke
 	T:Is("money is conserved", Total, 2000)
 end)
 
+Cases.Case("a give back judged against one hold does not hand back a newer hold under the same transfer name", function(T: Case)
+	local Bank = Funded(T, { staleA = 100, staleB = 0 })
+	local Other = T:Bank("nodeB")
+
+	local First = Transfer.Reserve(Bank:Log(), Bank:Format(), "staleA", "staleB", 40, "stale1") :: any
+	local Judged = First.Hold
+	T:Advance(PAST_REDRIVE)
+
+	local NewerAt: number? = nil
+	Bank:Fault(Fault.Updates():OnKey("staleA"):Only(1):Meddle(function()
+		Recovery.Transfers(Other:Log(), Other:Format(), "staleA", Other:Stored("staleA")._Held)
+		Other:Forget("staleA", { "res:stale1", "exp:stale1" })
+		local Newer = Transfer.Reserve(Other:Log(), Other:Format(), "staleA", "staleB", 40, "stale1") :: any
+		NewerAt = Newer.Hold.At
+		Deliver(Other, "staleB", "stale1", 40, Newer.Hold.At :: number)
+	end))
+	Recovery.Transfers(Bank:Log(), Bank:Format(), "staleA", { stale1 = Judged })
+	local Between = Bank:Aside("staleA")
+	Recovery.Transfers(Bank:Log(), Bank:Format(), "staleA", Bank:Stored("staleA")._Held)
+
+	local Total = Bank:Amount("staleA") + Bank:Aside("staleA") + Bank:Amount("staleB")
+	T:Ok("the transfer was sent again after the first hold went back", NewerAt ~= nil and NewerAt ~= Judged.At)
+	T:Is("the newer hold, still set aside once the late give back landed", Between, 40)
+	T:Is("gold on the receiver, from the transfer sent again", Bank:Amount("staleB"), 40)
+	T:Is("gold on the sender, which paid the transfer sent again", Bank:Amount("staleA"), 60)
+	T:Is("nothing set aside once recovery settled it", Bank:Aside("staleA"), 0)
+	T:Is("money is conserved", Total, 100)
+end)
+
+Cases.Case("a settle judged against one hold does not clear a newer hold under the same transfer name", function(T: Case)
+	local Bank = Funded(T, { clearA = 100, clearB = 0 })
+
+	local First = Transfer.Reserve(Bank:Log(), Bank:Format(), "clearA", "clearB", 40, "clear1") :: any
+	T:Advance(DAY)
+	local Newer = { To = "clearB", Amount = 40, At = First.Hold.At + DAY }
+	Bank:Write("clearA", { Snapshot = { Gold = 60, _Held = { clear1 = Newer } }, Ops = {}, Seen = {} })
+
+	Bank:Append("clearA", {
+		{ Id = "set:clear1", Kind = "__TransferSettle", Tid = "clear1", At = T:Now(), HeldAt = First.Hold.At } :: any,
+	})
+
+	T:Is("the newer hold, still set aside", Bank:Aside("clearA"), 40)
+	T:Is("gold on the sender", Bank:Amount("clearA"), 60)
+end)
+
 Cases.Case("a second erase keeps the names a refund still has to check, so a delivered transfer is not given back", function(T: Case)
 	local Bank = Funded(T, { twiceA = 100, twiceB = 0, twiceC = 0 })
 

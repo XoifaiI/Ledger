@@ -6,6 +6,8 @@
 	Fixture: One store on the case bench, and everything a case does to it.
 
 	Seed, Write, Park and Marker put a key into a state by writing raw records straight at the mock.
+	Walked sets every shard's reap mark to the oldest block that can still take a name, as a game that
+	cleared its old blocks leaves it, so a case about what one pass lists does not count that walk.
 	The faults a case installed cannot break its own setup. Record, Stored, Amount and the rest read
 	it back through Ledger's own reader over an unfaulted handle. Nothing here works out what a record
 	means for itself.
@@ -39,6 +41,7 @@ type FixtureImpl = {
 	Seed: (self: Fixture, Key: string, Snapshot: { [string]: any }) -> (),
 	Write: (self: Fixture, Key: string, Record: { [string]: any }) -> (),
 	Marker: (self: Fixture, Id: string, Fields: { [string]: any }) -> (),
+	Walked: (self: Fixture) -> (),
 	Park: (self: Fixture, Key: string, Op: { [string]: any }) -> (),
 	Append: (self: Fixture, Key: string, Ops: { any }) -> (),
 	Forget: (self: Fixture, Key: string, Prefixes: { string }) -> (),
@@ -187,6 +190,15 @@ function Fixture.Marker(self: Fixture, Id: string, Fields: { [string]: any })
 		table.insert(Held, Id)
 		return Mark.Pack(Held)
 	end)
+end
+
+function Fixture.Walked(self: Fixture)
+	local Open = Cleanup.Open(self.Store.Wrapper.Scheduler.Now())
+	for Shard = 0, Transactions.SHARDS - 1 do
+		self.DirectMarks:UpdateAsync(Cleanup.Low(Shard), function(): number
+			return Open
+		end)
+	end
 end
 
 function Fixture.Park(self: Fixture, Key: string, Op: { [string]: any })

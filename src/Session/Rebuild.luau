@@ -5,7 +5,10 @@
 
 	Rebuild: Pushes the queued ops to the log, and builds the state again.
 
-	Push reads back which ops actually landed rather than trusting the call that returned. Roomed
+	Push reads back which ops actually landed rather than trusting the call that returned. One push
+	runs at a time on a session, and it takes its batch when its turn comes. So no push offers an op
+	that an earlier push landed, since a key that has compacted that op's id away cannot tell it
+	from a new one and would apply it again. Roomed
 	compacts a key its append found full and tries once more, for a push and a commit alike. Append
 	carries the fence, which is the erase mark the key had at load. A write lands only while that mark
 	is unchanged or has run out, and Fenced drops a mark that has. A push the fence turns away closes
@@ -144,7 +147,7 @@ local function Ids(List: { string }): { [string]: boolean }
 	return Set
 end
 
-local function Push<S>(self: Session<S>): (Record?, boolean?)
+local function Pushed<S>(self: Session<S>): (Record?, boolean?)
 	local Count = #self.Pending
 	if Count == 0 then
 		return nil, true
@@ -181,6 +184,18 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 
 	self.LogSize = #Stored.Ops
 	return Stored, Missed == 0
+end
+
+local function Push<S>(self: Session<S>): (Record?, boolean?)
+	local Ok, Stored, Whole = self.Pushes:SubmitAsync(function(): (boolean, any, boolean?)
+		return pcall(function(): (Record?, boolean?)
+			return Pushed(self)
+		end)
+	end)
+	if not Ok then
+		error(Stored, 0)
+	end
+	return Stored, Whole
 end
 
 local function Diverged(Live: any, Folded: any, Path: string): string?

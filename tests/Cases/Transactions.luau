@@ -458,6 +458,7 @@ end)
 
 Cases.Case("a reap pass on a shard costs the same however many roll keys it removed this month", function(T: Case)
 	local Bank = T:Bank()
+	Bank:Walked()
 	local Shard = Cleanup.Mine(Bank.Store.Node)
 	local Lists = Enum.DataStoreRequestType.ListAsync
 	local Days = 2 * Windows.DAY
@@ -502,7 +503,7 @@ Cases.Case("a reap pass on a shard costs the same however many roll keys it remo
 		Bank.Store:ReapMarkers(1)
 	end)
 
-	T:Is("list requests for a shard with 1,500 removed keys two days back, the block they sit in is not listed", Cheap <= 2, true)
+	T:Is("list requests for a shard with 1,500 removed keys two days back, in a block its mark is past and no pass lists again", Cheap <= 2, true)
 	T:Is("the markers it found anyway", Gone, 0)
 	T:Is("list requests once 1,500 removed keys sit in the block it does list, one per 512 checked", Dear, 3)
 end)
@@ -571,6 +572,7 @@ end)
 
 Cases.Case("a list that fails drops the bookmark, so the next pass starts the listing again", function(T: Case)
 	local Bank = T:Bank()
+	Bank:Walked()
 	local Shard = Cleanup.Mine(Bank.Node)
 	local Lists = Enum.DataStoreRequestType.ListAsync
 	local Planted = 200
@@ -2183,14 +2185,14 @@ Cases.Case("a marker whose keys cannot be read waits for the horizon rather than
 
 	T:Advance(Suite.Horizons.PRUNE)
 	local Passes = 0
-	while Bank:Mark("unpref1") ~= nil and Passes < Cleanup.BACK * Transactions.SHARDS do
+	while Bank:Mark("unpref1") ~= nil and Passes < Cleanup.REACH * Transactions.SHARDS do
 		Passes += 1
 		Bank.Store:ReapMarkers(1)
 	end
 
 	T:Is("a marker whose keys carry no length in front, while it is still young", type(Early), "table")
 	T:Is("the same marker once nothing has touched it for the horizon", Bank:Mark("unpref1"), nil)
-	T:Ok("the rotation reached the block its name sat in, inside one round of every shard and every block", Passes < Cleanup.BACK * Transactions.SHARDS)
+	T:Ok("the walk reached the block its name sat in, inside a visit to its shard for every block", Passes < Cleanup.REACH * Transactions.SHARDS)
 	T:Is("gold is untouched either way", Bank:Amount("unprefixed"), 100)
 	T:Warns("it said the keys could not be read", "names no keys Ledger can read", 2)
 end)
@@ -2346,16 +2348,193 @@ Cases.Case("a marker naming no keys is taken off once nothing has touched it for
 
 	T:Advance(Suite.Horizons.PRUNE)
 	local Passes = 0
-	while Bank:Mark("stuckblind1") ~= nil and Passes < Cleanup.BACK * Transactions.SHARDS do
+	while Bank:Mark("stuckblind1") ~= nil and Passes < Cleanup.REACH * Transactions.SHARDS do
 		Passes += 1
 		Bank.Store:ReapMarkers(1)
 	end
 
 	T:Is("it is kept while it is young enough to be worth reading again", type(Early), "table")
 	T:Is("it is taken off once nothing has touched it for the horizon", Bank:Mark("stuckblind1"), nil)
-	T:Ok("the rotation reached it inside one round of every shard and every block", Passes < Cleanup.BACK * Transactions.SHARDS)
+	T:Ok("the walk reached it inside a visit to its shard for every block", Passes < Cleanup.REACH * Transactions.SHARDS)
 	T:Is("its name on the cleanup list", Bank:Rolled()["stuckblind1"], nil)
 	T:Warns("it said the marker was written off", "can read and nothing has touched it", 1)
+end)
+
+local BLOCK_SECONDS = 1000 * Windows.BUCKET
+
+local function Onto(T: Case, Block: number)
+	T:Advance(Block * BLOCK_SECONDS + Windows.REAP + Windows.REAP_GRACE + 2 * Windows.BUCKET - T:Now())
+end
+
+local function Dead(Bank: Fixture, Id: string)
+	Bank:Marker(Id, { Status = "Aborted", Total = 0, Adopted = {} })
+end
+
+Cases.Case("a marker whose cleanup list sat out an outage of more than thirty days is still taken off", function(T: Case)
+	local Bank = T:Bank()
+	Dead(Bank, "outage1")
+	Bank.Store:ReapMarkers()
+	local Early = Bank:Mark("outage1")
+
+	T:Advance(33 * Windows.DAY)
+	local Passes = 0
+	while Bank:Mark("outage1") ~= nil and Passes < 2 * Transactions.SHARDS do
+		Passes += 1
+		Bank.Store:ReapMarkers()
+	end
+
+	T:Is("the marker, too young for the pass before the outage", type(Early), "table")
+	T:Is("the marker once the game came back", Bank:Mark("outage1"), nil)
+	T:Is("its name on the cleanup list", Bank:Rolled()["outage1"], nil)
+end)
+
+Cases.Case("an older block is cleared even while the newest block holds more than a pass can take", function(T: Case)
+	local Bank = T:Bank()
+	local Room = 8
+	Dead(Bank, "lagging1")
+	Onto(T, Cleanup.Block(T:Now()) + 2)
+
+	local Rounds = 0
+	while Bank:Mark("lagging1") ~= nil and Rounds < 2 * Transactions.SHARDS do
+		Rounds += 1
+		for _, Id in Batch(2 * Room, `busy{Rounds}x`) do
+			Dead(Bank, Id)
+		end
+		T:Advance(Windows.REAP_GRACE + 1)
+		Bank.Store:ReapMarkers(nil, Room)
+	end
+
+	T:Is("the marker in the older block", Bank:Mark("lagging1"), nil)
+	T:Is("its name on the cleanup list", Bank:Rolled()["lagging1"], nil)
+end)
+
+Cases.Case("the reap mark does not pass a block while a cleanup list in it could not be cleared", function(T: Case)
+	local Bank = T:Bank()
+	local Own = Cleanup.Mine(Bank.Node)
+	Dead(Bank, "blocked1")
+	local Written = Cleanup.Block(T:Now())
+	local Listed = Cleanup.Key(Bank.Node, T:Now())
+	Onto(T, Written + 2)
+
+	local Blocked = Bank:MarkerFault(Fault.Reads():OnKey(Listed))
+	for _ = 1, Transactions.SHARDS do
+		Bank.Store:ReapMarkers()
+	end
+	local Held = Bank:Mark(Cleanup.Low(Own))
+
+	Bank:Healed()
+	for _ = 1, 4 do
+		Bank.Store:ReapMarkers()
+	end
+	local Moved = Bank:Mark(Cleanup.Low(Own))
+
+	T:Ok("the list could not be read while it was faulted", Blocked.Fired > 0)
+	T:Is("the mark while that list stood", Held, Written)
+	T:Is("the marker once the list could be read", Bank:Mark("blocked1"), nil)
+	T:Ok("the mark once that block was clear", type(Moved) == "number" and Moved > Written)
+end)
+
+Cases.Case("a server that cleared less than another never moves the reap mark back", function(T: Case)
+	local One = T:Bank("nodeA")
+	local Two = T:Bank("nodeB")
+	local Shard = Cleanup.Mine(One.Node)
+	local Now = Cleanup.Block(T:Now())
+
+	local Ahead = Cleanup.Raise(One.Store.TxWrapper, Shard, Now - 3)
+	local Behind = Cleanup.Raise(Two.Store.TxWrapper, Shard, Now - 9)
+
+	T:Ok("the first raise answered", Ahead)
+	T:Ok("the lower raise answered too", Behind)
+	T:Is("the mark", One:Mark(Cleanup.Low(Shard)), Now - 3)
+end)
+
+Cases.Case("a reap mark nobody can read starts the walk thirty days back rather than never", function(T: Case)
+	local Bank = T:Bank()
+	local Own = Cleanup.Mine(Bank.Node)
+	local At = T:Now() - 40 * BLOCK_SECONDS
+
+	Bank.DirectMarks:UpdateAsync("old40", function(): any
+		return { Status = "Aborted", Total = 0, Adopted = {} }
+	end)
+	Bank.DirectMarks:UpdateAsync(Cleanup.Named(Own, At, Bank.Node, 1), function(): string
+		return Mark.Pack({ "old40" })
+	end)
+	Bank.DirectMarks:UpdateAsync(Cleanup.Low(Own), function(): string
+		return "not a block"
+	end)
+	T:Advance(Windows.REAP_GRACE + 1)
+
+	local Passes = 0
+	while Bank:Mark("old40") ~= nil and Passes < 2 * Transactions.SHARDS do
+		Passes += 1
+		Bank.Store:ReapMarkers()
+	end
+
+	T:Is("the marker whose list sat forty blocks back", Bank:Mark("old40"), nil)
+	T:Is("the mark, a block again", type(Bank:Mark(Cleanup.Low(Own))), "number")
+end)
+
+Cases.Case("a reap mark ahead of the clock still leaves the block before the newest to be cleared", function(T: Case)
+	local Bank = T:Bank()
+	local Own = Cleanup.Mine(Bank.Node)
+	local Next = Cleanup.Block(T:Now()) + 1
+	T:Advance(Next * BLOCK_SECONDS - 10 * Windows.BUCKET - T:Now())
+	Dead(Bank, "edge1")
+	T:Advance(Next * BLOCK_SECONDS + Windows.REAP_GRACE + Windows.BUCKET - T:Now())
+
+	Bank.DirectMarks:UpdateAsync(Cleanup.Low(Own), function(): number
+		return Next + 5
+	end)
+	Bank.Store:ReapMarkers()
+
+	T:Ok("the marker sat in the block before the newest", Cleanup.Block(T:Now()) == Next)
+	T:Is("the marker", Bank:Mark("edge1"), nil)
+end)
+
+Cases.Case("a cleanup key with more names than a pass can look at keeps the rest where they are, so the next pass reads them at once", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Walked()
+	local Room = 5
+	local Names = Batch(3 * Room, "restx")
+	for _, Id in Names do
+		Dead(Bank, Id)
+	end
+	local Listed = Cleanup.Key(Bank.Node, T:Now())
+	T:Advance(Windows.REAP_GRACE + 1)
+
+	local First = Bank.Store:ReapMarkers(nil, Room)
+	local Rest = Bank:Mark(Listed)
+	local Second = Bank.Store:ReapMarkers(nil, Room)
+
+	T:Is("the first pass takes its fill", First, Room)
+	T:Ok("the names it did not reach, still on the key they were on", type(Rest) == "string" and #Mark.Unpack(Rest) == 2 * Room)
+	T:Is("the next pass, straight after, takes its fill too", Second, Room)
+end)
+
+Cases.Case("a server that walks one shard a pass comes back to a shard with names left every other pass", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Walked()
+	local Room = 5
+	local Fill = 10
+	local Hot = (Cleanup.Mine(Bank.Node) + 3) % Transactions.SHARDS
+	local Server = T:Bank(NodeOn(Hot))
+	for Index = 1, Fill do
+		for _, Id in Batch(Room, `hot{Index}x`) do
+			Dead(Server, Id)
+		end
+		T:Advance(Windows.BUCKET)
+	end
+	T:Advance(Windows.REAP_GRACE + 1)
+
+	local Passes = 0
+	while #Bank:Marks() > 0 and Passes < Fill * Transactions.SHARDS do
+		Passes += 1
+		Bank.Store:ReapMarkers(1, Room)
+		T:Advance(Windows.SWEEP)
+	end
+
+	T:Is("markers left", #Bank:Marks(), 0)
+	T:Ok("passes it took, two for each pass's worth of names once the round reached the shard, not a round each", Passes <= 2 * Fill + 4)
 end)
 
 Cases.Case("a stale marker naming no keys says so rather than sitting there quietly", function(T: Case)

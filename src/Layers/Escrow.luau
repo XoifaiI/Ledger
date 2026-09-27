@@ -10,6 +10,12 @@
 	separate op, so each is atomic on its own key. Expire gives a hold back, and Prune drops names
 	that have aged out.
 
+	A transfer name can be set aside again once its hold went back and the key forgot the ops. So a
+	settle or an expire names the hold it was judged against by the time that hold was set aside,
+	and leaves any other hold under the name alone. Otherwise one that lands late could give back,
+	or clear, a newer hold whose money is already on its way. An op an older build wrote names no
+	hold, and acts on the one it finds.
+
 	Return type: A table with Layered and Entry.
 	Example usage:
 		local Escrow = require("./Escrow")
@@ -115,6 +121,10 @@ local function Delivering(Data: Data, Op: Op, Balance: string?): Data?
 	return Next
 end
 
+local function Judged(Found: Held, Op: Op): boolean
+	return type(Op.HeldAt) ~= "number" or Found.At == Op.HeldAt
+end
+
 local function Expiring(Data: Data, Op: Op, Balance: string?): Data?
 	local Tid = Op.Tid
 	if type(Tid) ~= "string" then
@@ -123,7 +133,7 @@ local function Expiring(Data: Data, Op: Op, Balance: string?): Data?
 
 	local Held = Data._Held
 	local Found = Entry(Held, Tid)
-	if Held == nil or Found == nil then
+	if Held == nil or Found == nil or not Judged(Found, Op) then
 		return nil
 	end
 	local Field = Found.Field or Balance
@@ -148,7 +158,8 @@ local function Settling(Data: Data, Op: Op): Data?
 		return nil
 	end
 	local Holds = Data._Held
-	if Holds == nil or Entry(Holds, Tid) == nil then
+	local Found = Entry(Holds, Tid)
+	if Holds == nil or Found == nil or not Judged(Found, Op) then
 		return nil
 	end
 	if type(Op.At) ~= "number" then

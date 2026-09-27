@@ -11,18 +11,28 @@
 	A key it cannot read counts as still holding one. Each pass reads a fixed number of names per
 	shard and gives back where it stopped.
 
-	A pass with a Claim asks it before each shard and skips a shard another server holds. A skipped
-	shard still counts as walked. A walk back claims the older block it is due to list apart from the
-	shard, so the servers whose walks meet on one block list it once between them. A server that finds
-	that block claimed counts it as walked, and one whose shard is held elsewhere still lists the block
-	it claimed. Servers that meet on a shard would otherwise stall each other's walk back, and an old
-	marker could wait for weeks. A Bounded pass whose Claim cannot reach its map stops after one shard
-	and gives back the next one. One server still covers every shard, over as many passes as there are
-	shards. Only the background pass is bounded. An operator gets the whole walk.
+	A visit to a shard lists from the shard's mark first, the oldest block that may still hold a key,
+	since those names have waited longest. It lists one run of blocks there, and the newest block after
+	it with the room that is left. Once a listing of a run ends and every key it found went, the mark
+	moves past the run, but never past a block that can still take a name. A key the pass could not
+	clear holds the mark on its block. So no block ages out of reach, whatever an outage or a busy
+	newest block did, and every name is looked at in turn until it is reaped or written off. Each
+	server keeps where it is in a run, and reads the mark again once another server may have moved it.
+
+	A key holding more names than a pass can look at keeps the rest where they are. Nobody adds to a
+	key once its minute is past, so the next pass reads them at once. Only a name that was looked at
+	and has to wait is carried onto a newer key. A pass also gives back the last shard it ran out of
+	room on, since names are left there, for the store to come back to.
+
+	A pass with a Claim asks it before each shard and skips a shard another server holds, since that
+	server walks it, its old blocks too. A skipped shard still counts as walked. A Bounded pass whose
+	Claim cannot reach its map stops after one shard and gives back the next one. One server still
+	covers every shard, over as many passes as there are shards. Only the background pass is bounded.
+	An operator gets the whole walk.
 
 	Three questions run the pass and each answers one word rather than a pair of flags. Reading the
 	keys a marker names proves it Finished, still Holding, or Unreadable. A marker is then Kept for a
-	later pass, found already Gone, or Reaped. Listing a block of the cleanup list ends Done, Full
+	later pass, found already Gone, or Reaped. Listing a run of the cleanup list ends Done, Full
 	when there is no room left to look, or Stopped when something outside the pass gave out. Only
 	Stopped ends the whole walk.
 
@@ -49,6 +59,7 @@ type Record = Shapes.Record<any>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type Lookup = Types.Lookup
 type Claimed = Types.Claimed
+type Low = Types.Low
 
 export type Bookmark = {
 	Shard: number,
@@ -62,9 +73,10 @@ export type Reaping = {
 	Horizon: number?,
 	Limit: number?,
 	Shards: number?,
-	Older: { Shard: number, Back: number, Cursor: Bookmark? }?,
+	Cursor: Bookmark?,
+	Lows: { [number]: Low }?,
 	Afford: (() -> boolean)?,
-	Claim: ((Shard: number, Block: number?) -> Claimed)?,
+	Claim: ((Shard: number) -> Claimed)?,
 }
 
 type Walk = {
@@ -226,14 +238,21 @@ local function Gone(Walk: Walk, Txid: string): Fate
 	return REAPED
 end
 
-local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
+local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number, boolean)
 	if Looks <= 0 or not Affords(Walk) then
-		return 0, 0
+		return 0, 0, false
 	end
 
 	local Read, Packed = Walk.TxStore:GetAsync(Named)
-	if not Read or type(Packed) ~= "string" then
-		return 0, 0
+	if not Read then
+		return 0, 0, false
+	end
+	if Packed == nil then
+		return 0, 0, true
+	end
+	if type(Packed) ~= "string" then
+		local Gone = Walk.TxStore:RemoveAsync(Named)
+		return 0, 0, Gone
 	end
 
 	local Held = Mark.Unpack(Packed)
@@ -261,60 +280,92 @@ local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
 	end
 
 	if Looked == 0 and #Held > 0 then
-		return 0, 0
+		return 0, 0, false
 	end
 
-	for _, Txid in Kept do
-		table.insert(Later, Txid)
+	if #Kept > 0 and not Cleanup.Carry(Walk.TxStore, Walk.Shard, Walk.Node, Kept) then
+		return Reaped, Looked, false
 	end
-
 	if #Later == 0 then
-		Walk.TxStore:RemoveAsync(Named)
-		return Reaped, Looked
+		local Gone = Walk.TxStore:RemoveAsync(Named)
+		return Reaped, Looked, Gone
 	end
-	if Cleanup.Carry(Walk.TxStore, Walk.Shard, Walk.Node, Later) then
-		Walk.TxStore:RemoveAsync(Named)
+
+	local Seen: { [string]: boolean } = {}
+	for Index = 1, Looked do
+		Seen[Held[Index]] = true
 	end
-	return Reaped, Looked
+	Walk.TxStore:UpdateAsync(Named, function(Current: any): string?
+		if type(Current) ~= "string" then
+			return nil
+		end
+		local Rest: { string } = {}
+		for _, Txid in Mark.Unpack(Current) do
+			if not Seen[Txid] then
+				table.insert(Rest, Txid)
+			end
+		end
+		return Mark.Pack(Rest)
+	end)
+	return Reaped, Looked, false
 end
 
 local function Full(Walk: Walk, Looks: number): boolean
 	return Walk.Reaped >= Walk.Room or Looks <= 0
 end
 
-local function Listed(Walk: Walk, Prefix: string, Looks: number, From: string?): (Ending, string?)
+local function Oldest(Kept: number?, At: number): number
+	local Held = Cleanup.Block(At)
+	return if Kept == nil or Held < Kept then Held else Kept
+end
+
+local function Listed(Walk: Walk, Prefix: string, Looks: number, From: string?): (Ending, string?, number?)
 	local Ok, Pages = Walk.TxStore:ListKeysAsync(Prefix, Transactions.REAP_PAGE, From, nil, ONCE)
 	if not Ok then
-		return STOPPED, nil
+		return STOPPED, nil, nil
 	end
 
 	local Book = Pages :: DataStoreKeyPages
+	local Kept: number? = nil
 	while true do
-		for _, Entry in Book:GetCurrentPage() do
-			if Full(Walk, Looks) then
-				return FULL, Book.Cursor
-			end
-
+		local Page = Book:GetCurrentPage()
+		for Index, Entry in Page do
 			local Named = (Entry :: any).KeyName
 			local At = Cleanup.At(Named)
-			if At == nil or Walk.Now - At < Walk.Grace then
+			if At == nil then
+				continue
+			end
+			if Full(Walk, Looks) then
+				for Rest = Index, #Page do
+					local Later = Cleanup.At((Page[Rest] :: any).KeyName)
+					if Later ~= nil then
+						Kept = Oldest(Kept, Later)
+					end
+				end
+				return FULL, Book.Cursor, Kept
+			end
+			if Walk.Now - At < Walk.Grace then
+				Kept = Oldest(Kept, At)
 				continue
 			end
 
-			local Took, Looked = Sweep(Walk, Named, Looks)
+			local Took, Looked, Cleared = Sweep(Walk, Named, Looks)
 			Walk.Reaped += Took
 			Walk.Looked += Looked
 			Looks -= Looked
+			if not Cleared then
+				Kept = Oldest(Kept, At)
+			end
 		end
 
 		if Book.IsFinished then
-			return DONE, nil
+			return DONE, nil, Kept
 		end
 		if not Affords(Walk) then
-			return STOPPED, Book.Cursor
+			return STOPPED, Book.Cursor, Kept
 		end
 		if not pcall(Book.AdvanceToNextPageAsync, Book) then
-			return STOPPED, nil
+			return STOPPED, nil, Kept
 		end
 	end
 end
@@ -326,7 +377,63 @@ local function Marked(Shard: number, Prefix: string, Cursor: string?): Bookmark?
 	return { Shard = Shard, Prefix = Prefix, Cursor = Cursor }
 end
 
-local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): (number, number, boolean, Bookmark?)
+local function Lowest(Walk: Walk, Lows: { [number]: Low }, Shard: number, Open: number): Low?
+	local Held = Lows[Shard]
+	if Held ~= nil and (Held.Cursor ~= nil or Held.Block >= Open) then
+		return Held
+	end
+
+	local Read, Value = Walk.TxStore:GetAsync(Cleanup.Low(Shard))
+	if not Read then
+		return Held
+	end
+
+	local Stored = if type(Value) == "number" and Value >= 0 and Value < math.huge and Value == Value // 1 then Value else Cleanup.Block(Walk.Now) - Cleanup.REACH
+	local Block = math.min(Stored, Open)
+	if Held ~= nil and Held.Block > Block then
+		Cleanup.Raise(Walk.TxStore, Shard, Held.Block)
+		return Held
+	end
+
+	local Fresh: Low = { Block = Block, Prefix = nil, Size = 1, Cursor = nil, Kept = nil }
+	Lows[Shard] = Fresh
+	return Fresh
+end
+
+local function Behind(Walk: Walk, Held: Low, Shard: number, Current: number, Open: number, Looks: number): (Ending, number)
+	if Held.Block >= Current then
+		return DONE, 0
+	end
+	if Held.Prefix == nil then
+		local Prefix, Size = Cleanup.Span(Shard, Held.Block, math.max(Held.Block, Open - 1))
+		Held.Prefix, Held.Size, Held.Cursor, Held.Kept = Prefix, Size, nil, nil
+	end
+
+	local Before = Walk.Looked
+	local Ended, Rest, Kept = Listed(Walk, Held.Prefix :: string, Looks, Held.Cursor)
+	if Kept ~= nil then
+		Held.Kept = if Held.Kept == nil then Kept else math.min(Held.Kept, Kept)
+	end
+	local Used = Walk.Looked - Before
+	if Ended ~= DONE then
+		if Rest == nil or Rest == "" then
+			Held.Prefix, Held.Cursor = nil, nil
+		else
+			Held.Cursor = Rest
+		end
+		return Ended, Used
+	end
+
+	local Reached = math.min(Held.Kept or Held.Block + Held.Size, Open)
+	Held.Prefix, Held.Cursor, Held.Kept = nil, nil, nil
+	if Reached > Held.Block then
+		Held.Block = Reached
+		Cleanup.Raise(Walk.TxStore, Shard, Reached)
+	end
+	return DONE, Used
+end
+
+local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): (number, number, Bookmark?, number?)
 	local Asked: Reaping = Held or {}
 	local Older = Asked.Horizon or Windows.REAP
 	local Walk: Walk = {
@@ -343,15 +450,17 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Afford = Asked.Afford,
 	}
 	local Claim = Asked.Claim
+	local Lows = Asked.Lows or {}
 	local Own = Cleanup.Mine(Walk.Node)
 	local Base = if type(Asked.From) == "number" then Asked.From % Transactions.SHARDS else Own
+	local Current = Cleanup.Block(Walk.Now)
+	local Open = Cleanup.Open(Walk.Now)
 
 	local Count = math.min(Asked.Shards or Transactions.SHARDS, Transactions.SHARDS)
 	local Share = math.max(Transactions.REAP_LOOKS, Walk.Room // Count)
-	local Cursor = Asked.Older
-	local Bookmark = if Cursor ~= nil then Cursor.Cursor else nil
-	local Rotated = false
+	local Bookmark = Asked.Cursor
 	local Pending: Bookmark? = Bookmark
+	local Crowded: number? = nil
 
 	local Step = 0
 	while Step < Count do
@@ -362,46 +471,44 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		local Shard = (Base + Step) % Transactions.SHARDS
 		Walk.Shard = Shard
 		local Lease: Claimed = if Claim ~= nil then Claim(Shard) else ABSENT
+		if Lease.Outcome == Transactions.HELD then
+			Step += 1
+			continue
+		end
+
 		local Left = Walk.Room - Walk.Looked
 		local Looks = if Lease.Outcome == Transactions.TAKEN or Shard == Own then Left else math.min(Share, Left)
-		local Back = if Cursor ~= nil and Cursor.Shard == Shard then Cursor.Back else nil
-		local Aside: Claimed = if Back ~= nil and Claim ~= nil then Claim(Shard, Cleanup.Block(Walk.Now) - Back) else ABSENT
-		local Walked = Aside.Outcome == Transactions.HELD
 		local Ended: Ending = DONE
-		if Pending ~= nil and Pending.Shard == Shard then
-			Pending = nil
+		local Low = Lowest(Walk, Lows, Shard, Open)
+		if Low ~= nil then
+			local Used
+			Ended, Used = Behind(Walk, Low, Shard, Current, Open, Looks)
+			Looks -= Used
 		end
-		if Back ~= nil and Walked then
-			Rotated = true
-		end
-		local Due = if Walked then nil else Back
-		local Prefixes = if Lease.Outcome == Transactions.HELD then Cleanup.Older(Shard, Walk.Now, Due) else Cleanup.Blocks(Shard, Walk.Now, Due)
-		for Index, Prefix in Prefixes do
+
+		if Ended == DONE and Looks > 0 then
+			local Prefix = Cleanup.Prefix(Shard, Current)
 			local From = if Bookmark ~= nil and Bookmark.Shard == Shard and Bookmark.Prefix == Prefix then Bookmark.Cursor else nil
 			local Rest
 			Ended, Rest = Listed(Walk, Prefix, Looks, From)
 			Pending = Marked(Shard, Prefix, Rest)
-			if Back ~= nil and Index == #Prefixes and Ended ~= STOPPED then
-				Rotated = true
-			end
-			if Ended ~= DONE then
-				break
-			end
+		elseif Ended == DONE then
+			Ended = FULL
 		end
 		if Lease.Outcome == Transactions.TAKEN and Ended ~= DONE then
 			Lease.Release()
 		end
-		if Aside.Outcome == Transactions.TAKEN and Ended ~= DONE then
-			Aside.Release()
-		end
 		if Ended == STOPPED then
-			return Walk.Reaped, Shard, Rotated, Pending
+			return Walk.Reaped, Shard, Pending, Crowded
+		end
+		if Ended == FULL then
+			Crowded = Shard
 		end
 
 		Step += 1
 	end
 
-	return Walk.Reaped, (Base + Step) % Transactions.SHARDS, Rotated, Pending
+	return Walk.Reaped, (Base + Step) % Transactions.SHARDS, Pending, Crowded
 end
 
 return table.freeze({

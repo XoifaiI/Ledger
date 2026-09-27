@@ -165,9 +165,10 @@ export type Bookmark = {
 
 export type Reaping = {
 	Resume: number?,
-	Shard: number,
-	Back: number,
 	Cursor: Bookmark?,
+	Lows: { [number]: TxTypes.Low },
+	Busy: number?,
+	Turn: boolean,
 }
 
 export type Batched = {

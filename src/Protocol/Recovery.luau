@@ -7,7 +7,8 @@
 
 	Transfers sends a held transfer again while it is still worth sending. It gives one back once it
 	is past its window. Past the prune window it writes one off, with a warning naming the amount, its
-	field and the key. Each pass takes a fixed bite and leaves the rest for the next one.
+	field and the key. Each pass takes a fixed bite and leaves the rest for the next one. What it
+	writes names the hold it read, so a pass that lands late leaves a newer hold under the name alone.
 
 	Return type: A table with Transfers and PASS_LIMIT.
 	Example usage:
@@ -38,12 +39,12 @@ local PASS_LIMIT = Windows.PASS_LIMIT
 local function Expire(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any, Age: number?)
 	local Print = Transfer.Terms(From, Entry.To, Entry.Amount, Entry.Field)
 	if Transfer.LandedOn(Format, Records:Read(tostring(Entry.To)), Tid, Print, From) == Tags.SAME then
-		Transfer.Settle(Records, From, Tid, Print)
+		Transfer.Settle(Records, From, Tid, Print, Entry.At)
 		return
 	end
 
 	if Age == nil or Age <= Windows.PRUNE then
-		local ExpireOp: Op = { Id = `{Kinds.EXPIRE_ID}:{Tid}`, Kind = Kinds.EXPIRE, Tid = Tid }
+		local ExpireOp: Op = { Id = `{Kinds.EXPIRE_ID}:{Tid}`, Kind = Kinds.EXPIRE, Tid = Tid, HeldAt = Entry.At }
 		Records:Append(tostring(From), { ExpireOp })
 		return
 	end
@@ -52,7 +53,7 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 	warn(
 		`Ledger: transfer {Tid} from {From} has been stuck over {Windows.PRUNE // Windows.DAY} days. the receiver has no record of it and giving it back could pay twice, so it is written off. check the audit log and pay {Lost} back by hand if it never arrived`
 	)
-	Transfer.Settle(Records, From, Tid, Print)
+	Transfer.Settle(Records, From, Tid, Print, Entry.At)
 end
 
 local function Redeliver(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any): boolean

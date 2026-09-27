@@ -311,6 +311,35 @@ Cases.Case("flushing the same ops again applies them once", function(T: Case)
 	T:Is("gold on disk", Bank:Amount("onceK"), 50)
 end)
 
+Cases.Case("a save queued behind another writes only what is still unsaved, even once the key has forgotten what the first one landed", function(T: Case)
+	local Here = T:Bank("nodeA")
+	local Other = T:Bank("nodeB")
+	Here:Seed("queuedK", { Gold = 0 })
+	local Active = Here:Session("queuedK")
+
+	T:Ok("the first apply", (Active:Apply("Fund", { Amount = 5 })))
+	local Id = Active.Pending[1].Id
+
+	local Forgot = false
+	Here:Fault(Fault.Updates():OnKey("queuedK"):Only(1):Stall(2))
+	Here:Fault(Fault.Updates():OnKey("queuedK"):Only(2):Meddle(function()
+		Other:Forget("queuedK", { Id })
+		Forgot = true
+	end))
+
+	local First = Active:Flush()
+	T:Ok("the second apply, made while the first save is out", (Active:Apply("Fund", { Amount = 7 })))
+	local Second = Active:Flush()
+	local FirstOk = First:Wait()
+	local SecondOk = Second:Wait()
+
+	T:Ok("the first save", FirstOk)
+	T:Ok("the second save", SecondOk)
+	T:Ok("the key forgot the first op before the second write", Forgot)
+	T:Is("gold on disk, each apply once", Here:Amount("queuedK"), 12)
+	T:Is("gold the session reports", Active:Get().Gold, 12)
+end)
+
 Cases.Case("every apply accepted during a flush still lands", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("flushK", { Gold = 0 })

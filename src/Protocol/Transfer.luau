@@ -8,6 +8,8 @@
 	Reserve sets the money aside on the sender, Post delivers it to the receiver, and Settle clears
 	the hold. Each leg is one op, atomic on its own key, and the transfer id makes each apply once.
 	The money arrives before the hold clears, so a server that stops leaves it set aside for recovery.
+	A settle names the hold it clears by the time that hold was set aside, so a late one cannot clear
+	a newer hold under the same name.
 
 	Terms prints the terms in one fixed form and not through Canon. Recovery compares a stored print
 	for as long as a transfer can wait, so that form must never change.
@@ -182,8 +184,8 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	return Stopped(REFUSED)
 end
 
-local function Settle(Records: Log, From: number | string, Tid: string, Print: string?): Record
-	local SettleOp: Op = { Id = `{Kinds.SETTLE_ID}:{Tid}`, Kind = Kinds.SETTLE, Tid = Tid, At = Clock.Now(), Print = Print }
+local function Settle(Records: Log, From: number | string, Tid: string, Print: string?, HeldAt: number?): Record
+	local SettleOp: Op = { Id = `{Kinds.SETTLE_ID}:{Tid}`, Kind = Kinds.SETTLE, Tid = Tid, At = Clock.Now(), Print = Print, HeldAt = HeldAt }
 	return (Records:Append(tostring(From), { SettleOp }))
 end
 
@@ -236,7 +238,7 @@ local function Post(Records: Log, Format: Format, From: number | string, Tid: st
 		)
 	end
 
-	local Cleared = Settle(Records, From, Tid, Print)
+	local Cleared = Settle(Records, From, Tid, Print, At)
 	assert(Applied.Has(Format:Fold(Cleared)._Received, Tags.SENT, Tid), `transfer {Tid} was delivered to '{To}' but the hold on '{From}' was not settled, so the money is on both keys`)
 
 	Records:Trim(tostring(To), Format, Landed)

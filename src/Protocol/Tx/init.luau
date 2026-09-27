@@ -24,6 +24,7 @@ export type Status = Types.Status
 export type Lookup = Types.Lookup
 export type Claimed = Types.Claimed
 export type Bookmark = Reap.Bookmark
+export type Low = Types.Low
 
 return table.freeze({
 	Drive = Coordinator.Drive,

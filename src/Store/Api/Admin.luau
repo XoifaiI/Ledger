@@ -16,6 +16,10 @@
 	reset turns a parked leg away only while its own op is not on the key yet. One parked after the
 	reset landed is no reason to call that reset busy.
 
+	ReapMarkers walks the shards in turn. When a pass runs out of room on a shard with names left,
+	every other pass starts on that shard until it is clear, and the passes between go on with the
+	round. So a server that can walk one shard a pass spends its passes where the names are.
+
 	Return type: A table with Failed. It writes Repair, ReapMarkers, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:
 		local Admin = require("./Admin")
@@ -41,7 +45,6 @@ local Kinds = require("../../Core/Constants/Kinds")
 local Recovery = require("../../Protocol/Recovery")
 local Transfer = require("../../Protocol/Transfer")
 local Transactions = require("../../Core/Constants/Transactions")
-local Cleanup = require("../../Protocol/Tx/Cleanup")
 local Tx = require("../../Protocol/Tx")
 local Registry = require("../Registry")
 local Write = require("./Write")
@@ -89,7 +92,10 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 	local Lists = Enum.DataStoreRequestType.ListAsync
 
 	local Reaping = self.Reaping
-	local Ok, Reaped, Next, Rotated, Cursor = pcall(function(): (number, number, boolean, Tx.Bookmark?)
+	local Busy = Reaping.Busy
+	local Revisit = Busy ~= nil and Reaping.Turn
+	Reaping.Turn = not Reaping.Turn
+	local Ok, Reaped, Next, Cursor, Crowded = pcall(function(): (number, number, Tx.Bookmark?, number?)
 		return Tx.Reap(self.TxWrapper, function(Store: string): Log.Log?
 			for _, Known in Registry.Stores do
 				if Known.Wrapper.Name == Store then
@@ -99,34 +105,28 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 			return nil
 		end, {
 			Node = self.Node,
-			From = Reaping.Resume,
+			From = if Revisit then Busy else Reaping.Resume,
 			Shards = Shards,
 			Limit = Limit,
-			Older = Reaping,
+			Cursor = Reaping.Cursor,
+			Lows = Reaping.Lows,
 			Afford = function(): boolean
 				return self:TxAffords(Reads, Transactions.REAP_FLOOR)
 					and self:TxAffords(Writes, Transactions.REAP_FLOOR)
 					and self:Affords(Reads, Transactions.REAP_FLOOR)
 					and self:TxAffords(Lists, Transactions.REAP_LISTS)
 			end,
-			Claim = function(Shard: number, Block: number?): Types.Claimed
-				local Named = { "reap", self.TxWrapper.Name, tostring(Shard) }
-				if Block ~= nil then
-					table.insert(Named, tostring(Block))
-				end
-				return self:Claim(Mark.Cached(Named), Windows.PASS_LEASE)
+			Claim = function(Shard: number): Types.Claimed
+				return self:Claim(Mark.Cached({ "reap", self.TxWrapper.Name, tostring(Shard) }), Windows.PASS_LEASE)
 			end,
 		})
 	end)
 	if Ok then
-		Reaping.Resume = Next
-		Reaping.Cursor = Cursor
-		if Rotated then
-			Reaping.Shard = (Reaping.Shard + 1) % Transactions.SHARDS
-			if Reaping.Shard == 0 then
-				Reaping.Back = if Reaping.Back + 1 >= Cleanup.BACK then 2 else Reaping.Back + 1
-			end
+		if not Revisit then
+			Reaping.Resume = Next
 		end
+		Reaping.Busy = if Revisit then Crowded else Crowded or Busy
+		Reaping.Cursor = Cursor
 		return Reaped
 	end
 
