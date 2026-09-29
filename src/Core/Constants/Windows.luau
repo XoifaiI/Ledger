@@ -7,7 +7,9 @@
 	MINTED is how long a writer entry and a timed name are kept, and CUT how long a cut name is kept.
 	SIGMA is the most a clock may be wrong. AHEAD is how far past the clock an op may be stamped before
 	it waits, and HOLD how far a fit keeps an item stamped ahead. BREAKER is how long the calls to a
-	map that keeps missing stop. SLOW is how long a listener may run before Ledger says so.
+	map that keeps missing stop. SLOW is how long a listener may run before Ledger says so. ANSWER is
+	how long a call waits for its fate before it answers Unresolved. SHED is how long a durable op may
+	wait unsent before it answers Busy.
 
 	Return type: A frozen table of the windows.
 	Example usage:
@@ -26,4 +28,6 @@ return table.freeze({
 	HOLD = AHEAD + 2 * SIGMA,
 	BREAKER = 120,
 	SLOW = 10,
+	ANSWER = 30,
+	SHED = 10,
 })

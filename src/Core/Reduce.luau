@@ -21,9 +21,10 @@
 	since then again. A rebuild that refuses an op the first run took means the reducer is not
 	deterministic, and the fold warns. Fold runs a whole batch.
 
-	Snapshot gives a frozen copy of a state for a game to read.
+	Snapshot gives a frozen copy of a state for a game to read. Run makes one guarded call of any
+	function shaped like a reducer.
 
-	Return type: A table with Start, Apply, Fold, Copy and Snapshot.
+	Return type: A table with Start, Apply, Fold, Run, Copy and Snapshot.
 	Example usage:
 		local Reduce = require("./Reduce")
 		local Folding = Reduce.Start(Base, Reducer)
@@ -155,6 +156,7 @@ return table.freeze({
 	Start = Start,
 	Apply = Apply,
 	Fold = Fold,
+	Run = Run,
 	Copy = Copy,
 	Snapshot = Snapshot,
 })

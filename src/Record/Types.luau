@@ -8,8 +8,9 @@
 	and the fingerprint of a game's name. It carries the incarnation it was judged for, nil meaning
 	any, or Create, the id to make the key with when it was judged for no key. A request is one
 	writer's ops in number order. A note says, by op index, the fate an op has, or why it has none.
-	A build is what one build of the game gives Step. Form and Why name each form and reason once,
-	so a misspelt one is a type error.
+	A build is what one build of the game gives Step. Its Level is the number of its migrations and
+	its Floor is the index of the last breaking one. Form and Why name each form and reason once, so
+	a misspelt one is a type error.
 
 	Return type: A table with Form and Why. The types are Form, Op, Request, Why, Note and Build.
 	Example usage:
@@ -58,6 +59,7 @@ export type Note = {
 
 export type Build = {
 	read Reducer: (State: any, Op: any) -> unknown,
+	read Migrations: { (State: any) -> unknown },
 	read Default: { [string]: any },
 	read Level: number,
 	read Floor: number,

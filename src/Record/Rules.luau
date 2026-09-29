@@ -10,7 +10,8 @@
 	request undecided. In order: an earlier op stopped, the op was judged for another incarnation, its
 	writer decided it before, its name is held, it is under the horizon, the key is past this build's
 	floor, it is stamped too far ahead or needs a clock that is not good, it is a hopeful op judged
-	before a cut, an untimed name has no room, and last the game's reducer judges it.
+	before a cut, an untimed name has no room, and last the game's reducer judges it. The first op a run judges
+	runs the migrations the key has not had. When they fail, every op the run judges is refused.
 
 	Return type: The ordered list of rules. The types are Run and Rule.
 	Example usage:
@@ -24,6 +25,7 @@
 
 local Book = require("./Book")
 local Limits = require("../Core/Constants/Limits")
+local Migrate = require("./Migrate")
 local Reduce = require("../Core/Reduce")
 local Types = require("./Types")
 
@@ -184,13 +186,42 @@ local function Room(Run: Run, Index: number, Op: Op): boolean
 	return Stop(Run, Index, Why.NoRoom)
 end
 
+local function Refuse(_: any, _: any): unknown
+	return nil
+end
+
+local function Begin(Run: Run): Reduce.Fold<any, any>
+	local Record, Build = Run.Record, Run.Build
+	if Record.Level >= Build.Level then
+		return Reduce.Start(Run.State, Run.Reducer)
+	end
+	local State = Migrate(Run.State, Record.Level, Build)
+	if State == nil then
+		return Reduce.Start(Run.State, Refuse)
+	end
+	Record.Level, Record.Floor = Build.Level, math.max(Record.Floor, Build.Floor)
+	Run.State = State
+	return Reduce.Start(State, Run.Reducer)
+end
+
 local function Judge(Run: Run, Index: number, Op: Op): boolean
-	local Folding = Run.Folding or Reduce.Start(Run.State, Run.Reducer)
+	local Folding = Run.Folding or Begin(Run)
 	Run.Folding = Folding
 	local Took, Reason = Reduce.Apply(Folding, Op.Body)
 	return Decide(Run, Index, Op, if Took then Fate.Took elseif Reason == Fate.Full then Fate.Full else Fate.Refused)
 end
 
-local RULES: { Rule } = { Prefix, Incarnation, DecidedBefore, NameHeld, Forgotten, Floor, Ahead, Turned, Room, Judge }
+local RULES: { Rule } = table.freeze({
+	Prefix,
+	Incarnation,
+	DecidedBefore,
+	NameHeld,
+	Forgotten,
+	Floor,
+	Ahead,
+	Turned,
+	Room,
+	Judge,
+})
 
-return table.freeze(RULES)
+return RULES

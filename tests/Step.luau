@@ -4,8 +4,7 @@
 
 	Step: The cases for Record/Step, one per rule of record 4.
 
-	The game holds Gold, and an op adds its Add to it; a debit below 0 is refused. Land runs one
-	request and keeps what it wrote, as the datastore would.
+	The game is tests/Gold. Land runs one request and keeps what it wrote, as the datastore would.
 
 	Return type: nil. Requiring it adds its cases to the run.
 	Example usage:
@@ -14,59 +13,19 @@
 
 local Testing = require("./Testing")
 local Book = require("../src/Record/Book")
-local Sizes = require("../src/Core/Constants/Sizes")
+local Game = require("./Gold")
 local Step = require("../src/Record/Step")
 local Types = require("../src/Record/Types")
-local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect, Similar = Testing.Describe, Testing.Test, Testing.Expect, Testing.Similar
 
 type Op = Types.Op
 type Note = Types.Note
 
-local NOW = 1_000_000
+local NOW = Game.NOW
+local DEFAULT = Game.DEFAULT
+local Build, Gold, Record = Game.Build, Game.Gold, Game.Record
 local Fate = Book.Fate
-
-local function Reducer(State: { Gold: number, Tag: string? }, Op: { Add: number, Tag: string?, Bad: any? }): unknown
-	if State.Gold + Op.Add < 0 then
-		return nil
-	end
-	local Next = table.clone(State)
-	Next.Gold += Op.Add
-	if Op.Tag then
-		Next.Tag = Op.Tag
-	end
-	if Op.Bad ~= nil then
-		(Next :: any).Gold = Op.Bad
-	end
-	return Next
-end
-
-local function Build(Change: { [string]: any }?): Types.Build
-	local Made: { [string]: any } = {
-		Reducer = Reducer,
-		Default = { Gold = 0 },
-		Level = 0,
-		Floor = 0,
-		Money = { "Gold" },
-		Fields = { Gold = true, Tag = true },
-		Window = {},
-		Minted = Windows.MINTED,
-		CutWindow = Windows.CUT,
-		TimedRoom = Sizes.TIMED_ROOM,
-		UntimedRoom = Sizes.UNTIMED_ROOM,
-		CutNames = Sizes.CUT_NAMES,
-		StateCap = Sizes.STATE_CAP,
-		Ahead = Windows.AHEAD,
-		Hold = Windows.HOLD,
-	}
-	for Field, Value in Change or {} do
-		Made[Field] = Value
-	end
-	return Made :: any
-end
-
-local DEFAULT = Build()
 
 local function Mint(Seq: number, Add: number, Stamp: number?): Op
 	return { Form = "Minted", Seq = Seq, Stamp = Stamp or NOW, Kind = 0, Body = { Add = Add } }
@@ -83,14 +42,6 @@ end
 local function Land(Current: unknown, Asked: Types.Request, Clock: number?, Using: Types.Build?): (unknown, Note, boolean)
 	local Value, Note = Step(Current, Asked, Clock or NOW, Using or DEFAULT)
 	return if Value then Value else Current, Note, Value ~= nil
-end
-
-local function Gold(Current: unknown): number
-	return ((Current :: any).s :: any).Gold
-end
-
-local function Record(Current: unknown): Book.Book
-	return Book.Decode((Current :: any).b) :: Book.Book
 end
 
 Describe("Step", function()
@@ -205,6 +156,50 @@ Describe("Step", function()
 		Expect(Kept.Timed.a).toBeNil()
 		Expect(Kept.Timed.c).never.toBeNil()
 		Expect(Kept.Horizon >= NOW - 30).toBe(true)
+	end)
+
+	Test("a key below the build's level has the missing migrations run in the write of its first op", function()
+		local Key = Land(nil, Request({ Mint(1, 2) }))
+		local Newer = Build({
+			Level = 2,
+			Floor = 1,
+			Migrations = {
+				function(State: any): unknown
+					State.Gold *= 10
+					return State
+				end,
+				function(State: any): unknown
+					return { Gold = State.Gold + 1, Tag = "moved" }
+				end,
+			},
+		})
+		local After, Note = Land(Key, Request({ Mint(1, 5) }, 0, 2), NOW, Newer)
+		Expect(Note.Fates).toBe(Similar({ Fate.Took }))
+		Expect(Gold(After)).toBe(26)
+		Expect((After :: any).s.Tag).toBe("moved")
+		Expect(Record(After).Level).toBe(2)
+		Expect(Record(After).Floor).toBe(1)
+	end)
+
+	Test("a migration that fails keeps nothing and every op it would judge is refused", function()
+		local Key = Land(nil, Request({ Mint(1, 2) }))
+		local Throws = Build({ Level = 1, Migrations = {
+			function(): unknown
+				error("broken")
+			end,
+		} })
+		local Adds = Build({ Level = 1, Migrations = {
+			function(State: any): unknown
+				State.Stray = true
+				return State
+			end,
+		} })
+		for _, Using in { Throws, Adds } do
+			local After, Note = Land(Key, Request({ Mint(1, 2), Mint(2, 3) }, 0, 3), NOW, Using)
+			Expect(Note.Fates).toBe(Similar({ Fate.Refused, Fate.Refused }))
+			Expect(Gold(After)).toBe(2)
+			Expect(Record(After).Level).toBe(0)
+		end
 	end)
 end)
 

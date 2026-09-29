@@ -9,11 +9,9 @@
 	word. Then it sets the writer's entry, ages and fits the rooms, and writes when it decided
 	anything. It gives back the value to write, or nil, and the note of what it found.
 
-	The game's reducer runs behind a guard. The guard sets aside the top level fields the build does
-	not declare and puts them back, and refuses a state that adds such a field or leaves a money field
-	holding anything but a whole number below 2^53. Step measures the state it would write once. When
-	that state is past the cap or cannot be stored, it runs the request again with a guard that
-	measures after each op, so the op that crossed is Full and the ops after it are judged without it.
+	The game's reducer runs behind a Guard. Step measures the state it would write once. When that
+	state is past the cap or cannot be stored, it runs the request again with the capped guard, so
+	the op that crossed is Full and the ops after it are judged without it.
 
 	Return type: A function that gives back the value to write, or nil, and the note.
 	Example usage:
@@ -23,6 +21,7 @@
 
 local RULES = require("./Rules")
 local Book = require("./Book")
+local Guard = require("./Guard")
 local Key = require("./Key")
 local Limits = require("../Core/Constants/Limits")
 local Reduce = require("../Core/Reduce")
@@ -35,65 +34,9 @@ type Build = Types.Build
 type Note = Types.Note
 type Request = Types.Request
 type Run = RULES.Run
-type Reducer = Reduce.Reducer<any, any>
+type Guarded = (Build: Build) -> Reduce.Reducer<any, any>
 
-local Fate = Book.Fate
 local Why = Types.Why
-
-local Guards: { [Build]: { Reducer } } = setmetatable({}, { __mode = "k" }) :: any
-
-local function Guard(Build: Build, Capped: boolean): Reducer
-	return function(State: { [string]: any }, Op: unknown): unknown
-		local Aside: { [string]: any } = {}
-		local Given = State
-		for Field, Held in State do
-			if Build.Fields[Field] then
-				continue
-			end
-			if Given == State then
-				Given = table.clone(State)
-			end
-			Aside[Field] = Held
-			Given[Field] = nil
-		end
-		local Next = Build.Reducer(Given, Op)
-		if type(Next) ~= "table" then
-			return nil
-		end
-		local Result = Next :: { [string]: any }
-		for Field in Result do
-			if not Build.Fields[Field] then
-				return nil
-			end
-		end
-		for _, Field in Build.Money do
-			local Amount = Result[Field]
-			if not (type(Amount) == "number" and Amount % 1 == 0 and math.abs(Amount) < 2 ^ 53) then
-				return nil
-			end
-		end
-		for Field, Held in Aside do
-			Result[Field] = Held
-		end
-		if not Capped then
-			return Result
-		end
-		local Bytes = Value.Check(Result)
-		if Bytes == nil then
-			return nil
-		end
-		return if Bytes > Build.StateCap then Fate.Full else Result
-	end
-end
-
-local function GuardOf(Build: Build, Capped: boolean): Reducer
-	local Pair = Guards[Build]
-	if Pair == nil then
-		Pair = { Guard(Build, false), Guard(Build, true) }
-		Guards[Build] = Pair
-	end
-	return Pair[if Capped then 2 else 1]
-end
 
 local function Refused(Request: Request, Reason: Types.Why): Note
 	local Note: Note = { Fates = {}, Whys = {}, Decided = {}, Writes = 0, Cuts = 0, Horizon = 0, CutHorizon = 0, State = nil }
@@ -117,14 +60,12 @@ local function Open(Current: unknown, Request: Request, Build: Build): (Book?, {
 	return Made, Reduce.Copy(Build.Default), nil
 end
 
-local function Begin(Current: unknown, Request: Request, Clock: number, Build: Build, Capped: boolean): (Run?, Types.Why?)
+local function Begin(Current: unknown, Request: Request, Clock: number, Build: Build, Guarded: Guarded): (Run?, Types.Why?)
 	local Record, State, Reason = Open(Current, Request, Build)
 	if Record == nil or State == nil then
 		return nil, Reason
 	end
-	if Record.Level < Build.Level then
-		error("Step: running migrations is not in this build of Ledger yet", 0)
-	elseif Record.Writes >= Limits.WRITES_MAX then
+	if Record.Writes >= Limits.WRITES_MAX then
 		return nil, Why.Worn
 	end
 
@@ -155,7 +96,7 @@ local function Begin(Current: unknown, Request: Request, Clock: number, Build: B
 			Id = Record.Id,
 			State = State,
 		},
-		Reducer = GuardOf(Build, Capped),
+		Reducer = Guarded(Build),
 		Clock = Clock,
 		Now = Now,
 		Epoch = Epoch,
@@ -199,8 +140,8 @@ local function Finish(Run: Run): (Key.Stored?, Note)
 	return Key.Store(Run.State, Record, Run.Epoch), Note
 end
 
-local function Attempt(Current: unknown, Request: Request, Clock: number, Build: Build, Capped: boolean): (Key.Stored?, Note)
-	local Run, Reason = Begin(Current, Request, Clock, Build, Capped)
+local function Attempt(Current: unknown, Request: Request, Clock: number, Build: Build, Guarded: Guarded): (Key.Stored?, Note)
+	local Run, Reason = Begin(Current, Request, Clock, Build, Guarded)
 	if Run == nil then
 		return nil, Refused(Request, Reason :: Types.Why)
 	end
@@ -215,7 +156,7 @@ local function Attempt(Current: unknown, Request: Request, Clock: number, Build:
 end
 
 local function Step(Current: unknown, Request: Request, Clock: number, Build: Build): (Key.Stored?, Note)
-	local Written, Note = Attempt(Current, Request, Clock, Build, false)
+	local Written, Note = Attempt(Current, Request, Clock, Build, Guard.Plain)
 	if Written == nil then
 		return nil, Note
 	end
@@ -223,7 +164,7 @@ local function Step(Current: unknown, Request: Request, Clock: number, Build: Bu
 	if Bytes and Bytes <= Build.StateCap then
 		return Written, Note
 	end
-	return Attempt(Current, Request, Clock, Build, true)
+	return Attempt(Current, Request, Clock, Build, Guard.Capped)
 end
 
 return Step
