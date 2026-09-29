@@ -11,7 +11,6 @@
 
 local Testing = require("./Testing")
 local Machine = require("../src/Core/Machine")
-local Queue = require("../src/Util/Queue")
 
 type Effect = { read Kind: string, read Leg: number? }
 type Reply = { read Kind: string, read Value: number? }
@@ -144,17 +143,19 @@ end
 
 local function Replay<C>(Spec: Machine<C>, Context: C): ({ string }, Call<C>)
 	local Path: { string } = {}
-	local Pending: Queue.Queue<{ Id: number, Effect: Effect }> = Queue.New()
+	local Pending: { { Id: number, Effect: Effect } } = {}
+	local Head = 1
 	local Call, Effects, First = Machine.Start(Spec, Context)
 	while true do
 		table.insert(Path, Machine.StateOf(Call))
 		for Slot, Effect in Effects do
-			Queue.Push(Pending, { Id = First + Slot - 1, Effect = Effect })
+			table.insert(Pending, { Id = First + Slot - 1, Effect = Effect })
 		end
-		local Next = Queue.Pop(Pending)
+		local Next = Pending[Head]
 		if Next == nil then
 			return Path, Call
 		end
+		Head += 1
 		Effects, First = Machine.Step(Call, Next.Id, { Kind = Next.Effect.Kind })
 	end
 end

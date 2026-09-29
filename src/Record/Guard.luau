@@ -3,19 +3,15 @@
 
 --[=[
 
-	Guard: Runs the game's reducer so that it sees and changes only what its build declares.
+	Guard: Runs the game's reducer on only the fields its build declares.
 
-	The guard sets aside the top level fields the build does not declare and puts them back after the
-	reducer runs. It refuses a state that adds a field the build does not declare, or that leaves a
-	money field holding anything but a whole number below 2^53. A capped guard also measures the state
-	after each op, and gives back Fate.Full past StateCap and nil when the state cannot be stored.
-	Admits is the same check for any state a build makes, such as a migration's.
+	Undeclared top level fields are set aside and put back. A result that adds one, or leaves a money
+	field anything but a whole number below 2^53, is refused. Capped also gives Fate.Full past
+	StateCap. Admits is the same check for a migration.
 
 	Return type: A table with Plain, Capped and Admits.
 	Example usage:
-		local Guard = require("./Guard")
 		local Reducer = Guard.Plain(Build)
-		local Kept = Guard.Admits(Build, Before, After)
 --]=]
 
 local Book = require("./Book")
@@ -32,7 +28,9 @@ local Fate = Book.Fate
 local Plains: { [Build]: Reducer } = setmetatable({}, { __mode = "k" }) :: any
 local Cappeds: { [Build]: Reducer } = setmetatable({}, { __mode = "k" }) :: any
 
-local function Admits(Build: Build, Before: State, After: State): boolean
+local Guard = {}
+
+function Guard.Admits(Build: Build, Before: State, After: State): boolean
 	for Field in After do
 		if not Build.Fields[Field] and Before[Field] == nil then
 			return false
@@ -67,7 +65,7 @@ local function MakePlain(Build: Build): Reducer
 	return function(State: State, Op: unknown): unknown
 		local Given, Aside = SetAside(Build, State)
 		local Next = Build.Reducer(Given, Op)
-		if type(Next) ~= "table" or not Admits(Build, Given, Next :: State) then
+		if type(Next) ~= "table" or not Guard.Admits(Build, Given, Next :: State) then
 			return nil
 		end
 		local Result = Next :: State
@@ -78,7 +76,7 @@ local function MakePlain(Build: Build): Reducer
 	end
 end
 
-local function Plain(Build: Build): Reducer
+function Guard.Plain(Build: Build): Reducer
 	local Guarded = Plains[Build]
 	if Guarded == nil then
 		Guarded = MakePlain(Build)
@@ -88,7 +86,7 @@ local function Plain(Build: Build): Reducer
 end
 
 local function MakeCapped(Build: Build): Reducer
-	local Guarded = Plain(Build)
+	local Guarded = Guard.Plain(Build)
 	return function(State: State, Op: unknown): unknown
 		local Result = Guarded(State, Op)
 		if type(Result) ~= "table" then
@@ -102,7 +100,7 @@ local function MakeCapped(Build: Build): Reducer
 	end
 end
 
-local function Capped(Build: Build): Reducer
+function Guard.Capped(Build: Build): Reducer
 	local Guarded = Cappeds[Build]
 	if Guarded == nil then
 		Guarded = MakeCapped(Build)
@@ -111,8 +109,4 @@ local function Capped(Build: Build): Reducer
 	return Guarded
 end
 
-return table.freeze({
-	Plain = Plain,
-	Capped = Capped,
-	Admits = Admits,
-})
+return Guard

@@ -3,26 +3,22 @@
 
 --[=[
 
-	Numbers: Takes a server number from one of Limits.COUNTERS counter keys.
+	Numbers: The machine that takes this server's number from the counter key its JobId hashes to.
 
-	A server picks its counter key by a hash of its JobId, and adds 1 to it in one update. Its number
-	is the count its own write made, times COUNTERS, plus the index of the key, so no two servers ever
-	hold the same number. A call that fails, or finds the key holding something other than a count,
-	waits and is sent again. The wait starts at 1 second and doubles up to Windows.BACKOFF. A lost
-	answer wastes a number and nothing else.
+	The number is the count its own write made, times Limits.COUNTERS, plus the index of the key. A
+	try that does not land waits as Backoff says and is sent again.
 
 	Return type: A table with Take, Context, Key and Bump.
 	Example usage:
-		local Numbers = require("./Numbers")
 		local Number = Driver.Run(Numbers.Take, Numbers.Context(Store, game.JobId)):Wait()
 --]=]
 
+local Backoff = require("./Backoff")
 local DataStore = require("../Adapters/DataStore")
 local Effect = require("./Effect")
 local Hash = require("../Encode/Hash")
 local Limits = require("../Core/Constants/Limits")
 local Machine = require("../Core/Machine")
-local Windows = require("../Core/Constants/Windows")
 
 export type Context = {
 	read Store: DataStore.Store,
@@ -43,11 +39,13 @@ local STATE: {
 	Done = "Done",
 }
 
-local function Key(Index: number): string
+local Numbers = {}
+
+function Numbers.Key(Index: number): string
 	return `n{Index}`
 end
 
-local function Bump(Current: unknown): unknown
+function Numbers.Bump(Current: unknown): unknown
 	if Current == nil then
 		return 1
 	elseif type(Current) == "number" and Current % 1 == 0 and Current >= 0 then
@@ -56,12 +54,12 @@ local function Bump(Current: unknown): unknown
 	return nil
 end
 
-local function Context(Store: DataStore.Store, JobId: string): Context
+function Numbers.Context(Store: DataStore.Store, JobId: string): Context
 	return { Store = Store, Index = Hash(JobId) % Limits.COUNTERS, Tries = 0 }
 end
 
 local function Send(Call: Call)
-	Machine.Send(Call, Effect.Update(Call.Context.Store, Key(Call.Context.Index), Bump))
+	Machine.Send(Call, Effect.Update(Call.Context.Store, Numbers.Key(Call.Context.Index), Numbers.Bump))
 end
 
 local function Taken(Call: Call, Ok: boolean, Count: unknown, _: DataStoreKeyInfo?, Wrote: boolean?): string?
@@ -74,7 +72,7 @@ local function Taken(Call: Call, Ok: boolean, Count: unknown, _: DataStoreKeyInf
 end
 
 local function Rest(Call: Call)
-	Machine.Send(Call, Effect.Wait(math.min(2 ^ (Call.Context.Tries - 1), Windows.BACKOFF)))
+	Machine.Send(Call, Effect.Wait(Backoff(Call.Context.Tries)))
 end
 
 local function Rested(): string?
@@ -91,9 +89,6 @@ local SPEC: Spec = {
 	},
 }
 
-return table.freeze({
-	Take = Machine.Define(SPEC),
-	Context = Context,
-	Key = Key,
-	Bump = Bump,
-})
+Numbers.Take = Machine.Define(SPEC)
+
+return Numbers

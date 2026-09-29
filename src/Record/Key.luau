@@ -3,63 +3,59 @@
 
 --[=[
 
-	Key: What a key holds, read once.
+	Key: What a key holds.
 
-	This is the one place Ledger asks what shape a stored value has. Read gives back the book and
-	the state of a record, nothing at all for a key that holds no value, or the reason every op on it
-	stops: Missing for an erase in progress, Behind for a book a newer build wrote, and Corrupt with
-	what was wrong for anything else. Store gives back the value a write stores.
+	Read gives back the book and the state, nil for an empty key, or why every op stops: Missing for
+	an erase in progress, Behind for a newer format, and Corrupt otherwise. Store gives back the value
+	to write.
 
-	Return type: A table with Read and Store.
+	Return type: A table with Read and Store. The type is Found.
 	Example usage:
-		local Key = require("./Key")
-		local Record, State, Why = Key.Read(Current)
+		local Found = Key.Read(Current)
 --]=]
 
 local Book = require("./Book")
 local Types = require("./Types")
 
 type Book = Book.Book
+type State = { [string]: any }
 type Why = Types.Why
 
-export type Stored = {
-	s: { [string]: any },
-	b: string,
+export type Found = {
+	read Book: Book,
+	read State: State,
 }
 
 local Why = Types.Why
 
-local function Read(Current: unknown): (Book?, { [string]: any }?, Why?, string?)
+local Key = {}
+
+function Key.Read(Current: unknown): (Found | Why)?
 	if Current == nil then
-		return nil, nil, nil, nil
-	end
-	if type(Current) ~= "table" then
-		return nil, nil, Why.Corrupt, `the key holds a {typeof(Current)}`
+		return nil
+	elseif type(Current) ~= "table" then
+		return Why.Corrupt
 	end
 	local Value = Current :: { [string]: unknown }
-	if Value.z ~= nil then
-		return nil, nil, Why.Missing, nil
-	end
 	local Text, State = Value.b, Value.s
-	if type(Text) ~= "string" or type(State) ~= "table" then
-		return nil, nil, Why.Corrupt, "the key has no state or no book"
+	if Value.z ~= nil then
+		return Why.Missing
+	elseif type(Text) ~= "string" or type(State) ~= "table" then
+		return Why.Corrupt
 	end
 	local Format = Book.Version(Text)
 	if Format and Format > Book.FORMAT then
-		return nil, nil, Why.Behind, nil
+		return Why.Behind
 	end
-	local Record, Detail = Book.Decode(Text)
+	local Record = Book.Decode(Text)
 	if Record == nil then
-		return nil, nil, Why.Corrupt, Detail
+		return Why.Corrupt
 	end
-	return Record, State :: { [string]: any }, nil, nil
+	return { Book = Record, State = State :: State }
 end
 
-local function Store(State: { [string]: any }, Record: Book, Now: number): Stored
-	return { s = State, b = Book.Encode(Record, Now) }
+function Key.Store(State: State, Record: Book, Now: number): Types.Stored
+	return { s = State, b = Record:Encode(Now) }
 end
 
-return table.freeze({
-	Read = Read,
-	Store = Store,
-})
+return Key

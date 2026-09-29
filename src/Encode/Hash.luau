@@ -3,17 +3,13 @@
 
 --[=[
 
-	Hash: Gives a whole number below 2^32 for a string, the same on every server and every build.
+	Hash: The first four bytes of a string's Blake3 hash, little endian. It must never change.
 
-	It is the first four bytes of the string's Blake3 hash, read little endian, from EncodingService.
-	Fingerprints, shards, parts and levels are all picked from it and stored or agreed on across
-	servers, so it must never change. A seed goes in front of the string, so each seed picks apart.
+	A seed goes in front of the string.
 
 	Return type: A function that gives back a whole number below 2^32.
 	Example usage:
-		local Hash = require("./Hash")
 		local Shard = Hash(Name) % Shards
-		local Print = bit32.band(Hash(Canon(Terms)), 0xFFFF)
 --]=]
 
 local EncodingService = game:GetService("EncodingService")

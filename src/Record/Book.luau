@@ -3,30 +3,18 @@
 
 --[=[
 
-	Book: The record's bookkeeping, as a table and as the text a key stores in its b field.
+	Book: The record's bookkeeping, as an object and as the text in a key's b field.
 
-	The text is the fixed fields, then each room as a count of 3 characters and its items. Room
-	stamps are stored as their signed distance from the clock of the write, which Encode is handed,
-	and the two horizons whole. A writer entry is its writer's id, lo, newest stamp, and the fates not
-	took above the last ack, each as its distance below lo.
+	The text holds the fixed fields, then each room as a count and its items. Room stamps are stored
+	as offsets from the clock of the write. A drawn name is held behind DRAWN and stored as its server
+	number and counter. Decode refuses any text Encode does not write, and gives back nil for it. Version reads only the
+	format.
+	EntryWidth and NamedWidth give the width of one item.
 
-	A named entry starts with one character that holds its fate, a final fence being a fate of its
-	own, whether its name is base64, whether the game chose the name, and whether a decider value
-	follows. Then come its kind, its name, its stamp, the attempt of a fence or an abort, the
-	fingerprint of a game's name, and the value. A name Ledger drew is stored as its server number
-	and counter, and held in memory behind DRAWN, a byte no utf8 name starts with, so a drawn name and
-	a game's name never meet. Decode refuses any text Encode does not write. Fate names the codes a
-	fate is stored as. Version reads the format of a text without decoding it, so a newer book can be
-	told from a broken one. EntryWidth and NamedWidth give the characters one item takes, from the
-	same code that writes it.
-
-	Return type: A table with New, Encode, Decode, Drawn, Version, EntryWidth, NamedWidth, Fate, FORMAT
-	and DRAWN.
+	Return type: The Book class, with New, Decode, Drawn, Version, EntryWidth, NamedWidth, Fate, FORMAT
+	and DRAWN, and the method Encode.
 	Example usage:
-		local Book = require("./Book")
-		local Record = Book.New()
-		local Text = Book.Encode(Record, Now)
-		local Again = Book.Decode(Text)
+		local Again = Book.Decode(Record:Encode(Now))
 --]=]
 
 local Reader = require("../Encode/Reader")
@@ -51,7 +39,21 @@ export type Named = {
 	Value: number?,
 }
 
-export type Book = {
+type BookImpl = {
+	__index: BookImpl,
+	New: () -> Book,
+	Decode: (Source: string) -> Book?,
+	Version: (Source: string) -> number?,
+	Drawn: (Server: number, Counter: number) -> string,
+	EntryWidth: (Found: Entry, Now: number) -> number,
+	NamedWidth: (Name: string, Item: Named, Now: number) -> number,
+	Fate: { read Took: number, read Refused: number, read Full: number, read Fenced: number, read Aborted: number, read Turned: number },
+	FORMAT: number,
+	DRAWN: string,
+	Encode: (self: Book, Now: number) -> string,
+}
+
+type Data = {
 	Format: number,
 	Level: number,
 	Floor: number,
@@ -66,47 +68,28 @@ export type Book = {
 	Untimed: { [string]: Named },
 }
 
+export type Book = setmetatable<Data, BookImpl>
+
 local FORMAT = 1
 local DRAWN = "\255"
 local COUNT_WIDTH = 3
 
-local Fate = table.freeze({
+local Fate = {
 	Took = 0,
 	Refused = 1,
 	Full = 2,
 	Fenced = 3,
 	Aborted = 4,
 	Turned = 5,
-})
+}
 
 local FENCED_FINAL = 6
 local BASE64 = 8
 local GAME = 16
 local VALUE = 32
 
-local function New(): Book
-	return {
-		Format = FORMAT,
-		Level = 0,
-		Floor = 0,
-		Writes = 0,
-		Cuts = 0,
-		Id = nil,
-		Horizon = 0,
-		CutHorizon = 0,
-		Writers = {},
-		Timed = {},
-		Cut = {},
-		Untimed = {},
-	}
-end
-
-local function Drawn(Server: number, Counter: number): string
-	local Text = Writer.New()
-	Writer.Var(Text, Server)
-	Writer.Var(Text, Counter)
-	return `{DRAWN}{Writer.Finish(Text)}`
-end
+local Book = {} :: BookImpl
+Book.__index = Book
 
 local function PutNamed(Text: Writer.Writer, Name: string, Item: Named, Now: number)
 	local Game = Item.Print ~= nil
@@ -157,20 +140,6 @@ local function PutEntry(Text: Writer.Writer, Found: Entry, Now: number)
 	end
 end
 
-local Scratch = Writer.New()
-
-local function EntryWidth(Found: Entry, Now: number): number
-	Writer.Clear(Scratch)
-	PutEntry(Scratch, Found, Now)
-	return Scratch.Cursor
-end
-
-local function NamedWidth(Name: string, Item: Named, Now: number): number
-	Writer.Clear(Scratch)
-	PutNamed(Scratch, Name, Item, Now)
-	return Scratch.Cursor
-end
-
 local function PutRoom(Text: Writer.Writer, Room: { [string]: Named }, Now: number)
 	local At = Writer.Fixed(Text, 0, COUNT_WIDTH)
 	local Count = 0
@@ -181,34 +150,7 @@ local function PutRoom(Text: Writer.Writer, Room: { [string]: Named }, Now: numb
 	Writer.Patch(Text, At, Count, COUNT_WIDTH)
 end
 
-local function Encode(Record: Book, Now: number): string
-	local Text = Writer.New()
-	Writer.Fixed(Text, Record.Format, 1)
-	Writer.Fixed(Text, if Record.Id then 1 else 0, 1)
-	Writer.Var(Text, Record.Level)
-	Writer.Var(Text, Record.Floor)
-	Writer.Var(Text, Record.Writes)
-	Writer.Var(Text, Record.Cuts)
-	if Record.Id then
-		Writer.Name(Text, Record.Id)
-	end
-	Writer.Var(Text, Now)
-	Writer.Var(Text, Record.Horizon)
-	Writer.Var(Text, Record.CutHorizon)
-
-	local At = Writer.Fixed(Text, 0, COUNT_WIDTH)
-	local Count = 0
-	for _, Found in Record.Writers do
-		PutEntry(Text, Found, Now)
-		Count += 1
-	end
-	Writer.Patch(Text, At, Count, COUNT_WIDTH)
-
-	PutRoom(Text, Record.Timed, Now)
-	PutRoom(Text, Record.Cut, Now)
-	PutRoom(Text, Record.Untimed, Now)
-	return Writer.Finish(Text)
-end
+local Scratch = Writer.New()
 
 local function TakeFate(Code: number): Fate
 	if Code > Fate.Turned then
@@ -248,9 +190,26 @@ local function TakeRoom(Text: Reader.Reader, Now: number): { [string]: Named }
 	return Room
 end
 
+local function TakeWriters(Text: Reader.Reader, Now: number): { [number]: Entry }
+	local Writers: { [number]: Entry } = {}
+	for _ = 1, Reader.Fixed(Text, COUNT_WIDTH) do
+		local Found: Entry = { Id = Reader.Var(Text), Lo = Reader.Var(Text), Stamp = 0, Fates = {} }
+		Found.Stamp = Now + Reader.Signed(Text)
+		for _ = 1, Reader.Var(Text) do
+			local Seq = Found.Lo - Reader.Var(Text)
+			Found.Fates[Seq] = TakeFate(Reader.Fixed(Text, 1))
+		end
+		if Writers[Found.Id] then
+			error("Book: two entries for one writer", 0)
+		end
+		Writers[Found.Id] = Found
+	end
+	return Writers
+end
+
 local function Take(Source: string): Book
 	local Text = Reader.New(Source)
-	local Record = New()
+	local Record = Book.New()
 	Record.Format = Reader.Fixed(Text, 1)
 	if Record.Format ~= FORMAT then
 		error(`Book: format {Record.Format} is not one this build reads`, 0)
@@ -269,19 +228,7 @@ local function Take(Source: string): Book
 	local Now = Reader.Var(Text)
 	Record.Horizon = Reader.Var(Text)
 	Record.CutHorizon = Reader.Var(Text)
-
-	for _ = 1, Reader.Fixed(Text, COUNT_WIDTH) do
-		local Found: Entry = { Id = Reader.Var(Text), Lo = Reader.Var(Text), Stamp = 0, Fates = {} }
-		Found.Stamp = Now + Reader.Signed(Text)
-		for _ = 1, Reader.Var(Text) do
-			local Seq = Found.Lo - Reader.Var(Text)
-			Found.Fates[Seq] = TakeFate(Reader.Fixed(Text, 1))
-		end
-		if Record.Writers[Found.Id] then
-			error("Book: two entries for one writer", 0)
-		end
-		Record.Writers[Found.Id] = Found
-	end
+	Record.Writers = TakeWriters(Text, Now)
 	Record.Timed = TakeRoom(Text, Now)
 	Record.Cut = TakeRoom(Text, Now)
 	Record.Untimed = TakeRoom(Text, Now)
@@ -291,28 +238,83 @@ local function Take(Source: string): Book
 	return Record
 end
 
-local function Version(Source: string): number?
+function Book.New(): Book
+	local Fresh: Data = {
+		Format = FORMAT,
+		Level = 0,
+		Floor = 0,
+		Writes = 0,
+		Cuts = 0,
+		Horizon = 0,
+		CutHorizon = 0,
+		Writers = {},
+		Timed = {},
+		Cut = {},
+		Untimed = {},
+	}
+	return setmetatable(Fresh, Book)
+end
+
+function Book.Decode(Source: string): Book?
+	local Ok, Record = pcall(Take, Source)
+	return if Ok then Record else nil
+end
+
+function Book.Version(Source: string): number?
 	local Ok, Format = pcall(Reader.Fixed, Reader.New(Source), 1)
 	return if Ok then Format else nil
 end
 
-local function Decode(Source: string): (Book?, string?)
-	local Ok, Result = pcall(Take, Source)
-	if Ok then
-		return Result, nil
-	end
-	return nil, tostring(Result)
+function Book.EntryWidth(Found: Entry, Now: number): number
+	Writer.Clear(Scratch)
+	PutEntry(Scratch, Found, Now)
+	return Scratch.Cursor
 end
 
-return table.freeze({
-	New = New,
-	Encode = Encode,
-	Decode = Decode,
-	Drawn = Drawn,
-	Version = Version,
-	EntryWidth = EntryWidth,
-	NamedWidth = NamedWidth,
-	Fate = Fate,
-	FORMAT = FORMAT,
-	DRAWN = DRAWN,
-})
+function Book.NamedWidth(Name: string, Item: Named, Now: number): number
+	Writer.Clear(Scratch)
+	PutNamed(Scratch, Name, Item, Now)
+	return Scratch.Cursor
+end
+
+function Book.Drawn(Server: number, Counter: number): string
+	local Text = Writer.New()
+	Writer.Var(Text, Server)
+	Writer.Var(Text, Counter)
+	return `{DRAWN}{Writer.Finish(Text)}`
+end
+
+function Book.Encode(self: Book, Now: number): string
+	local Text = Writer.New()
+	Writer.Fixed(Text, self.Format, 1)
+	Writer.Fixed(Text, if self.Id then 1 else 0, 1)
+	Writer.Var(Text, self.Level)
+	Writer.Var(Text, self.Floor)
+	Writer.Var(Text, self.Writes)
+	Writer.Var(Text, self.Cuts)
+	if self.Id then
+		Writer.Name(Text, self.Id)
+	end
+	Writer.Var(Text, Now)
+	Writer.Var(Text, self.Horizon)
+	Writer.Var(Text, self.CutHorizon)
+
+	local At = Writer.Fixed(Text, 0, COUNT_WIDTH)
+	local Count = 0
+	for _, Found in self.Writers do
+		PutEntry(Text, Found, Now)
+		Count += 1
+	end
+	Writer.Patch(Text, At, Count, COUNT_WIDTH)
+
+	PutRoom(Text, self.Timed, Now)
+	PutRoom(Text, self.Cut, Now)
+	PutRoom(Text, self.Untimed, Now)
+	return Writer.Finish(Text)
+end
+
+Book.Fate = Fate
+Book.FORMAT = FORMAT
+Book.DRAWN = DRAWN
+
+return Book

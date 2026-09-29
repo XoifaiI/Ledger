@@ -6,17 +6,12 @@
 
 	Reader: Reads what Writer wrote, and refuses any text Writer would not write.
 
-	Each function reads the next value from the book and moves past it. A character outside the
-	alphabet, a book that ends early, a number past its range or in a form Writer never makes, and a
-	name in the wrong form all raise an error that names the character.
-
-	Label reads what Writer.Label wrote, told by its caller whether it is base64.
+	Each function reads the next value. A bad character, an early end, a value out of range and a
+	form Writer never makes all raise an error.
 
 	Return type: A table with New, Var, Signed, Wide, Fixed, Name, Label and Done.
 	Example usage:
-		local Reader = require("./Reader")
-		local Book = Reader.New(Text)
-		local Count = Reader.Var(Book)
+		local Count = Reader.Var(Reader.New(Text))
 --]=]
 
 local Alphabet = require("./Alphabet")
@@ -216,7 +211,7 @@ local function Done(Book: Reader): boolean
 	return Book.Cursor == Book.Length
 end
 
-return table.freeze({
+return {
 	New = New,
 	Var = Var,
 	Signed = Signed,
@@ -225,4 +220,4 @@ return table.freeze({
 	Name = Name,
 	Label = Label,
 	Done = Done,
-})
+}

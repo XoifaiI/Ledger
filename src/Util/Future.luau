@@ -5,17 +5,11 @@
 
 	Future: Holds the answer to a call that has not finished yet.
 
-	Pending gives back a future and the function that settles it. Wait gives back the answer, and a
-	thread that waits before it is settled sleeps until then. Wait takes a timeout, and a wait that
-	times out gives back nothing. Happened says whether the future has settled, and waits for it when
-	asked to. A future settles once. Pack is not table.pack under another name: it widens a generic
-	type pack to any, which is the only way the checker packs one.
+	Pending gives back a future and the function that settles it once. Wait yields until then, or
+	gives back nothing after its timeout. Happened says whether it has settled.
 
 	Return type: A table with Pending and Completed.
 	Example usage:
-		local Future = require("./Future")
-		local Job, Settle = Future.Pending()
-		task.defer(Settle, true)
 		local Answer = Job:Wait()
 --]=]
 
@@ -23,19 +17,23 @@ type Packed = { n: number, [number]: any }
 
 type FutureImpl<T...> = {
 	__index: FutureImpl<T...>,
-
 	Wait: (self: Future<T...>, Timeout: number?) -> T...,
 	Happened: (self: Future<T...>, Wait: boolean?) -> boolean,
 }
 
 export type Future<T...> = setmetatable<{}, FutureImpl<T...>>
 
+type FutureStatics = {
+	Pending: <U...>() -> (Future<U...>, (U...) -> ()),
+	Completed: <U...>(U...) -> Future<U...>,
+}
+
 type Private = {
 	Result: Packed?,
 	Waiting: { [thread]: thread | false }?,
 }
 
-local Future = {} :: FutureImpl<...any>
+local Future = {} :: FutureImpl<...any> & FutureStatics
 Future.__index = Future
 
 local function ToPrivate<T...>(self: Future<T...>): Private
@@ -71,17 +69,17 @@ local function Expire(Body: Private, Caller: thread)
 	task.spawn(Caller)
 end
 
-local function Pending<T...>(): (Future<T...>, (T...) -> ())
+function Future.Pending<T...>(): (Future<T...>, (T...) -> ())
 	local Body: Private = {}
 	local function Done(...: T...)
 		Settle(Body, ...)
 	end
-	return setmetatable(Body :: any, Future), Done
+	return setmetatable(Body :: any, Future :: any), Done
 end
 
-local function Completed<T...>(...: T...): Future<T...>
+function Future.Completed<T...>(...: T...): Future<T...>
 	local Body: Private = { Result = Pack(...) }
-	return setmetatable(Body :: any, Future)
+	return setmetatable(Body :: any, Future :: any)
 end
 
 function Future.Wait<T...>(self: Future<T...>, Timeout: number?): T...
@@ -104,9 +102,4 @@ function Future.Happened<T...>(self: Future<T...>, Wait: boolean?): boolean
 	return ToPrivate(self).Result ~= nil
 end
 
-table.freeze(Future)
-
-return table.freeze({
-	Pending = Pending,
-	Completed = Completed,
-})
+return Future

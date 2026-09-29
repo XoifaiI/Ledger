@@ -34,19 +34,19 @@ local function Full(): Book.Book
 end
 
 local function Width(Record: Book.Book): number
-	return #Book.Encode(Record, NOW)
+	return #Record:Encode(NOW)
 end
 
 Describe("Book", function()
 	Test("a book comes back exactly from its text", function()
 		local Record = Full()
-		local Back = Book.Decode(Book.Encode(Record, NOW))
+		local Back = Book.Decode(Record:Encode(NOW))
 		Expect(Canon(Back)).toBe(Canon(Record))
-		Expect(Canon(Book.Decode(Book.Encode(Book.New(), NOW)))).toBe(Canon(Book.New()))
+		Expect(Canon(Book.Decode(Book.New():Encode(NOW)))).toBe(Canon(Book.New()))
 	end)
 
 	Test("its text is only alphabet characters", function()
-		Expect((string.find(Book.Encode(Full(), NOW), "^[%w_%-]*$"))).toBe(1)
+		Expect((string.find(Full():Encode(NOW), "^[%w_%-]*$"))).toBe(1)
 	end)
 
 	Test("items keep their widths on a busy key: 11, 13 and 24 against the design's 12, 14 and 24", function()
@@ -80,17 +80,15 @@ Describe("Book", function()
 		local Plain = string.sub(Drawn, 2)
 		Record.Timed[Drawn] = { Kind = 0, Stamp = NOW, Fate = Book.Fate.Took }
 		Record.Timed[Plain] = { Kind = 0, Stamp = NOW, Fate = Book.Fate.Refused, Print = 9 }
-		local Back = Book.Decode(Book.Encode(Record, NOW)) :: Book.Book
+		local Back = Book.Decode(Record:Encode(NOW)) :: Book.Book
 		Expect(Back.Timed[Drawn].Fate).toBe(Book.Fate.Took)
 		Expect(Back.Timed[Plain].Fate).toBe(Book.Fate.Refused)
 	end)
 
 	Test("a text Encode would not write is refused", function()
-		local Text = Book.Encode(Full(), NOW)
+		local Text = Full():Encode(NOW)
 		for _, Bad in { "", "B", `{Text}A`, string.sub(Text, 1, -2), `C{string.sub(Text, 2)}`, `{Text}=` } do
-			local Record, Why = Book.Decode(Bad)
-			Expect(Record).toBeNil()
-			Expect(Why).never.toBeNil()
+			Expect(Book.Decode(Bad)).toBeNil()
 		end
 	end)
 end)

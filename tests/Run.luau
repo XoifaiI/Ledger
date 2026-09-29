@@ -12,7 +12,6 @@
 		zune test tests/Run.luau
 --]=]
 
-require("./Adapters")
 require("./Answer")
 require("./Book")
 require("./Canon")
@@ -24,8 +23,8 @@ require("./Lru")
 require("./Machine")
 require("./Numbers")
 require("./Observer")
-require("./Queue")
 require("./Reduce")
+require("./Sender")
 require("./Step")
 require("./Value")
 require("./Writer")

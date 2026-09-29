@@ -4,32 +4,17 @@
 
 --[=[
 
-	Reduce: Runs a game's reducer over ops, and lets the reducer change the state it is given.
+	Reduce: Folds ops through a game's reducer.
 
-	A reducer gives back the next state to take an op, and nil to refuse it. Its return is typed
-	unknown, since a reducer typed to give back S? stops S being inferred at the call. It may give
-	back a new table, or change the state it is given and give that back. A reducer that throws,
-	yields or gives back something other than a table has refused, and Apply passes back what a refusal gave back
-	other than nil as its reason. Every run gets its own copy of the op.
-
-	Start begins a fold from a base that it never changes, and Apply runs one op on it. A fold hands
-	the reducer a frozen state first, as Ledger always has, so a reducer that clones pays nothing more
-	and a refusal leaves the state as it was. A run that throws is run again on a copy that can be
-	changed. When that run takes the op, the reducer is one that writes: the fold goes on with the
-	copy, and Reduce remembers the reducer so later folds skip the frozen try. A refused op may have
-	changed that copy, so the fold rebuilds it from the last frozen state by running the ops taken
-	since then again. A rebuild that refuses an op the first run took means the reducer is not
-	deterministic, and the fold warns. Fold runs a whole batch.
-
-	Snapshot gives a frozen copy of a state for a game to read. Run makes one guarded call of any
-	function shaped like a reducer.
+	A reducer gives back the next state, or nil to refuse. A throw, a yield or a value that is not a
+	table refuses too. A fold hands the reducer a frozen state first. A reducer that throws on it but
+	takes the op on a copy writes, and its folds run on copies, rebuilt from the last frozen state
+	after a refusal. A rebuild that disagrees warns that the reducer is not deterministic. Run makes
+	one guarded call.
 
 	Return type: A table with Start, Apply, Fold, Run, Copy and Snapshot.
 	Example usage:
-		local Reduce = require("./Reduce")
-		local Folding = Reduce.Start(Base, Reducer)
-		local Took = Reduce.Apply(Folding, Op)
-		local State = Folding.State
+		local Took = Reduce.Apply(Reduce.Start(Base, Reducer), Op)
 --]=]
 
 export type Reducer<S, O> = (State: S, Op: O) -> unknown
@@ -152,11 +137,11 @@ local function Fold<S, O>(Base: S, Ops: { O }, Reducer: Reducer<S, O>): (S, { bo
 	return Folding.State, Took
 end
 
-return table.freeze({
+return {
 	Start = Start,
 	Apply = Apply,
 	Fold = Fold,
 	Run = Run,
 	Copy = Copy,
 	Snapshot = Snapshot,
-})
+}

@@ -4,16 +4,14 @@
 
 --[=[
 
-	Canon: Prints a game value the same way on every server, for its fingerprint.
+	Canon: Prints a game value the same way on every server.
 
-	Each value is a tag byte and its body: a number as its 8 bytes, a string or a buffer as its length
-	and bytes, a table as its entry count and its entries with the keys sorted, numbers first. Two
-	values print the same only when they hold the same things.
+	Each value is a tag byte and its body. Table keys are sorted, numbers first. Two values print the
+	same only when they hold the same things.
 
 	Return type: A function that gives back the print as a string.
 	Example usage:
-		local Canon = require("./Canon")
-		local Print = Canon(Op)
+		local Print = Canon(Terms)
 --]=]
 
 local Limits = require("../Core/Constants/Limits")

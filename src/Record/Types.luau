@@ -2,22 +2,16 @@
 
 --[=[
 
-	Types: The shapes Step, a key's writer and the rules share.
+	Types: The shapes Step, the writer and the rules share.
 
-	An op carries its number in its writer's queue, its stamp, its kind, and for a named op its name
-	and the fingerprint of a game's name. It carries the incarnation it was judged for, nil meaning
-	any, or Create, the id to make the key with when it was judged for no key. A request is one
-	writer's ops in number order. A note says, by op index, the fate an op has, or why it has none.
-	A build is what one build of the game gives Step. Its Level is the number of its migrations and
-	its Floor is the index of the last breaking one. Form and Why name each form and reason once, so
-	a misspelt one is a type error.
+	An op carries the incarnation it was judged for, nil for any, or Create, the id for a key it
+	makes. A note says by op index what fate an op has, or why it has none, and holds the value to
+	write. A build's Level is its migration count, and its Floor the index of the last breaking one.
 
-	Return type: A table with Form and Why. The types are Form, Op, Request, Why, Note and Build.
+	Return type: A table with Form and Why. The types are Form, Op, Request, Why, Stored, Note and
+	Build.
 	Example usage:
-		local Types = require("./Types")
-		if Op.Form == Types.Form.Untimed then
-			return Types.Why.NoRoom
-		end
+		if Op.Form == Types.Form.Untimed then return Types.Why.NoRoom end
 --]=]
 
 export type Form = "Minted" | "Hopeful" | "Timed" | "Untimed"
@@ -45,6 +39,11 @@ export type Request = {
 
 export type Why = "Spent" | "Forgotten" | "Behind" | "Ahead" | "NoRoom" | "Missing" | "Undecided" | "Corrupt" | "Worn"
 
+export type Stored = {
+	s: { [string]: any },
+	b: string,
+}
+
 export type Note = {
 	Fates: { [number]: number },
 	Whys: { [number]: Why },
@@ -55,6 +54,7 @@ export type Note = {
 	CutHorizon: number,
 	Id: string?,
 	State: unknown,
+	Stored: Stored?,
 }
 
 export type Build = {
@@ -111,10 +111,7 @@ local Why: {
 		Worn = "Worn",
 	}
 
-table.freeze(Form)
-table.freeze(Why)
-
-return table.freeze({
+return {
 	Form = Form,
 	Why = Why,
-})
+}

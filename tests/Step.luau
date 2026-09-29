@@ -40,7 +40,8 @@ local function Request(Ops: { Op }, Ack: number?, Writer: number?): Types.Reques
 end
 
 local function Land(Current: unknown, Asked: Types.Request, Clock: number?, Using: Types.Build?): (unknown, Note, boolean)
-	local Value, Note = Step(Current, Asked, Clock or NOW, Using or DEFAULT)
+	local Note = Step(Current, Asked, Clock or NOW, Using or DEFAULT)
+	local Value = Note.Stored
 	return if Value then Value else Current, Note, Value ~= nil
 end
 
@@ -139,7 +140,7 @@ Describe("Step", function()
 	end)
 
 	Test("a field this build does not declare rides along untouched, and a bad money field is refused", function()
-		local Key = { s = { Gold = 1, Future = "kept" }, b = Book.Encode(Book.New(), NOW) }
+		local Key = { s = { Gold = 1, Future = "kept" }, b = Book.New():Encode(NOW) }
 		local After, Note = Land(Key, Request({ Mint(1, 2) }))
 		Expect(Note.Fates).toBe(Similar({ Fate.Took }))
 		Expect((After :: any).s.Future).toBe("kept")

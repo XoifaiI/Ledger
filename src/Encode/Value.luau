@@ -4,22 +4,13 @@
 
 --[=[
 
-	Value: Checks a game's value and counts the bytes it takes as json.
+	Value: Checks that a datastore can hold a value, and counts its json bytes.
 
-	Check walks the value once. It gives back the bytes, or nil and where the value cannot be stored:
-	nan or inf, a string or a key that is not utf8, a key that is not a string or a whole number from
-	1, a table that mixes the two or leaves a gap, a metatable, a function or other kind, or nesting
-	past Limits.DEPTH_MAX, which is also how a table that holds itself shows.
-
-	A count can be high and is never low, whether the encoder writes a number in full or with an
-	exponent. A whole number is charged all its digits. A fraction from SMALL up is charged 24 bytes,
-	the most one takes either way, and a smaller one what it takes written in full. A buffer is
-	charged its raw bytes, or what Compress gives back when the caller has one and the buffer is large
-	enough to be worth it.
+	Check gives back the bytes, or nil and where the value cannot be stored. The count is never low.
+	A buffer counts its raw bytes, or what Compress gives back when there is one.
 
 	Return type: A table with Check.
 	Example usage:
-		local Value = require("./Value")
 		local Bytes, Where = Value.Check(State)
 --]=]
 
@@ -162,6 +153,6 @@ local function Check(Item: unknown, Compress: ((Bytes: buffer) -> number)?): (nu
 	return Bytes, nil
 end
 
-return table.freeze({
+return {
 	Check = Check,
-})
+}

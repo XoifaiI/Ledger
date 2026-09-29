@@ -6,20 +6,14 @@
 
 	Writer: Writes Ledger's bookkeeping into a buffer as alphabet text.
 
-	Var writes a whole number below 2^53 as 5 bit digits, lowest first. A digit from the first half of
-	the alphabet means more follow, and one from the second half ends the number. Signed zigzags
-	first. Wide takes a sign and a magnitude of High * LIMB + Low, up to 2^80. Fixed writes a number
-	in a set count of characters and gives back where, and Patch rewrites it there. Name writes a
-	string as it is when the alphabet holds it, and as base64url of its bytes otherwise, behind a
-	header that holds its length and which of the two it is. Label writes the same with only the length
-	in its header, and gives back whether it used base64, for a caller that keeps that flag elsewhere.
+	Var writes a whole number below 2^53 as 5 bit digits, lowest first, and a digit from the second
+	half of the alphabet ends it. Signed zigzags. Wide writes up to 2^80. Fixed writes a set width
+	that Patch can rewrite. Name writes a string as it is, or as base64url when the alphabet cannot
+	hold it, behind its length and a flag. Label leaves the flag to its caller.
 
 	Return type: A table with New, Var, Signed, Wide, Fixed, Patch, Name, Label, Finish and Clear.
 	Example usage:
-		local Writer = require("./Writer")
-		local Book = Writer.New()
 		Writer.Var(Book, 300)
-		local Text = Writer.Finish(Book)
 --]=]
 
 local Alphabet = require("./Alphabet")
@@ -226,7 +220,7 @@ local function Clear(Book: Writer)
 	Book.Cursor = 0
 end
 
-return table.freeze({
+return {
 	New = New,
 	Var = Var,
 	Signed = Signed,
@@ -237,4 +231,4 @@ return table.freeze({
 	Label = Label,
 	Finish = Finish,
 	Clear = Clear,
-})
+}

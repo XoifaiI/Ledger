@@ -5,15 +5,12 @@
 
 	Lru: A bounded map that forgets what was touched longest ago.
 
-	Entries sit on a doubly linked list in the order they were last touched, so a touch and an eviction
-	each cost O(1). Get touches, and Put touches or adds. Adding past the limit drops the entry touched
-	longest ago first. New gives back a loose cache, so name the entry type on the local that holds it.
+	Get touches, and Put touches or adds, each in O(1). Put gives back the key it forgot to make room,
+	if any. Name the entry type on the local that holds it.
 
-	Return type: A table with New, Get, Put and Clear.
+	Return type: The Lru class, with New and the methods Get, Put and Clear.
 	Example usage:
-		local Lru = require("./Lru")
 		local Horizons: Lru.Lru<number> = Lru.New(4096)
-		Lru.Put(Horizons, "42", 1700000000)
 --]=]
 
 type Node = {
@@ -23,7 +20,15 @@ type Node = {
 	Next: Node?,
 }
 
-export type Lru<T> = {
+type LruImpl<T> = {
+	__index: LruImpl<T>,
+	New: (Limit: number) -> Lru<T>,
+	Get: (self: Lru<T>, Key: string) -> T?,
+	Put: (self: Lru<T>, Key: string, Value: T) -> string?,
+	Clear: (self: Lru<T>) -> (),
+}
+
+type Data = {
 	read Limit: number,
 	Count: number,
 	Nodes: { [string]: Node },
@@ -31,7 +36,12 @@ export type Lru<T> = {
 	Tail: Node?,
 }
 
-local function Unlink(Cache: Lru<any>, Entry: Node)
+export type Lru<T> = setmetatable<Data, LruImpl<T>>
+
+local Lru = {} :: LruImpl<any>
+Lru.__index = Lru
+
+local function Unlink(Cache: Data, Entry: Node)
 	local Previous, Following = Entry.Previous, Entry.Next
 	if Previous then
 		Previous.Next = Following
@@ -47,7 +57,7 @@ local function Unlink(Cache: Lru<any>, Entry: Node)
 	Entry.Next = nil
 end
 
-local function Append(Cache: Lru<any>, Entry: Node)
+local function Append(Cache: Data, Entry: Node)
 	local Tail = Cache.Tail
 	Entry.Previous = Tail
 	if Tail then
@@ -58,60 +68,57 @@ local function Append(Cache: Lru<any>, Entry: Node)
 	Cache.Tail = Entry
 end
 
-local function Touch(Cache: Lru<any>, Entry: Node)
-	if Cache.Tail == Entry then
-		return
+local function Touch(Cache: Data, Entry: Node)
+	if Cache.Tail ~= Entry then
+		Unlink(Cache, Entry)
+		Append(Cache, Entry)
 	end
-	Unlink(Cache, Entry)
-	Append(Cache, Entry)
 end
 
-local function New(Limit: number): Lru<any>
+function Lru.New(Limit: number): Lru<any>
 	if not (Limit >= 1 and Limit % 1 == 0) then
 		error(`Lru: the limit {Limit} is not a whole number of at least 1`, 2)
 	end
-	return { Limit = Limit, Count = 0, Nodes = {}, Head = nil, Tail = nil }
+	local Fresh: Data = { Limit = Limit, Count = 0, Nodes = {} }
+	return setmetatable(Fresh, Lru)
 end
 
-local function Get<T>(Cache: Lru<T>, Key: string): T?
-	local Entry = Cache.Nodes[Key]
+function Lru.Get<T>(self: Lru<T>, Key: string): T?
+	local Entry = self.Nodes[Key]
 	if Entry == nil then
 		return nil
 	end
-	Touch(Cache, Entry)
+	Touch(self, Entry)
 	return Entry.Value
 end
 
-local function Put<T>(Cache: Lru<T>, Key: string, Value: T): T
-	local Entry = Cache.Nodes[Key]
+function Lru.Put<T>(self: Lru<T>, Key: string, Value: T): string?
+	local Entry = self.Nodes[Key]
 	if Entry then
 		Entry.Value = Value
-		Touch(Cache, Entry)
-		return Value
+		Touch(self, Entry)
+		return nil
 	end
-	local Oldest = Cache.Head
-	if Oldest and Cache.Count >= Cache.Limit then
-		Unlink(Cache, Oldest)
-		Cache.Nodes[Oldest.Key] = nil
-		Cache.Count -= 1
+	local Oldest = self.Head
+	local Forgot: string? = nil
+	if Oldest and self.Count >= self.Limit then
+		Unlink(self, Oldest)
+		self.Nodes[Oldest.Key] = nil
+		self.Count -= 1
+		Forgot = Oldest.Key
 	end
 	local Fresh: Node = { Key = Key, Value = Value }
-	Cache.Nodes[Key] = Fresh
-	Append(Cache, Fresh)
-	Cache.Count += 1
-	return Value
+	self.Nodes[Key] = Fresh
+	Append(self, Fresh)
+	self.Count += 1
+	return Forgot
 end
 
-local function Clear<T>(Cache: Lru<T>)
-	table.clear(Cache.Nodes)
-	Cache.Head = nil
-	Cache.Tail = nil
-	Cache.Count = 0
+function Lru.Clear<T>(self: Lru<T>)
+	table.clear(self.Nodes)
+	self.Head = nil
+	self.Tail = nil
+	self.Count = 0
 end
 
-return table.freeze({
-	New = New,
-	Get = Get,
-	Put = Put,
-	Clear = Clear,
-})
+return Lru

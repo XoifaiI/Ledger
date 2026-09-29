@@ -3,21 +3,15 @@
 
 --[=[
 
-	Rooms: What the record's rooms take, and the two steps that keep them within their bounds.
+	Rooms: The widths of the record's rooms, and the two steps that keep them in bounds.
 
-	Timed and Untimed give the characters the timed room and the untimed room take, the timed room
-	holding the writer entries as well as its named items. Age drops what has outlived its window:
-	each writer entry but the one of this request's writer, each timed and untimed item, each cut
-	name. It raises the horizon over every writer entry and timed item it drops, and the cut horizon
-	over every cut name. An untimed drop raises nothing. Fit drops from the timed room until it fits,
-	the least stamp first, keeping items stamped more than Hold ahead and items this request wrote
-	for last, and names break a tie so every run drops the same item. It raises the horizon over each
-	drop. It drops the least cut names past the cut room's count and raises the cut horizon.
+	Age drops what has outlived its window, except this writer's entry. It raises the horizon over
+	each writer entry and timed item it drops, and the cut horizon over each cut name. Fit drops the
+	least stamp from the timed room until it fits, with items held ahead and this request's items
+	last, and raises the horizon each time. It trims cut names to the room's count.
 
 	Return type: A table with Timed, Untimed, Age and Fit.
 	Example usage:
-		local Rooms = require("./Rooms")
-		Rooms.Age(Record, Build, Now, Writer)
 		Rooms.Fit(Record, Build, Now, Writer, Written)
 --]=]
 
@@ -36,7 +30,9 @@ type Candidate = {
 	Width: number,
 }
 
-local function Timed(Record: Book, Now: number): number
+local Rooms = {}
+
+function Rooms.Timed(Record: Book, Now: number): number
 	local Total = 0
 	for _, Found in Record.Writers do
 		Total += Book.EntryWidth(Found, Now)
@@ -47,7 +43,7 @@ local function Timed(Record: Book, Now: number): number
 	return Total
 end
 
-local function Untimed(Record: Book, Now: number): number
+function Rooms.Untimed(Record: Book, Now: number): number
 	local Total = 0
 	for Name, Item in Record.Untimed do
 		Total += Book.NamedWidth(Name, Item, Now)
@@ -59,7 +55,7 @@ local function Window(Build: Build, Kind: number): number
 	return Build.Window[Kind] or Build.Minted
 end
 
-local function Age(Record: Book, Build: Build, Now: number, Writer: number)
+function Rooms.Age(Record: Book, Build: Build, Now: number, Writer: number)
 	local Horizon, CutHorizon = Record.Horizon, Record.CutHorizon
 	for Id, Found in Record.Writers do
 		if Id ~= Writer and Now - Found.Stamp >= Build.Minted then
@@ -102,8 +98,8 @@ local function Before(Left: Candidate, Right: Candidate): boolean
 	return (Left.Name :: string) < (Right.Name :: string)
 end
 
-local function Fit(Record: Book, Build: Build, Now: number, Writer: number, Written: { [string]: true })
-	local Total = Timed(Record, Now)
+function Rooms.Fit(Record: Book, Build: Build, Now: number, Writer: number, Written: { [string]: true })
+	local Total = Rooms.Timed(Record, Now)
 	if Total > Build.TimedRoom then
 		local Candidates: { Candidate } = {}
 		for Id, Found in Record.Writers do
@@ -159,9 +155,4 @@ local function Fit(Record: Book, Build: Build, Now: number, Writer: number, Writ
 	end
 end
 
-return table.freeze({
-	Timed = Timed,
-	Untimed = Untimed,
-	Age = Age,
-	Fit = Fit,
-})
+return Rooms

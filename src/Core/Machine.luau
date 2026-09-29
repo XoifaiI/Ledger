@@ -6,18 +6,12 @@
 
 	Machine: A state machine that sends requests and takes their replies.
 
-	Send gives each request an id, and Step hands the values replied for that id to the current state.
-	Enter runs on entering a state. On takes the reply and names the next state, or nil to stay. A state
-	moves only when none of its requests are out. A state with no On is final.
-
-	Id N sits at slot N % Size + 1 of a ring: N while out, -N once cancelled, 0 when free. Ids are sent
-	in order and the ring doubles at the first clash, so every id out is less than Size behind the
-	newest and one doubling always frees its slot.
+	Send gives each request an id, and Step hands the reply for that id to the current state. Enter
+	runs on entering a state. On names the next state, or nil to stay. A state moves only with no
+	request out, and a state with no On is final. Ids sit in a ring that doubles when a slot is taken.
 
 	Return type: A table with Define, Start, Step, Send, Cancel, Answer, IsFinal and StateOf.
 	Example usage:
-		local Machine = require("./Machine")
-		local Call, Effects, First = Machine.Start(Fetch, Context)
 		Effects, First = Machine.Step(Call, First, true, Value)
 --]=]
 
@@ -203,7 +197,7 @@ local function StateOf<Context, Effect, Answer, Reply...>(Call: Call<Context, Ef
 	return Call.State.Name
 end
 
-return table.freeze({
+return {
 	Define = Define,
 	Start = Start,
 	Step = Step,
@@ -212,4 +206,4 @@ return table.freeze({
 	Answer = Answer,
 	IsFinal = IsFinal,
 	StateOf = StateOf,
-})
+}

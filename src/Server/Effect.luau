@@ -3,19 +3,14 @@
 
 --[=[
 
-	Effect: The requests a machine sends, as data, and the reply each one gets.
+	Effect: A request a machine sends, as data, for the driver to carry out.
 
-	A machine never calls a datastore or waits. It sends an effect, and the driver makes the call and
-	steps the machine with the reply. Get reads a key, Update runs a transform on one, and Wait passes
-	time. An update names the user ids a key it makes is given. Each replies as its DataStore call
-	answers: Ok, Value and Info, and for an update Wrote after them. A wait replies true.
+	Get reads a key, Update runs a transform on one, and Wait passes time. The reply is what the
+	DataStore call answers: Ok, Value and Info, then Wrote for an update. A wait replies true.
 
-	Return type: A table with Kind, Get, Update and Wait. The types are Effect, and Call and Spec for
-	a machine that sends effects.
+	Return type: A table with Kind, Get, Update and Wait. The types are Effect, Call and Spec.
 	Example usage:
-		local Effect = require("./Effect")
 		Machine.Send(Call, Effect.Update(Store, Key, Transform))
-		local Waits = Sent.Kind == Effect.Kind.Wait
 --]=]
 
 local DataStore = require("../Adapters/DataStore")
@@ -55,21 +50,18 @@ local Kind: {
 	Wait = "Wait",
 }
 
-local function Get(Store: Store, Key: string, Options: DataStoreGetOptions?): Effect
+local Effect = { Kind = Kind }
+
+function Effect.Get(Store: Store, Key: string, Options: DataStoreGetOptions?): Effect
 	return { Kind = Kind.Get, Store = Store, Key = Key, Options = Options }
 end
 
-local function Update(Store: Store, Key: string, Transform: DataStore.Transform, UserIds: { number }?): Effect
+function Effect.Update(Store: Store, Key: string, Transform: DataStore.Transform, UserIds: { number }?): Effect
 	return { Kind = Kind.Update, Store = Store, Key = Key, Transform = Transform, UserIds = UserIds }
 end
 
-local function Wait(Seconds: number): Effect
+function Effect.Wait(Seconds: number): Effect
 	return { Kind = Kind.Wait, Seconds = Seconds }
 end
 
-return table.freeze({
-	Kind = table.freeze(Kind),
-	Get = Get,
-	Update = Update,
-	Wait = Wait,
-})
+return Effect

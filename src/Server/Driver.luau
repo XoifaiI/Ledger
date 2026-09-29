@@ -3,15 +3,13 @@
 
 --[=[
 
-	Driver: Runs a machine against the datastore, and settles a future with its answer.
+	Driver: Runs a machine. It carries out each effect and steps the machine with the reply.
 
-	The driver makes the call each effect asks for on a thread of its own, and steps the machine with
-	the reply. The future settles once, when the machine first answers or reaches a final state with
-	no answer. The machine may go on after it answers, and the driver carries on until it is final.
+	The driver decides nothing. Its future settles once, at the machine's first answer or its final
+	state.
 
 	Return type: A table with Run.
 	Example usage:
-		local Driver = require("./Driver")
 		local Number = Driver.Run(Numbers.Take, Numbers.Context(Store, game.JobId)):Wait()
 --]=]
 
@@ -22,7 +20,9 @@ local Machine = require("../Core/Machine")
 
 type Effect = Effect.Effect
 
-local function Run<Context, Answer>(Of: Machine.Machine<Context, Effect, Answer, (boolean, unknown, DataStoreKeyInfo?, boolean?)>, Context: Context): Future.Future<Answer?>
+local Driver = {}
+
+function Driver.Run<Context, Answer>(Of: Machine.Machine<Context, Effect, Answer, (boolean, unknown, DataStoreKeyInfo?, boolean?)>, Context: Context): Future.Future<Answer?>
 	local Job, Settle = Future.Pending()
 	local Call, Effects, First = Machine.Start(Of, Context)
 	local Told = false
@@ -53,6 +53,4 @@ local function Run<Context, Answer>(Of: Machine.Machine<Context, Effect, Answer,
 	return Job
 end
 
-return table.freeze({
-	Run = Run,
-})
+return Driver

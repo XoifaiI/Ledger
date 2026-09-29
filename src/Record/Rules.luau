@@ -3,24 +3,15 @@
 
 --[=[
 
-	Rules: The rules of record 4 that judge one op, in the order Step tries them.
+	Rules: The rules of record 4, in the order Step tries them.
 
-	Each rule looks at one op of a run and either passes it on or has the last word: it decides a new
-	fate, reports the fate the key already holds, or stops the op, which leaves every later op of the
-	request undecided. In order: an earlier op stopped, the op was judged for another incarnation, its
-	writer decided it before, its name is held, it is under the horizon, the key is past this build's
-	floor, it is stamped too far ahead or needs a clock that is not good, it is a hopeful op judged
-	before a cut, an untimed name has no room, and last the game's reducer judges it. The first op a run judges
-	runs the migrations the key has not had. When they fail, every op the run judges is refused.
+	A rule passes an op on or has the last word: a new fate, the fate the key holds, or a stop that
+	leaves every later op undecided. The first op to reach the reducer runs the key's missing
+	migrations. When they fail, every op judged is refused.
 
 	Return type: The ordered list of rules. The types are Run and Rule.
 	Example usage:
 		local RULES = require("./Rules")
-		for _, Rule in RULES do
-			if Rule(Run, Index, Op) then
-				break
-			end
-		end
 --]=]
 
 local Book = require("./Book")
@@ -211,7 +202,7 @@ local function Judge(Run: Run, Index: number, Op: Op): boolean
 	return Decide(Run, Index, Op, if Took then Fate.Took elseif Reason == Fate.Full then Fate.Full else Fate.Refused)
 end
 
-local RULES: { Rule } = table.freeze({
+local RULES: { Rule } = {
 	Prefix,
 	Incarnation,
 	DecidedBefore,
@@ -222,6 +213,6 @@ local RULES: { Rule } = table.freeze({
 	Turned,
 	Room,
 	Judge,
-})
+}
 
 return RULES

@@ -3,19 +3,14 @@
 
 --[=[
 
-	MemoryStore: Makes one call to a MemoryStore map, and answers a miss when the call fails.
+	MemoryStore: One call to a MemoryStore map, answered as pcall answers.
 
-	Each function answers as pcall does: true and the value, or false and the error. Everything Ledger
-	keeps in MemoryStore is advice, so nothing here retries and a miss means carry on without it.
-	Limits.MISSES misses in a row stop the calls to that map for Windows.BREAKER seconds, and those
-	calls answer false and nil without being made. Any answer clears the count. Each map has its own
-	cache, so one map that breaks leaves the others alone.
+	Nothing retries. Limits.MISSES misses in a row stop the calls to that map for Windows.BREAKER
+	seconds, and those calls answer false. Any answer clears the count.
 
-	Return type: A table with New, Get, Set, Update and Remove.
+	Return type: The Cache class, with New and the methods Get, Set, Update and Remove.
 	Example usage:
-		local MemoryStore = require("./MemoryStore")
-		local Cache = MemoryStore.New(Map)
-		local Ok, Value = MemoryStore.Get(Cache, Now, "t/Gold")
+		local Ok, Value = Cache:Get(Now, "t/Gold")
 --]=]
 
 local Limits = require("../Core/Constants/Limits")
@@ -28,60 +23,69 @@ export type Map = {
 	RemoveAsync: (self: any, Key: string) -> (),
 }
 
-export type Cache = {
+type CacheImpl = {
+	__index: CacheImpl,
+	New: (Map: Map) -> Cache,
+	Get: (self: Cache, Now: number, Key: string) -> (boolean, unknown),
+	Set: (self: Cache, Now: number, Key: string, Value: unknown, Expiry: number) -> (boolean, unknown),
+	Update: (self: Cache, Now: number, Key: string, Transform: (Current: unknown) -> unknown, Expiry: number) -> (boolean, unknown),
+	Remove: (self: Cache, Now: number, Key: string) -> (boolean, unknown),
+}
+
+type Data = {
 	read Map: Map,
 	Row: number,
 	Quiet: number,
 }
 
-local function Settle(Cache: Cache, Now: number, Ok: boolean, Value: unknown): (boolean, unknown)
+export type Cache = setmetatable<Data, CacheImpl>
+
+local Cache = {} :: CacheImpl
+Cache.__index = Cache
+
+local function Settle(Held: Data, Now: number, Ok: boolean, Value: unknown): (boolean, unknown)
 	if Ok then
-		Cache.Row = 0
+		Held.Row = 0
 		return true, Value
 	end
-	Cache.Row += 1
-	if Cache.Row >= Limits.MISSES then
-		Cache.Quiet = Now + Windows.BREAKER
+	Held.Row += 1
+	if Held.Row >= Limits.MISSES then
+		Held.Quiet = Now + Windows.BREAKER
 	end
 	return false, Value
 end
 
-local function New(Map: Map): Cache
-	return { Map = Map, Row = 0, Quiet = 0 }
+function Cache.New(Map: Map): Cache
+	local Fresh: Data = { Map = Map, Row = 0, Quiet = 0 }
+	return setmetatable(Fresh, Cache)
 end
 
-local function Get(Cache: Cache, Now: number, Key: string): (boolean, unknown)
-	if Now < Cache.Quiet then
+function Cache.Get(self: Cache, Now: number, Key: string): (boolean, unknown)
+	if Now < self.Quiet then
 		return false, nil
 	end
-	return Settle(Cache, Now, pcall(Cache.Map.GetAsync, Cache.Map, Key))
+	return Settle(self, Now, pcall(self.Map.GetAsync, self.Map, Key))
 end
 
-local function Set(Cache: Cache, Now: number, Key: string, Value: unknown, Expiry: number): (boolean, unknown)
-	if Now < Cache.Quiet then
+function Cache.Set(self: Cache, Now: number, Key: string, Value: unknown, Expiry: number): (boolean, unknown)
+	if Now < self.Quiet then
 		return false, nil
 	end
-	return Settle(Cache, Now, pcall(Cache.Map.SetAsync, Cache.Map, Key, Value, Expiry))
+	return Settle(self, Now, pcall(self.Map.SetAsync, self.Map, Key, Value, Expiry))
 end
 
-local function Update(Cache: Cache, Now: number, Key: string, Transform: (Current: unknown) -> unknown, Expiry: number): (boolean, unknown)
-	if Now < Cache.Quiet then
+function Cache.Update(self: Cache, Now: number, Key: string, Transform: (Current: unknown) -> unknown, Expiry: number): (boolean, unknown)
+	if Now < self.Quiet then
 		return false, nil
 	end
-	return Settle(Cache, Now, pcall(Cache.Map.UpdateAsync, Cache.Map, Key, Transform, Expiry))
+	return Settle(self, Now, pcall(self.Map.UpdateAsync, self.Map, Key, Transform, Expiry))
 end
 
-local function Remove(Cache: Cache, Now: number, Key: string): (boolean, unknown)
-	if Now < Cache.Quiet then
+function Cache.Remove(self: Cache, Now: number, Key: string): (boolean, unknown)
+	if Now < self.Quiet then
 		return false, nil
 	end
-	return Settle(Cache, Now, pcall(Cache.Map.RemoveAsync, Cache.Map, Key))
+	return Settle(self, Now, pcall(self.Map.RemoveAsync, self.Map, Key))
 end
 
-return table.freeze({
-	New = New,
-	Get = Get,
-	Set = Set,
-	Update = Update,
-	Remove = Remove,
-})
+return Cache

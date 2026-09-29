@@ -5,16 +5,11 @@
 
 	Answer: Every answer a call gives besides true.
 
-	A call answers true when its work is done, and one of these names otherwise. Compare against a
-	field, Answer == Ledger.Answer.Busy, so a misspelt name is a type error and the editor lists the
-	names. Each call's own type says which of them it can give.
+	Compare against a field, so a misspelt name is a type error.
 
 	Return type: A frozen table from each name to itself.
 	Example usage:
-		local Answer = require("./Answer")
-		if Result == Answer.Busy then
-			print("try again later")
-		end
+		if Result == Answer.Busy then return end
 --]=]
 
 export type Answer = "Backlog" | "Behind" | "Busy" | "Closed" | "Expired" | "Full" | "Invalid" | "Missing" | "NoRoom" | "Refused" | "Short" | "SoldOut" | "Spent" | "Unresolved" | "Worn"
@@ -54,4 +49,4 @@ local Answer: {
 		Worn = "Worn",
 	}
 
-return table.freeze(Answer)
+return Answer

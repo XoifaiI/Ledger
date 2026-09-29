@@ -4,15 +4,13 @@
 
 --[=[
 
-	Alphabet: The 64 characters Ledger writes its bookkeeping in.
+	Alphabet: The 64 characters of Ledger's bookkeeping: A-Z, a-z, 0-9, - and _.
 
-	A-Z, a-z, 0-9, - and _ stand for 0 to 63. CHARS maps a value to its byte. VALUES maps a byte to
-	its value, or to INVALID for a byte outside the alphabet. LIMB splits a number past 2^53 into two
-	parts, High * LIMB + Low.
+	CHARS maps a value to its byte, and VALUES a byte to its value or INVALID. LIMB splits a number
+	past 2^53 into High * LIMB + Low.
 
 	Return type: A table with CHARS, VALUES, INVALID and LIMB.
 	Example usage:
-		local Alphabet = require("./Alphabet")
 		local Byte = buffer.readu8(Alphabet.CHARS, 40)
 --]=]
 
@@ -25,9 +23,9 @@ for Value = 0, 63 do
 	buffer.writeu8(VALUES, buffer.readu8(CHARS, Value), Value)
 end
 
-return table.freeze({
+return {
 	CHARS = CHARS,
 	VALUES = VALUES,
 	INVALID = INVALID,
 	LIMB = 2 ^ 35,
-})
+}
