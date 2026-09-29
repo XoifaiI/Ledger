@@ -1,57 +1,77 @@
-# Ledger 7
+<div align="center">
 
-The rewrite of Ledger on the verified design in `E:\src\LedgerSim\spec\protocols` (each protocol's
-`Chosen.md`, with the findings and fixes in its `README.md`, and the TLA+ specs beside them).
+# Ledger
+[![GitHub](https://img.shields.io/badge/GitHub-Ledger-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/XoifaiI/Ledger) [![Docs](https://img.shields.io/badge/Docs-Read-8B5CF6?style=for-the-badge)](https://xoifaii.github.io/LedgerDocs/)
 
-## Shape
+</div>
 
-- **Core** is pure: no services, no clock reads, no yields. `Step` is the one transform every write
-  runs, the rules in record 4's order with each protocol's op kinds plugged in. Each call on a server
-  is a state machine (`Core/Machine`) whose transitions return effects and never perform them.
-- **Driver** runs a machine: it performs its effects and hands their results back as events.
-- **Adapters** are what the driver talks to: Roblox's DataStore and MemoryStore, a mock, and a trace
-  recorder for checking runs against the TLA+ specs.
+## What is this?
 
-## Names
+A datastore library for Roblox with no session locks. You never write state. You write down
+the change you want, a function you own decides whether it is valid, and state is what falls
+out of replaying those changes.
 
-The code uses the standard term where one exists, not the design's shorthand:
+```luau
+local Store = Ledger.New({
+	Name = "PlayerData",
+	Default = { Gold = 100, Items = {} },
+	Reducer = function(State, Op)
+		if Op.Kind == "SpendGold" then
+			if Op.Amount > State.Gold then
+				return nil -- refused, on every server, forever
+			end
+			local Next = table.clone(State)
+			Next.Gold -= Op.Amount
+			return Next
+		end
+		return nil
+	end,
+})
 
-| design | here |
-|---|---|
-| Tent (tentative write) | Prepare |
-| Mark | Lock |
-| Decider | Primary |
-| Resolve | Finalize |
-| Pinned record | Decision |
-| Horizon `h` | Watermark |
-| Writer entry (`lo`) | Producer sequence |
-| Hopeful op | Optimistic op |
-| Gate | Barrier |
-| Seal | Tombstone |
-| Touch | Repair |
-| Walk | Failover |
-
-`Commit` and `Fence` keep their names.
-
-## Commands
-
-```bash
-zune test tests/Run.luau               # every suite, through Zune's describe, test and expect
-zune setup vscode                      # once: writes Zune's type definitions to ~/.zune/typedefs
-rojo sourcemap test.project.json -o sourcemap.json
-luau-lsp analyze --flag:LuauSolverV2=true --base-luaurc=.luaurc --sourcemap=sourcemap.json \
-  --definitions="$HOME/AppData/Roaming/Code/User/globalStorage/johnnymorganz.luau-lsp/globalTypes.PluginSecurity.d.luau" \
-  --definitions="$HOME/.zune/typedefs/global/zune.d.luau" \
-  src tests
-stylua --check src tests bench
-./luau.exe -O2 --codegen bench/Bench.luau          # a whole book and a whole call; bench/Parts.luau per primitive
-./luau-compile.exe codegenverbose -O2 src/Encode/Writer.luau   # the native IR, with each argument's type
+Store:Load(Player)
+Store:Expect(Player):Apply("SpendGold", { Amount = 25 })
 ```
 
-Hot modules take a plain table and local functions, not a `setmetatable<>` class. Native code types
-a class argument as userdata and looks up every field the slow way: 32 ns a call against 11 ns.
+Two servers spend the same 100 gold, both writes land, the fold accepts one and refuses the
+other. Every server agrees, every time.
 
-Zune's Luau (0.700) does not parse explicit instantiation `<<...>>`, so code it runs uses annotated
-locals instead. A suite takes `Describe`, `Test`, `Expect` and `Similar` from `tests/Testing`, since
-the new solver cannot call Zune's own `expect` type. `toThrow` matches the whole message, and
-`Similar` compares a table by what it holds, which Zune's `toEqual` does not. The checker passes on the pinned luau-lsp 1.68.1 and on the editor's 1.70.1.
+A session lock serializes writers. A validating fold makes the invalid state unreachable,
+which is a stronger guarantee that also costs nothing when a server crashes: no lease to wait
+out, no locked player join stall, no side channel to touch someone offline or on another
+server. Changes are ops with names, and a reducer validates them.
+
+## Features
+
+- **Lock free** | every server, same result, no locks
+- **Cross server** | write to any player, even offline
+- **Entity stores** |  clans, listings, world records
+- **Transfers** | escrowed, deduped, self-healing
+- **Transactions** | all keys move or none do
+- **Migrations** | old servers can't corrupt new data
+- **Recovery** | 30 days of history, auto cleanup
+- **Idempotent** | a write retried applies one time
+- **`Once`** | receipts and webhooks land exactly once
+- **Typed ops** | name them once, every write is checked
+- **Loud misuse** | bad code throws, immediately
+
+## Installing
+
+**Wally**
+
+```toml
+[dependencies]
+Ledger = "xoifaii/ledger@6.2.0"
+```
+
+**Model file**: insert the [Ledger](https://github.com/XoifaiI/Ledger/releases) module anywhere server side.
+
+**roblox-ts**
+
+```
+npm install @xoifail/ledger
+```
+[Using Ledger from TypeScript](https://xoifaii.github.io/LedgerDocs/docs/guides/typescript).
+
+## License
+
+This project has the [MIT License](https://github.com/XoifaiI/Ledger/blob/main/LICENSE).
