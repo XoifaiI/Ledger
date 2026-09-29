@@ -1,0 +1,23 @@
+[package]
+name = "xoifaii/ledger"
+version = "7.0.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+license = "MIT"
+authors = ["XoifaiI"]
+description = "Player data for Roblox on one verified design: a pure core of state machines, with every datastore call at the edge."
+exclude = [
+    "tests",
+    "tests/**",
+    "zune",
+    "zune/**",
+    "internal",
+    "internal/**",
+    "test.project.json",
+    "sourcemap.json",
+    ".vscode",
+    ".vscode/**",
+    "**/.git/**",
+    "rokit.toml",
+    "stylua.toml",
+]
