@@ -13,6 +13,7 @@
 --]=]
 
 local Testing = require("./Testing")
+local Limits = require("../src/Core/Constants/Limits")
 local Value = require("../src/Encode/Value")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
@@ -41,7 +42,7 @@ Describe("Value", function()
 			"tab\tnew\nline\rfeed\f\b",
 			"\1\2\31",
 			"é 日本 😀 / slash",
-			string.rep("x", 1000) .. '"',
+			`{string.rep("x", 1000)}"`,
 			0,
 			7,
 			10,
@@ -111,8 +112,8 @@ Describe("Value", function()
 	end)
 
 	Test("a value may nest as deep as the limit and no deeper", function()
-		Expect((Value.Check(Nested(Value.MAX_DEPTH)))).never.toBeNil()
-		Expect((Value.Check(Nested(Value.MAX_DEPTH + 1)))).toBeNil()
+		Expect((Value.Check(Nested(Limits.DEPTH_MAX)))).never.toBeNil()
+		Expect((Value.Check(Nested(Limits.DEPTH_MAX + 1)))).toBeNil()
 	end)
 end)
 

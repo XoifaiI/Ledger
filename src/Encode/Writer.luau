@@ -10,9 +10,11 @@
 	the alphabet means more follow, and one from the second half ends the number. Signed zigzags
 	first. Wide takes a sign and a magnitude of High * LIMB + Low, up to 2^80. Fixed writes a number
 	in a set count of characters and gives back where, and Patch rewrites it there. Name writes a
-	string as it is when the alphabet holds it, and as base64url of its bytes otherwise.
+	string as it is when the alphabet holds it, and as base64url of its bytes otherwise, behind a
+	header that holds its length and which of the two it is. Label writes the same with only the length
+	in its header, and gives back whether it used base64, for a caller that keeps that flag elsewhere.
 
-	Return type: A table with New, Var, Signed, Wide, Fixed, Patch, Name, Finish and Clear.
+	Return type: A table with New, Var, Signed, Wide, Fixed, Patch, Name, Label, Finish and Clear.
 	Example usage:
 		local Writer = require("./Writer")
 		local Book = Writer.New()
@@ -88,7 +90,6 @@ end
 local function PutBase64(Book: Writer, Value: string)
 	local Length = #Value
 	local Encoded = (Length * 4 + 2) // 3
-	Put(Book, Encoded * 2 + 1)
 	local Cursor = Book.Cursor
 	if Cursor + Encoded > Book.Size then
 		Grow(Book, Encoded)
@@ -186,10 +187,10 @@ local function Patch(Book: Writer, At: number, Value: number, Width: number)
 	PutFixed(Book.Buffer, At, Value, Width)
 end
 
-local function Name(Book: Writer, Value: string)
+local function PutText(Book: Writer, Value: string, Flagged: boolean): boolean
 	local Start = Book.Cursor
 	local Length = #Value
-	Put(Book, Length * 2)
+	Put(Book, if Flagged then Length * 2 else Length)
 	local Cursor = Book.Cursor
 	if Cursor + Length > Book.Size then
 		Grow(Book, Length)
@@ -199,11 +200,22 @@ local function Name(Book: Writer, Value: string)
 	for Slot = Cursor, Cursor + Length - 1 do
 		if buffer.readu8(VALUES, buffer.readu8(Buffer, Slot)) == INVALID then
 			Book.Cursor = Start
+			local Encoded = (Length * 4 + 2) // 3
+			Put(Book, if Flagged then Encoded * 2 + 1 else Encoded)
 			PutBase64(Book, Value)
-			return
+			return true
 		end
 	end
 	Book.Cursor = Cursor + Length
+	return false
+end
+
+local function Name(Book: Writer, Value: string)
+	PutText(Book, Value, true)
+end
+
+local function Label(Book: Writer, Value: string): boolean
+	return PutText(Book, Value, false)
 end
 
 local function Finish(Book: Writer): string
@@ -222,6 +234,7 @@ return table.freeze({
 	Fixed = Fixed,
 	Patch = Patch,
 	Name = Name,
+	Label = Label,
 	Finish = Finish,
 	Clear = Clear,
 })

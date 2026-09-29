@@ -9,7 +9,7 @@
 	Check walks the value once. It gives back the bytes, or nil and where the value cannot be stored:
 	nan or inf, a string or a key that is not utf8, a key that is not a string or a whole number from
 	1, a table that mixes the two or leaves a gap, a metatable, a function or other kind, or nesting
-	past MAX_DEPTH, which is also how a table that holds itself shows.
+	past Limits.DEPTH_MAX, which is also how a table that holds itself shows.
 
 	A count can be high and is never low, whether the encoder writes a number in full or with an
 	exponent. A whole number is charged all its digits. A fraction from SMALL up is charged 24 bytes,
@@ -17,13 +17,14 @@
 	charged its raw bytes, or what Compress gives back when the caller has one and the buffer is large
 	enough to be worth it.
 
-	Return type: A table with Check and MAX_DEPTH.
+	Return type: A table with Check.
 	Example usage:
 		local Value = require("./Value")
 		local Bytes, Where = Value.Check(State)
 --]=]
 
-local MAX_DEPTH = 64
+local Limits = require("../Core/Constants/Limits")
+
 local MAX_EXACT = 2 ^ 53
 local FRACTION_BYTES = 24
 local SMALL = 1e-5
@@ -115,34 +116,34 @@ local function Walk(Item: unknown, Depth: number, Compress: ((Bytes: buffer) -> 
 		return BufferBytes(Item :: buffer, Compress), nil
 	elseif Kind ~= "table" then
 		return 0, ` is a {typeof(Item)}`
-	elseif Depth >= MAX_DEPTH then
-		return 0, ` nests deeper than {MAX_DEPTH}, or holds itself`
+	elseif Depth >= Limits.DEPTH_MAX then
+		return 0, ` nests deeper than {Limits.DEPTH_MAX}, or holds itself`
 	elseif getmetatable(Item :: any) ~= nil then
 		return 0, " has a metatable"
 	end
 
-	local Total, Count, Last, Keys = 2, 0, 0, "None"
+	local Total, Count, Last, Strings, Numbers = 2, 0, 0, 0, 0
 	for Key, Inner in Item :: { [unknown]: unknown } do
 		if type(Key) == "string" then
-			if Keys == "Array" then
+			if Numbers > 0 then
 				return 0, " mixes array and string keys"
 			elseif utf8.len(Key) == nil then
 				return 0, " has a key that is not valid utf8"
 			end
-			Keys = "Map"
+			Strings += 1
 			Total += StringBytes(Key) + 1
 		elseif type(Key) == "number" and Key >= 1 and Key % 1 == 0 then
-			if Keys == "Map" then
+			if Strings > 0 then
 				return 0, " mixes array and string keys"
 			end
-			Keys = "Array"
+			Numbers += 1
 			Last = math.max(Last, Key)
 		else
 			return 0, ` has the key {tostring(Key)}, which is not a string or a whole number from 1`
 		end
 		local Bytes, Where = Walk(Inner, Depth + 1, Compress)
 		if Where then
-			return 0, (if type(Key) == "string" then `.{Key}` else `[{Key}]`) .. Where
+			return 0, if type(Key) == "string" then `.{Key}{Where}` else `[{Key}]{Where}`
 		end
 		Total += Bytes + 1
 		Count += 1
@@ -163,5 +164,4 @@ end
 
 return table.freeze({
 	Check = Check,
-	MAX_DEPTH = MAX_DEPTH,
 })

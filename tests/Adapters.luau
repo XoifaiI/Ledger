@@ -13,7 +13,9 @@
 
 local Testing = require("./Testing")
 local DataStore = require("../src/Adapters/DataStore")
+local Limits = require("../src/Core/Constants/Limits")
 local MemoryStore = require("../src/Adapters/MemoryStore")
+local Windows = require("../src/Core/Constants/Windows")
 
 type Transform = DataStore.Transform
 
@@ -171,29 +173,29 @@ Describe("MemoryStore", function()
 	Test("misses in a row stop the calls until the breaker passes", function()
 		local Calls = { Count = 0, Failing = true }
 		local Cache = MemoryStore.New(Map(Calls))
-		for Try = 1, MemoryStore.MISSES do
+		for Try = 1, Limits.MISSES do
 			Expect({ MemoryStore.Get(Cache, 10, "k") }).toBe(Similar({ false, "throttled" }))
 			Expect(Calls.Count).toBe(Try)
 		end
-		Expect({ MemoryStore.Get(Cache, 10 + MemoryStore.BREAKER - 1, "k") }).toBe(Similar({ false }))
-		Expect(Calls.Count).toBe(MemoryStore.MISSES)
+		Expect({ MemoryStore.Get(Cache, 10 + Windows.BREAKER - 1, "k") }).toBe(Similar({ false }))
+		Expect(Calls.Count).toBe(Limits.MISSES)
 
 		Calls.Failing = false
-		Expect({ MemoryStore.Get(Cache, 10 + MemoryStore.BREAKER, "k") }).toBe(Similar({ true }))
-		Expect(Calls.Count).toBe(MemoryStore.MISSES + 1)
+		Expect({ MemoryStore.Get(Cache, 10 + Windows.BREAKER, "k") }).toBe(Similar({ true }))
+		Expect(Calls.Count).toBe(Limits.MISSES + 1)
 		Expect(Cache.Row).toBe(0)
 	end)
 
 	Test("an answer between misses clears the count", function()
 		local Calls = { Count = 0, Failing = true }
 		local Cache = MemoryStore.New(Map(Calls))
-		for _ = 1, MemoryStore.MISSES - 1 do
+		for _ = 1, Limits.MISSES - 1 do
 			MemoryStore.Get(Cache, 0, "k")
 		end
 		Calls.Failing = false
 		MemoryStore.Get(Cache, 0, "k")
 		Calls.Failing = true
-		for _ = 1, MemoryStore.MISSES - 1 do
+		for _ = 1, Limits.MISSES - 1 do
 			MemoryStore.Get(Cache, 0, "k")
 		end
 		Expect(Cache.Quiet).toBe(0)

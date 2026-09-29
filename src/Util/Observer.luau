@@ -7,11 +7,11 @@
 
 	A listener runs the moment a value is pushed and must not yield: one that yields is stopped, and
 	one that throws is reported, and neither stops the others. A detached stream runs each listener on
-	a thread of its own instead, and says so once a listener has run for SLOW seconds. Use, Map, Filter
-	and Changed each make a new stream from this one. From makes a stream that starts its source on the
-	first subscriber and stops it after the last one leaves. Destroy stops the source and disconnects
-	every listener. New takes no value to infer the element type from, so name it on the local that
-	holds the stream.
+	a thread of its own instead, and says so once a listener has run for Windows.SLOW seconds. Use,
+	Map, Filter and Changed each make a new stream from this one. From makes a stream that starts its
+	source on the first subscriber and stops it after the last one leaves. Destroy stops the source
+	and disconnects every listener. New takes no value to infer the element type from, so name it on
+	the local that holds the stream.
 
 	Return type: A table with New and From.
 	Example usage:
@@ -20,6 +20,8 @@
 		Stream:Subscribe(print)
 		Stream:Push(1)
 --]=]
+
+local Windows = require("../Core/Constants/Windows")
 
 export type Connection = {
 	Connected: boolean,
@@ -63,8 +65,6 @@ type Private<T> = {
 	Said: number?,
 }
 
-local SLOW = 10
-
 local Observer = {}
 Observer.__index = Observer
 
@@ -107,13 +107,13 @@ local function Run<T>(Listener: (T) -> (), Value: T)
 end
 
 local function Carry<T>(Owner: Private<T>, Listener: (T) -> (), Value: T)
-	local Watch = task.delay(SLOW, function()
+	local Watch = task.delay(Windows.SLOW, function()
 		local Now = os.clock()
-		if Owner.Said and Now - Owner.Said < SLOW then
+		if Owner.Said and Now - Owner.Said < Windows.SLOW then
 			return
 		end
 		Owner.Said = Now
-		warn(`Ledger: an Observer listener has run for {SLOW} seconds. a listener that never returns leaks a thread for every value pushed`)
+		warn(`Ledger: an Observer listener has run for {Windows.SLOW} seconds. a listener that never returns leaks a thread for every value pushed`)
 	end)
 	local Ok, Err = pcall(Listener, Value)
 	task.cancel(Watch)

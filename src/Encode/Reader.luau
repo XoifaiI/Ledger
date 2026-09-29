@@ -10,7 +10,9 @@
 	alphabet, a book that ends early, a number past its range or in a form Writer never makes, and a
 	name in the wrong form all raise an error that names the character.
 
-	Return type: A table with New, Var, Signed, Wide, Fixed, Name and Done.
+	Label reads what Writer.Label wrote, told by its caller whether it is base64.
+
+	Return type: A table with New, Var, Signed, Wide, Fixed, Name, Label and Done.
 	Example usage:
 		local Reader = require("./Reader")
 		local Book = Reader.New(Text)
@@ -156,9 +158,7 @@ local function Fixed(Book: Reader, Width: number): number
 	return Value
 end
 
-local function Name(Book: Reader): string
-	local Header = Var(Book)
-	local Length = Header // 2
+local function TakeText(Book: Reader, Length: number, Base64: boolean): string
 	local Buffer, Cursor = Book.Buffer, Book.Cursor
 	if Cursor + Length > Book.Length then
 		Fail(Book.Length, "a name past the end")
@@ -169,7 +169,7 @@ local function Name(Book: Reader): string
 		end
 	end
 	Book.Cursor = Cursor + Length
-	if Header % 2 == 0 then
+	if not Base64 then
 		return buffer.readstring(Buffer, Cursor, Length)
 	end
 
@@ -203,6 +203,15 @@ local function Name(Book: Reader): string
 	return Decoded
 end
 
+local function Name(Book: Reader): string
+	local Header = Var(Book)
+	return TakeText(Book, Header // 2, Header % 2 == 1)
+end
+
+local function Label(Book: Reader, Base64: boolean): string
+	return TakeText(Book, Var(Book), Base64)
+end
+
 local function Done(Book: Reader): boolean
 	return Book.Cursor == Book.Length
 end
@@ -214,5 +223,6 @@ return table.freeze({
 	Wide = Wide,
 	Fixed = Fixed,
 	Name = Name,
+	Label = Label,
 	Done = Done,
 })

@@ -14,6 +14,7 @@
 
 require("./Adapters")
 require("./Answer")
+require("./Book")
 require("./Canon")
 require("./Encode")
 require("./Errors")
@@ -23,4 +24,5 @@ require("./Machine")
 require("./Observer")
 require("./Queue")
 require("./Reduce")
+require("./Step")
 require("./Value")

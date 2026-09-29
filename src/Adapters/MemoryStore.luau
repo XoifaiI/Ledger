@@ -7,16 +7,19 @@
 
 	Each function answers as pcall does: true and the value, or false and the error. Everything Ledger
 	keeps in MemoryStore is advice, so nothing here retries and a miss means carry on without it.
-	MISSES misses in a row stop the calls to that map for BREAKER seconds, and those calls answer false
-	and nil without being made. Any answer clears the count. Each map has its own cache, so one map
-	that breaks leaves the others alone.
+	Limits.MISSES misses in a row stop the calls to that map for Windows.BREAKER seconds, and those
+	calls answer false and nil without being made. Any answer clears the count. Each map has its own
+	cache, so one map that breaks leaves the others alone.
 
-	Return type: A table with New, Get, Set, Update, Remove, MISSES and BREAKER.
+	Return type: A table with New, Get, Set, Update and Remove.
 	Example usage:
 		local MemoryStore = require("./MemoryStore")
 		local Cache = MemoryStore.New(Map)
 		local Ok, Value = MemoryStore.Get(Cache, Now, "t/Gold")
 --]=]
+
+local Limits = require("../Core/Constants/Limits")
+local Windows = require("../Core/Constants/Windows")
 
 export type Map = {
 	GetAsync: (self: any, Key: string) -> unknown,
@@ -31,17 +34,14 @@ export type Cache = {
 	Quiet: number,
 }
 
-local MISSES = 3
-local BREAKER = 120
-
 local function Settle(Cache: Cache, Now: number, Ok: boolean, Value: unknown): (boolean, unknown)
 	if Ok then
 		Cache.Row = 0
 		return true, Value
 	end
 	Cache.Row += 1
-	if Cache.Row >= MISSES then
-		Cache.Quiet = Now + BREAKER
+	if Cache.Row >= Limits.MISSES then
+		Cache.Quiet = Now + Windows.BREAKER
 	end
 	return false, Value
 end
@@ -84,6 +84,4 @@ return table.freeze({
 	Set = Set,
 	Update = Update,
 	Remove = Remove,
-	MISSES = MISSES,
-	BREAKER = BREAKER,
 })

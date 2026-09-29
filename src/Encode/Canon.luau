@@ -16,7 +16,7 @@
 		local Print = Canon(Op)
 --]=]
 
-local MAX_DEPTH = 64
+local Limits = require("../Core/Constants/Limits")
 
 local Out = buffer.create(512)
 local Cursor = 0
@@ -59,7 +59,7 @@ local function Emit(Value: unknown, Depth: number)
 		Reserve(1)
 		buffer.writeu8(Out, Cursor, if Value then 5 else 4)
 		Cursor += 1
-	elseif Kind == "table" and Depth < MAX_DEPTH then
+	elseif Kind == "table" and Depth < Limits.DEPTH_MAX then
 		local Table = Value :: { [unknown]: unknown }
 		local Keys: { number | string } = {}
 		for Key in Table do
@@ -78,7 +78,7 @@ local function Emit(Value: unknown, Depth: number)
 			Emit(Table[Key], Depth + 1)
 		end
 	else
-		error(`Canon: cannot print a {typeof(Value)}, a nan, or a table nested past {MAX_DEPTH}`, 0)
+		error(`Canon: cannot print a {typeof(Value)}, a nan, or a table nested past {Limits.DEPTH_MAX}`, 0)
 	end
 end
 
