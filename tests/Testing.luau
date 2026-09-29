@@ -2,12 +2,15 @@
 
 --[=[
 
-	Testing: Zune's test functions under plain types.
+	Testing: Zune's test functions under plain types, and the two globals Roblox has and Zune does not.
 
 	Zune types expect as an overloaded function joined with a table, which the new solver refuses to
 	call. This gives the same functions one signature each. Similar matches a table by what it holds.
+	Zune keeps Roblox's task library under zune.task and has no warn, so this puts task where source
+	looks for it and a warn that records what it is given. Heard gives back what was warned since it
+	was last called.
 
-	Return type: A table with Describe, Test, Expect and Similar.
+	Return type: A table with Describe, Test, Expect, Similar and Heard.
 	Example usage:
 		local Testing = require("./Testing")
 		local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
@@ -27,10 +30,30 @@ export type Matchers = {
 }
 
 local Zune = zune.testing :: any
+local Said: { string } = {}
+
+local function Warn(...: any)
+	local Parts = table.pack(...)
+	for Index = 1, Parts.n do
+		Parts[Index] = tostring(Parts[Index])
+	end
+	table.insert(Said, table.concat(Parts, " ", 1, Parts.n))
+end
+
+local function Heard(): { string }
+	local Copy = table.clone(Said)
+	table.clear(Said)
+	return Copy
+end
+
+local Globals = _G :: any
+Globals.task = zune.task
+Globals.warn = Warn
 
 return table.freeze({
 	Describe = Zune.describe :: (Name: string, Body: () -> ()) -> (),
 	Test = Zune.test :: (Name: string, Body: () -> ()) -> (),
 	Expect = Zune.expect :: (Value: any) -> Matchers,
 	Similar = Zune.expect.similar :: (Expected: any) -> any,
+	Heard = Heard,
 })
