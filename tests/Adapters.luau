@@ -23,11 +23,13 @@ type Plan = {
 	Runs: number,
 	Before: string?,
 	After: string?,
+	Options: DataStoreGetOptions?,
 }
 
 local function Store(Values: { [string]: unknown }, Plan: Plan): DataStore.Store
 	local Fake = {}
-	function Fake.GetAsync(_: any, Key: string): (unknown, DataStoreKeyInfo?)
+	function Fake.GetAsync(_: any, Key: string, Options: DataStoreGetOptions?): (unknown, DataStoreKeyInfo?)
+		Plan.Options = Options
 		if Plan.Before then
 			error(Plan.Before, 0)
 		end
@@ -105,6 +107,13 @@ end
 Describe("DataStore", function()
 	Test("a read answers the value", function()
 		Expect({ DataStore.Get(Store({ a = 5 }, { Runs = 1 }), "a") }).toBe(Similar({ true, 5 }))
+	end)
+
+	Test("a read passes its options on, so it can skip the cache", function()
+		local Plan: Plan = { Runs = 1 }
+		local Options = { UseCache = false } :: any
+		DataStore.Get(Store({}, Plan), "a", Options)
+		Expect(Plan.Options).toBe(Options)
 	end)
 
 	Test("a read that fails answers the error", function()
