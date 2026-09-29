@@ -9,7 +9,8 @@
 	not took a writer's entry keeps. DEPTH_MAX is how deep a stored value may nest. MISSES is how many
 	MemoryStore calls in a row may miss before the calls to that map stop for a while. SEQ_MAX is the
 	most ops one writer numbers. TRIES is how many requests in a row may fail before an op answers
-	Unresolved. QUEUE is the most ops a writer holds.
+	Unresolved. QUEUE is the most ops a writer holds. COUNTERS is how many keys hand out server
+	numbers.
 
 	Return type: A frozen table of the bounds.
 	Example usage:
@@ -26,4 +27,5 @@ return table.freeze({
 	SEQ_MAX = 32767,
 	TRIES = 3,
 	QUEUE = 4096,
+	COUNTERS = 16,
 })

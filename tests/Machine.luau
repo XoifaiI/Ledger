@@ -15,9 +15,9 @@ local Queue = require("../src/Util/Queue")
 
 type Effect = { read Kind: string, read Leg: number? }
 type Reply = { read Kind: string, read Value: number? }
-type Call<C> = Machine.Call<C, Reply, Effect, number>
-type Spec<C> = Machine.Spec<C, Reply, Effect, number>
-type Machine<C> = Machine.Machine<C, Reply, Effect, number>
+type Call<C> = Machine.Call<C, Effect, number, (Reply)>
+type Spec<C> = Machine.Spec<C, Effect, number, (Reply)>
+type Machine<C> = Machine.Machine<C, Effect, number, (Reply)>
 
 type FetchContext = { Tries: number }
 type CommitContext = { Legs: number, Yes: number }
@@ -137,7 +137,7 @@ local function Poll(): Machine<PollContext>
 	return Machine.Define(Spec)
 end
 
-local function Single(Name: string, States: { [string]: Machine.State<{}, Reply, Effect, number> }): Machine<{}>
+local function Single(Name: string, States: { [string]: Machine.State<{}, Effect, number, (Reply)> }): Machine<{}>
 	local Spec: Spec<{}> = { Name = Name, Initial = "A", States = States }
 	return Machine.Define(Spec)
 end

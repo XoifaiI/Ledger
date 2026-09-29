@@ -18,6 +18,7 @@ local MemoryStore = require("../src/Adapters/MemoryStore")
 local Windows = require("../src/Core/Constants/Windows")
 
 type Transform = DataStore.Transform
+type Run = (Current: unknown, Info: DataStoreKeyInfo?) -> (unknown, { number }?, ...{ [string]: any })
 
 local Describe, Test, Expect, Similar = Testing.Describe, Testing.Test, Testing.Expect, Testing.Similar
 
@@ -26,6 +27,9 @@ type Plan = {
 	Before: string?,
 	After: string?,
 	Options: DataStoreGetOptions?,
+	Info: DataStoreKeyInfo?,
+	Ids: { number }?,
+	Metadata: { [string]: any }?,
 }
 
 local function Store(Values: { [string]: unknown }, Plan: Plan): DataStore.Store
@@ -37,13 +41,13 @@ local function Store(Values: { [string]: unknown }, Plan: Plan): DataStore.Store
 		end
 		return Values[Key], nil
 	end
-	function Fake.UpdateAsync(_: any, Key: string, Transform: Transform): (unknown, DataStoreKeyInfo?)
+	function Fake.UpdateAsync(_: any, Key: string, Transform: Run): (unknown, DataStoreKeyInfo?)
 		if Plan.Before then
 			error(Plan.Before, 0)
 		end
 		local Next: unknown = nil
 		for _ = 1, Plan.Runs do
-			Next = Transform(Values[Key], nil)
+			Next, Plan.Ids, Plan.Metadata = Transform(Values[Key], Plan.Info)
 		end
 		if Plan.After then
 			error(Plan.After, 0)
@@ -97,13 +101,13 @@ local function Map(Calls: Calls): MemoryStore.Map
 end
 
 local function Add(Amount: number): Transform
-	return function(Current: unknown): (unknown, { number }?, { [string]: any }?)
-		return (Current :: number? or 0) + Amount, nil, nil
+	return function(Current: unknown): unknown
+		return (Current :: number? or 0) + Amount
 	end
 end
 
-local function Cancel(): (unknown, { number }?, { [string]: any }?)
-	return nil, nil, nil
+local function Cancel(): unknown
+	return nil
 end
 
 Describe("DataStore", function()
@@ -124,29 +128,48 @@ Describe("DataStore", function()
 
 	Test("an update that lands answers what it wrote", function()
 		local Values = { a = 1 }
-		Expect({ DataStore.Update(Store(Values, { Runs = 1 }), "a", Add(10)) }).toBe(Similar({ true, 11, true }))
+		Expect({ DataStore.Update(Store(Values, { Runs = 1 }), "a", Add(10)) }).toBe(Similar({ true, 11, nil, true }))
 		Expect(Values.a).toBe(11)
 	end)
 
 	Test("an update whose every run cancels wrote nothing", function()
 		local Values = { a = 1 }
-		Expect({ DataStore.Update(Store(Values, { Runs = 3 }), "a", Cancel) }).toBe(Similar({ true, nil, false }))
+		Expect({ DataStore.Update(Store(Values, { Runs = 3 }), "a", Cancel) }).toBe(Similar({ true, nil, nil, false }))
 		Expect(Values.a).toBe(1)
 	end)
 
 	Test("an update that fails after a run offered a write says it may have written", function()
-		Expect({ DataStore.Update(Store({}, { Runs = 2, After = "timeout" }), "a", Add(1)) }).toBe(Similar({ false, "timeout", true }))
+		Expect({ DataStore.Update(Store({}, { Runs = 2, After = "timeout" }), "a", Add(1)) }).toBe(Similar({ false, "timeout", nil, true }))
 	end)
 
 	Test("an update that fails before any run wrote nothing", function()
-		Expect({ DataStore.Update(Store({}, { Runs = 1, Before = "throttled" }), "a", Add(1)) }).toBe(Similar({ false, "throttled", false }))
+		Expect({ DataStore.Update(Store({}, { Runs = 1, Before = "throttled" }), "a", Add(1)) }).toBe(Similar({ false, "throttled", nil, false }))
 	end)
 
 	Test("a transform that raises fails the call with its error", function()
-		local function Broken(): (unknown, { number }?, { [string]: any }?)
+		local function Broken(): unknown
 			error("step raised", 0)
 		end
-		Expect({ DataStore.Update(Store({}, { Runs = 1 }), "a", Broken) }).toBe(Similar({ false, "step raised", false }))
+		Expect({ DataStore.Update(Store({}, { Runs = 1 }), "a", Broken) }).toBe(Similar({ false, "step raised", nil, false }))
+	end)
+
+	Test("a write keeps the user ids and metadata the key holds, and a new key takes the ids asked for", function()
+		local Info = {
+			GetUserIds = function()
+				return { 7 }
+			end,
+			GetMetadata = function()
+				return { Shard = 2 }
+			end,
+		} :: any
+		local Kept: Plan = { Runs = 1, Info = Info }
+		DataStore.Update(Store({ a = 1 }, Kept), "a", Add(1), { 9 })
+		Expect(Kept.Ids).toBe(Similar({ 7 }))
+		Expect(Kept.Metadata).toBe(Similar({ Shard = 2 }))
+		local Made: Plan = { Runs = 1 }
+		DataStore.Update(Store({}, Made), "b", Add(1), { 9 })
+		Expect(Made.Ids).toBe(Similar({ 9 }))
+		Expect(Made.Metadata).toBeNil()
 	end)
 
 	Test("a remove answers the value it removed, or the error", function()
