@@ -30,6 +30,25 @@ local function Full(): Book.Book
 	Record.Timed["gift for ✨"] = { Kind = 5, Stamp = NOW - 5, Fate = Book.Fate.Aborted, Attempt = 1, Print = 5 }
 	Record.Cut[Book.Drawn(4, 4)] = { Kind = 1, Stamp = NOW - 60, Fate = Book.Fate.Took }
 	Record.Untimed["daily-reward"] = { Kind = 6, Stamp = NOW - 70, Fate = Book.Fate.Full, Print = 65535 }
+	Record.Timed[Book.Drawn(99, 2)] = { Kind = 0, Role = Book.Role.Leg, Stamp = NOW - 3, Fate = Book.Fate.Took, Attempt = 2 }
+	Record.Timed["trade-9"] = { Kind = 0, Role = Book.Role.Decision, Stamp = NOW - 4, Fate = Book.Fate.Refused, Attempt = 1, Print = 12 }
+	Record.Work[Book.Drawn(3, 1)] = {
+		Form = "Escrow",
+		Stamp = NOW - 2,
+		Attempt = 1,
+		Clean = true,
+		Decider = { Store = "Gold", Key = "user:42" },
+		Field = 3,
+		Amount = -(2 ^ 53 - 1),
+	}
+	Record.Work["swap ✨"] = { Form = "Exclusive", Stamp = NOW, Attempt = 3, Print = 9, Clean = false, Decider = { Store = "Shop", Key = "7" } }
+	Record.Work[Book.Drawn(5, 5)] = {
+		Form = "Pinned",
+		Stamp = NOW - 1,
+		Attempt = 2,
+		Legs = { { Store = "Gold", Key = "1" }, { Store = "Other store", Key = "k" } },
+		Value = 42,
+	}
 	return Record
 end
 

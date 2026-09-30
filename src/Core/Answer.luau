@@ -3,7 +3,7 @@
 
 --[=[
 
-	Answer: Every answer a call gives besides true.
+	Answer: Logic. Every answer a call gives besides true.
 
 	Compare against a field, so a misspelt name is a type error.
 

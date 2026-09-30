@@ -2,10 +2,10 @@
 
 --[=[
 
-	Reads: The cases for Record/View, Server/Shown, Server/Peek and Server/DidApply.
+	Reads: The cases for Record/View, Record/Shown, Calls/Peek and Calls/DidApply.
 
-	Keys are written by the real Step for the game in tests/Gold. The machines are stepped by hand with
-	the replies a datastore gives, and an update's transform is run on the key as the datastore would.
+	Keys are written by the real Step for the game in tests/Gold. The machines are stepped directly:
+	a read hears a key, and a send hears the note of the real Step run on it.
 
 	Return type: nil. Requiring it adds its cases to the run.
 	Example usage:
@@ -14,13 +14,16 @@
 
 local Testing = require("./Testing")
 local Answer = require("../src/Core/Answer")
-local DidApply = require("../src/Server/DidApply")
-local Effect = require("../src/Server/Effect")
+local Book = require("../src/Record/Book")
+local Asks = require("../src/Machine/Asks")
+local Clock = require("../src/Machine/Clock")
+local DidApply = require("../src/Calls/DidApply")
 local Game = require("./Gold")
 local Limits = require("../src/Core/Constants/Limits")
-local Machine = require("../src/Core/Machine")
-local Peek = require("../src/Server/Peek")
-local Shown = require("../src/Server/Shown")
+local Machine = require("../src/Machine/Machine")
+local Peek = require("../src/Calls/Peek")
+local Replay = require("./Replay")
+local Shown = require("../src/Record/Shown")
 local Step = require("../src/Record/Step")
 local Types = require("../src/Record/Types")
 local View = require("../src/Record/View")
@@ -37,8 +40,10 @@ local function Mint(Add: number): Types.Op
 	return { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Add } }
 end
 
-local function Land(Sent: Effect.Effect, Current: unknown): unknown
-	return if Sent.Kind == Effect.Kind.Update then Sent.Transform(Current, nil) else nil
+local function Land(Asked: { Machine.Asked }, Current: unknown): Asks.Heard
+	local Ask = Asked[1].Ask
+	local Note = Step(Current, if Ask.Kind == "Send" then Ask.Request else error("not a send"), NOW, Game.DEFAULT)
+	return Asks.Noted(Note, NOW, Note.Stored ~= nil)
 end
 
 Describe("View", function()
@@ -84,51 +89,115 @@ Describe("Shown", function()
 		Table:Show("a", 5)
 		Expect(Table:Stale("a")).toBe(false)
 	end)
+
+	Test("a pinned key is never forgotten, and can be forgotten again once unpinned", function()
+		local Table = Shown.New()
+		Table:Show("a", 3)
+		Table:Pin("a", 2)
+		for Index = 1, Limits.SHOWN_MAX do
+			Table:Show(`k{Index}`, 1)
+		end
+		Expect(Table:Stale("a")).toBe(false)
+		Expect(Table:Allows("a", 2)).toBe(false)
+		Table:Show("a", 4)
+		Table:Unpin("a")
+		Expect(Table:Allows("a", 3)).toBe(false)
+		Expect(Table:Allows("a", 4)).toBe(true)
+		for Index = 1, Limits.SHOWN_MAX do
+			Table:Show(`j{Index}`, 1)
+		end
+		Expect(Table:Stale("a")).toBe(true)
+	end)
 end)
 
 Describe("Peek", function()
 	Test("a read the table allows is shown, and one older than shown is read fresh", function()
 		local Stored = Key({ Mint(4) })
 		local Table = Shown.New()
-		local Call, Effects, First = Machine.Start(Peek.Cached, Peek.Context(nil :: any, "42", "s/42", Game.DEFAULT, Table))
-		Machine.Step(Call, First, true, Stored)
+		local Ref = { Store = "s", Key = "42" }
+		local Call, Asked = Machine.Start(Peek.Cached, Peek.Context(Ref, Game.DEFAULT, Table), NOW)
+		Machine.Step(Call, Asked[1].Id, Asks.Got(Stored, NOW))
 		Expect((Machine.AnswerOf(Call) :: View.View).Writes).toBe(1)
 
 		Table:Show("s/42", 9)
-		Call, Effects, First = Machine.Start(Peek.Cached, Peek.Context(nil :: any, "42", "s/42", Game.DEFAULT, Table))
-		Effects, First = Machine.Step(Call, First, true, Stored)
+		Call, Asked = Machine.Start(Peek.Cached, Peek.Context(Ref, Game.DEFAULT, Table), NOW)
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Got(Stored, NOW))
 		Expect(Machine.StateOf(Call)).toBe("Refreshing")
-		local Fresh = Land(Effects[1], Stored)
-		Machine.Step(Call, First, true, Fresh, nil, true)
+		Machine.Step(Call, Asked[1].Id, Land(Asked, Stored))
 		Expect((Machine.AnswerOf(Call) :: View.View).Writes).toBe(2)
 	end)
 
-	Test("a peek that keeps failing answers Unresolved", function()
-		local Call, Effects, First = Machine.Start(Peek.Cached, Peek.Context(nil :: any, "42", "s/42", Game.DEFAULT, Shown.New()))
-		for _ = 1, Limits.TRIES - 1 do
-			Effects, First = Machine.Step(Call, First, false, "502: busy")
-			Effects, First = Machine.Step(Call, First, true)
-		end
-		Expect(Effects[1].Kind).toBe(Effect.Kind.Get)
-		Machine.Step(Call, First, false, "502: busy")
+	Test("a read that failed answers Unresolved", function()
+		local Call, Asked = Machine.Start(Peek.Cached, Peek.Context({ Store = "s", Key = "42" }, Game.DEFAULT, Shown.New()), NOW)
+		Machine.Step(Call, Asked[1].Id, Asks.Failed(NOW, false))
 		Expect(Machine.AnswerOf(Call)).toBe(Answer.Unresolved)
+	end)
+end)
+
+Describe("Peek beside marks", function()
+	local Live = Clock.Now()
+	local Y = Book.Drawn(4, 1)
+
+	local function Write(Current: unknown, Asked: Types.Request): unknown
+		return assert(Step(Current, Asked, Live, Game.DEFAULT).Stored, "the setup write did not land")
+	end
+
+	local function Keys(Unclean: boolean, Committed: boolean): Replay.Keys
+		local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = Live, Kind = 0, Body = { Add = 100 } }
+		local Tent: Types.Tent = { Name = Y, Stamp = Live, Attempt = 1, Decider = { Store = "Gold", Key = "d" }, Leg = { Field = 1, Amount = -30 } }
+		local A = Write(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } })
+		A = Write(A, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tent = Tent })
+		if Unclean then
+			local Edit: Types.Op = { Form = "Minted", Seq = 2, Stamp = Live, Kind = 0, Body = { Add = 5 } }
+			A = Write(A, { Writer = 1, Ack = 1, MustExist = true, Ops = { Edit } })
+		end
+		local D = Write(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } })
+		if Committed then
+			local Commit: Types.Commit = { Name = Y, Stamp = Live, Attempt = 1, Legs = { { Store = "Gold", Key = "a" } }, Leg = { Field = 1, Amount = 30 } }
+			D = Write(D, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Commit = Commit })
+		end
+		return { a = A, d = D }
+	end
+
+	local function Show(Held: Replay.Keys): (View.View, number, number)
+		local Context = Peek.Context({ Store = "Gold", Key = "a" }, Game.DEFAULT, Shown.New())
+		local Found, Updates, Sends = Replay.Run(Peek.Cached, Context, Held, Game.DEFAULT, Live)
+		return Found :: View.View, Updates, Sends
+	end
+
+	Test("a clean mark is shown as it is, and its decider is not read", function()
+		local Found, _, Sends = Show(Keys(false, true))
+		Expect(Found.State.Gold).toBe(100)
+		Expect(Sends).toBe(0)
+	end)
+
+	Test("an unclean mark whose use did not commit is shown as it is", function()
+		local Found, Updates = Show(Keys(true, false))
+		Expect(Found.State.Gold).toBe(105)
+		Expect(Updates).toBe(0)
+	end)
+
+	Test("an unclean mark whose use committed is resolved by the read, and the landing is shown", function()
+		local Held = Keys(true, true)
+		local Found, Updates = Show(Held)
+		Expect(Found.State.Gold).toBe(75)
+		Expect(Updates).toBe(1)
+		Expect(Game.Record(Held.a).Work[Y]).toBeNil()
 	end)
 end)
 
 Describe("DidApply", function()
 	Test("a read says true only for a name held as took, and a probe that lands says false", function()
 		local Stored = Key({ { Form = "Timed", Seq = 1, Stamp = NOW, Kind = 1, Name = "order", Print = 7, Body = { Add = 1 } } })
-		local function Start(Of: any, Name: string): (Effect.Call<DidApply.Context, boolean | Answer.Answer>, { Effect.Effect }, number)
-			return Machine.Start(Of, DidApply.Context(nil :: any, "42", Game.DEFAULT, { Name = Name, Stamp = NOW }))
-		end
-		local Call, Effects, First = Start(DidApply.Reading, "order")
-		Machine.Step(Call, First, true, Stored, nil, false)
+		local Ref = { Store = "Gold", Key = "42" }
+		local Call, Asked = Machine.Start(DidApply.Reading, DidApply.Context(Ref, "order", NOW), NOW)
+		Machine.Step(Call, Asked[1].Id, Asks.Got(Stored, NOW))
 		Expect(Machine.AnswerOf(Call)).toBe(true)
-		Call, Effects, First = Start(DidApply.Reading, "other")
-		Machine.Step(Call, First, true, Stored, nil, false)
+		Call, Asked = Machine.Start(DidApply.Reading, DidApply.Context(Ref, "other", NOW), NOW)
+		Machine.Step(Call, Asked[1].Id, Asks.Got(Stored, NOW))
 		Expect(Machine.AnswerOf(Call)).toBe(Answer.Unresolved)
-		Call, Effects, First = Start(DidApply.Probing, "other")
-		Machine.Step(Call, First, true, Land(Effects[1], Stored), nil, true)
+		Call, Asked = Machine.Start(DidApply.Probing, DidApply.Context(Ref, "other", NOW), NOW)
+		Machine.Step(Call, Asked[1].Id, Land(Asked, Stored))
 		Expect(Machine.AnswerOf(Call)).toBe(false)
 	end)
 end)

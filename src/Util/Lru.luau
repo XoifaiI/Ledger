@@ -3,7 +3,7 @@
 
 --[=[
 
-	Lru: A bounded map that forgets what was touched longest ago.
+	Lru: Plumbing. A bounded map that forgets what was touched longest ago.
 
 	Get touches, and Put touches or adds, each in O(1). Put gives back the key it forgot to make room,
 	if any. Name the entry type on the local that holds it.

@@ -4,7 +4,7 @@
 
 --[=[
 
-	Reduce: Folds ops through a game's reducer.
+	Reduce: Logic. Folds ops through a game's reducer.
 
 	A reducer gives back the next state, or nil to refuse. A throw, a yield or a value that is not a
 	table refuses too. A fold hands the reducer a frozen state first. A reducer that throws on it but

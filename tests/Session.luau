@@ -2,7 +2,7 @@
 
 --[=[
 
-	Session: The cases for Server/Session, with the key's Sender stepped by hand.
+	Session: The cases for Store/Session, with the key's Save machine stepped by hand.
 
 	The game is tests/Gold. A push is landed by running its transform on the key as the datastore
 	would, and handing the machine the reply.
@@ -14,24 +14,28 @@
 
 local Testing = require("./Testing")
 local Answer = require("../src/Core/Answer")
-local Effect = require("../src/Server/Effect")
 local Game = require("./Gold")
-local Machine = require("../src/Core/Machine")
-local Sender = require("../src/Server/Sender")
-local Session = require("../src/Server/Session")
+local Asks = require("../src/Machine/Asks")
+local Machine = require("../src/Machine/Machine")
+local Queue = require("../src/Record/Queue")
+local Runtime = require("../src/Store/Runtime")
+local Save = require("../src/Calls/Save")
+local Session = require("../src/Store/Session")
+local Step = require("../src/Record/Step")
+local Types = require("../src/Record/Types")
+local View = require("../src/Record/View")
 local Windows = require("../src/Core/Constants/Windows")
-local Writer = require("../src/Server/Writer")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
 local NOW = Game.NOW
 
-local function Open(): Session.Session
-	return Session.New(Sender.New(nil :: any, "42", Game.DEFAULT, 16), nil, false, NOW)
+local function Held(Key: string): Queue.Queue
+	return Queue.New({ Store = "Gold", Key = Key }, Game.DEFAULT, 16, nil, NOW)
 end
 
-local function Land(Sent: Effect.Effect, Current: unknown): unknown
-	return if Sent.Kind == Effect.Kind.Update then Sent.Transform(Current, nil) else nil
+local function Open(Key: string?): Session.Session
+	return Session.New(Held(Key or "42"), nil, false, NOW)
 end
 
 Describe("Session", function()
@@ -39,30 +43,57 @@ Describe("Session", function()
 		local Player = Open()
 		Expect(Player:Apply("Add", { Add = -1 })).toBe(Answer.Refused)
 		Expect(Player:Apply("Add", { Add = 0, Tag = print })).toBe(Answer.Invalid)
-		Expect(#Player.Key.Writer.Items).toBe(0)
+		Expect(#Player.Queue.Items).toBe(0)
 		Expect(Player:Apply("Add", { Add = 5 })).toBe(true)
-		Expect(Player.Key.Writer.Items[1].Asked.View).toBe(0)
+		Expect(Player.Queue.Items[1].Asked.View).toBe(0)
 		Expect(Player.State.Gold).toBe(5)
 		Player:Close()
 		Expect(Player:Apply("Add", { Add = 1 })).toBe(Answer.Closed)
 	end)
 
 	Test("a landed push is adopted with the ops still queued laid on top, and each op's fate is heard once", function()
-		local Player = Open()
+		local Player = Open("45")
 		local Heard: { any } = {}
-		Player.Fates:Subscribe(function(Each: Writer.Heard)
+		Player.Fates:Subscribe(function(Each: Session.Fate)
 			table.insert(Heard, Each.Reply)
 		end)
 		Player:Apply("Add", { Add = 5 })
-		local Call, Effects, First = Machine.Start(Sender.Sending, Player.Key)
+		local Kept = Player.Queue
+		local function Land(Note: Types.Note)
+			Runtime.Landed(Kept):Push(Note)
+		end
+		local Call, Asked = Machine.Start(Save.Machine, Save.Context(Kept, Land), NOW)
 		Player:Apply("Add", { Add = 2 })
-		Machine.Step(Call, First, true, Land(Effects[1], nil), nil, true)
+		local Ask = Asked[1].Ask
+		local Note = Step(nil, if Ask.Kind == "Send" then Ask.Request else error("not a send"), NOW, Game.DEFAULT)
+		Machine.Step(Call, Asked[1].Id, Asks.Noted(Note, NOW, true))
 		Expect(Player.Writes).toBe(1)
 		Expect(Player.State.Gold).toBe(7)
+		Expect(Player.Shown:Allows(Player.Mark, 0)).toBe(false)
 		Expect(#Heard).toBe(1)
 		Expect(Heard[1]).toBe(true)
-		Player:Adopt({ State = { Gold = 99 }, Writes = 1, Cuts = 0, Horizon = 0 })
+		Player:Adopt({ State = { Gold = 99 }, Writes = 1, Cuts = 0, Horizon = 0, Work = {} })
 		Expect(Player.State.Gold).toBe(7)
+	end)
+
+	Test("an op a mark on the view could decide answers Busy, and one it cannot is queued", function()
+		local function Viewed(Leg: Types.Leg): (View.View, unknown)
+			local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 100 } }
+			local Key = Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, Game.DEFAULT).Stored
+			local Tent: Types.Tent = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Decider = { Store = "Gold", Key = "d" }, Leg = Leg }
+			Key = Step(Key, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tent = Tent }, NOW, Game.DEFAULT).Stored
+			return View.Read(Key, Game.DEFAULT) :: View.View, Key
+		end
+		local Marked, Key = Viewed({ Field = 1, Amount = -60 })
+		local Player = Session.New(Held("46"), Marked, false, NOW)
+		Expect(Player:Apply("Add", { Add = -30 })).toBe(true)
+		Expect(Player:Apply("Add", { Add = -20 })).toBe(Answer.Busy)
+		local End: Types.End = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Outcome = "Abort" }
+		local Cleared = Step(Key, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }, NOW, Game.DEFAULT).Stored
+		Player:Adopt(View.Read(Cleared, Game.DEFAULT) :: View.View)
+		Expect(Player:Apply("Add", { Add = -20 })).toBe(true)
+		local Exclusive = Session.New(Held("47"), (Viewed({ Body = { Add = 1 } })), false, NOW)
+		Expect(Exclusive:Apply("Add", { Add = 1 })).toBe(Answer.Busy)
 	end)
 
 	Test("a push is due after SAVE while ops wait, and an idle read after IDLE when none do", function()

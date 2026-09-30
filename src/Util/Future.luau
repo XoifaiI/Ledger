@@ -3,12 +3,13 @@
 
 --[=[
 
-	Future: Holds the answer to a call that has not finished yet.
+	Future: Plumbing. Holds the answer to a call that has not finished yet.
 
 	Pending gives back a future and the function that settles it once. Wait yields until then, or
-	gives back nothing after its timeout. Happened says whether it has settled.
+	gives back nothing after its timeout. Happened says whether it has settled. Spawn runs a function
+	on a thread of its own and settles with what it gives back.
 
-	Return type: A table with Pending and Completed.
+	Return type: A table with Pending, Completed and Spawn.
 	Example usage:
 		local Answer = Job:Wait()
 --]=]
@@ -26,6 +27,7 @@ export type Future<T...> = setmetatable<{}, FutureImpl<T...>>
 type FutureStatics = {
 	Pending: <U...>() -> (Future<U...>, (U...) -> ()),
 	Completed: <U...>(U...) -> Future<U...>,
+	Spawn: <A..., U...>(Body: (A...) -> U..., A...) -> Future<U...>,
 }
 
 type Private = {
@@ -80,6 +82,14 @@ end
 function Future.Completed<T...>(...: T...): Future<T...>
 	local Body: Private = { Result = Pack(...) }
 	return setmetatable(Body :: any, Future :: any)
+end
+
+function Future.Spawn<A..., T...>(Body: (A...) -> T..., ...: A...): Future<T...>
+	local Job, Done = Future.Pending()
+	task.spawn(function(...: A...) --TODO: Pool?
+		Done(Body(...))
+	end, ...)
+	return Job
 end
 
 function Future.Wait<T...>(self: Future<T...>, Timeout: number?): T...

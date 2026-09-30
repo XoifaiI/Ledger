@@ -11,6 +11,7 @@
 
 local Testing = require("./Testing")
 local Build = require("../src/Store/Build")
+local Ops = require("../src/Store/Ops")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
@@ -48,6 +49,14 @@ Describe("Build", function()
 		Expect(function()
 			Build.New({ Name = "Gold", Default = {}, Reducer = Reducer, Migrations = { 5 :: any } })
 		end).toThrow("Ledger: migration 1 is not a function or a table with Apply")
+	end)
+
+	Test("a kind's window is kept under the number its name hashes to, and one out of range throws", function()
+		local Made = Build.New({ Name = "Gold", Default = {}, Reducer = Reducer, Windows = { Grant = 3600 } })
+		Expect(Made.Window[Ops.Kind("Grant")]).toBe(3600)
+		Expect(function()
+			Build.New({ Name = "Gold", Default = {}, Reducer = Reducer, Windows = { Grant = 10 } })
+		end).toThrow("Ledger: the window of Grant in Gold is not from 180 to 2592000 seconds")
 	end)
 end)
 

@@ -3,7 +3,9 @@
 
 --[=[
 
-	Migrate: Runs migrations g + 1 to M on a copy of a key's state.
+	Migrate: Logic. Runs migrations g + 1 to M on a copy of a key's state.
+
+	Spec: record 7.
 
 	A migration sees every field. A throw, a yield, a result that is not a table, and a result Guard
 	does not admit, that cannot be stored or that passes StateCap all fail the run. A failed run keeps

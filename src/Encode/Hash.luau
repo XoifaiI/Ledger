@@ -3,7 +3,7 @@
 
 --[=[
 
-	Hash: The first four bytes of a string's Blake3 hash, little endian. It must never change.
+	Hash: Plumbing. The first four bytes of a string's Blake3 hash, little endian. It must never change.
 
 	A seed goes in front of the string.
 

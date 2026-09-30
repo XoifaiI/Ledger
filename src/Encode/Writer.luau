@@ -4,7 +4,9 @@
 
 --[=[
 
-	Writer: Writes Ledger's bookkeeping into a buffer as alphabet text.
+	Writer: Plumbing. Writes Ledger's bookkeeping into a buffer as alphabet text.
+
+	Spec: record 2.1.
 
 	Var writes a whole number below 2^53 as 5 bit digits, lowest first, and a digit from the second
 	half of the alphabet ends it. Signed zigzags. Wide writes up to 2^80. Fixed writes a set width

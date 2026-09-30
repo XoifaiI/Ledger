@@ -3,7 +3,7 @@
 
 --[=[
 
-	MemoryStore: One call to a MemoryStore map, answered as pcall answers.
+	MemoryStore: Plumbing. One call to a MemoryStore map, answered as pcall answers.
 
 	Nothing retries. Limits.MISSES misses in a row stop the calls to that map for Windows.BREAKER
 	seconds, and those calls answer false. Any answer clears the count.

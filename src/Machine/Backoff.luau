@@ -3,7 +3,7 @@
 
 --[=[
 
-	Backoff: The wait before the next try: 1 second, doubling, up to Windows.BACKOFF.
+	Backoff: Plumbing. The wait before the next try: 1 second, doubling, up to Windows.BACKOFF.
 
 	Return type: A function that gives back the wait in seconds.
 	Example usage:

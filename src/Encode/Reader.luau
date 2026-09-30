@@ -4,7 +4,9 @@
 
 --[=[
 
-	Reader: Reads what Writer wrote, and refuses any text Writer would not write.
+	Reader: Plumbing. Reads what Writer wrote, and refuses any text Writer would not write.
+
+	Spec: record 2.1.
 
 	Each function reads the next value. A bad character, an early end, a value out of range and a
 	form Writer never makes all raise an error.

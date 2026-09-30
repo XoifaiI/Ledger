@@ -4,7 +4,7 @@
 
 --[=[
 
-	Canon: Prints a game value the same way on every server.
+	Canon: Plumbing. Prints a game value the same way on every server.
 
 	Each value is a tag byte and its body. Table keys are sorted, numbers first. Two values print the
 	same only when they hold the same things.

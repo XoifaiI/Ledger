@@ -3,7 +3,9 @@
 
 --[=[
 
-	Guard: Runs the game's reducer on only the fields its build declares.
+	Guard: Logic. Runs the game's reducer on only the fields its build declares.
+
+	Spec: record 4, step 9.
 
 	Undeclared top level fields are set aside and put back. A result that adds one, or leaves a money
 	field anything but a whole number below 2^53, is refused. Capped also gives Fate.Full past

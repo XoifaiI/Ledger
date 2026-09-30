@@ -3,11 +3,16 @@
 
 --[=[
 
-	Rules: The rules of record 4, in the order Step tries them.
+	Rules: Logic. The rules of record 4, in the order Step tries them.
+
+	Spec: record 4, step 4.
 
 	A rule passes an op on or has the last word: a new fate, the fate the key holds, or a stop that
 	leaves every later op undecided. The first op to reach the reducer runs the key's missing
-	migrations. When they fail, every op judged is refused.
+	migrations. When they fail, every op judged is refused. A name held as a leg's fate, a decision or
+	a work item is spent for an op. An op beside transaction marks is judged by the order rule of
+	Marks, and a blocked op stops with the marks that block it. So does an op that would run a
+	migration beside any mark.
 
 	Return type: The ordered list of rules. The types are Run and Rule.
 	Example usage:
@@ -15,9 +20,12 @@
 --]=]
 
 local Book = require("./Book")
+local Diff = require("./Diff")
 local Limits = require("../Core/Constants/Limits")
+local Marks = require("./Marks")
 local Migrate = require("./Migrate")
 local Reduce = require("../Core/Reduce")
+local Rooms = require("./Rooms")
 local Types = require("./Types")
 
 type Book = Book.Book
@@ -43,6 +51,10 @@ export type Run = {
 	Last: number,
 	Written: { [string]: true },
 	UntimedBytes: number,
+	Post: { Diff.Change }?,
+	Changed: boolean,
+	Acted: boolean,
+	Placed: string?,
 }
 
 export type Rule = (Run: Run, Index: number, Op: Op) -> boolean
@@ -120,10 +132,14 @@ end
 
 local function NameHeld(Run: Run, Index: number, Op: Op): boolean
 	local Name = Op.Name
-	local Item = if Name then Run.Record:Held(Name) else nil
-	if Item == nil then
+	if Name == nil then
 		return false
-	elseif Item.Print ~= Op.Print then
+	end
+	local Item = Run.Record:Held(Name)
+	local Working = Run.Record.Work[Name] ~= nil
+	if Item == nil and not Working then
+		return false
+	elseif Item == nil or Working or Item.Role ~= nil or Item.Print ~= Op.Print then
 		Run.Note.Whys[Index] = Why.Spent
 		return true
 	end
@@ -167,10 +183,18 @@ local function Room(Run: Run, Index: number, Op: Op): boolean
 		return false
 	end
 	local Item: Book.Named = { Kind = Op.Kind, Stamp = Run.Clock, Fate = Fate.Took, Print = Op.Print }
-	if Run.UntimedBytes + Book.NamedWidth(Op.Name :: string, Item, Run.Epoch) <= Run.Build.UntimedRoom then
-		return false
+	local Over = Run.UntimedBytes + Book.NamedWidth(Op.Name :: string, Item, Run.Epoch) - Run.Build.UntimedRoom
+	if Over > 0 and Run.Now then
+		local Freed = Rooms.Evict(Run.Record, Run.Build, Run.Now, Run.Epoch, Over)
+		Run.UntimedBytes -= Freed
+		Over -= Freed
 	end
-	return Stop(Run, Index, Why.NoRoom)
+	return if Over > 0 then Stop(Run, Index, Why.NoRoom) else false
+end
+
+local function Blocked(Run: Run, Index: number, Items: { [string]: Book.Work }): boolean
+	Run.Note.Items = Items
+	return Stop(Run, Index, Why.Blocked)
 end
 
 local function Refuse(_: any, _: any): unknown
@@ -192,13 +216,23 @@ local function Begin(Run: Run): Reduce.Fold<any, any>
 end
 
 local function Judge(Run: Run, Index: number, Op: Op): boolean
+	local Record = Run.Record
+	local Standing = Marks.Standing(Record.Work)
+	if Run.Folding == nil and Record.Level < Run.Build.Level and next(Standing) then
+		return Blocked(Run, Index, Standing)
+	end
 	local Folding = Run.Folding or Begin(Run)
 	Run.Folding = Folding
+	local Blockers = Marks.Order(Record.Work, Run.Build, Run.Reducer, Folding.State, Op.Body)
+	if Blockers then
+		return Blocked(Run, Index, Blockers)
+	end
 	local Took, Reason = Reduce.Apply(Folding, Op.Body)
+	Run.Changed = Run.Changed or Took
 	return Decide(Run, Index, Op, if Took then Fate.Took elseif Reason == Fate.Full then Fate.Full else Fate.Refused)
 end
 
-local RULES: { Rule } = {
+return {
 	Prefix,
 	Incarnation,
 	DecidedBefore,
@@ -209,6 +243,4 @@ local RULES: { Rule } = {
 	Turned,
 	Room,
 	Judge,
-}
-
-return RULES
+} :: { Rule }

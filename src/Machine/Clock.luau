@@ -3,7 +3,7 @@
 
 --[=[
 
-	Clock: This server's clock as a stamp, in whole seconds since Limits.EPOCH.
+	Clock: Plumbing. This server's clock as a stamp, in whole seconds since Limits.EPOCH.
 
 	Return type: A table with Now.
 	Example usage:

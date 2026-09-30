@@ -50,6 +50,7 @@ local function Build(Change: { [string]: any }?): Types.Build
 		CutWindow = Windows.CUT,
 		TimedRoom = Sizes.TIMED_ROOM,
 		UntimedRoom = Sizes.UNTIMED_ROOM,
+		WorkRoom = Sizes.WORK_ROOM,
 		CutNames = Sizes.CUT_NAMES,
 		StateCap = Sizes.STATE_CAP,
 		Ahead = Windows.AHEAD,

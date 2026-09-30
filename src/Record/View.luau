@@ -3,11 +3,14 @@
 
 --[=[
 
-	View: A key's state as one build reads it, with the counters a server shows it by.
+	View: Logic. A key's state as one build reads it, with the counters a server shows it by.
+
+	Spec: record 5.3 and 7.
 
 	Read runs the migrations the key has not had in memory and writes nothing. A key that holds
 	nothing or is being erased is Missing, a key past this build's floor or format is Behind, a key
-	whose migrations fail is Refused, and a broken key is Unresolved.
+	whose migrations fail is Refused, and a broken key is Unresolved. A view carries the key's work
+	room, for touches and for judging beside its marks.
 
 	Return type: A table with Read. The type is View.
 	Example usage:
@@ -15,6 +18,7 @@
 --]=]
 
 local Answer = require("../Core/Answer")
+local Book = require("./Book")
 local Key = require("./Key")
 local Migrate = require("./Migrate")
 local Types = require("./Types")
@@ -27,6 +31,7 @@ export type View = {
 	read Cuts: number,
 	read Horizon: number,
 	read Id: string?,
+	read Work: { [string]: Book.Work },
 }
 
 local Why = Types.Why
@@ -56,7 +61,7 @@ function View.Read(Current: unknown, Build: Types.Build): View | Answer
 		end
 		State = Migrated
 	end
-	return { State = State, Writes = Record.Writes, Cuts = Record.Cuts, Horizon = Record.Horizon, Id = Record.Id }
+	return { State = State, Writes = Record.Writes, Cuts = Record.Cuts, Horizon = Record.Horizon, Id = Record.Id, Work = Record.Work }
 end
 
 return View

@@ -3,7 +3,7 @@
 
 --[=[
 
-	DataStore: One datastore call, answered as pcall answers.
+	DataStore: Plumbing. One datastore call, answered as pcall answers.
 
 	Open gives back the datastore of a name. Nothing retries. Update also answers, last, whether a run
 	gave a value to write. Every write keeps the key's user ids and metadata, and a write that makes a

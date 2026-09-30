@@ -2,7 +2,7 @@
 
 --[=[
 
-	Names: The datastores Ledger keeps for itself.
+	Names: Logic. The datastores Ledger keeps for itself.
 
 	NUMBERS holds the counter keys servers take their numbers from.
 

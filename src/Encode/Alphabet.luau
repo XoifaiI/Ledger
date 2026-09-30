@@ -4,7 +4,9 @@
 
 --[=[
 
-	Alphabet: The 64 characters of Ledger's bookkeeping: A-Z, a-z, 0-9, - and _.
+	Alphabet: Plumbing. The 64 characters of Ledger's bookkeeping: A-Z, a-z, 0-9, - and _.
+
+	Spec: record 2.1.
 
 	CHARS maps a value to its byte, and VALUES a byte to its value or INVALID. LIMB splits a number
 	past 2^53 into High * LIMB + Low.

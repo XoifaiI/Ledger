@@ -4,7 +4,7 @@
 
 --[=[
 
-	Value: Checks that a datastore can hold a value, and counts its json bytes.
+	Value: Plumbing. Checks that a datastore can hold a value, and counts its json bytes.
 
 	Check gives back the bytes, or nil and where the value cannot be stored. The count is never low.
 	A buffer counts its raw bytes, or what Compress gives back when there is one.

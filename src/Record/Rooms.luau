@@ -3,14 +3,18 @@
 
 --[=[
 
-	Rooms: The widths of the record's rooms, and the two steps that keep them in bounds.
+	Rooms: Logic. The widths of the record's rooms, and the two steps that keep them in bounds.
 
-	Age drops what has outlived its window, except this writer's entry. It raises the horizon over
-	each writer entry and timed item it drops, and the cut horizon over each cut name. Fit drops the
-	least stamp from the timed room until it fits, with items held ahead and this request's items
+	Spec: record 2.4 and 4, steps 7 and 8.
+
+	Work gives the width of the work room, and Count how many marks and pinned records it holds.
+	Age drops what has outlived its window, except this writer's entry and untimed names. It raises
+	the horizon over each writer entry and timed item it drops, and the cut horizon over each cut
+	name. An untimed name past its window stays until Evict needs its bytes, oldest first. Fit drops
+	the least stamp from the timed room until it fits, with items held ahead and this request's items
 	last, and raises the horizon each time. It trims cut names to the room's count.
 
-	Return type: A table with Timed, Untimed, Age and Fit.
+	Return type: A table with Timed, Untimed, Work, Count, Evict, Age and Fit.
 	Example usage:
 		Rooms.Fit(Record, Build, Now, Writer, Written)
 --]=]
@@ -51,8 +55,50 @@ function Rooms.Untimed(Record: Book, Now: number): number
 	return Total
 end
 
+function Rooms.Work(Record: Book, Now: number): number
+	local Total = 0
+	for Name, Item in Record.Work do
+		Total += Book.WorkWidth(Name, Item, Now)
+	end
+	return Total
+end
+
+function Rooms.Count(Record: Book): (number, number)
+	local Marked, Pinned = 0, 0
+	for _, Item in Record.Work do
+		if Item.Form == "Pinned" then
+			Pinned += 1
+		else
+			Marked += 1
+		end
+	end
+	return Marked, Pinned
+end
+
 local function Window(Build: Build, Kind: number): number
 	return Build.Window[Kind] or Build.Minted
+end
+
+function Rooms.Evict(Record: Book, Build: Build, Now: number, Epoch: number, Need: number): number
+	local Aged: { string } = {}
+	for Name, Item in Record.Untimed do
+		if Now - Item.Stamp >= Window(Build, Item.Kind) then
+			table.insert(Aged, Name)
+		end
+	end
+	table.sort(Aged, function(Left: string, Right: string): boolean
+		local First, Second = Record.Untimed[Left].Stamp, Record.Untimed[Right].Stamp
+		return if First ~= Second then First < Second else Left < Right
+	end)
+	local Freed = 0
+	for _, Name in Aged do
+		if Freed >= Need then
+			break
+		end
+		Freed += Book.NamedWidth(Name, Record.Untimed[Name], Epoch)
+		Record.Untimed[Name] = nil
+	end
+	return Freed
 end
 
 function Rooms.Age(Record: Book, Build: Build, Now: number, Writer: number)
@@ -67,11 +113,6 @@ function Rooms.Age(Record: Book, Build: Build, Now: number, Writer: number)
 		if Now - Item.Stamp >= Window(Build, Item.Kind) then
 			Record.Timed[Name] = nil
 			Horizon = math.max(Horizon, Item.Stamp)
-		end
-	end
-	for Name, Item in Record.Untimed do
-		if Now - Item.Stamp >= Window(Build, Item.Kind) then
-			Record.Untimed[Name] = nil
 		end
 	end
 	for Name, Item in Record.Cut do

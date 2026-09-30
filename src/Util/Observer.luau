@@ -3,7 +3,7 @@
 
 --[=[
 
-	Observer: Sends each value pushed to every listener, in the order they subscribed.
+	Observer: Plumbing. Sends each value pushed to every listener, in the order they subscribed.
 
 	A listener must not yield. One that yields is stopped, and one that throws is warned about.
 
@@ -65,7 +65,7 @@ end
 function Observer.Subscribe(self: Private, Listener: (any) -> ()): Connection
 	local Node: Node = { Connected = true, Disconnect = Disconnect, Listener = Listener, Owner = self }
 	table.insert(self.Nodes, Node)
-	return Node :: any
+	return Node :: any -- TODO: Make stricter
 end
 
 function Observer.Push(self: Private, Value: any)
