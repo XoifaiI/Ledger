@@ -11,10 +11,8 @@ node_modules/
 package-lock.json
 .vscode/
 
-# The Luau command line tools sit in the root for benchmarks and are not part of the package.
 *.exe
-
-# What the Luau tools and Zune write when asked to profile or trace.
+*.md
 profile.out
 callgrind.out
 coverage.out
