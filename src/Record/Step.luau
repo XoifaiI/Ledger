@@ -7,7 +7,9 @@
 
 	Each op goes down RULES until one has the last word. Then the writer's entry is set, the rooms are
 	aged and fitted, and a value comes back when anything was decided. A state past the cap, or one
-	that cannot be stored, is judged again with the capped guard.
+	that cannot be stored, is judged again with the capped guard. A fresh read decides nothing and
+	lands. A probe decides nothing: a held name gives its fate, a stamp at or under the horizon is
+	forgotten, and any other probe lands.
 
 	Return type: A function that gives back the note, whose Stored is the value to write or nil.
 	Example usage:
@@ -34,7 +36,7 @@ type Guarded = (Build: Build) -> Reduce.Reducer<any, any>
 local Why = Types.Why
 
 local function Refused(Request: Request, Reason: Types.Why): Note
-	local Note: Note = { Fates = {}, Whys = {}, Decided = {}, Writes = 0, Cuts = 0, Horizon = 0, CutHorizon = 0 }
+	local Note: Note = { Fates = {}, Whys = {}, Decided = {}, Writes = 0, Cuts = 0, Horizon = 0, CutHorizon = 0, Why = Reason }
 	for Index in Request.Ops do
 		Note.Whys[Index] = Reason
 	end
@@ -128,7 +130,7 @@ local function Finish(Run: Run): Note
 		Rooms.Age(Record, Run.Build, Run.Now, Run.Request.Writer)
 	end
 	Rooms.Fit(Record, Run.Build, Run.Epoch, Run.Request.Writer, Run.Written)
-	if #Note.Decided == 0 and not Run.Request.Fresh then
+	if #Note.Decided == 0 and not Run.Request.Fresh and not Run.Request.Probe then
 		return Note
 	end
 	Record.Writes += 1
@@ -137,10 +139,25 @@ local function Finish(Run: Run): Note
 	return Note
 end
 
+local function Probed(Run: Run, Probe: Types.Probe): Note
+	local Item = Run.Record:Held(Probe.Name)
+	if Item then
+		Run.Note.Held = Item.Fate
+		return Run.Note
+	elseif Probe.Stamp <= Run.Record.Horizon then
+		Run.Note.Why = Why.Forgotten
+		return Run.Note
+	end
+	return Finish(Run)
+end
+
 local function Attempt(Current: unknown, Request: Request, Clock: number, Build: Build, Guarded: Guarded): Note
 	local Run = Begin(Current, Request, Clock, Build, Guarded)
 	if type(Run) == "string" then
 		return Refused(Request, Run)
+	end
+	if Request.Probe then
+		return Probed(Run, Request.Probe)
 	end
 	for Index, Op in Request.Ops do
 		for _, Rule in RULES do

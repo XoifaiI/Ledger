@@ -9,9 +9,10 @@
 	MISSES is how many MemoryStore misses open its breaker. SEQ_MAX is how many ops one writer
 	numbers. TRIES is how many failed requests make an op answer Unresolved. QUEUE is how many ops a
 	writer holds. COUNTERS is how many keys hand out server numbers. EPOCH is the unix time stamps
-	count from.
+	count from. SHOWN_MAX is how many keys a server remembers showing, and SHOWN_BITS how many bits
+	mark the keys it forgot.
 
-	Return type: A frozen table of the bounds.
+	Return type: A table of the bounds.
 	Example usage:
 		if Stamp > Limits.STAMP_MAX then return end
 --]=]
@@ -27,4 +28,6 @@ return {
 	QUEUE = 4096,
 	COUNTERS = 16,
 	EPOCH = 1767225600,
+	SHOWN_MAX = 4096,
+	SHOWN_BITS = 65536,
 }

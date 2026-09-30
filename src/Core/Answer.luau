@@ -7,7 +7,7 @@
 
 	Compare against a field, so a misspelt name is a type error.
 
-	Return type: A frozen table from each name to itself.
+	Return type: A table from each name to itself.
 	Example usage:
 		if Result == Answer.Busy then return end
 --]=]

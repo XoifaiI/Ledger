@@ -8,7 +8,8 @@
 	Get reads a key, Update runs a transform on one, and Wait passes time. The reply is what the
 	DataStore call answers: Ok, Value and Info, then Wrote for an update. A wait replies true.
 
-	Return type: A table with Kind, Get, Update and Wait. The types are Effect, Call and Spec.
+	Return type: A table with Kind, Get, Update and Wait. The types are Effect, and Call, Spec and
+	State for a machine that sends effects, whose answer is typed unknown for its caller to read.
 	Example usage:
 		Machine.Send(Call, Effect.Update(Store, Key, Transform))
 --]=]
@@ -39,6 +40,7 @@ export type Effect =
 
 export type Call<Context, Answer> = Machine.Call<Context, Effect, Answer, (boolean, unknown, DataStoreKeyInfo?, boolean?)>
 export type Spec<Context, Answer> = Machine.Spec<Context, Effect, Answer, (boolean, unknown, DataStoreKeyInfo?, boolean?)>
+export type State<Context, Answer> = Machine.State<Context, Effect, Answer, (boolean, unknown, DataStoreKeyInfo?, boolean?)>
 
 local Kind: {
 	read Get: "Get",

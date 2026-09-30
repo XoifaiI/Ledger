@@ -5,13 +5,16 @@
 
 	DataStore: One datastore call, answered as pcall answers.
 
-	Nothing retries. Update also answers, last, whether a run gave a value to write. Every write keeps
-	the key's user ids and metadata, and a write that makes a key gives it the user ids passed in.
+	Open gives back the datastore of a name. Nothing retries. Update also answers, last, whether a run
+	gave a value to write. Every write keeps the key's user ids and metadata, and a write that makes a
+	key gives it the user ids passed in.
 
-	Return type: A table with Get, Update and Remove. The types are Transform and Store.
+	Return type: A table with Open, Get, Update and Remove. The types are Transform and Store.
 	Example usage:
 		local Ok, Value, Info, Wrote = DataStore.Update(Store, "42", Transform, { UserId })
 --]=]
+
+local DataStoreService = game:GetService("DataStoreService")
 
 export type Transform = (Current: unknown, Info: DataStoreKeyInfo?) -> unknown
 
@@ -24,6 +27,10 @@ export type Store = {
 }
 
 local DataStore = {}
+
+function DataStore.Open(Name: string): Store
+	return DataStoreService:GetDataStore(Name)
+end
 
 function DataStore.Get(Store: Store, Key: string, Options: DataStoreGetOptions?): (boolean, unknown, DataStoreKeyInfo?)
 	return pcall(Store.GetAsync, Store, Key, Options)

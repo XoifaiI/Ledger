@@ -12,7 +12,7 @@
 	EntryWidth and NamedWidth give the width of one item.
 
 	Return type: The Book class, with New, Decode, Drawn, Version, EntryWidth, NamedWidth, Fate, FORMAT
-	and DRAWN, and the method Encode.
+	and DRAWN, and the methods Held and Encode.
 	Example usage:
 		local Again = Book.Decode(Record:Encode(Now))
 --]=]
@@ -41,6 +41,7 @@ export type Named = {
 
 type BookImpl = {
 	__index: BookImpl,
+	Held: (self: Book, Name: string) -> Named?,
 	New: () -> Book,
 	Decode: (Source: string) -> Book?,
 	Version: (Source: string) -> number?,
@@ -282,6 +283,10 @@ function Book.Drawn(Server: number, Counter: number): string
 	Writer.Var(Text, Server)
 	Writer.Var(Text, Counter)
 	return `{DRAWN}{Writer.Finish(Text)}`
+end
+
+function Book.Held(self: Book, Name: string): Named?
+	return self.Timed[Name] or self.Untimed[Name] or self.Cut[Name]
 end
 
 function Book.Encode(self: Book, Now: number): string

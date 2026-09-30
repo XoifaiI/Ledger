@@ -8,8 +8,9 @@
 	call. This gives the same functions one signature each. Similar matches a table by what it holds.
 	Zune keeps Roblox's task library under zune.task and has no warn, so this puts task where source
 	looks for it and a warn that records what it is given. Heard gives back what was warned since it
-	was last called. The game it puts in place has only EncodingService, which hashes with Zune's
-	Blake3, and Enum has only HashAlgorithm.Blake3.
+	was last called. The game it puts in place has EncodingService, which hashes with Zune's
+	Blake3, and a DataStoreService that throws when asked for a datastore. Enum has only
+	HashAlgorithm.Blake3.
 
 	Return type: A table with Describe, Test, Expect, Similar and Heard.
 	Example usage:
@@ -55,9 +56,17 @@ local EncodingService = table.freeze({
 	end,
 })
 
+local DataStoreService = table.freeze({
+	GetDataStore = function(_: any, Name: string): any
+		error(`Testing: no case may reach a real datastore, and one asked for {Name}`, 2)
+	end,
+})
+
+local SERVICES: { [string]: any } = { EncodingService = EncodingService, DataStoreService = DataStoreService }
+
 local Game = table.freeze({
 	GetService = function(_: any, Name: string): any
-		return assert(if Name == "EncodingService" then EncodingService else nil, `Testing: no service {Name}`)
+		return assert(SERVICES[Name], `Testing: no service {Name}`)
 	end,
 })
 

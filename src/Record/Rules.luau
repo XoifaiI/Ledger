@@ -51,10 +51,6 @@ local Fate = Book.Fate
 local Form = Types.Form
 local Why = Types.Why
 
-local function Held(Record: Book, Name: string): Book.Named?
-	return Record.Timed[Name] or Record.Untimed[Name] or Record.Cut[Name]
-end
-
 local function Stop(Run: Run, Index: number, Reason: Types.Why): boolean
 	Run.Note.Whys[Index] = Reason
 	Run.Stop = Reason
@@ -124,7 +120,7 @@ end
 
 local function NameHeld(Run: Run, Index: number, Op: Op): boolean
 	local Name = Op.Name
-	local Item = if Name then Held(Run.Record, Name) else nil
+	local Item = if Name then Run.Record:Held(Name) else nil
 	if Item == nil then
 		return false
 	elseif Item.Print ~= Op.Print then

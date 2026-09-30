@@ -8,9 +8,10 @@
 
 	Send gives each request an id, and Step hands the reply for that id to the current state. Enter
 	runs on entering a state. On names the next state, or nil to stay. A state moves only with no
-	request out, and a state with no On is final. Ids sit in a ring that doubles when a slot is taken.
+	request out, and a state with no On is final. Answer gives the call its answer once, and AnswerOf
+	reads it. Ids sit in a ring that doubles when a slot is taken.
 
-	Return type: A table with Define, Start, Step, Send, Cancel, Answer, IsFinal and StateOf.
+	Return type: A table with Define, Start, Step, Send, Cancel, Answer, AnswerOf, IsFinal and StateOf.
 	Example usage:
 		Effects, First = Machine.Step(Call, First, true, Value)
 --]=]
@@ -43,7 +44,7 @@ export type Call<Context, Effect, Answer, Reply...> = {
 	read Machine: Machine<Context, Effect, Answer, Reply...>,
 	read Context: Context,
 	State: Node<Context, Effect, Answer, Reply...>,
-	Answer: Answer?,
+	Answered: { read Value: Answer }?,
 	Effects: { Effect },
 	First: number,
 	Next: number,
@@ -89,7 +90,7 @@ local function Start<Context, Effect, Answer, Reply...>(Machine: Machine<Context
 		Machine = Machine,
 		Context = Context,
 		State = Machine.Initial,
-		Answer = nil,
+		Answered = nil,
 		Effects = {},
 		First = 1,
 		Next = 1,
@@ -135,10 +136,10 @@ local function Cancel<Context, Effect, Answer, Reply...>(Call: Call<Context, Eff
 end
 
 local function Answer<Context, Effect, Answer, Reply...>(Call: Call<Context, Effect, Answer, Reply...>, Value: Answer)
-	if Call.Answer ~= nil then
+	if Call.Answered then
 		error(`Machine {Call.Machine.Name}: the call answered already`, 2)
 	end
-	Call.Answer = Value
+	Call.Answered = { Value = Value }
 end
 
 local function Step<Context, Effect, Answer, Reply...>(Call: Call<Context, Effect, Answer, Reply...>, Id: number, ...: Reply...): ({ Effect }, number)
@@ -189,6 +190,11 @@ local function Step<Context, Effect, Answer, Reply...>(Call: Call<Context, Effec
 	return Effects, First
 end
 
+local function AnswerOf<Context, Effect, Answer, Reply...>(Call: Call<Context, Effect, Answer, Reply...>): Answer?
+	local Answered = Call.Answered
+	return if Answered then Answered.Value else nil
+end
+
 local function IsFinal<Context, Effect, Answer, Reply...>(Call: Call<Context, Effect, Answer, Reply...>): boolean
 	return Call.State.On == nil
 end
@@ -204,6 +210,7 @@ return {
 	Send = Send,
 	Cancel = Cancel,
 	Answer = Answer,
+	AnswerOf = AnswerOf,
 	IsFinal = IsFinal,
 	StateOf = StateOf,
 }

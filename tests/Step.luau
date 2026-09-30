@@ -202,6 +202,22 @@ Describe("Step", function()
 			Expect(Record(After).Level).toBe(0)
 		end
 	end)
+
+	Test("a probe reports a held name's fate, is forgotten under the horizon, and otherwise lands deciding nothing", function()
+		local Key = Land(nil, Request({ Named("Timed", 1, "order", -99, NOW - 10) }))
+		local function Probe(Name: string, Stamp: number): Types.Request
+			return { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Probe = { Name = Name, Stamp = Stamp } }
+		end
+		local Held = Step(Key, Probe("order", NOW - 10), NOW, DEFAULT)
+		Expect(Held.Held).toBe(Fate.Refused)
+		Expect(Held.Stored).toBeNil()
+		local Aged = Land(Key, Request({ Mint(1, 1, NOW + 200) }, 0, 2), NOW + 200)
+		Expect(Step(Aged, Probe("gone", NOW - 50), NOW + 200, DEFAULT).Why).toBe("Forgotten")
+		local Landed = Step(Key, Probe("later", NOW), NOW, DEFAULT)
+		Expect(Record(Landed.Stored).Writes).toBe(Record(Key).Writes + 1)
+		Expect(#Landed.Decided).toBe(0)
+		Expect(Step(nil, Probe("later", NOW), NOW, DEFAULT).Why).toBe("Missing")
+	end)
 end)
 
 return nil

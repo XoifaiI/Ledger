@@ -5,8 +5,8 @@
 
 	Driver: Runs a machine. It carries out each effect and steps the machine with the reply.
 
-	The driver decides nothing. Its future settles once, at the machine's first answer or its final
-	state.
+	The driver decides nothing. Its future settles once, with the machine's first answer, or nil at
+	its final state.
 
 	Return type: A table with Run.
 	Example usage:
@@ -40,9 +40,9 @@ function Driver.Run<Context, Answer>(Of: Machine.Machine<Context, Effect, Answer
 	end
 
 	function Drive(Sent: { Effect }, From: number)
-		if not Told and (Call.Answer ~= nil or Machine.IsFinal(Call)) then
+		if not Told and (Call.Answered or Machine.IsFinal(Call)) then
 			Told = true
-			Settle(Call.Answer)
+			Settle(Machine.AnswerOf(Call))
 		end
 		for Offset, Each in table.clone(Sent) do
 			task.spawn(Carry, From + Offset - 1, Each)

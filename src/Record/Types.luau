@@ -8,8 +8,8 @@
 	makes. A note says by op index what fate an op has, or why it has none, and holds the value to
 	write. A build's Level is its migration count, and its Floor the index of the last breaking one.
 
-	Return type: A table with Form and Why. The types are Form, Op, Request, Why, Stored, Note and
-	Build.
+	Return type: A table with Form and Why. The types are Form, Op, Probe, Request, Why, Stored, Note
+	and Build.
 	Example usage:
 		if Op.Form == Types.Form.Untimed then return Types.Why.NoRoom end
 --]=]
@@ -29,12 +29,18 @@ export type Op = {
 	read Body: unknown,
 }
 
+export type Probe = {
+	read Name: string,
+	read Stamp: number,
+}
+
 export type Request = {
 	read Writer: number,
 	read Ack: number,
 	read MustExist: boolean,
 	read Ops: { Op },
 	read Fresh: boolean?,
+	read Probe: Probe?,
 }
 
 export type Why = "Spent" | "Forgotten" | "Behind" | "Ahead" | "NoRoom" | "Missing" | "Undecided" | "Corrupt" | "Worn"
@@ -55,6 +61,8 @@ export type Note = {
 	Id: string?,
 	State: unknown,
 	Stored: Stored?,
+	Held: number?,
+	Why: Why?,
 }
 
 export type Build = {

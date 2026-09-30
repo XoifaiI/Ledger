@@ -39,7 +39,7 @@ Describe("Numbers", function()
 		Expect(table.concat(Waits :: { any }, " ")).toBe("1 2 4 8 16 30 30")
 		Machine.Step(Call, First, true, 5, nil, true)
 		Expect(Machine.IsFinal(Call)).toBe(true)
-		Expect(Call.Answer).toBe(5 * Limits.COUNTERS + Context.Index)
+		Expect(Machine.AnswerOf(Call)).toBe(5 * Limits.COUNTERS + Context.Index)
 	end)
 
 	Test("a counter counts up from nothing and never over a value that is not a count", function()
