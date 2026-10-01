@@ -7,15 +7,17 @@
 
 	Spec: transaction 4.2.
 
-	Pick gives the first mark a note listed, by name. Read says what a read of the mark's decider
-	decides: a commit with the attempt that committed, an abort, gone when the decider holds no
-	value, or nil when it decides nothing yet. Fenced says the same of the report of a fence sent
-	there. Due says whether the writer may fence the mark: it is younger than the writer, or
-	Windows.SETTLE old. Fence gives that fence, which is not final, and End gives the end a writer
-	carries to the mark's key once the mark is decided.
+	Pick gives one item a note listed, the one the server's number falls on in name order, so
+	helpers on different servers spread. Mark gives it back as a mark, or nil for a pinned record.
+	Read says what a read of the mark's decider decides. It gives a commit with the attempt that
+	committed, or an abort. It gives gone when the decider holds no value, and nil when it decides
+	nothing yet. Fenced says the same of the report of a fence sent there. Due says whether the
+	writer may fence the mark: it is younger than the writer, or Windows.SETTLE old. Fence gives
+	that fence, which is not final, and End gives the end a writer carries to the mark's key once
+	the mark is decided.
 
-	Return type: A table with Pick, Read, Fenced, Due, Fence and End. The types are Blocker and
-	Decision.
+	Return type: A table with Pick, Mark, Read, Fenced, Due, Fence and End. The types are Found,
+	Blocker and Decision.
 	Example usage:
 		local Decided = Blockers.Read(Value, Found)
 --]=]
@@ -24,6 +26,12 @@ local Book = require("../Record/Book")
 local Key = require("../Record/Key")
 local Types = require("../Record/Types")
 local Windows = require("../Core/Constants/Windows")
+
+export type Found = {
+	read Name: string,
+	read Item: Book.Work,
+	read Ref: Book.Ref,
+}
 
 export type Blocker = {
 	read Name: string,
@@ -45,20 +53,25 @@ local Why = Types.Why
 
 local Blockers = {}
 
-function Blockers.Pick(Items: { [string]: Book.Work }, Ref: Book.Ref): Blocker?
+function Blockers.Pick(Items: { [string]: Book.Work }, Ref: Book.Ref, Server: number): Found?
 	local Names: { string } = {}
-	for Name, Item in Items do
-		if Item.Form ~= "Pinned" then
-			table.insert(Names, Name)
-		end
+	for Name in Items do
+		table.insert(Names, Name)
 	end
-	table.sort(Names)
-	local Name = Names[1]
-	local Item = if Name then Items[Name] else nil
-	if Item == nil or Item.Form == "Pinned" then
+	if Names[1] == nil then
 		return nil
 	end
-	return { Name = Name, Item = Item, Ref = Ref }
+	table.sort(Names)
+	local Name = Names[Server % #Names + 1]
+	return { Name = Name, Item = Items[Name], Ref = Ref }
+end
+
+function Blockers.Mark(Picked: Found): Blocker?
+	local Item = Picked.Item
+	if Item.Form == "Pinned" then
+		return nil
+	end
+	return { Name = Picked.Name, Item = Item, Ref = Picked.Ref }
 end
 
 function Blockers.Read(Value: unknown, Found: Blocker): Decision?

@@ -13,9 +13,18 @@
 	mark the keys it forgot. KINDS is how many numbers an op kind hashes to, and NAME_BYTES the
 	longest name a game may give an op. WROTE_BITS is how many bits mark the keys a server number
 	has written. MONEY_MAX is the most money fields a store declares. ORDER_MARKS is the most escrow
-	marks an op is judged beside. ATTEMPTS is how many attempts a transaction makes, and OWED_FREE how
-	many pinned records an owed commit verifies. OP_BYTES is the largest op a transaction leg carries,
-	and LEVELS the most levels a touch counts.
+	marks an op is judged beside. ATTEMPTS is how many attempts a transaction makes, and OWED_FREE
+	how many pinned records an owed commit verifies. OP_BYTES is the largest op a transaction leg
+	carries, and LEVELS the most levels a touch counts. ITEM_MAX is the most one named item may
+	take, and ROOMS_MAX the most every room a game sets may take together. SHARDS is how many shards
+	a total has by default, and SHARDS_MAX the most it may have. TOTAL_NAME is the longest name a
+	total may have. ITEM_ROOM is the most a MemoryStore item of Ledger's may take. HEADER is what a
+	copy item takes besides its state. PARTS_MAX is the most parts a copy's state may be cut into.
+	MAPS is how many maps each purpose spreads its items over. MONEY_LIMIT is one past the largest
+	whole amount a double holds exactly. LEGS_MIN is the fewest legs a transaction has. DRAWS is how
+	many names a call with no name draws. PRINT_MASK keeps the 16 bits of a print. COPY_MISSES is how
+	many part misses in a row make a follower a taker. PACE_SHARD is the share of a key's write
+	ceiling a shard's writer aims below. GAP_FALL is the least a gap is multiplied by at one landing.
 
 	Return type: A table of the bounds.
 	Example usage:
@@ -44,4 +53,20 @@ return {
 	OWED_FREE = 8,
 	OP_BYTES = 512,
 	LEVELS = 16,
+	ITEM_MAX = 84,
+	ROOMS_MAX = 49152,
+	SHARDS = 16,
+	SHARDS_MAX = 64,
+	TOTAL_NAME = 37,
+	ITEM_ROOM = 32000,
+	HEADER = 64,
+	PARTS_MAX = 4,
+	MAPS = 16,
+	MONEY_LIMIT = 2 ^ 53,
+	LEGS_MIN = 2,
+	DRAWS = 2,
+	PRINT_MASK = 0xFFFF,
+	COPY_MISSES = 2,
+	PACE_SHARD = 2,
+	GAP_FALL = 0.5,
 }

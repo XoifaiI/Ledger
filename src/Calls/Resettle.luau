@@ -8,9 +8,10 @@
 	Spec: transaction 5.3.
 
 	Reading runs a fresh Peek of the key. Ending runs Touch on every item of its work room at once,
-	with no level wait, and fences an undecided mark once it is Windows.SETTLE old. Checking runs a
-	fresh Peek again. No item stamped before the call started answers true, and any other answers
-	Busy. A peek that answers why answers that.
+	with no level wait. It fences an undecided mark once the mark is Windows.SETTLE old. Checking
+	runs a fresh Peek again. No item stamped before the call started answers true. Otherwise Waiting
+	waits Windows.SETTLE and the call goes round again, up to Limits.TRIES rounds, and then answers
+	Unresolved. A peek that answers why answers that.
 
 	Return type: A table with Machine and Context. The type is Context.
 	Example usage:
@@ -20,6 +21,7 @@
 local Answer = require("../Core/Answer")
 local Asks = require("../Machine/Asks")
 local Book = require("../Record/Book")
+local Limits = require("../Core/Constants/Limits")
 local Machine = require("../Machine/Machine")
 local Peek = require("./Peek")
 local Queue = require("../Record/Queue")
@@ -39,6 +41,7 @@ export type Context = {
 	read Start: number,
 	Work: { [string]: Book.Work },
 	Why: Answer.Answer,
+	Rounds: number,
 }
 
 type Call = Machine.Call<Context, Reply>
@@ -47,22 +50,24 @@ local STATE: {
 	read Reading: "Reading",
 	read Ending: "Ending",
 	read Checking: "Checking",
+	read Waiting: "Waiting",
 	read Done: "Done",
 } = {
 	Reading = "Reading",
 	Ending = "Ending",
 	Checking = "Checking",
+	Waiting = "Waiting",
 	Done = "Done",
 }
 
 local WORD: {
 	read Viewed: "Viewed",
 	read Clear: "Clear",
-	read Busy: "Busy",
+	read Left: "Left",
 } = {
 	Viewed = "Viewed",
 	Clear = "Clear",
-	Busy = "Busy",
+	Left = "Left",
 }
 
 local Resettle = {}
@@ -110,7 +115,20 @@ local function Check(Call: Call): string
 	if Found == nil then
 		return Asks.SAID.Done
 	end
-	return if Touches.Clear(Found.Work, Call.Context.Start) then WORD.Clear else WORD.Busy
+	return if Touches.Clear(Found.Work, Call.Context.Start) then WORD.Clear else WORD.Left
+end
+
+local function RoundsLeft(Call: Call): boolean
+	return Call.Context.Rounds < Limits.TRIES
+end
+
+local function Again(Call: Call): string
+	Call.Context.Rounds += 1
+	return STATE.Waiting
+end
+
+local function Wait(Call: Call)
+	Machine.Ask(Call, Asks.Wait(Windows.SETTLE))
 end
 
 local STATES: { [string]: Machine.State<Context, Reply> } = {
@@ -131,15 +149,20 @@ local STATES: { [string]: Machine.State<Context, Reply> } = {
 		Hear = Check,
 		On = {
 			{ Said = WORD.Clear, Go = Answered(true) },
-			{ Said = WORD.Busy, Go = Answered(Answer.Busy) },
+			{ Said = WORD.Left, When = RoundsLeft, Go = Again },
+			{ Said = WORD.Left, Go = Answered(Answer.Unresolved) },
 		},
 		Else = Answered(),
+	},
+	[STATE.Waiting] = {
+		Enter = Wait,
+		Else = STATE.Reading,
 	},
 	[STATE.Done] = {},
 }
 
 function Resettle.Context(Ref: Book.Ref, Build: Types.Build, Table: Shown.Shown, Start: number): Context
-	return { Ref = Ref, Build = Build, Shown = Table, Start = Start, Work = {}, Why = Answer.Unresolved }
+	return { Ref = Ref, Build = Build, Shown = Table, Start = Start, Work = {}, Why = Answer.Unresolved, Rounds = 1 }
 end
 
 Resettle.Machine = Machine.Define({ Name = "Resettle", Initial = STATE.Reading, States = STATES })

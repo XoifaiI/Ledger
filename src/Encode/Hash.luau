@@ -12,12 +12,10 @@
 		local Shard = Hash(Name) % Shards
 --]=]
 
-local EncodingService = game:GetService("EncodingService")
-
-local BLAKE3 = Enum.HashAlgorithm.Blake3
+local Encoding = require("../Adapters/Encoding")
 
 local function Hash(Text: string, Seed: number?): number
-	local Digest = EncodingService:ComputeStringHash(if Seed then `{Seed}:{Text}` else Text, BLAKE3)
+	local Digest = Encoding.Blake3(if Seed then `{Seed}:{Text}` else Text)
 	local B0, B1, B2, B3 = string.byte(Digest, 1, 4)
 	return B0 + B1 * 0x100 + B2 * 0x10000 + B3 * 0x1000000
 end

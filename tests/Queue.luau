@@ -5,7 +5,7 @@
 	Queue: The cases for Record/Queue, against the real Step.
 
 	Land builds the queue's request, runs it on a key as the datastore would, and learns the note.
-	Aged is a key that forgot every stamp at or below NOW, since another writer landed 200 seconds
+	Aged is a key that forgot every stamp at or below NOW. Another writer landed on it 200 seconds
 	later.
 
 	Return type: nil. Requiring it adds its cases to the run.
@@ -157,6 +157,38 @@ Describe("Queue", function()
 		Expect(Item.Id).toBe("k9")
 		local _, Said = Land(Kept, Key)
 		Expect(Replies(Said)).toBe(Similar({ true }))
+	end)
+
+	Test("on an erasable store an op takes the key's id at its first send, or a create when the key read absent", function()
+		local Kept = Queue.New({ Store = "Gold", Key = "42" }, Game.Build({ Erasable = true }), 5, nil, NOW)
+		Expect(Queue.Unknown(Kept)).toBe(true)
+		Queue.Know(Kept, nil)
+		Expect(Queue.Unknown(Kept)).toBe(false)
+		Queue.Push(Kept, Asked(1))
+		local First = assert(Queue.Build(Kept, NOW))
+		Expect(First.Ops[1].Create).toBe(Book.Incarnation(5, 1))
+		Expect(First.Ops[1].Id).toBeNil()
+		local Key = assert(Step(nil, First, NOW, Game.DEFAULT).Stored)
+		Queue.Learn(Kept, First, Step(nil, First, NOW, Game.DEFAULT), {}, NOW)
+		Expect(Kept.Seen).toBe(Book.Incarnation(5, 1))
+		Queue.Push(Kept, Asked(2))
+		local Second = assert(Queue.Build(Kept, NOW))
+		Expect(Second.Ops[1].Id).toBe(Book.Incarnation(5, 1))
+		Queue.Know(Kept, Key)
+		Expect(Kept.Seen).toBe(Book.Incarnation(5, 1))
+	end)
+
+	Test("once a request that carried a create may have written, the op carries that id and makes no key", function()
+		local Kept = Queue.New({ Store = "Gold", Key = "42" }, Game.Build({ Erasable = true }), 5, nil, NOW)
+		Queue.Know(Kept, nil)
+		local Item = assert(Queue.Push(Kept, Asked(1)))
+		assert(Queue.Build(Kept, NOW))
+		Queue.Failed(Kept)
+		Expect(Item.Create).toBeNil()
+		Expect(Item.Id).toBe(Book.Incarnation(5, 1))
+		local Again = assert(Queue.Build(Kept, NOW))
+		Expect(Again.Ops[1].Id).toBe(Book.Incarnation(5, 1))
+		Expect(Step(nil, Again, NOW, Game.DEFAULT).Stored).toBeNil()
 	end)
 
 	Test("only an op that was never sent can be withdrawn", function()

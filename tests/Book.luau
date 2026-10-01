@@ -49,6 +49,16 @@ local function Full(): Book.Book
 		Legs = { { Store = "Gold", Key = "1" }, { Store = "Other store", Key = "k" } },
 		Value = 42,
 	}
+	Record.Gate = { Name = "season-reset", Stamp = NOW - 7, Kind = Book.Cause.Reset, Print = 77, At = NOW - 6 }
+	Record.Events = {
+		{ Cause = Book.Cause.Reset, Name = Book.Drawn(4, 9), Stamp = NOW - 100, Amounts = { [1] = 250, [3] = -(2 ^ 53 - 1) } },
+		{ Cause = Book.Cause.Returned, Name = "trade ✨", Stamp = NOW - 90, Amounts = { [2] = -40 }, Ref = { Store = "Gold", Key = "d" } },
+		{ Cause = Book.Cause.Orphan, Name = Book.Drawn(8, 1), Stamp = NOW - 80, Amounts = {}, Ref = { Store = "Gold", Key = "a" } },
+	}
+	Record.Slots = {
+		{ Period = 3, Count = 12, Sums = { [1] = { High = 4, Low = 17 }, [2] = { High = -2, Low = 5 } } },
+		{ Period = 4, Count = 1, Sums = { [1] = { High = -1, Low = 0 } } },
+	}
 	return Record
 end
 
@@ -102,6 +112,22 @@ Describe("Book", function()
 		local Back = Book.Decode(Record:Encode(NOW)) :: Book.Book
 		Expect(Back.Timed[Drawn].Fate).toBe(Book.Fate.Took)
 		Expect(Back.Timed[Plain].Fate).toBe(Book.Fate.Refused)
+	end)
+
+	Test("a seal comes back exactly from its text, and a text EncodeSeal would not write is refused", function()
+		local Seal: Book.Seal = {
+			Name = "erase-42",
+			Stamp = NOW - 3,
+			Print = 1234,
+			Server = 1_048_577,
+			Rt = NOW,
+			Events = { { Cause = Book.Cause.Erase, Name = "erase-42", Stamp = NOW, Amounts = { [1] = 99 } } },
+			Slots = { { Period = 2, Count = 3, Sums = { [1] = { High = 0, Low = 7 } } } },
+		}
+		local Text = Book.EncodeSeal(Seal)
+		Expect(Canon(Book.DecodeSeal(Text))).toBe(Canon(Seal))
+		Expect(Book.DecodeSeal(Text .. "A")).toBeNil()
+		Expect(Book.DecodeSeal(Full():Encode(NOW))).toBeNil()
 	end)
 
 	Test("a text Encode would not write is refused", function()

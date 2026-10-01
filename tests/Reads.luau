@@ -184,6 +184,16 @@ Describe("Peek beside marks", function()
 		Expect(Updates).toBe(1)
 		Expect(Game.Record(Held.a).Work[Y]).toBeNil()
 	end)
+
+	Test("an unclean mark whose decider cannot be read is not shown, since its use may have committed", function()
+		local Held = Keys(true, true)
+		local Context = Peek.Context({ Store = "Gold", Key = "a" }, Game.DEFAULT, Shown.New())
+		local Call, Asked = Machine.Start(Peek.Cached, Context, Live)
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Got(Held.a, Live))
+		Expect(Asked[1].Ask.Kind).toBe("Read")
+		Machine.Step(Call, Asked[1].Id, Asks.Failed(Live, false))
+		Expect(Machine.AnswerOf(Call)).toBe(Answer.Unresolved)
+	end)
 end)
 
 Describe("DidApply", function()
@@ -199,6 +209,37 @@ Describe("DidApply", function()
 		Call, Asked = Machine.Start(DidApply.Probing, DidApply.Context(Ref, "other", NOW), NOW)
 		Machine.Step(Call, Asked[1].Id, Land(Asked, Stored))
 		Expect(Machine.AnswerOf(Call)).toBe(false)
+	end)
+
+	Test("a use pinned on its decider answers true, and a standing mark answers Unresolved, from a read or a probe", function()
+		local Leg: Types.Leg = { Field = 1, Amount = 10 }
+		local function Placed(Asked: Types.Request): unknown
+			return Step(Key({ Mint(1) }), Asked, NOW, Game.DEFAULT).Stored
+		end
+		local Pinned = Placed({
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Commit = { Name = "order", Stamp = NOW, Attempt = 1, Print = 7, Legs = { { Store = "Gold", Key = "a" } }, Leg = Leg },
+		})
+		local Marked = Placed({
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Tent = { Name = "order", Stamp = NOW, Attempt = 1, Print = 7, Decider = { Store = "Gold", Key = "d" }, Leg = Leg },
+		})
+		local Ref = { Store = "Gold", Key = "42" }
+		for _, Case in { { Pinned, true }, { Marked, Answer.Unresolved } } do
+			local Stored, Expected = Case[1], Case[2]
+			local Call, Asked = Machine.Start(DidApply.Reading, DidApply.Context(Ref, "order", NOW), NOW)
+			Machine.Step(Call, Asked[1].Id, Asks.Got(Stored, NOW))
+			Expect(Machine.AnswerOf(Call)).toBe(Expected)
+			Call, Asked = Machine.Start(DidApply.Probing, DidApply.Context(Ref, "order", NOW), NOW)
+			Machine.Step(Call, Asked[1].Id, Land(Asked, Stored))
+			Expect(Machine.AnswerOf(Call)).toBe(Expected)
+		end
 	end)
 end)
 

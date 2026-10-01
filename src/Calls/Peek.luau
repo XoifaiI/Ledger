@@ -7,11 +7,11 @@
 
 	Spec: record 5.3; transaction 4.3. Model: Rec.tla, StartRead and ReadHear.
 
-	Cached starts with a read, and Fresh with a fresh read, an update that decides nothing and lands.
-	A read the shown table does not allow goes on to a fresh read, which is always current. A view
-	with marks whose clean flag is off reads their deciders, all at once. When none committed the view
-	is shown. When some did, a fresh read carrying their resolves lands and its view is shown. A
-	decider the runner cannot read counts as not committed. A request that fails shows Unresolved.
+	Cached starts with a read, and Fresh with a fresh read, an update that decides nothing and
+	lands. A read the shown table does not allow goes on to a fresh read, which is always current. A
+	view with marks whose clean flag is off reads their deciders, all at once. When none committed
+	the view is shown. When some did, a fresh read carrying their resolves lands and its view is
+	shown. A decider the runner cannot read shows Unresolved. A request that fails shows Unresolved.
 
 	Return type: A table with Cached, Fresh and Context. The type is Context.
 	Example usage:
@@ -149,7 +149,11 @@ local function Checked(Call: Call): string
 	local Context = Call.Context
 	for Index, Reply in Call.Heard do
 		local Found = Context.Checks[Index]
-		local Decided = if Reply.Said == Asks.SAID.Failed then nil else Blockers.Read(Reply.Value, Found)
+		if Reply.Said == Asks.SAID.Failed then
+			Context.Found = Answer.Unresolved
+			return Asks.SAID.Done
+		end
+		local Decided = Blockers.Read(Reply.Value, Found)
 		if Decided and Decided.Outcome == Types.Outcome.Commit then
 			table.insert(Context.Commits, Blockers.End(Found, Decided.Outcome, Decided.Attempt))
 		end

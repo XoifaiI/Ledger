@@ -13,10 +13,12 @@
 --]=]
 
 local Testing = require("./Testing")
+local Asks = require("../src/Machine/Asks")
 local Book = require("../src/Record/Book")
 local Clock = require("../src/Machine/Clock")
 local Game = require("./Gold")
 local Limits = require("../src/Core/Constants/Limits")
+local Machine = require("../src/Machine/Machine")
 local Replay = require("./Replay")
 local Step = require("../src/Record/Step")
 local Resettle = require("../src/Calls/Resettle")
@@ -24,6 +26,7 @@ local Shown = require("../src/Record/Shown")
 local Touch = require("../src/Calls/Touch")
 local Touches = require("../src/Record/Touches")
 local Types = require("../src/Record/Types")
+local View = require("../src/Record/View")
 local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
@@ -71,6 +74,14 @@ Describe("Touches", function()
 		Expect(Touches.Due(Older, 0, NOW, NOW - Wait)).toBe(true)
 		Expect(Touches.Level(16, "any name")).toBeLessThan(Limits.LEVELS + 1)
 	end)
+
+	Test("a gate is finished by a toucher at the top level once SETTLE old, and by a lower one a step a level later", function()
+		local Gate: Book.Gate = { Name = "wipe", Stamp = NOW - Windows.SETTLE, Kind = Book.Cause.Reset, At = NOW - Windows.SETTLE + 1 }
+		Expect(Touches.Gated(Gate, Limits.LEVELS, NOW, NOW)).toBe(false)
+		Expect(Touches.Gated(Gate, Limits.LEVELS, NOW + 1, NOW)).toBe(true)
+		Expect(Touches.Gated(Gate, Limits.LEVELS - 1, NOW + 1, NOW)).toBe(false)
+		Expect(Touches.Gated(Gate, Limits.LEVELS - 1, NOW + 1 + Windows.STEP, NOW)).toBe(true)
+	end)
 end)
 
 Describe("Touch", function()
@@ -95,7 +106,7 @@ Describe("Touch", function()
 		Expect(Record(Keys.d).Timed[Y].Fate).toBe(Book.Fate.Fenced)
 	end)
 
-	Test("a mark whose decider reads gone stays until ORPHAN old, and then ends as an orphan under the horizon", function()
+	Test("a mark whose decider reads gone stays until ORPHAN old, then ends as an orphan with a named return", function()
 		local Young = Marked(NOW - Windows.SETTLE)
 		local Of, Context = Mark(Young)
 		local Answer, Updates = Replay.Run(Of, Context, Young, DEFAULT, NOW)
@@ -107,6 +118,30 @@ Describe("Touch", function()
 		Expect(Gold(Old.a)).toBe(100)
 		Expect(Record(Old.a).Work[Y]).toBeNil()
 		Expect(Record(Old.a).Horizon >= NOW - Windows.ORPHAN).toBe(true)
+		local Returned = Record(Old.a).Events[1]
+		Expect(Returned.Cause).toBe(Book.Cause.Returned)
+		Expect(Returned.Amounts[1]).toBe(-30)
+		Expect((Returned.Ref :: Book.Ref).Key).toBe("d")
+	end)
+
+	Test("a pinned record whose leg key reads gone past ORPHAN is dropped with a named return of that key", function()
+		local Keys: Keys = { d = Seed(1) }
+		local Stamp = NOW - Windows.ORPHAN
+		Put(Keys, "d", {
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Commit = { Name = "late", Stamp = NOW, Attempt = 1, Print = 3, Legs = { Ref("gone") }, Leg = { Field = 1, Amount = 1 } },
+		})
+		local Item = Record(Keys.d).Work.late
+		local Old: Book.Pinned = { Form = "Pinned", Stamp = Stamp, Attempt = 1, Print = 3, Legs = { Ref("gone") } }
+		Expect(Item ~= nil).toBe(true)
+		Expect((Replay.Run(Touch.Pinned, Touch.Context("late", Old, Ref("d"), Windows.SETTLE), Keys, DEFAULT, NOW))).toBe(true)
+		Expect(Record(Keys.d).Work.late).toBeNil()
+		local Orphan = Record(Keys.d).Events[1]
+		Expect(Orphan.Cause).toBe(Book.Cause.Orphan)
+		Expect((Orphan.Ref :: Book.Ref).Key).toBe("gone")
 	end)
 
 	Test("a pinned record is dropped only after every leg key is resolved by its commit", function()
@@ -140,15 +175,33 @@ Describe("Resettle", function()
 		return (Replay.Run(Resettle.Machine, Context, Keys, DEFAULT, NOW))
 	end
 
-	Test("a key whose every item ends answers true, and one with a fresh undecided mark answers Busy", function()
+	Test("a key whose every item ends answers true, and one it cannot clear answers Unresolved, never Busy", function()
 		local Keys = Marked(NOW - Windows.SETTLE)
 		Keys.d = Seed(1)
 		Expect(Settle(Keys)).toBe(true)
 		Expect(Record(Keys.a).Work[Y]).toBeNil()
 		local Fresh = Marked(NOW - 1)
 		Fresh.d = Seed(1)
-		Expect(Settle(Fresh)).toBe("Busy")
+		Expect(Settle(Fresh)).toBe("Unresolved")
 		Expect(Record(Fresh.a).Work[Y]).never.toBeNil()
+	end)
+
+	Test("an item still left waits SETTLE for another round, and the key answers true once it is clear", function()
+		local Item = Record(Marked(NOW - 1).a).Work[Y]
+		local Left: View.View = { State = { Gold = 100 }, Writes = 2, Cuts = 0, Horizon = 0, Level = 0, Floor = 0, Work = { [Y] = Item } }
+		local Clear: View.View = { State = { Gold = 100 }, Writes = 3, Cuts = 0, Horizon = 0, Level = 0, Floor = 0, Work = {} }
+		local Call, Asked = Machine.Start(Resettle.Machine, Resettle.Context(Ref("a"), DEFAULT, Shown.New(), NOW), NOW)
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW, Left))
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW, false))
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW, Left))
+		local Ask = Asked[1].Ask
+		Expect(if Ask.Kind == "Wait" then Ask.Seconds else -1).toBe(Windows.SETTLE)
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Windows.SETTLE))
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Windows.SETTLE, Left))
+		Expect(Asked[1].Ask.Kind).toBe("Run")
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Windows.SETTLE, true))
+		Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Windows.SETTLE, Clear))
+		Expect(Machine.AnswerOf(Call)).toBe(true)
 	end)
 
 	Test("a key that holds no value answers Missing", function()

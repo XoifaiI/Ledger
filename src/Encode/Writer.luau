@@ -9,11 +9,12 @@
 	Spec: record 2.1.
 
 	Var writes a whole number below 2^53 as 5 bit digits, lowest first, and a digit from the second
-	half of the alphabet ends it. Signed zigzags. Wide writes up to 2^80. Fixed writes a set width
+	half of the alphabet ends it. Signed zigzags. Wide writes up to 2^80, with its high limb below WIDE_HIGH. Fixed writes a set width
 	that Patch can rewrite. Name writes a string as it is, or as base64url when the alphabet cannot
 	hold it, behind its length and a flag. Label leaves the flag to its caller.
 
-	Return type: A table with New, Var, Signed, Wide, Fixed, Patch, Name, Label, Finish and Clear.
+	Return type: A table with New, Var, Signed, Wide, Fixed, Patch, Name, Label, Finish, Clear and
+	WIDE_HIGH.
 	Example usage:
 		Writer.Var(Book, 300)
 --]=]
@@ -31,6 +32,7 @@ local VALUES = Alphabet.VALUES
 local INVALID = Alphabet.INVALID
 local LIMB = Alphabet.LIMB
 local START_SIZE = 256
+local WIDE_HIGH = 2 ^ 45
 
 local function Grow(Book: Writer, Count: number)
 	local Size = Book.Size
@@ -123,7 +125,7 @@ local function Var(Book: Writer, Value: number)
 end
 
 local function Wide(Book: Writer, Negative: boolean, High: number, Low: number)
-	if not (High >= 0 and High < 2 ^ 45 and High % 1 == 0 and Low >= 0 and Low < LIMB and Low % 1 == 0) then
+	if not (High >= 0 and High < WIDE_HIGH and High % 1 == 0 and Low >= 0 and Low < LIMB and Low % 1 == 0) then
 		error("Writer: a wide number needs whole High below 2^45 and Low below LIMB", 2)
 	end
 	local Sign = 0
@@ -233,4 +235,5 @@ return {
 	Label = Label,
 	Finish = Finish,
 	Clear = Clear,
+	WIDE_HIGH = WIDE_HIGH,
 }

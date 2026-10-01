@@ -7,19 +7,20 @@
 
 	Spec: record 5.2 and 6. Model: Rec.tla, the session sv[s].
 
-	Apply judges an op on the session's view and sends nothing. A closed session answers Closed, an op
-	a datastore cannot hold Invalid, a full queue Backlog, an op whose verdict a transaction mark on
-	the view could change Busy, and an op the reducer refuses Refused. Otherwise the op joins the
-	key's queue with the view's cut count, is laid on the view, and answers true. Commit sends one
-	durable op with the queued ones and settles with its reply. Adopt takes a view with a higher
-	write count, lays the queued ops on top and shows it, and every landing of the key is adopted.
-	The key stays pinned in the shown table until the session closes. Due says whether a push or an
-	idle read is due, and Beat does it. Fates gets one fate per hopeful op, and Changed the state
-	after every change. Flush sends what is queued and settles once the queue is empty, and Release
-	closes the session and flushes.
+	Apply judges an op on the session's view and sends nothing. A closed session answers Closed, an
+	op a datastore cannot hold Invalid, and a full queue Backlog. An op whose verdict a transaction
+	mark on the view could change answers Busy. An op the reducer refuses answers Refused, and one
+	that takes the state past its cap answers Full. Otherwise the op joins the key's queue with the
+	view's cut count, is laid on the view, and answers true. Commit sends one durable op with the
+	queued ones and settles with its reply. Adopt takes a view with a higher write count, lays the
+	queued ops on top and shows it. Every landing of the key is adopted. The key stays pinned in the
+	shown table until the session closes. Due says whether a push or an idle read is due, and Beat
+	does it. Fates gets one fate per hopeful op, and Changed the state after every change. Flush
+	sends what is queued and settles once the queue is empty, and Unload closes the session and
+	flushes.
 
 	Return type: The Session class, with New and DUE, and the methods Get, Apply, Commit, Adopt, Due,
-	Beat, Read, Flush, Release and Close. The types are Session, Due and Fate.
+	Beat, Read, Flush, Unload and Close. The types are Session, Due and Fate.
 	Example usage:
 		local Reply = Player:Apply("SpendGold", { Amount = 25 })
 --]=]
@@ -57,7 +58,7 @@ export type Fate = {
 
 type SessionImpl = {
 	__index: SessionImpl,
-	New: (Held: Queue.Queue, Loaded: View.View?, MustExist: boolean, Now: number) -> Session,
+	New: (Shared: Runtime.Runtime, Held: Queue.Queue, Loaded: View.View?, MustExist: boolean, Now: number) -> Session,
 	DUE: { read Push: "Push", read Read: "Read" },
 	Apply: (self: Session, Kind: string, Fields: { [string]: any }?) -> Reply,
 	Commit: (self: Session, Kind: string, Fields: { [string]: any }?) -> Future.Future<Reply>,
@@ -68,10 +69,11 @@ type SessionImpl = {
 	Close: (self: Session) -> (),
 	Get: (self: Session) -> State,
 	Flush: (self: Session, Now: number) -> Future.Future<boolean>,
-	Release: (self: Session, Now: number) -> Future.Future<boolean>,
+	Unload: (self: Session, Now: number) -> Future.Future<boolean>,
 }
 
 type Data = {
+	read Runtime: Runtime.Runtime,
 	read Queue: Queue.Queue,
 	read Mark: string,
 	read Shown: Shown.Shown,
@@ -117,24 +119,29 @@ local function Landed(Player: Session, Note: Types.Note)
 	end
 end
 
+local function Send(Shared: Runtime.Runtime, Held: Queue.Queue, Asked: Queue.Asked): Reply
+	return (Shared:Send(Held, Asked))
+end
+
 local function Refresh(Player: Session)
 	local Held = Player.Queue
-	local Found = Runner.Run(Peek.Cached, Peek.Context(Held.Ref, Held.Build, Player.Shown), Runtime.Places):Wait()
+	local Found = Runner.Run(Peek.Cached, Peek.Context(Held.Ref, Held.Build, Player.Shown), Player.Runtime.Places):Wait()
 	if type(Found) == "table" then
 		Player:Adopt(Found)
-		Runtime.Touch(Held.Ref, Found.Work)
+		Player.Runtime:Touch(Held.Ref, Found.Work, Found.Gate)
 	end
 end
 
-function Session.New(Held: Queue.Queue, Loaded: View.View?, MustExist: boolean, Now: number): Session
+function Session.New(Shared: Runtime.Runtime, Held: Queue.Queue, Loaded: View.View?, MustExist: boolean, Now: number): Session
 	local Player: Session
 	local function Tell(Asked: Queue.Asked, Reply: Reply, Code: number?)
 		Settled(Player, Asked, Reply, Code)
 	end
 	local Fresh: Data = {
+		Runtime = Shared,
 		Queue = Held,
 		Mark = `{Held.Ref.Store}/{Held.Ref.Key}`,
-		Shown = Runtime.Shown,
+		Shown = Shared.Shown,
 		MustExist = MustExist,
 		Fates = Observer.New(),
 		Changed = Observer.New(),
@@ -156,7 +163,7 @@ function Session.New(Held: Queue.Queue, Loaded: View.View?, MustExist: boolean, 
 	Fresh.Shown:Pin(Fresh.Mark, Fresh.Writes)
 	table.insert(
 		Fresh.Connections,
-		Runtime.Landed(Held):Subscribe(function(Note: Types.Note)
+		Shared:Landed(Held):Subscribe(function(Note: Types.Note)
 			Landed(Player, Note)
 		end)
 	)
@@ -183,9 +190,10 @@ function Session.Apply(self: Session, Kind: string, Fields: { [string]: any }?):
 	if Marks.Order(self.Work, Build, Guard.Plain(Build), self.State, Body) then
 		return Answer.Busy
 	end
-	local Folding = Reduce.Start(self.State, Guard.Plain(Build))
-	if not (Reduce.Apply(Folding, Body)) then
-		return Answer.Refused
+	local Folding = Reduce.Start(self.State, Guard.Capped(Build))
+	local Took, Reason = Reduce.Apply(Folding, Body)
+	if not Took then
+		return if Reason == Book.Fate.Full then Answer.Full else Answer.Refused
 	end
 	local Asked: Queue.Asked = { Form = Form.Hopeful, Kind = 0, View = self.Cuts, MustExist = self.MustExist, Body = Body }
 	if Queue.Push(self.Queue, Asked, self.Tell) == nil then
@@ -205,12 +213,7 @@ function Session.Commit(self: Session, Kind: string, Fields: { [string]: any }?)
 	elseif Asked == nil then
 		return Future.Completed(Answer.Invalid :: Reply)
 	end
-	local Held = self.Queue
-	local Job, Settle = Future.Pending()
-	task.spawn(function() -- TODO: Use future here?
-		Settle((Runtime.Send(Held, Asked)))
-	end)
-	return Job
+	return Future.Spawn(Send, self.Runtime, self.Queue, Asked)
 end
 
 function Session.Adopt(self: Session, Found: View.View)
@@ -274,10 +277,10 @@ end
 
 function Session.Flush(self: Session, Now: number): Future.Future<boolean>
 	self.LastPush = Now
-	return Runtime.Flush(self.Queue)
+	return self.Runtime:Flush(self.Queue)
 end
 
-function Session.Release(self: Session, Now: number): Future.Future<boolean>
+function Session.Unload(self: Session, Now: number): Future.Future<boolean>
 	self:Close()
 	return self:Flush(Now)
 end

@@ -13,6 +13,8 @@
 		Errors.Misuse("a transaction needs at least two legs")
 --]=]
 
+local Server = require("../Adapters/Server")
+
 local BUG = "Ledger bug:"
 
 local Errors = { BUG = BUG }
@@ -26,7 +28,7 @@ function Errors.Bug(Message: string)
 end
 
 function Errors.OnServer(What: string)
-	if game:GetService("RunService"):IsServer() then
+	if Server.IsServer() then
 		return
 	end
 	error(`Ledger: {What} runs on the server, since only the server can reach a datastore. the client can read Ledger.Answer`, 3)

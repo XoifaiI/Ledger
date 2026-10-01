@@ -31,19 +31,21 @@ type Data = {
 
 export type Bits = setmetatable<Data, BitsImpl>
 
+local BYTE = 8
+
 local Bits = {} :: BitsImpl
 Bits.__index = Bits
 
 local function Place(Set: Data, Name: string): (number, number)
 	local Index = Hash(Name) % Set.Count
-	return Index // 8, bit32.lshift(1, Index % 8)
+	return Index // BYTE, bit32.lshift(1, Index % BYTE)
 end
 
 function Bits.New(Count: number): Bits
-	if not (Count >= 8 and Count % 8 == 0) then
+	if not (Count >= BYTE and Count % BYTE == 0) then
 		error(`Bits: the count {Count} is not a whole number of bytes`, 2)
 	end
-	local Fresh: Data = { Count = Count, Held = buffer.create(Count // 8) }
+	local Fresh: Data = { Count = Count, Held = buffer.create(Count // BYTE) }
 	return setmetatable(Fresh, Bits)
 end
 

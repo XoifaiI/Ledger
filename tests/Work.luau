@@ -4,9 +4,9 @@
 
 	Work: The cases for Record/Work, the transaction's steps inside the real Step.
 
-	The game is tests/Gold, whose money field is Gold. Land runs one request and keeps what it wrote,
-	as the datastore would. Each case is one of the controls the transaction model must fail without,
-	with amounts chosen so that each wrong rule gives a different number.
+	The game is tests/Gold, whose money field is Gold. Land runs one request and keeps what it
+	wrote, as the datastore would. Each case is one of the controls the transaction model must fail
+	without. Each wrong rule gives a different number.
 
 	Return type: nil. Requiring it adds its cases to the run.
 	Example usage:
@@ -112,6 +112,20 @@ Describe("Work", function()
 		Expect(Late.Fate).toBe(Fate.Aborted)
 		local _, Next = Land(Key, Tent(X, 2, Delta(-60)))
 		Expect(Next.Report).toBe("Mine")
+	end)
+
+	Test("a resolve of commit on a money field this build does not know ends nothing and says it is behind", function()
+		local Newer = Game.Build({ Money = { "Gold", "Gems" }, Default = { Gold = 0, Gems = 0 }, Fields = { Gold = true, Tag = true, Gems = true } })
+		local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 1 } }
+		local Key = Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, Newer).Stored
+		Key = Step(Key, Tent(X, 1, { Field = 2, Amount = 5 }), NOW, Newer).Stored
+		Expect(Record(Key).Work[X].Form).toBe("Escrow")
+		local Kept, Note, Wrote = Land(Key, Resolve(X, 1, "Commit"))
+		Expect(Wrote).toBe(false)
+		Expect(Note.Why).toBe("Behind")
+		Expect(Record(Kept).Work[X]).never.toBeNil()
+		local Done = Step(Key, Resolve(X, 1, "Commit"), NOW, Newer).Stored
+		Expect((Done :: any).s.Gems).toBe(5)
 	end)
 
 	Test("a resolve ends only the mark of its own attempt and fingerprint, and an orphan end any attempt", function()

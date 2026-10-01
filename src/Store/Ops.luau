@@ -9,16 +9,18 @@
 
 	Body is what a reducer sees: the op's fields and its Kind. Kind is the number an op kind is stored
 	as. Durable makes the op that Edit and Commit send. An op with no Once is minted. With Once and
-	OnceAt, the unix time the name was first sent, it is timed, and with Once alone it is untimed. Its
-	print is 16 bits of the hash of its body. An op a datastore cannot hold gives nil. Name checks a
+	OnceAt, the unix time the name was first sent, it is timed, and with Once alone it is untimed.
+	Print gives the 16 bits of the hash of a value's canon print, and an op's print is that of its
+	body. A game's name may not start with Book.DRAWN. An op a datastore cannot hold gives nil. Name checks a
 	Once, and Stamp checks a OnceAt and gives it as a stamp. A bad Once or OnceAt throws at the
 	game's call.
 
-	Return type: A table with Body, Kind, Durable, Name and Stamp.
+	Return type: A table with Body, Kind, Print, Durable, Name and Stamp.
 	Example usage:
 		local Asked = Ops.Durable("Grant", { Amount = 5, Once = Receipt.PurchaseId }, false)
 --]=]
 
+local Book = require("../Record/Book")
 local Canon = require("../Encode/Canon")
 local Errors = require("../Core/Errors")
 local Hash = require("../Encode/Hash")
@@ -38,7 +40,7 @@ local Form = Types.Form
 local Ops = {}
 
 local function Named(Name: string): boolean
-	return Name ~= "" and #Name <= Limits.NAME_BYTES and string.byte(Name) ~= 255
+	return Name ~= "" and #Name <= Limits.NAME_BYTES and string.sub(Name, 1, 1) ~= Book.DRAWN
 end
 
 local function Timed(At: number): boolean
@@ -53,6 +55,10 @@ end
 
 function Ops.Kind(Kind: string): number
 	return Hash(Kind) % Limits.KINDS
+end
+
+function Ops.Print(Value: unknown): number
+	return bit32.band(Hash(Canon(Value)), Limits.PRINT_MASK)
 end
 
 function Ops.Durable(Kind: string, Fields: Fields?, MustExist: boolean): Queue.Asked?
@@ -74,7 +80,7 @@ function Ops.Durable(Kind: string, Fields: Fields?, MustExist: boolean): Queue.A
 		Form = if At then Form.Timed else Form.Untimed,
 		Kind = Ops.Kind(Kind),
 		Name = Name,
-		Print = bit32.band(Hash(Canon(Body)), 0xFFFF),
+		Print = Ops.Print(Body),
 		Stamp = if At then At - Limits.EPOCH else nil,
 		MustExist = MustExist,
 		Body = Body,

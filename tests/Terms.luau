@@ -50,6 +50,19 @@ Describe("Terms", function()
 		Expect(Terms.Make({ Delta("a", -5), Delta("b", -1) }, nil, nil).Decider).toBe(2)
 	end)
 
+	Test("a transaction with more legs than a store's LegLimit throws at the call", function()
+		local Limited: Asks.Place = { Store = nil :: any, Build = Game.Build({ LegLimit = 2 }) }
+		local function Capped(Key: string, Amount: number): Terms.Given
+			local Made = Delta(Key, Amount) :: any
+			Made.Place = Limited
+			return Made
+		end
+		Expect(Terms.Make({ Capped("a", -5), Capped("b", 5) }, nil, nil).Decider).toBe(2)
+		Expect(function()
+			Terms.Make({ Capped("a", -5), Delta("b", 2), Delta("c", 3) }, nil, nil)
+		end).toThrow("Ledger: a transaction on Gold has at most 2 legs")
+	end)
+
 	Test("a game name's print follows its terms, and a drawn name has none", function()
 		local First = Terms.Make({ Delta("a", -5), Delta("b", 5) }, "trade", nil).Print
 		Expect(First).never.toBeNil()

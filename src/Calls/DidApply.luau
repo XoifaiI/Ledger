@@ -7,10 +7,11 @@
 
 	Spec: record 5.3. Model: Rec.tla, ReadHear for a didapply.
 
-	Reading reads the key once: true when it holds the name as took, else Unresolved. It is the only
-	form for an untimed name, which never answers false. Probing sends a probe that decides nothing.
-	A held name answers true when it took and false when not, a forgotten one Unresolved, and a probe
-	that lands false for the moment it landed. A key that holds no value, or one past this build,
+	Reading reads the key once: true when it holds the name as took or as a pinned use, else
+	Unresolved. It is the only form for an untimed name, which never answers false. Probing sends a
+	probe that decides nothing. A held name answers true when it took and false when not, and a
+	pinned use answers true. A standing mark and a forgotten name answer Unresolved. A probe that
+	lands answers false for the moment it landed. A key that holds no value, or one past this build,
 	answers why.
 
 	Return type: A table with Reading, Probing and Context. The type is Context.
@@ -72,8 +73,16 @@ end
 
 local function Held(Call: Call): string
 	local Found = Key.Read(Machine.Reply(Call).Value)
-	local Item = if type(Found) == "table" then Found.Book:Held(Call.Context.Once) else nil
-	return if Item and Item.Fate == Book.Fate.Took then WORD.Took else Asks.SAID.Done
+	if type(Found) ~= "table" then
+		return Asks.SAID.Done
+	end
+	local Name = Call.Context.Once
+	local Working = Found.Book.Work[Name]
+	local Item = Found.Book:Held(Name)
+	if Working and Working.Form == "Pinned" then
+		return WORD.Took
+	end
+	return if Working == nil and Item and Item.Fate == Book.Fate.Took then WORD.Took else Asks.SAID.Done
 end
 
 local function Probe(Call: Call)

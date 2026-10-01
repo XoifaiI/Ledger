@@ -6,8 +6,9 @@
 	Ledger: Plumbing. Player data as a ledger, and not as a document.
 
 	New makes a store from a config, Tx runs a transaction across keys of any stores, and CloseAll
-	flushes every store before the server closes. A
-	client may require this to read Answer. A call that needs the server checks with Errors.OnServer.
+	flushes every store. Ledger hooks nothing in the engine: the game calls Load when a player joins,
+	Unload when they leave, and CloseAll from BindToClose. A client may require this to read
+	Answer. A call that needs the server checks with Errors.OnServer.
 
 	Return type: A table with Answer, New, Tx and CloseAll.
 	Example usage:
@@ -22,6 +23,9 @@ export type Answer = Answer.Answer
 export type Store = Store.Store
 export type Leg = Store.Leg
 export type Options = Store.Options
+export type CutOptions = Store.CutOptions
+export type BumpOptions = Store.BumpOptions
+export type Naming = Store.Naming
 
 return {
 	Answer = Answer,

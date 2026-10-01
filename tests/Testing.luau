@@ -62,7 +62,24 @@ local DataStoreService = table.freeze({
 	end,
 })
 
-local SERVICES: { [string]: any } = { EncodingService = EncodingService, DataStoreService = DataStoreService }
+local MemoryStoreService = table.freeze({
+	GetHashMap = function(_: any, Name: string): any
+		error(`Testing: no case may reach a real MemoryStore, and one asked for {Name}`, 2)
+	end,
+})
+
+local RunService = table.freeze({
+	IsServer = function(_: any): boolean
+		return true
+	end,
+})
+
+local SERVICES: { [string]: any } = {
+	EncodingService = EncodingService,
+	DataStoreService = DataStoreService,
+	MemoryStoreService = MemoryStoreService,
+	RunService = RunService,
+}
 
 local Game = table.freeze({
 	GetService = function(_: any, Name: string): any

@@ -7,12 +7,13 @@
 
 	Spec: record 2.4 and 4, steps 7 and 8.
 
-	Work gives the width of the work room, and Count how many marks and pinned records it holds.
-	Age drops what has outlived its window, except this writer's entry and untimed names. It raises
-	the horizon over each writer entry and timed item it drops, and the cut horizon over each cut
-	name. An untimed name past its window stays until Evict needs its bytes, oldest first. Fit drops
-	the least stamp from the timed room until it fits, with items held ahead and this request's items
-	last, and raises the horizon each time. It trims cut names to the room's count.
+	Work gives the width of the work room, and Count how many marks and pinned records it holds. Age
+	drops what has outlived its window, except this writer's entry and untimed names, and says
+	whether it dropped any. It raises the horizon over each writer entry and timed item it drops,
+	and the cut horizon over each cut name. An untimed name past its window stays until Evict needs
+	its bytes, oldest first. Fit drops the least stamp from the timed room until it fits, and raises
+	the horizon each time. Items held ahead and this request's items go last. It trims cut names to
+	the room's count.
 
 	Return type: A table with Timed, Untimed, Work, Count, Evict, Age and Fit.
 	Example usage:
@@ -101,27 +102,29 @@ function Rooms.Evict(Record: Book, Build: Build, Now: number, Epoch: number, Nee
 	return Freed
 end
 
-function Rooms.Age(Record: Book, Build: Build, Now: number, Writer: number)
+function Rooms.Age(Record: Book, Build: Build, Now: number, Writer: number): boolean
 	local Horizon, CutHorizon = Record.Horizon, Record.CutHorizon
+	local Dropped = false
 	for Id, Found in Record.Writers do
 		if Id ~= Writer and Now - Found.Stamp >= Build.Minted then
 			Record.Writers[Id] = nil
-			Horizon = math.max(Horizon, Found.Stamp)
+			Horizon, Dropped = math.max(Horizon, Found.Stamp), true
 		end
 	end
 	for Name, Item in Record.Timed do
 		if Now - Item.Stamp >= Window(Build, Item.Kind) then
 			Record.Timed[Name] = nil
-			Horizon = math.max(Horizon, Item.Stamp)
+			Horizon, Dropped = math.max(Horizon, Item.Stamp), true
 		end
 	end
 	for Name, Item in Record.Cut do
 		if Now - Item.Stamp >= Build.CutWindow then
 			Record.Cut[Name] = nil
-			CutHorizon = math.max(CutHorizon, Item.Stamp)
+			CutHorizon, Dropped = math.max(CutHorizon, Item.Stamp), true
 		end
 	end
 	Record.Horizon, Record.CutHorizon = Horizon, CutHorizon
+	return Dropped
 end
 
 local function Before(Left: Candidate, Right: Candidate): boolean

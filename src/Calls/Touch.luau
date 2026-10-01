@@ -10,10 +10,11 @@
 	Mark reads the mark's decider. A decision resolves the mark on its key by that decision. A mark
 	that is not decided is fenced once it is FenceAfter seconds old, and the fence's report decides
 	it. A decider that holds no value decides nothing until the mark is Windows.ORPHAN old, and then
-	the mark ends as an orphan. Pinned resolves the record's use as committed on every leg key, all at
-	once, and drops the record on its decider once each leg key is resolved or reads gone past
-	Windows.ORPHAN. Each answers true once a write ended the item, and false when it could not. Known
-	says whether this server knows the store of every other key an item names.
+	the mark ends as an orphan. Pinned resolves the record's use as committed on every leg key, all
+	at once. It drops the record on its decider once each leg key is resolved or reads gone past
+	Windows.ORPHAN. The drop carries a named return of the first leg key that read gone. Each
+	answers true once a write ended the item, and false when it could not. Known says whether this
+	server knows the store of every other key an item names.
 
 	Return type: A table with Mark, Pinned, Known and Context. The type is Context.
 	Example usage:
@@ -33,6 +34,7 @@ export type Context = {
 	read Ref: Book.Ref,
 	read FenceAfter: number,
 	End: Types.End?,
+	Gone: Book.Ref?,
 }
 
 type Call = Machine.Call<Context, boolean>
@@ -144,11 +146,17 @@ local function Verify(Call: Call)
 end
 
 local function Verified(Call: Call): string
-	for _, Reply in Call.Heard do
+	local Context = Call.Context
+	local Item = Context.Item
+	assert(Item.Form == "Pinned", "Touch: a mark is not a pinned record")
+	Context.Gone = nil
+	for Index, Reply in Call.Heard do
 		local Note = Reply.Note
 		local Gone = Note ~= nil and Note.Why == Types.Why.Missing and Old(Call)
 		if Note == nil or (Note.Why ~= nil and not Gone) then
 			return Asks.SAID.Done
+		elseif Gone and Context.Gone == nil then
+			Context.Gone = Item.Legs[Index]
 		end
 	end
 	return WORD.Ended
@@ -156,7 +164,11 @@ end
 
 local function Drop(Call: Call)
 	local Context = Call.Context
-	Machine.Ask(Call, Asks.Send(Context.Ref, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Drops = { Context.Name } }))
+	local Gone = Context.Gone
+	local Request: Types.Request = if Gone
+		then { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Orphans = { { Name = Context.Name, Ref = Gone } } }
+		else { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Drops = { Context.Name } }
+	Machine.Ask(Call, Asks.Send(Context.Ref, Request))
 end
 
 local STATES: { [string]: Machine.State<Context, boolean> } = {

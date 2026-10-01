@@ -8,19 +8,25 @@
 	Spec: transaction 3.2 to 3.5, and 4.1.
 
 	Ends applies the resolves and drops a request carries, before anything else. A resolve of commit
-	applies the mark of its own attempt: an escrow mark adds its amount to its field, and an exclusive
-	mark lays its post diff on the state. A resolve of abort takes off the mark of its attempt or an
-	older one, and so does a resolve of commit for a newer attempt. An orphan end, which a touch sends
-	when the decider reads gone, takes off the mark of any attempt. Each writes the leg's fate. A
-	resolve ends only a mark whose fingerprint it carries, and one that finds no mark writes the fate
-	a later Tent must meet. A drop moves a pinned record to the timed room as a decision that took.
+	applies the mark of its own attempt. An escrow mark adds its amount to its field, and an
+	exclusive mark lays its post diff on the state. A resolve of abort takes off the mark of its
+	attempt or an older one. A resolve of commit for a newer attempt does the same. An orphan end,
+	which a touch sends when the decider reads gone, takes off the mark of any attempt. Each writes
+	the leg's fate. A resolve ends only a mark whose fingerprint it carries, and one that finds no
+	mark writes the fate a later Tent must meet. A resolve of commit on a money field this build
+	does not know ends nothing and says the build is behind. A drop moves a pinned record to the
+	timed room as a decision that took. An orphan end adds a named return to the loss room:
+	Returned, with the mark's field, amount and decider. A drop of a pinned record whose leg key
+	reads gone adds Orphan, with that leg key.
 
 	Tent sets an escrow mark for a field delta, judged against the least and the most the field can
-	end at, or an exclusive mark and its post diff for a game op, which needs a key with no other
-	mark. It never changes the state. Commit applies the decider's own leg by the order rule and pins
-	the record of the use. Fence writes the decision fenced at an attempt, so no commit of that
-	attempt or a lower one lands, and none at all once it is final. Each step says what it found on
-	the note: its report, the attempt and fate it read, and the items that blocked or crowded it.
+	end at. For a game op it sets an exclusive mark and its post diff, which needs a key with no
+	other mark. It never changes the state. Commit applies the decider's own leg by the order rule
+	and pins the record of the use. Fence writes the decision fenced at an attempt. No commit of
+	that attempt or a lower one lands after it, and none at all once the fence is final. A Tent that
+	meets a cut's gate, and a Commit that meets an erase's, is Gated. Each step says what it found
+	on the note. That is its report, the attempt and fate it read, the items that blocked or crowded
+	it, and the gate it met.
 
 	Return type: A table with Ends, Tent, Commit and Fence.
 	Example usage:
@@ -28,8 +34,10 @@
 --]=]
 
 local Book = require("./Book")
+local Cuts = require("./Cuts")
 local Diff = require("./Diff")
 local Guard = require("./Guard")
+local Limits = require("../Core/Constants/Limits")
 local Marks = require("./Marks")
 local Migrate = require("./Migrate")
 local Reduce = require("../Core/Reduce")
@@ -47,8 +55,7 @@ local Fate = Book.Fate
 local Role = Book.Role
 local Report = Types.Report
 local Outcome = Types.Outcome
-
-local MONEY_LIMIT = 2 ^ 53
+local Why = Types.Why
 
 local Work = {}
 
@@ -152,7 +159,7 @@ local function Refuses(Low: number?, High: number?, Amount: number): boolean
 	if Low == nil or High == nil then
 		return true
 	end
-	return if Amount < 0 then Low + Amount < 0 else High + Amount >= MONEY_LIMIT
+	return if Amount < 0 then Low + Amount < 0 else High + Amount >= Limits.MONEY_LIMIT
 end
 
 local function Applied(Run: Run, Item: Book.Escrow | Book.Exclusive): boolean
@@ -169,6 +176,11 @@ local function Applied(Run: Run, Item: Book.Escrow | Book.Exclusive): boolean
 	return true
 end
 
+local function Return(Run: Run, Event: Book.Event)
+	table.insert(Run.Record.Events, Event)
+	Cuts.Fold(Run.Record, Run.Build, Run.Clock, Run.Epoch)
+end
+
 local function Resolve(Run: Run, End: Types.End)
 	local Record, Name = Run.Record, End.Name
 	local Item = Record.Work[Name]
@@ -178,10 +190,16 @@ local function Resolve(Run: Run, End: Types.End)
 			if Applied(Run, Item) then
 				Take(Run, Name, Item)
 				Keep(Run, Name, Fated(Named(Role.Leg, Item.Stamp, Item.Print), Fate.Took, Item.Attempt))
+			else
+				Run.Note.Why = Why.Behind
 			end
 		elseif Orphan or Item.Attempt < End.Attempt or (not Commit and Item.Attempt == End.Attempt) then
 			Take(Run, Name, Item)
 			Keep(Run, Name, Fated(Named(Role.Leg, Item.Stamp, Item.Print), Fate.Aborted, Item.Attempt))
+			if Orphan then
+				local Amounts: { [number]: number } = if Item.Form == "Escrow" then { [Item.Field] = Item.Amount } else {}
+				Return(Run, { Cause = Book.Cause.Returned, Name = Name, Stamp = Item.Stamp, Amounts = Amounts, Ref = Item.Decider })
+			end
 		end
 		return
 	end
@@ -199,13 +217,16 @@ local function Resolve(Run: Run, End: Types.End)
 	end
 end
 
-local function Drop(Run: Run, Name: string)
+local function Drop(Run: Run, Name: string, Gone: Book.Ref?)
 	local Item = Run.Record.Work[Name]
 	if Item and Item.Form == "Pinned" then
 		Run.Record.Work[Name] = nil
 		local Decision = Fated(Named(Role.Decision, Item.Stamp, Item.Print), Fate.Took, Item.Attempt)
 		Decision.Value = Item.Value
 		Keep(Run, Name, Decision)
+		if Gone then
+			Return(Run, { Cause = Book.Cause.Orphan, Name = Name, Stamp = Item.Stamp, Amounts = {}, Ref = Gone })
+		end
 	end
 end
 
@@ -215,6 +236,9 @@ function Work.Ends(Run: Run)
 	end
 	for _, Name in Run.Request.Drops or {} do
 		Drop(Run, Name)
+	end
+	for _, Orphan in Run.Request.Orphans or {} do
+		Drop(Run, Orphan.Name, Orphan.Ref)
 	end
 end
 
@@ -321,6 +345,9 @@ function Work.Tent(Run: Run, Tent: Types.Tent)
 	local Stop = Opens(Run, Tent.Stamp)
 	if Stop then
 		return Say(Run, Stop)
+	elseif Record.Gate then
+		Run.Note.Gate = Record.Gate
+		return Say(Run, Report.Gated)
 	end
 	local Leg = Tent.Leg
 	if Leg.Field and Leg.Amount then
@@ -394,8 +421,12 @@ function Work.Commit(Run: Run, Commit: Types.Commit)
 		return Say(Run, Report.Forgotten)
 	end
 	local Stop = Opens(Run, Commit.Stamp)
+	local Gate = Record.Gate
 	if Stop then
 		return Say(Run, Stop)
+	elseif Gate and Gate.Kind == Book.Cause.Erase then
+		Run.Note.Gate = Gate
+		return Say(Run, Report.Gated)
 	end
 	local Leg = Commit.Leg
 	local Next = if Leg.Field and Leg.Amount then Delta(Run, Commit, Leg.Field, Leg.Amount) else Game(Run, Commit, Leg.Body)

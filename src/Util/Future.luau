@@ -86,7 +86,7 @@ end
 
 function Future.Spawn<A..., T...>(Body: (A...) -> T..., ...: A...): Future<T...>
 	local Job, Done = Future.Pending()
-	task.spawn(function(...: A...) --TODO: Pool?
+	task.spawn(function(...: A...)
 		Done(Body(...))
 	end, ...)
 	return Job

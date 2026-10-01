@@ -17,6 +17,7 @@
 --]=]
 
 local Book = require("./Book")
+local Limits = require("../Core/Constants/Limits")
 local Reduce = require("../Core/Reduce")
 local Types = require("./Types")
 local Value = require("../Encode/Value")
@@ -40,7 +41,7 @@ function Guard.Admits(Build: Build, Before: State, After: State): boolean
 	end
 	for _, Field in Build.Money do
 		local Amount = After[Field]
-		if not (type(Amount) == "number" and Amount % 1 == 0 and math.abs(Amount) < 2 ^ 53) then
+		if not (type(Amount) == "number" and Amount % 1 == 0 and math.abs(Amount) < Limits.MONEY_LIMIT) then
 			return false
 		end
 	end

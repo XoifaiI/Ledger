@@ -56,7 +56,7 @@ local function Missed(Call: Call): string
 end
 
 local function Rest(Call: Call)
-	Machine.Ask(Call, Asks.Wait(Backoff(Call.Context.Tries)))
+	Machine.Ask(Call, Asks.Wait(Backoff.Retry(Call.Context.Tries)))
 end
 
 local STATES: { [string]: Machine.State<Context, number> } = {

@@ -7,12 +7,12 @@
 
 	Spec: record 4, step 4.
 
-	A rule passes an op on or has the last word: a new fate, the fate the key holds, or a stop that
-	leaves every later op undecided. The first op to reach the reducer runs the key's missing
-	migrations. When they fail, every op judged is refused. A name held as a leg's fate, a decision or
-	a work item is spent for an op. An op beside transaction marks is judged by the order rule of
-	Marks, and a blocked op stops with the marks that block it. So does an op that would run a
-	migration beside any mark.
+	A rule passes an op on or has the last word. The last word is a new fate, the fate the key
+	holds, or a stop that leaves every later op undecided. The first op to reach the reducer runs
+	the key's missing migrations. When they fail, every op judged is refused. A name held as a leg's
+	fate, a decision or a work item is spent for an op. An op beside transaction marks is judged by
+	the order rule of Marks, and a blocked op stops with the marks that block it. So does an op that
+	would run a migration beside any mark.
 
 	Return type: The ordered list of rules. The types are Run and Rule.
 	Example usage:
@@ -52,6 +52,8 @@ export type Run = {
 	Written: { [string]: true },
 	UntimedBytes: number,
 	Post: { Diff.Change }?,
+	Given: { [string]: any }?,
+	Sealed: Book.Seal?,
 	Changed: boolean,
 	Acted: boolean,
 	Placed: string?,

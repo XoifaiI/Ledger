@@ -19,6 +19,8 @@ local Limits = require("../src/Core/Constants/Limits")
 local Machine = require("../src/Machine/Machine")
 local Queue = require("../src/Record/Queue")
 local Save = require("../src/Calls/Save")
+local Touch = require("../src/Calls/Touch")
+local Unseal = require("../src/Calls/Unseal")
 local Types = require("../src/Record/Types")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
@@ -116,6 +118,65 @@ Describe("Save", function()
 		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done(End))
 		local Ends = Request(Asked).Ends
 		Expect(Ends and Ends[1].Name).toBe(Name)
+	end)
+
+	Test("an overdue pinned record in the way is verified and dropped, and the op is sent again", function()
+		local Kept = Held()
+		Queue.Push(Kept, Op(5))
+		local Pinned: Book.Pinned = { Form = "Pinned", Stamp = NOW, Attempt = 1, Legs = { { Store = "Gold", Key = "a" } } }
+		local Call, Asked = Start(Kept)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Whys = { [1] = "Overdue" }, Items = { [Book.Drawn(9, 3)] = Pinned } }))
+		local Ask = Asked[1].Ask
+		Expect(Ask.Kind == "Run" and Ask.Machine == Touch.Pinned).toBe(true)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done(true))
+		Expect(Asked[1].Ask.Kind).toBe("Send")
+	end)
+
+	Test("writers on two servers help past different marks of one key, by their server numbers", function()
+		local Mark: Book.Escrow = {
+			Form = "Escrow",
+			Stamp = NOW,
+			Attempt = 1,
+			Clean = true,
+			Decider = { Store = "Gold", Key = "d" },
+			Field = 1,
+			Amount = -1,
+		}
+		local Picked: { string } = {}
+		for _, Id in { 16, 17 } do
+			local Kept = Queue.New({ Store = "Gold", Key = "42" }, Game.DEFAULT, Id, nil, NOW)
+			Queue.Push(Kept, Op(5))
+			local Call, Asked = Start(Kept)
+			Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Whys = { [1] = "Blocked" }, Items = { x = Mark, y = Mark } }))
+			local Ask = Asked[1].Ask
+			table.insert(Picked, if Ask.Kind == "Run" then Ask.Context.Blocker.Name else "")
+		end
+		Expect(Picked[1] ~= "" and Picked[2] ~= "" and Picked[1] ~= Picked[2]).toBe(true)
+	end)
+
+	Test("a queue that does not know the key's incarnation reads it before it sends, and a failed read rests", function()
+		local Kept = Queue.New({ Store = "Gold", Key = "42" }, Game.Build({ Erasable = true }), 16, nil, NOW)
+		Queue.Push(Kept, Op(5))
+		local Call, Asked = Start(Kept)
+		Expect(Asked[1].Ask.Kind).toBe("Read")
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Failed())
+		Expect(Asked[1].Ask.Kind).toBe("Wait")
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done())
+		Expect(Asked[1].Ask.Kind).toBe("Read")
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Read(nil))
+		Expect(Request(Asked).Ops[1].Create).toBe(Book.Incarnation(16, 1))
+	end)
+
+	Test("a send that meets a seal an erase left over runs Unseal, then rests", function()
+		local Kept = Held()
+		Queue.Push(Kept, Op(5))
+		local Seal: Book.Seal = { Name = "e", Stamp = NOW, Server = 9, Rt = NOW, Events = {}, Slots = {} }
+		local Call, Asked = Start(Kept)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Why = "Missing", Whys = { [1] = "Missing" }, Seal = Seal, Left = true, Writes = 0 }))
+		local Ask = Asked[1].Ask
+		Expect(Ask.Kind == "Run" and Ask.Machine == Unseal.Machine).toBe(true)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done(true))
+		Expect(Asked[1].Ask.Kind).toBe("Wait")
 	end)
 
 	Test("an Unblock that answers nothing rests before the next send", function()

@@ -29,13 +29,14 @@ local Windows = require("../src/Core/Constants/Windows")
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
 local NOW = Game.NOW
+local Shared = Runtime.New()
 
 local function Held(Key: string): Queue.Queue
 	return Queue.New({ Store = "Gold", Key = Key }, Game.DEFAULT, 16, nil, NOW)
 end
 
 local function Open(Key: string?): Session.Session
-	return Session.New(Held(Key or "42"), nil, false, NOW)
+	return Session.New(Shared, Held(Key or "42"), nil, false, NOW)
 end
 
 Describe("Session", function()
@@ -60,7 +61,7 @@ Describe("Session", function()
 		Player:Apply("Add", { Add = 5 })
 		local Kept = Player.Queue
 		local function Land(Note: Types.Note)
-			Runtime.Landed(Kept):Push(Note)
+			Shared:Landed(Kept):Push(Note)
 		end
 		local Call, Asked = Machine.Start(Save.Machine, Save.Context(Kept, Land), NOW)
 		Player:Apply("Add", { Add = 2 })
@@ -72,7 +73,7 @@ Describe("Session", function()
 		Expect(Player.Shown:Allows(Player.Mark, 0)).toBe(false)
 		Expect(#Heard).toBe(1)
 		Expect(Heard[1]).toBe(true)
-		Player:Adopt({ State = { Gold = 99 }, Writes = 1, Cuts = 0, Horizon = 0, Work = {} })
+		Player:Adopt({ State = { Gold = 99 }, Writes = 1, Cuts = 0, Horizon = 0, Level = 0, Floor = 0, Work = {} })
 		Expect(Player.State.Gold).toBe(7)
 	end)
 
@@ -85,15 +86,23 @@ Describe("Session", function()
 			return View.Read(Key, Game.DEFAULT) :: View.View, Key
 		end
 		local Marked, Key = Viewed({ Field = 1, Amount = -60 })
-		local Player = Session.New(Held("46"), Marked, false, NOW)
+		local Player = Session.New(Shared, Held("46"), Marked, false, NOW)
 		Expect(Player:Apply("Add", { Add = -30 })).toBe(true)
 		Expect(Player:Apply("Add", { Add = -20 })).toBe(Answer.Busy)
 		local End: Types.End = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Outcome = "Abort" }
 		local Cleared = Step(Key, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }, NOW, Game.DEFAULT).Stored
 		Player:Adopt(View.Read(Cleared, Game.DEFAULT) :: View.View)
 		Expect(Player:Apply("Add", { Add = -20 })).toBe(true)
-		local Exclusive = Session.New(Held("47"), (Viewed({ Body = { Add = 1 } })), false, NOW)
+		local Exclusive = Session.New(Shared, Held("47"), (Viewed({ Body = { Add = 1 } })), false, NOW)
 		Expect(Exclusive:Apply("Add", { Add = 1 })).toBe(Answer.Busy)
+	end)
+
+	Test("an op that takes the state past its cap answers Full on the view, and is not queued", function()
+		local Capped = Queue.New({ Store = "Gold", Key = "48" }, Game.Build({ StateCap = 40 }), 16, nil, NOW)
+		local Player = Session.New(Shared, Capped, nil, false, NOW)
+		Expect(Player:Apply("Add", { Add = 1, Tag = string.rep("x", 60) })).toBe(Answer.Full)
+		Expect(#Player.Queue.Items).toBe(0)
+		Expect(Player:Apply("Add", { Add = 1 })).toBe(true)
 	end)
 
 	Test("a push is due after SAVE while ops wait, and an idle read after IDLE when none do", function()

@@ -26,6 +26,7 @@ local Sizes = require("../src/Core/Constants/Sizes")
 local Step = require("../src/Record/Step")
 local Tx = require("../src/Calls/Tx")
 local Types = require("../src/Record/Types")
+local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
@@ -58,6 +59,62 @@ local function Transfer(Name: string, Amount: number): Tx.Context
 	local Legs = { Leg("a", { Field = 1, Amount = -Amount }), Leg("d", { Field = 1, Amount = Amount }) }
 	return Tx.Context(Use, Legs, 2, 16)
 end
+
+Describe("Transaction incarnations", function()
+	local function Erasable(Key: string, Change: Types.Leg): Tx.Leg
+		return { Ref = Ref(Key), MustExist = false, Erasable = true, Change = Change }
+	end
+
+	local function Start(): (Machine.Call<Tx.Context, any>, { Machine.Asked })
+		local Use: Tx.Use = { Name = Book.Drawn(16, 9), Stamp = NOW }
+		local Legs = { Erasable("a", { Field = 1, Amount = -5 }), Erasable("d", { Field = 1, Amount = 5 }) }
+		return Machine.Start(Tx.Run, Tx.Context(Use, Legs, 2, 16, {}, "f1"), NOW)
+	end
+
+	local function Sent(Asked: { Machine.Asked }): Types.Request
+		local Ask = Asked[1].Ask
+		return if Ask.Kind == "Send" then Ask.Request else error("not a send")
+	end
+
+	Test("the legs it does not know are read at once, and each Tent and Commit carries what was found", function()
+		local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 10 }, Create = "ia" }
+		local KeyA = Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, DEFAULT).Stored
+		local Call, Asked = Start()
+		Expect(#Asked).toBe(2)
+		Expect(Asked[1].Ask.Kind == "Read" and Asked[2].Ask.Kind == "Read").toBe(true)
+		local Reads = Asked
+		Machine.Step(Call, Reads[1].Id, Heard.Read(KeyA))
+		Asked = Machine.Step(Call, Reads[2].Id, Heard.Read(nil))
+		local Tent = assert(Sent(Asked).Tent)
+		Expect(Tent.Id).toBe("ia")
+		Expect(Tent.Create).toBeNil()
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Mine", Attempt = 1 }))
+		local Commit = assert(Sent(Asked).Commit)
+		Expect(Commit.Create).toBe("f1")
+		Expect(Commit.Id).toBeNil()
+	end)
+
+	Test("a read that fails answers Unresolved and sends nothing", function()
+		local Call, Asked = Start()
+		Machine.Step(Call, Asked[1].Id, Heard.Read(nil))
+		Asked = Machine.Step(Call, Asked[2].Id, Heard.Failed())
+		Expect(#Asked).toBe(0)
+		Expect(Machine.AnswerOf(Call)).toBe(Answer.Unresolved)
+	end)
+
+	Test("a Commit sent again after one that may have written carries the id, not a create", function()
+		local Call, Asked = Start()
+		Machine.Step(Call, Asked[1].Id, Heard.Read(nil))
+		Asked = Machine.Step(Call, Asked[2].Id, Heard.Read(nil))
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Mine", Attempt = 1 }))
+		Expect(assert(Sent(Asked).Commit).Create).toBe("f1")
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Fenced", Attempt = 1, Final = false }, true))
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Mine", Attempt = 2 }))
+		local Again = assert(Sent(Asked).Commit)
+		Expect(Again.Id).toBe("f1")
+		Expect(Again.Create).toBeNil()
+	end)
+end)
 
 Describe("Transaction", function()
 	Test("a transfer answers true after its Tent and its Commit, and its resolve takes the amount off the sender", function()
@@ -160,6 +217,36 @@ Describe("Transaction", function()
 		Expect(Pinned).toBe(Sizes.OWED_CAP - 7 + 1)
 		Expect(Record(Keys.d).Work[Names[1]].Form).toBe("Pinned")
 		Expect(Gold(Keys.d)).toBe(1 + Sizes.OWED_CAP + 30)
+	end)
+end)
+
+Describe("Transaction gates", function()
+	Test("a Tent or a Commit at a cut's gate waits until it is SETTLE old, finishes the cut, and goes again", function()
+		local Gate: Book.Gate = { Name = "wipe", Stamp = Heard.NOW - 2, Kind = Book.Cause.Reset, Print = 1, At = Heard.NOW - 2 }
+		local Use: Tx.Use = { Name = Book.Drawn(16, 30), Stamp = NOW }
+		local Context = Tx.Context(Use, { Leg("a", { Field = 1, Amount = -1 }), Leg("d", { Field = 1, Amount = 1 }) }, 2, 16)
+		local Call, Asked = Machine.Start(Tx.Run, Context, NOW)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Gated", Gate = Gate }))
+		local Ask = Asked[1].Ask
+		Expect(if Ask.Kind == "Wait" then Ask.Seconds else -1).toBe(Windows.SETTLE - 2)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done())
+		Ask = Asked[1].Ask
+		local Helping = (if Ask.Kind == "Run" then Ask.Context else nil) :: any
+		Expect(Helping and Helping.Cut.Name).toBe("wipe")
+		Expect(Helping and Helping.Cut.Helper).toBe(true)
+		Expect(Helping and Helping.Ref.Key).toBe("a")
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done())
+		Ask = Asked[1].Ask
+		Expect(Ask.Kind == "Send" and Ask.Request.Tent ~= nil).toBe(true)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Mine", Attempt = 1 }))
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Gated", Gate = Gate }))
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done())
+		Ask = Asked[1].Ask
+		Helping = (if Ask.Kind == "Run" then Ask.Context else nil) :: any
+		Expect(Helping and Helping.Ref.Key).toBe("d")
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done())
+		Ask = Asked[1].Ask
+		Expect(Ask.Kind == "Send" and Ask.Request.Commit ~= nil).toBe(true)
 	end)
 end)
 

@@ -14,8 +14,10 @@
 local Testing = require("./Testing")
 local Book = require("../src/Record/Book")
 local Game = require("./Gold")
+local Rooms = require("../src/Record/Rooms")
 local Step = require("../src/Record/Step")
 local Types = require("../src/Record/Types")
+local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect, Similar = Testing.Describe, Testing.Test, Testing.Expect, Testing.Similar
 
@@ -106,6 +108,69 @@ Describe("Step", function()
 		Expect((select(2, Land({ s = {}, b = "z" }, Must)) :: Note).Whys).toBe(Similar({ "Behind" }))
 	end)
 
+	Test("a key an op makes takes the id the op carries, and an op judged for another incarnation is Missing", function()
+		local function Op(Seq: number, Id: string?, Create: string?): Op
+			return { Form = "Minted", Seq = Seq, Stamp = NOW, Kind = 0, Body = { Add = 1 }, Id = Id, Create = Create }
+		end
+		local Key = Land(nil, Request({ Op(1, nil, "i1") }))
+		Expect(Record(Key).Id).toBe("i1")
+		local _, Other, Wrote = Land(Key, Request({ Op(2, "i2") }, 1))
+		Expect(Wrote).toBe(false)
+		Expect(Other.Whys).toBe(Similar({ "Missing" }))
+		Expect(Other.Id).toBe("i1")
+		Expect((select(2, Land(Key, Request({ Op(2, nil, "i2") }, 1))) :: Note).Whys).toBe(Similar({ "Missing" }))
+		Expect(Gold((Land(Key, Request({ Op(2, "i1") }, 1))))).toBe(2)
+		Expect(Gold((Land(Key, Request({ Op(2, nil, "i1") }, 1))))).toBe(2)
+		Expect(Gold((Land(Key, Request({ Op(2) }, 1))))).toBe(2)
+	end)
+
+	Test("a key made by a request first sent more than the minted window before it lands says Late", function()
+		local Old = Step(nil, Request({ Mint(1, 1, NOW - Windows.MINTED - 1) }), NOW, DEFAULT)
+		Expect(Old.Stored ~= nil).toBe(true)
+		Expect(Old.Late).toBe(true)
+		Expect(Step(nil, Request({ Mint(1, 1, NOW - Windows.MINTED) }), NOW, DEFAULT).Late).toBeNil()
+		local Key = Land(nil, Request({ Mint(1, 1) }))
+		Expect(Step(Key, Request({ Mint(2, 1, NOW - Windows.MINTED - 1) }, 1), NOW, DEFAULT).Late).toBeNil()
+	end)
+
+	Test("a request whose earlier run wrote makes no key, and one that carries an id makes none either", function()
+		local Again = Step(nil, Request({ Named("Timed", 1, "order", 1) }), NOW, DEFAULT, true)
+		Expect(Again.Stored).toBeNil()
+		Expect(Again.Why).toBe("Missing")
+		local Op: Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 1 }, Id = "i1" }
+		Expect(Step(nil, Request({ Op }), NOW, DEFAULT).Why).toBe("Missing")
+	end)
+
+	Test("a Tent makes a key with the id it carries, and a Tent or Commit for another incarnation is Missing", function()
+		local Leg: Types.Leg = { Field = 1, Amount = 5 }
+		local function Tent(Name: string, Id: string?, Create: string?): Types.Request
+			return {
+				Writer = 0,
+				Ack = 0,
+				MustExist = false,
+				Ops = {},
+				Tent = { Name = Name, Stamp = NOW, Attempt = 1, Print = 7, Decider = { Store = "Gold", Key = "d" }, Leg = Leg, Id = Id, Create = Create },
+			}
+		end
+		local Key = Land(nil, Tent("x", nil, "i9"))
+		Expect(Record(Key).Id).toBe("i9")
+		Expect(Record(Key).Work.x.Form).toBe("Escrow")
+		local _, Other, Wrote = Land(Key, Tent("y", "i8"))
+		Expect(Other.Why).toBe("Missing")
+		Expect(Wrote).toBe(false)
+		local Commit: Types.Request = {
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Commit = { Name = "z", Stamp = NOW, Attempt = 1, Print = 7, Legs = { { Store = "Gold", Key = "a" } }, Leg = Leg, Id = "i8" },
+		}
+		local _, Elsewhere, Landed = Land(Key, Commit)
+		Expect(Elsewhere.Why).toBe("Missing")
+		Expect(Landed).toBe(false)
+		Expect(Record((Land(Key, Tent("y", "i9")))).Work.y.Form).toBe("Escrow")
+	end)
+
 	Test("a key past this build's floor is behind", function()
 		local Key = Land(nil, Request({ Mint(1, 1) }), NOW, Build({ Floor = 3 }))
 		local _, Note = Land(Key, Request({ Mint(1, 1) }, 0, 2))
@@ -151,8 +216,8 @@ Describe("Step", function()
 
 	Test("a full timed room drops the least stamp other than this request's and raises the horizon", function()
 		local Key = Land(nil, Request({ Named("Timed", 1, "a", 1, NOW - 30), Named("Timed", 2, "b", 1, NOW - 20) }))
-		local Width = #(Key :: any).b
-		local After = Land(Key, Request({ Named("Timed", 1, "c", 1) }, 0, 2), NOW, Build({ TimedRoom = Width - 20 }))
+		local Width = Rooms.Timed(Record(Key), NOW)
+		local After = Land(Key, Request({ Named("Timed", 1, "c", 1) }, 0, 2), NOW, Build({ TimedRoom = Width }))
 		local Kept = Record(After)
 		Expect(Kept.Timed.a).toBeNil()
 		Expect(Kept.Timed.c).never.toBeNil()
@@ -217,6 +282,34 @@ Describe("Step", function()
 		Expect(Record(Landed.Stored).Writes).toBe(Record(Key).Writes + 1)
 		Expect(#Landed.Decided).toBe(0)
 		Expect(Step(nil, Probe("later", NOW), NOW, DEFAULT).Why).toBe("Missing")
+	end)
+
+	Test("a probe of a pinned use reports it took, and a probe of a standing mark is undecided and lands nothing", function()
+		local Probe: Types.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Probe = { Name = "order", Stamp = NOW } }
+		local Leg: Types.Leg = { Field = 1, Amount = 10 }
+		local Pinned = Land(Land(nil, Request({ Mint(1, 1) })), {
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Commit = { Name = "order", Stamp = NOW, Attempt = 1, Print = 7, Legs = { { Store = "Gold", Key = "a" } }, Leg = Leg },
+		})
+		Expect(Record(Pinned).Work.order.Form).toBe("Pinned")
+		local Committed = Step(Pinned, Probe, NOW, DEFAULT)
+		Expect(Committed.Held).toBe(Fate.Took)
+		Expect(Committed.Stored).toBeNil()
+		local Marked = Land(Land(nil, Request({ Mint(1, 1) })), {
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Tent = { Name = "order", Stamp = NOW, Attempt = 1, Print = 7, Decider = { Store = "Gold", Key = "d" }, Leg = Leg },
+		})
+		Expect(Record(Marked).Work.order.Form).toBe("Escrow")
+		local Standing = Step(Marked, Probe, NOW, DEFAULT)
+		Expect(Standing.Held).toBeNil()
+		Expect(Standing.Why).toBe("Undecided")
+		Expect(Standing.Stored).toBeNil()
 	end)
 
 	Test("an untimed name past its window stays until its room is needed, and then goes oldest first", function()
