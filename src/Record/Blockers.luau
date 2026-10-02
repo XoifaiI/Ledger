@@ -4,7 +4,7 @@
 --[=[
 	Blockers: Logic. What a writer learns of a mark in its way, and what it sends to end it.
 
-	Spec: transaction 4.2.
+	Spec: transaction 4.2 and 5.1.
 
 	A note lists the items in the way. Pick takes the one the server's number falls on in name order,
 	so helpers on different servers spread. A read of the mark's decider decides a commit, with the
@@ -12,6 +12,10 @@
 	while the decider has not decided the mark's attempt. A decider that holds no trace of the name,
 	and whose horizon has passed the mark's stamp, has aborted. A writer may fence a mark that is
 	younger than its own op, or one Windows.SETTLE old. That fence is never final.
+
+	A gone read is orphan evidence only when it was asked Windows.ORPHAN past the mark's stamp. A
+	fence that reports missing never is, since its run may read a version from before the key was
+	made.
 
 	Return type: The Blockers module, and the Found, Blocker and Decision types.
 	Example usage:
@@ -110,6 +114,10 @@ function Blockers.Fenced(Note: Types.Note?, Found: Blocker): Decision?
 		return { Attempt = Found.Item.Attempt, Gone = true }
 	end
 	return nil
+end
+
+function Blockers.IsOrphanEvidence(Found: Blocker, AskedAt: number): boolean
+	return AskedAt - Found.Item.Stamp >= Windows.ORPHAN
 end
 
 function Blockers.Due(Found: Blocker, Stamp: number, Name: string, Now: number): boolean

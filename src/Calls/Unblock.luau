@@ -64,11 +64,6 @@ local function Judged(Call: Call, Decided: Blockers.Decision?): string
 	return if Blockers.Due(Context.Blocker, Context.Stamp, Context.Name, Call.Now) then WORD.Due else WORD.Early
 end
 
-local function IsOrphanEvidence(Context: Context): boolean
-	local ReadAt = Context.ReadAt
-	return ReadAt ~= nil and ReadAt - Context.Blocker.Item.Stamp >= Windows.ORPHAN
-end
-
 local function Read(Call: Call)
 	Call.Context.ReadAt = Call.Now
 	Machine.Ask(Call, Asks.Read(Call.Context.Blocker.Item.Decider))
@@ -80,7 +75,8 @@ local function HearRead(Call: Call): string
 		return WORD.Nothing
 	end
 	local Decided = Blockers.Read(Reply.Value, Context.Blocker)
-	if Decided and Decided.Gone and IsOrphanEvidence(Context) then
+	local ReadAt = assert(Context.ReadAt, "Unblock: a read heard with no time asked")
+	if Decided and Decided.Gone and Blockers.IsOrphanEvidence(Context.Blocker, ReadAt) then
 		Context.End = Blockers.End(Context.Blocker, Requests.Outcome.Orphan, Decided.Attempt)
 		return WORD.Decided
 	end

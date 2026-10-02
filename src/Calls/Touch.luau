@@ -71,11 +71,6 @@ local function Old(Call: Call): boolean
 	return Call.Now - Call.Context.Item.Stamp >= Windows.ORPHAN
 end
 
-local function IsOrphanEvidence(Context: Context): boolean
-	local ReadAt = Context.ReadAt
-	return ReadAt ~= nil and ReadAt - Context.Item.Stamp >= Windows.ORPHAN
-end
-
 local function Answered(Ended: boolean): (Call: Call) -> string
 	return function(Call: Call): string
 		Machine.Answer(Call, Ended)
@@ -83,17 +78,9 @@ local function Answered(Ended: boolean): (Call: Call) -> string
 	end
 end
 
-local function Judge(Call: Call, Decided: Blockers.Decision?): string
-	local Context = Call.Context
-	local Result = if Decided then Decided.Outcome else nil
-	if Decided and Result then
-		Context.End = Blockers.End(Found(Context), Result, Decided.Attempt, Decided.Value)
-		return WORD.Decided
-	elseif Decided and Decided.Gone and IsOrphanEvidence(Context) then
-		Context.End = Blockers.End(Found(Context), Outcome.Orphan, Decided.Attempt)
-		return WORD.Decided
-	end
-	return Asks.SAID.Done
+local function Decide(Call: Call, Result: Requests.Outcome, Attempt: number, Value: number?): string
+	Call.Context.End = Blockers.End(Found(Call.Context), Result, Attempt, Value)
+	return WORD.Decided
 end
 
 local function Read(Call: Call)
@@ -102,15 +89,26 @@ local function Read(Call: Call)
 end
 
 local function HearRead(Call: Call): string
-	local Reply = Machine.Reply(Call)
+	local Context, Reply = Call.Context, Machine.Reply(Call)
 	if Reply.Said == Asks.SAID.Failed then
 		return Asks.SAID.Failed
 	end
-	local Decided = Blockers.Read(Reply.Value, Found(Call.Context))
-	if Decided then
-		return Judge(Call, Decided)
+
+	local Decided = Blockers.Read(Reply.Value, Found(Context))
+	if Decided == nil then
+		return if Call.Now - Context.Item.Stamp >= Context.FenceAfter then WORD.Due else Asks.SAID.Done
 	end
-	return if Call.Now - Call.Context.Item.Stamp >= Call.Context.FenceAfter then WORD.Due else Asks.SAID.Done
+
+	local Result = Decided.Outcome
+	if Result then
+		return Decide(Call, Result, Decided.Attempt, Decided.Value)
+	end
+
+	local ReadAt = assert(Context.ReadAt, "Touch: a read heard with no time asked")
+	if Decided.Gone and Blockers.IsOrphanEvidence(Found(Context), ReadAt) then
+		return Decide(Call, Outcome.Orphan, Decided.Attempt)
+	end
+	return Asks.SAID.Done
 end
 
 local function Wound(Call: Call)
@@ -120,8 +118,9 @@ end
 
 local function HearWound(Call: Call): string
 	local Decided = Blockers.Fenced(Machine.Reply(Call).Note, Found(Call.Context))
-	if Decided and Decided.Outcome then
-		return Judge(Call, Decided)
+	local Result = if Decided then Decided.Outcome else nil
+	if Decided and Result then
+		return Decide(Call, Result, Decided.Attempt, Decided.Value)
 	end
 	return Asks.SAID.Done
 end
