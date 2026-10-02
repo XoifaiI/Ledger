@@ -24,7 +24,11 @@
 	whole amount a double holds exactly. LEGS_MIN is the fewest legs a transaction has. DRAWS is how
 	many names a call with no name draws. PRINT_MASK keeps the 16 bits of a print. COPY_MISSES is how
 	many part misses in a row make a follower a taker. PACE_SHARD is the share of a key's write
-	ceiling a shard's writer aims below. GAP_FALL is the least a gap is multiplied by at one landing.
+	ceiling a shard's writer aims below, and PACE_PART the share a part's writer aims below. GAP_FALL
+	is the least a gap is multiplied by at one landing. SPLIT_MAX is the most parts a quantity has,
+	and SPLIT_NAME the longest name a quantity may have. HOLDS_MAX is the most holds a part keeps.
+	PROBES is how many parts a walk under a drawn name tries, and PROCEEDS_MAX the most money fields
+	a quantity's takes pay into.
 
 	Return type: A table of the bounds.
 	Example usage:
@@ -68,5 +72,11 @@ return {
 	PRINT_MASK = 0xFFFF,
 	COPY_MISSES = 2,
 	PACE_SHARD = 2,
+	PACE_PART = 1,
+	SPLIT_MAX = 64,
+	SPLIT_NAME = 37,
+	HOLDS_MAX = 256,
+	PROBES = 3,
+	PROCEEDS_MAX = 4,
 	GAP_FALL = 0.5,
 }

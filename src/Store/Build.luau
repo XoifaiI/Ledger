@@ -18,9 +18,13 @@
 	declares at most Limits.MONEY_MAX money fields. OnLoadFailed is called with a player whose load
 	failed, and a player it does not handle is kicked. Totals gives the shard count of each total a
 	config declares, from 1 to Limits.SHARDS_MAX. A total with no count gets Limits.SHARDS. A
-	total's name has at most Limits.TOTAL_NAME bytes.
+	total's name has at most Limits.TOTAL_NAME bytes. Splits gives the declaration of each split
+	quantity a config declares: from 1 to Limits.SPLIT_MAX parts, Final or Open, with a whole stock.
+	A quantity's name has at most Limits.SPLIT_NAME bytes, and its print covers the whole
+	declaration. Serials gives a final quantity serial numbers from that first one, one per unit of
+	its stock. Proceeds names at most Limits.PROCEEDS_MAX money fields its takes pay into.
 
-	Return type: A table with New and Totals. The types are Config and Migration.
+	Return type: A table with New, Totals and Splits. The types are Config and Migration.
 	Example usage:
 		local Made = Build.New(Config)
 --]=]
@@ -31,6 +35,7 @@ local DataStore = require("../Adapters/DataStore")
 local Errors = require("../Core/Errors")
 local Limits = require("../Core/Constants/Limits")
 local Ops = require("../Store/Ops")
+local Parts = require("../Record/Parts")
 local Sizes = require("../Core/Constants/Sizes")
 local Types = require("../Record/Types")
 local Value = require("../Encode/Value")
@@ -55,17 +60,22 @@ export type Config = {
 	read KeepNamed: number?,
 	read LegLimit: number?,
 	read Totals: { [string]: { read Shards: number? } }?,
+	read Splits: { [string]: { read Parts: number, read Mode: Parts.Mode?, read Stock: number?, read Serials: number?, read Proceeds: { string }? } }?,
 	read DataStore: DataStore.Store?,
 	read OnLoadFailed: ((Player: Player, Why: Answer.Answer) -> boolean)?,
 }
 
 local Build = {}
 
+local function Whole(Value: unknown, Least: number, Most: number): boolean
+	return type(Value) == "number" and Value % 1 == 0 and Value >= Least and Value <= Most
+end
+
 local function Setting(Config: Config, Field: string, Default: number, Least: number, Most: number): number
 	local Given = (Config :: any)[Field]
 	if Given == nil then
 		return Default
-	elseif not (type(Given) == "number" and Given % 1 == 0 and Given >= Least and Given <= Most) then
+	elseif not Whole(Given, Least, Most) then
 		Errors.Misuse(`the {Field} of {Config.Name} is not a whole number from {Least} to {Most}`, 2)
 	end
 	return Given
@@ -107,6 +117,45 @@ function Build.Totals(Config: Config): { [string]: number }
 	return Found
 end
 
+function Build.Splits(Config: Config): { [string]: Parts.Declared }
+	local Found: { [string]: Parts.Declared } = {}
+	local Declared = Config.Splits
+	if Declared == nil then
+		return Found
+	elseif type(Declared) ~= "table" then
+		Errors.Misuse(`the Splits of {Config.Name} is not a table of quantities by name`, 1)
+	end
+	for Name, Split in Declared do
+		local Given: any = if type(Split) == "table" then Split else {}
+		local Mode, Stock = Given.Mode or Parts.MODE.Final, Given.Stock or 0
+		if type(Name) ~= "string" or Name == "" or #Name > Limits.SPLIT_NAME then
+			Errors.Misuse(`a split quantity of {Config.Name} needs a name of 1 to {Limits.SPLIT_NAME} bytes`, 1)
+		elseif not Whole(Given.Parts, 1, Limits.SPLIT_MAX) then
+			Errors.Misuse(`the quantity {Name} of {Config.Name} needs Parts, a whole number from 1 to {Limits.SPLIT_MAX}`, 1)
+		elseif Mode ~= Parts.MODE.Final and Mode ~= Parts.MODE.Open then
+			Errors.Misuse(`the Mode of the quantity {Name} of {Config.Name} is not Final or Open`, 1)
+		elseif not Whole(Stock, 0, Limits.MONEY_LIMIT - 1) then
+			Errors.Misuse(`the Stock of the quantity {Name} of {Config.Name} is not a whole number of 0 or more`, 1)
+		elseif Given.Serials ~= nil and (Mode ~= Parts.MODE.Final or not Whole(Given.Serials, 0, Limits.MONEY_LIMIT - 1 - Stock)) then
+			Errors.Misuse(`the Serials of the quantity {Name} of {Config.Name} is not the whole first serial of a final quantity`, 1)
+		end
+		local Proceeds: { string } = Given.Proceeds or {}
+		if type(Proceeds) ~= "table" or #Proceeds > Limits.PROCEEDS_MAX then
+			Errors.Misuse(`the Proceeds of the quantity {Name} of {Config.Name} is not a list of at most {Limits.PROCEEDS_MAX} names`, 1)
+		end
+		for _, Field in Proceeds do
+			if type(Field) ~= "string" or Parts.FIELDS[Field] then
+				Errors.Misuse(`the proceeds field {Field} of the quantity {Name} of {Config.Name} is not a free name`, 1)
+			end
+		end
+		local First = Given.Serials
+		local Print = Ops.Print({ Name = Name, Parts = Given.Parts, Mode = Mode, Stock = Stock, First = First, Proceeds = Proceeds })
+		local Place = `{Config.Name}{Parts.PREFIX}{Name}:{Given.Parts}`
+		Found[Name] = { Name = Name, Parts = Given.Parts, Mode = Mode, Stock = Stock, First = First, Proceeds = Proceeds, Print = Print, Place = Place }
+	end
+	return Found
+end
+
 function Build.New(Config: Config): Types.Build
 	if type(Config.Name) ~= "string" or Config.Name == "" then
 		Errors.Misuse("a store needs a Name", 1)
@@ -140,24 +189,24 @@ function Build.New(Config: Config): Types.Build
 	if #Money > Limits.MONEY_MAX then
 		Errors.Misuse(`{Config.Name} declares more than {Limits.MONEY_MAX} money fields`, 1)
 	end
-	local Floor = Book.LossFloor(#Money)
+	local LossFloor = Book.LossFloor(#Money)
 	local Rooms = {
 		Timed = Setting(Config, "TimedRoom", Sizes.TIMED_ROOM, Sizes.TIMED_ROOM_MIN, Sizes.TIMED_ROOM_MAX),
 		Untimed = Setting(Config, "UntimedRoom", Sizes.UNTIMED_ROOM, Sizes.UNTIMED_ROOM_MIN, Sizes.UNTIMED_ROOM_MAX),
 		Work = Setting(Config, "WorkRoom", Sizes.WORK_ROOM, Sizes.WORK_ROOM_MIN, Sizes.WORK_ROOM_MAX),
-		Loss = Setting(Config, "LossRoom", math.max(Sizes.LOSS_ROOM, Floor), Floor, Sizes.LOSS_ROOM_MAX),
+		Loss = Setting(Config, "LossRoom", math.max(Sizes.LOSS_ROOM, LossFloor), LossFloor, Sizes.LOSS_ROOM_MAX),
 		Cut = Setting(Config, "CutNames", Sizes.CUT_NAMES, Sizes.CUT_NAMES_MIN, Sizes.CUT_NAMES_MAX),
 	}
 	if Rooms.Timed + Rooms.Untimed + Rooms.Work + Rooms.Loss + Rooms.Cut * Limits.ITEM_MAX > Limits.ROOMS_MAX then
 		Errors.Misuse(`the rooms of {Config.Name} take more than {Limits.ROOMS_MAX} bytes together`, 1)
 	end
-	local Migrations, Floor = Steps(Config.Migrations or {})
+	local Migrations, BreakingFloor = Steps(Config.Migrations or {})
 	return {
 		Reducer = Config.Reducer,
 		Migrations = Migrations,
 		Default = Config.Default,
 		Level = #Migrations,
-		Floor = Floor,
+		Floor = BreakingFloor,
 		Money = Money,
 		Fields = Fields,
 		Erasable = if Config.Erasable == nil then Config.MustExist == true else Config.Erasable,

@@ -8,12 +8,16 @@
 	for a key it makes. A Tent and a Commit carry the same. A build is Erasable when its keys carry
 	an incarnation. A note says by op index what fate an op has, or why it has none, and holds the
 	value to write. A build's Level is its migration count, and its Floor the index of the last
-	breaking one. A request may carry ends, applied first: resolves of transaction marks and drops
-	of pinned records. It may carry one transaction step: a Tent on a leg key, a Commit on the
-	decider, or a Fence there. It may carry one cut, a Reset or an Erase as its cutter or as a
-	helper finishing its gate, or a seal stamp. Its report goes in the note, with the items a
-	blocked or crowded step read. The note also holds the gate it met, the seal it met or made, and
-	the clock a cut must wait for.
+	breaking one. A build's Upkeep, when it has one, runs on the state of every write before and
+	after the request's steps. It hears the clock and whether an escrow mark stands. A build's Output gives the decider value a
+	commit's new state holds. A game op leg may name a Slot, the path in its state where the value
+	is written when the leg resolves. A build's Accepts, when it has one, may refuse a field delta a
+	transaction moves into or out of its key. A request may
+	carry ends, applied first: resolves of transaction marks and drops of pinned records. It may
+	carry one transaction step: a Tent on a leg key, a Commit on the decider, or a Fence there. It
+	may carry one cut, a Reset or an Erase as its cutter or as a helper finishing its gate, or a
+	seal stamp. Its report goes in the note, with the items a blocked or crowded step read. The note
+	also holds the gate it met, the seal it met or made, and the clock a cut must wait for.
 
 	Return type: A table with Form, Why, Outcome and Report. The types are Form, Op, Probe, Leg, Tent,
 	Commit, Fence, End, Outcome, Request, Why, Report, Stored, Note and Build.
@@ -48,6 +52,7 @@ export type Leg = {
 	read Field: number?,
 	read Amount: number?,
 	read Body: unknown?,
+	read Slot: { string }?,
 }
 
 export type Tent = {
@@ -109,6 +114,7 @@ export type End = {
 	read Attempt: number,
 	read Print: number?,
 	read Outcome: Outcome,
+	read Value: number?,
 }
 
 export type Request = {
@@ -187,6 +193,7 @@ export type Note = {
 	Wait: number?,
 	Left: boolean?,
 	Late: boolean?,
+	Value: number?,
 }
 
 export type Build = {
@@ -212,6 +219,9 @@ export type Build = {
 	read Ahead: number,
 	read Hold: number,
 	read Paced: number?,
+	read Upkeep: ((State: any, Clock: number, Marked: boolean) -> any)?,
+	read Output: ((State: any) -> number?)?,
+	read Accepts: ((State: any, Field: number, Amount: number) -> boolean)?,
 }
 
 local Form: {

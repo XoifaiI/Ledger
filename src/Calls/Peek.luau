@@ -155,7 +155,7 @@ local function Checked(Call: Call): string
 		end
 		local Decided = Blockers.Read(Reply.Value, Found)
 		if Decided and Decided.Outcome == Types.Outcome.Commit then
-			table.insert(Context.Commits, Blockers.End(Found, Decided.Outcome, Decided.Attempt))
+			table.insert(Context.Commits, Blockers.End(Found, Decided.Outcome, Decided.Attempt, Decided.Value))
 		end
 	end
 	return if Context.Commits[1] then WORD.Committed else Asks.SAID.Done

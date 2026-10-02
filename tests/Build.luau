@@ -39,6 +39,25 @@ Describe("Build", function()
 		Expect(Made.Migrations[2]).toBe(Step)
 	end)
 
+	Test("a split quantity is declared with its parts, mode and stock, and one that cannot work throws", function()
+		local Config: any = { Name = "Shop", Default = {}, Reducer = Reducer, Splits = { Swords = { Parts = 4, Stock = 100 } } }
+		local Found = Build.Splits(Config).Swords
+		Expect(Found.Parts).toBe(4)
+		Expect(Found.Mode).toBe("Final")
+		Expect(Found.Place).toBe("Shop$P:Swords:4")
+		Expect(Found.Print).toBe(Build.Splits(Config).Swords.Print)
+		Config.Splits.Swords.Stock = 101
+		Expect(Build.Splits(Config).Swords.Print == Found.Print).toBe(false)
+		for _, Bad in { { Parts = 0 }, { Parts = 65 }, { Parts = 2, Mode = "Shared" }, { Parts = 2, Stock = -1 }, { Parts = 2, Stock = 1.5 } } do
+			Expect(function()
+				Build.Splits({ Name = "Shop", Default = {}, Reducer = Reducer, Splits = { Swords = Bad :: any } })
+			end).toThrow()
+		end
+		Expect(function()
+			Build.Splits({ Name = "Shop", Default = {}, Reducer = Reducer, Splits = { [string.rep("a", 38)] = { Parts = 1 } } })
+		end).toThrow("Ledger: a split quantity of Shop needs a name of 1 to 37 bytes")
+	end)
+
 	Test("a config that cannot work throws at the call", function()
 		Expect(function()
 			Build.New({ Name = "", Default = {}, Reducer = Reducer })

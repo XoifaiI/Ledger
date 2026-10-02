@@ -38,7 +38,6 @@ local Migrate = require("./Migrate")
 local Reader = require("../Encode/Reader")
 local Types = require("./Types")
 local Value = require("../Encode/Value")
-local Windows = require("../Core/Constants/Windows")
 local Writer = require("../Encode/Writer")
 
 type State = { [string]: any }

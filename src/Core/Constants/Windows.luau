@@ -29,12 +29,15 @@
 	long a server answers a total from its own pairs while MemoryStore fails. HOLDING is how long a
 	holder keeps refreshing after its own last read of the total. MAX_AGE is how old a total may be
 	when a game's Total gives no MaxAge. MINUTE and DAY are what they say. SKEW is the most two
-	clocks differ. LAPSE is how far past a holder's lease a reader waits before it takes over, before
-	its jitter. KEEP_NAMED_MIN and KEEP_NAMED_MAX bound the KeepNamed a game may set. REPUSH is how
-	old a holder's last push of a copy is before it sends the state again. TICK is how often a follower first reads a copy's header,
-	doubling while the copy does not move up to TICK_MAX. CHECK is how often a copy's holder reads
-	the key, and COPY a copy item's expiry. FOLLOW_EVERY is how often a follower reads the key
-	itself while the copy cannot serve it.
+	clocks differ. LAPSE is how far past a holder's lease a reader waits before it takes over,
+	before its jitter. KEEP_NAMED_MIN and KEEP_NAMED_MAX bound the KeepNamed a game may set. REPUSH
+	is how old a holder's last push of a copy is before it sends the state again. HOLD_MAX is the
+	longest a hold on a part may last. HOLD_SLACK is how far past its end a part's clock must read
+	before it expires the hold. VIEW_AGE is how young a server's view of every part must be to
+	answer Busy. TICK is how often a follower first reads a copy's header, doubling while the copy
+	does not move up to TICK_MAX. CHECK is how often a copy's holder reads the key, and COPY a copy
+	item's expiry. FOLLOW_EVERY is how often a follower reads the key itself while the copy cannot
+	serve it.
 
 	Return type: A table of the windows.
 	Example usage:
@@ -101,4 +104,7 @@ return {
 	KEEP_NAMED_MIN = 7 * DAY,
 	KEEP_NAMED_MAX = 30 * DAY,
 	REPUSH = COPY / 2,
+	HOLD_MAX = 15 * 60,
+	HOLD_SLACK = 2 * SIGMA,
+	VIEW_AGE = 30,
 }

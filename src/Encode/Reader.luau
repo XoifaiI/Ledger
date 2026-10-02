@@ -3,17 +3,17 @@
 --!native
 
 --[=[
-
 	Reader: Plumbing. Reads what Writer wrote, and refuses any text Writer would not write.
 
 	Spec: record 2.1.
 
-	Each function reads the next value. A bad character, an early end, a value out of range and a
-	form Writer never makes all raise an error.
+	A bad character, an early end, a value out of range and a form Writer never makes each raise an
+	error, so a decoder that catches the error refuses the whole text. This module checks only the
+	form of a value. Book decides whether the value means anything.
 
-	Return type: A table with New, Var, Signed, Wide, Fixed, Name, Label and Done.
+	Return type: A table of the readers, and the Reader type.
 	Example usage:
-		local Count = Reader.Var(Reader.New(Text))
+		local Count = Reader.Var(Reader.New(Source))
 --]=]
 
 local Alphabet = require("./Alphabet")
@@ -27,6 +27,9 @@ export type Reader = {
 local VALUES = Alphabet.VALUES
 local INVALID = Alphabet.INVALID
 local LIMB = Alphabet.LIMB
+local SIZE = Alphabet.SIZE
+local DIGIT = Alphabet.DIGIT
+local LOW_DIGITS = 7
 local VAR_HIGH = 2 ^ 18
 local SIGNED_HIGH = 2 ^ 17
 local MAX_DIGITS = 17
@@ -36,8 +39,8 @@ local function Fail(At: number, Reason: string): never
 	error(`Reader: character {At + 1} of the book is {Reason}`, 0)
 end
 
-local function TakeLong(Book: Reader): (number, number)
-	local Buffer, Cursor, Length = Book.Buffer, Book.Cursor, Book.Length
+local function TakeLong(Text: Reader): (number, number)
+	local Buffer, Cursor, Length = Text.Buffer, Text.Cursor, Text.Length
 	local High, Low, Scale, Index = 0, 0, 1, 0
 	while true do
 		if Index == MAX_DIGITS then
@@ -50,65 +53,65 @@ local function TakeLong(Book: Reader): (number, number)
 		if Value == INVALID then
 			Fail(Cursor, "outside the alphabet")
 		end
-		local Last = Value >= 32
+		local Last = Value >= DIGIT
 		if Last then
-			Value -= 32
+			Value -= DIGIT
 			if Value == 0 and Index > 0 then
 				Fail(Cursor, "a number that ends in a zero")
 			end
 		end
-		if Index < 7 then
+		if Index < LOW_DIGITS then
 			Low += Value * Scale
 		else
 			High += Value * Scale
 		end
-		Scale = if Index == 6 then 1 else Scale * 32
+		Scale = if Index == LOW_DIGITS - 1 then 1 else Scale * DIGIT
 		Cursor += 1
 		Index += 1
 		if Last then
-			Book.Cursor = Cursor
+			Text.Cursor = Cursor
 			return High, Low
 		end
 	end
 end
 
-local function Take(Book: Reader): (number, number)
-	local Buffer, Cursor, Length = Book.Buffer, Book.Cursor, Book.Length
+local function Take(Text: Reader): (number, number)
+	local Buffer, Cursor, Length = Text.Buffer, Text.Cursor, Text.Length
 	if Cursor + 1 < Length then
 		local First = buffer.readu8(VALUES, buffer.readu8(Buffer, Cursor))
-		if First >= 32 and First < 64 then
-			Book.Cursor = Cursor + 1
-			return 0, First - 32
+		if First >= DIGIT and First < SIZE then
+			Text.Cursor = Cursor + 1
+			return 0, First - DIGIT
 		end
 		local Second = buffer.readu8(VALUES, buffer.readu8(Buffer, Cursor + 1))
-		if First < 32 and Second > 32 and Second < 64 then
-			Book.Cursor = Cursor + 2
-			return 0, First + (Second - 32) * 32
+		if First < DIGIT and Second > DIGIT and Second < SIZE then
+			Text.Cursor = Cursor + 2
+			return 0, First + (Second - DIGIT) * DIGIT
 		end
 	elseif Cursor < Length then
 		local First = buffer.readu8(VALUES, buffer.readu8(Buffer, Cursor))
-		if First >= 32 and First < 64 then
-			Book.Cursor = Cursor + 1
-			return 0, First - 32
+		if First >= DIGIT and First < SIZE then
+			Text.Cursor = Cursor + 1
+			return 0, First - DIGIT
 		end
 	end
-	return TakeLong(Book)
+	return TakeLong(Text)
 end
 
-local function New(Text: string): Reader
-	return { Buffer = buffer.fromstring(Text), Cursor = 0, Length = #Text }
+local function New(Source: string): Reader
+	return { Buffer = buffer.fromstring(Source), Cursor = 0, Length = #Source }
 end
 
-local function Var(Book: Reader): number
-	local High, Low = Take(Book)
+local function Var(Text: Reader): number
+	local High, Low = Take(Text)
 	if High >= VAR_HIGH then
-		Fail(Book.Cursor - 1, "a number past 2^53")
+		Fail(Text.Cursor - 1, "a number past 2^53")
 	end
 	return High * LIMB + Low
 end
 
-local function Wide(Book: Reader): (boolean, number, number)
-	local High, Low = Take(Book)
+local function Wide(Text: Reader): (boolean, number, number)
+	local High, Low = Take(Text)
 	local Negative = Low % 2 == 1
 	Low = Low // 2 + High % 2 * (LIMB / 2)
 	High //= 2
@@ -117,31 +120,32 @@ local function Wide(Book: Reader): (boolean, number, number)
 	end
 	Low += 1
 	if Low == LIMB then
-		High, Low = High + 1, 0
+		High += 1
+		Low = 0
 	end
 	return true, High, Low
 end
 
-local function Signed(Book: Reader): number
-	local Start = Book.Cursor
-	local High, Low = Take(Book)
+local function Signed(Text: Reader): number
+	local Start = Text.Cursor
+	local High, Low = Take(Text)
 	if High < SIGNED_HIGH then
 		local Zigzag = High * LIMB + Low
 		return if Zigzag % 2 == 0 then Zigzag // 2 else -((Zigzag + 1) // 2)
 	end
-	Book.Cursor = Start
-	local Negative, WideHigh, WideLow = Wide(Book)
+	Text.Cursor = Start
+	local Negative, WideHigh, WideLow = Wide(Text)
 	if WideHigh >= VAR_HIGH then
-		Fail(Book.Cursor - 1, "a number past 2^53")
+		Fail(Text.Cursor - 1, "a number past 2^53")
 	end
 	local Size = WideHigh * LIMB + WideLow
 	return if Negative then -Size else Size
 end
 
-local function Fixed(Book: Reader, Width: number): number
-	local Buffer, Cursor = Book.Buffer, Book.Cursor
-	if Cursor + Width > Book.Length then
-		Fail(Book.Length, "past the end")
+local function Fixed(Text: Reader, Width: number): number
+	local Buffer, Cursor = Text.Buffer, Text.Cursor
+	if Cursor + Width > Text.Length then
+		Fail(Text.Length, "past the end")
 	end
 	local Value = 0
 	for Slot = Cursor, Cursor + Width - 1 do
@@ -149,23 +153,23 @@ local function Fixed(Book: Reader, Width: number): number
 		if Digit == INVALID then
 			Fail(Slot, "outside the alphabet")
 		end
-		Value = Value * 64 + Digit
+		Value = Value * SIZE + Digit
 	end
-	Book.Cursor = Cursor + Width
+	Text.Cursor = Cursor + Width
 	return Value
 end
 
-local function TakeText(Book: Reader, Length: number, Base64: boolean): string
-	local Buffer, Cursor = Book.Buffer, Book.Cursor
-	if Cursor + Length > Book.Length then
-		Fail(Book.Length, "a name past the end")
+local function TakeText(Text: Reader, Length: number, Base64: boolean): string
+	local Buffer, Cursor = Text.Buffer, Text.Cursor
+	if Cursor + Length > Text.Length then
+		Fail(Text.Length, "a name past the end")
 	end
 	for Slot = Cursor, Cursor + Length - 1 do
 		if buffer.readu8(VALUES, buffer.readu8(Buffer, Slot)) == INVALID then
 			Fail(Slot, "outside the alphabet")
 		end
 	end
-	Book.Cursor = Cursor + Length
+	Text.Cursor = Cursor + Length
 	if not Base64 then
 		return buffer.readstring(Buffer, Cursor, Length)
 	end
@@ -179,7 +183,7 @@ local function TakeText(Book: Reader, Length: number, Base64: boolean): string
 		local Count = math.min(Cursor + Length - Slot, 4)
 		local Bits = 0
 		for Offset = 0, 3 do
-			Bits = Bits * 64 + if Offset < Count then buffer.readu8(VALUES, buffer.readu8(Buffer, Slot + Offset)) else 0
+			Bits = Bits * SIZE + if Offset < Count then buffer.readu8(VALUES, buffer.readu8(Buffer, Slot + Offset)) else 0
 		end
 		if Count < 4 and bit32.extract(Bits, 0, 32 - Count * 8) ~= 0 then
 			Fail(Slot + Count - 1, "a name with bits past its last byte")
@@ -200,17 +204,17 @@ local function TakeText(Book: Reader, Length: number, Base64: boolean): string
 	return Decoded
 end
 
-local function Name(Book: Reader): string
-	local Header = Var(Book)
-	return TakeText(Book, Header // 2, Header % 2 == 1)
+local function Name(Text: Reader): string
+	local Header = Var(Text)
+	return TakeText(Text, Header // 2, Header % 2 == 1)
 end
 
-local function Label(Book: Reader, Base64: boolean): string
-	return TakeText(Book, Var(Book), Base64)
+local function Label(Text: Reader, Base64: boolean): string
+	return TakeText(Text, Var(Text), Base64)
 end
 
-local function Done(Book: Reader): boolean
-	return Book.Cursor == Book.Length
+local function Done(Text: Reader): boolean
+	return Text.Cursor == Text.Length
 end
 
 return {

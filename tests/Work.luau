@@ -16,6 +16,7 @@
 local Testing = require("./Testing")
 local Book = require("../src/Record/Book")
 local Game = require("./Gold")
+local Key = require("../src/Record/Key")
 local Sizes = require("../src/Core/Constants/Sizes")
 local Step = require("../src/Record/Step")
 local Types = require("../src/Record/Types")
@@ -74,8 +75,8 @@ local function Fence(Name: string, Attempt: number, Final: boolean): Request
 	return { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Fence = { Name = Name, Stamp = NOW, Attempt = Attempt, Final = Final } }
 end
 
-local function Resolve(Name: string, Attempt: number, Outcome: Types.Outcome, Print: number?): Request
-	local End: Types.End = { Name = Name, Stamp = NOW, Attempt = Attempt, Print = Print, Outcome = Outcome }
+local function Resolve(Name: string, Attempt: number, Outcome: Types.Outcome, Print: number?, Value: number?): Request
+	local End: Types.End = { Name = Name, Stamp = NOW, Attempt = Attempt, Print = Print, Outcome = Outcome, Value = Value }
 	return { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }
 end
 
@@ -259,6 +260,47 @@ Describe("Work", function()
 		local Late: Request = { Writer = 0, Ack = 0, MustExist = false, Ops = {}, Commit = Stale }
 		local _, Old = Land(nil, Late, NOW + DEFAULT.Minted + 1)
 		Expect(Old.Why).toBe("Missing")
+	end)
+
+	Test("a slot mark keeps its path, and its resolve writes the decider value there or ends nothing without it", function()
+		local Key0 = Seed(5)
+		local Slotted: Types.Leg = { Body = { Add = 1, Tag = "t" }, Slot = { "Tag" } }
+		local Marked = Land(Key0, Tent(Y, 1, Slotted))
+		local Mark = Record(Marked).Work[Y]
+		Expect(Mark.Form == "Exclusive" and Mark.Slot and Mark.Slot[1]).toBe("Tag")
+		local Kept, Note = Land(Marked, Resolve(Y, 1, "Commit"))
+		Expect(Note.Why).toBe("Behind")
+		Expect(Record(Kept).Work[Y]).never.toBeNil()
+		local Done = Land(Marked, Resolve(Y, 1, "Commit", nil, 41))
+		local Found = (Key.Read(Done) :: any).State
+		Expect(Found.Tag).toBe(41)
+		Expect(Found.Gold).toBe(6)
+	end)
+
+	Test("a commit keeps the decider value its build's Output gives, on the pinned record or the decision", function()
+		local Valued = Game.Build({
+			Output = function(State: any): number?
+				return State.Gold * 10
+			end,
+		})
+		local Key0 = Seed(5)
+		local Pinned = Step(Key0, Commit(X, 1, Delta(2)), NOW, Valued)
+		Expect(Pinned.Value).toBe(70)
+		local Item = Record(Pinned.Stored).Work[X]
+		Expect(Item.Form == "Pinned" and Item.Value).toBe(70)
+		local Again = Step(Pinned.Stored, Commit(X, 1, Delta(2)), NOW, Valued)
+		Expect(Again.Value).toBe(70)
+		local Alone: Request = {
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Commit = { Name = Y, Stamp = NOW, Attempt = 1, Legs = {}, Leg = Delta(1) },
+		}
+		local Decided = Step(Key0, Alone, NOW, Valued)
+		Expect(Decided.Value).toBe(60)
+		Expect(Record(Decided.Stored).Work[Y]).toBeNil()
+		Expect((Record(Decided.Stored):Held(Y) :: any).Value).toBe(60)
 	end)
 end)
 

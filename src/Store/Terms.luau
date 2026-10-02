@@ -17,6 +17,8 @@
 	else the one game op leg, else the first leg that credits, else the last leg. A game name's
 	print is 16 bits of the hash of every leg and which one decides.
 
+	Depth counts the helpers between Make and the game's call, so each throw names the game's line.
+
 	Return type: A table with Make. The types are Given and Made.
 	Example usage:
 		local Made = Terms.Make(Given, Name, Hot)
@@ -40,6 +42,7 @@ export type Given = {
 	read Amount: unknown,
 	read Kind: unknown,
 	read Fields: unknown,
+	read Slot: { string }?,
 }
 
 export type Made = {
@@ -109,37 +112,38 @@ local function Widest(Name: string, Print: number?, Legs: { Tx.Leg }, Decider: n
 	return math.max(Book.WorkWidth(Name, Pinned, 0), Book.WorkWidth(Name, Mark, 0))
 end
 
-local function GameOp(Leg: Given, Index: number): unknown
+local function GameOp(Leg: Given, Index: number, Depth: number): unknown
 	if type(Leg.Kind) ~= "string" or (Leg.Fields ~= nil and type(Leg.Fields) ~= "table") then
-		Errors.Misuse(`leg {Index} is neither a delta with Field and Amount nor a game op with Kind and Fields`, 3)
+		Errors.Misuse(`leg {Index} is neither a delta with Field and Amount nor a game op with Kind and Fields`, 3 + Depth)
 	end
 	local Fields = Leg.Fields :: { [string]: any }?
 	if Fields and (Fields.Once ~= nil or Fields.OnceAt ~= nil) then
-		Errors.Misuse(`leg {Index} carries Once, which names the whole transaction instead`, 3)
+		Errors.Misuse(`leg {Index} carries Once, which names the whole transaction instead`, 3 + Depth)
 	end
 	local Body = Ops.Body(Leg.Kind :: string, Fields)
 	local Bytes = Value.Check(Body)
 	if Bytes == nil or Bytes > Limits.OP_BYTES then
-		Errors.Misuse(`the op of leg {Index} is not one a datastore can hold in {Limits.OP_BYTES} bytes`, 3)
+		Errors.Misuse(`the op of leg {Index} is not one a datastore can hold in {Limits.OP_BYTES} bytes`, 3 + Depth)
 	end
 	return Body
 end
 
-local function Change(Leg: Given, Index: number): Types.Leg
+local function Change(Leg: Given, Index: number, Depth: number): Types.Leg
 	local Field, Amount = Delta(Leg)
 	if Field and Amount and Whole(Amount) then
 		return { Field = Field, Amount = Amount }
 	elseif Leg.Field ~= nil or Leg.Amount ~= nil then
-		Errors.Misuse(`leg {Index} needs Field, a money field of its store, and Amount, a whole number of size 1 to 2^53`, 2)
+		Errors.Misuse(`leg {Index} needs Field, a money field of its store, and Amount, a whole number of size 1 to 2^53`, 2 + Depth)
 	end
-	return { Body = GameOp(Leg, Index) }
+	return { Body = GameOp(Leg, Index, Depth), Slot = Leg.Slot }
 end
 
-function Terms.Make(Given: { Given }, Name: string?, Hot: unknown): Made
+function Terms.Make(Given: { Given }, Name: string?, Hot: unknown, Depth: number?): Made
+	local Extra = Depth or 0
 	if #Given < Limits.LEGS_MIN then
-		Errors.Misuse("a transaction needs at least two legs", 1)
+		Errors.Misuse("a transaction needs at least two legs", 1 + Extra)
 	elseif Hot ~= nil and not (type(Hot) == "number" and Given[Hot] ~= nil) then
-		Errors.Misuse("Hot has to be the index of one of the legs", 1)
+		Errors.Misuse("Hot has to be the index of one of the legs", 1 + Extra)
 	end
 	local Seen: { [string]: true } = {}
 	local Legs: { Tx.Leg } = {}
@@ -147,19 +151,19 @@ function Terms.Make(Given: { Given }, Name: string?, Hot: unknown): Made
 	for Index, Leg in Given do
 		local Place = Where(Leg.Ref)
 		if Seen[Place] then
-			Errors.Misuse(`two legs are on the key {Place}`, 1)
+			Errors.Misuse(`two legs are on the key {Place}`, 1 + Extra)
 		elseif #Given > Leg.Place.Build.LegLimit then
-			Errors.Misuse(`a transaction on {Leg.Ref.Store} has at most {Leg.Place.Build.LegLimit} legs`, 1)
+			Errors.Misuse(`a transaction on {Leg.Ref.Store} has at most {Leg.Place.Build.LegLimit} legs`, 1 + Extra)
 		end
 		Seen[Place] = true
-		local Made = Change(Leg, Index)
+		local Made = Change(Leg, Index, Extra)
 		Legs[Index] = { Ref = Leg.Ref, MustExist = Leg.MustExist, Erasable = Leg.Place.Build.Erasable, Change = Made }
-		Printed[Index] = { Store = Leg.Ref.Store, Key = Leg.Ref.Key, Field = Made.Field, Amount = Made.Amount, Op = Made.Body }
+		Printed[Index] = { Store = Leg.Ref.Store, Key = Leg.Ref.Key, Field = Made.Field, Amount = Made.Amount, Op = Made.Body, Slot = Made.Slot }
 	end
 	local Decider = Pick(Legs, if type(Hot) == "number" then Hot else nil)
 	local Print = if Name then Ops.Print({ Legs = Printed, Decider = Decider }) else nil
 	if Widest(Name or WIDEST_DRAWN, Print, Legs, Decider) > Sizes.MARK_MAX then
-		Errors.Misuse(`the legs do not fit in {Sizes.MARK_MAX} bytes. use fewer legs or shorter keys`, 1)
+		Errors.Misuse(`the legs do not fit in {Sizes.MARK_MAX} bytes. use fewer legs or shorter keys`, 1 + Extra)
 	end
 	return { Legs = Legs, Decider = Decider, Print = Print }
 end

@@ -10,23 +10,26 @@
 	Ends applies the resolves and drops a request carries, before anything else. A resolve of commit
 	applies the mark of its own attempt. An escrow mark adds its amount to its field, and an
 	exclusive mark lays its post diff on the state. A resolve of abort takes off the mark of its
-	attempt or an older one. A resolve of commit for a newer attempt does the same. An orphan end,
-	which a touch sends when the decider reads gone, takes off the mark of any attempt. Each writes
-	the leg's fate. A resolve ends only a mark whose fingerprint it carries, and one that finds no
-	mark writes the fate a later Tent must meet. A resolve of commit on a money field this build
-	does not know ends nothing and says the build is behind. A drop moves a pinned record to the
-	timed room as a decision that took. An orphan end adds a named return to the loss room:
-	Returned, with the mark's field, amount and decider. A drop of a pinned record whose leg key
-	reads gone adds Orphan, with that leg key.
+	attempt or an older one. A resolve of commit for a newer attempt does the same. An exclusive
+	mark with a slot writes the decider value the resolve carries at its slot. Without that value it
+	ends nothing and says the build is behind. An orphan end, which a touch sends when the decider
+	reads gone, takes off the mark of any attempt. Each writes the leg's fate. A resolve ends only a
+	mark whose fingerprint it carries, and one that finds no mark writes the fate a later Tent must
+	meet. A resolve of commit on a money field this build does not know ends nothing and says the
+	build is behind. A drop moves a pinned record to the timed room as a decision that took. An
+	orphan end adds a named return to the loss room: Returned, with the mark's field, amount and
+	decider. A drop of a pinned record whose leg key reads gone adds Orphan, with that leg key.
 
 	Tent sets an escrow mark for a field delta, judged against the least and the most the field can
-	end at. For a game op it sets an exclusive mark and its post diff, which needs a key with no
-	other mark. It never changes the state. Commit applies the decider's own leg by the order rule
-	and pins the record of the use. Fence writes the decision fenced at an attempt. No commit of
-	that attempt or a lower one lands after it, and none at all once the fence is final. A Tent that
-	meets a cut's gate, and a Commit that meets an erase's, is Gated. Each step says what it found
-	on the note. That is its report, the attempt and fate it read, the items that blocked or crowded
-	it, and the gate it met.
+	end at. The build's Accepts judges it too. For a game op it sets an exclusive mark and its post
+	diff, which needs a key with no other mark. It never changes the state. Commit applies the
+	decider's own leg by the order rule and pins the record of the use. A commit with no other legs
+	keeps its decision at once instead. Each keeps the decider value the build's Output gives, and
+	the note carries it. Fence writes the decision fenced at an attempt. No commit of that attempt
+	or a lower one lands after it, and none at all once the fence is final. A Tent that meets a
+	cut's gate, and a Commit that meets an erase's, is Gated. Each step says what it found on the
+	note. That is its report, the attempt and fate it read, the items that blocked or crowded it,
+	and the gate it met.
 
 	Return type: A table with Ends, Tent, Commit and Fence.
 	Example usage:
@@ -162,9 +165,20 @@ local function Refuses(Low: number?, High: number?, Amount: number): boolean
 	return if Amount < 0 then Low + Amount < 0 else High + Amount >= Limits.MONEY_LIMIT
 end
 
-local function Applied(Run: Run, Item: Book.Escrow | Book.Exclusive): boolean
+local function Barred(Run: Run, Field: number, Amount: number): boolean
+	local Accepts = Run.Build.Accepts
+	return Accepts ~= nil and not Accepts(Run.State, Field, Amount)
+end
+
+local function Applied(Run: Run, Item: Book.Escrow | Book.Exclusive, Value: number?): boolean
 	if Item.Form == "Exclusive" then
-		Run.State = Diff.Apply(Run.State, Run.Post or {})
+		local Post = table.clone(Run.Post or {})
+		if Item.Slot and Value == nil then
+			return false
+		elseif Item.Slot then
+			table.insert(Post, { k = Item.Slot, v = Value })
+		end
+		Run.State = Diff.Apply(Run.State, Post)
 		Run.Changed = true
 		return true
 	end
@@ -187,7 +201,7 @@ local function Resolve(Run: Run, End: Types.End)
 	local Commit, Orphan = End.Outcome == Outcome.Commit, End.Outcome == Outcome.Orphan
 	if Item and Item.Form ~= "Pinned" and Item.Print == End.Print then
 		if Commit and Item.Attempt == End.Attempt then
-			if Applied(Run, Item) then
+			if Applied(Run, Item, End.Value) then
 				Take(Run, Name, Item)
 				Keep(Run, Name, Fated(Named(Role.Leg, Item.Stamp, Item.Print), Fate.Took, Item.Attempt))
 			else
@@ -249,7 +263,7 @@ local function Escrow(Run: Run, Tent: Types.Tent, Field: number, Amount: number)
 		return Listed(Run, Report.Blocked, Blockers)
 	end
 	local Low, High = Marks.Bounds(Record.Work, Run.State, Run.Build, Field)
-	if Refuses(Low, High, Amount) then
+	if Refuses(Low, High, Amount) or Barred(Run, Field, Amount) then
 		Keep(Run, Tent.Name, Fated(Named(Role.Leg, Tent.Stamp, Tent.Print), Fate.Refused, Tent.Attempt))
 		return Say(Run, Report.Refused, Tent.Attempt, Fate.Refused)
 	end
@@ -298,6 +312,7 @@ local function Exclusive(Run: Run, Tent: Types.Tent, Body: unknown)
 		Print = Tent.Print,
 		Clean = true,
 		Decider = Tent.Decider,
+		Slot = Tent.Leg.Slot,
 	}
 	if Crowded(Run, Tent.Name, Mark) then
 		return Listed(Run, Report.NoRoom, Standing)
@@ -368,7 +383,7 @@ local function Delta(Run: Run, Commit: Types.Commit, Field: number, Amount: numb
 		return nil
 	end
 	local Low, High = Marks.Bounds(Run.Record.Work, Run.State, Run.Build, Field)
-	local Next = if Refuses(Low, High, Amount) then nil else Shifted(Run, Field, Amount)
+	local Next = if Refuses(Low, High, Amount) or Barred(Run, Field, Amount) then nil else Shifted(Run, Field, Amount)
 	if Next == nil then
 		Refuse(Run, Commit, Fate.Refused)
 	end
@@ -401,6 +416,7 @@ function Work.Commit(Run: Run, Commit: Types.Commit)
 	local Record, Name = Run.Record, Commit.Name
 	local Item = Record.Work[Name]
 	if Item and Item.Form == "Pinned" then
+		Run.Note.Value = Item.Value
 		return Say(Run, if Item.Print == Commit.Print then Report.Committed else Report.Other, Item.Attempt)
 	end
 	local Held = Record:Held(Name)
@@ -409,6 +425,7 @@ function Work.Commit(Run: Run, Commit: Types.Commit)
 		if Held.Print ~= Commit.Print then
 			return Say(Run, Report.Other)
 		elseif Held.Fate == Fate.Took then
+			Run.Note.Value = Held.Value
 			return Say(Run, Report.Committed, Attempt)
 		elseif Held.Fate ~= Fate.Fenced then
 			return Say(Run, Report.Refused, Attempt, Held.Fate)
@@ -433,12 +450,23 @@ function Work.Commit(Run: Run, Commit: Types.Commit)
 	if Next == nil then
 		return
 	end
+	local Output = Run.Build.Output
+	local Value = if Output then Output(Next) else nil
+	Run.Note.Value = Value
+	if Commit.Legs[1] == nil then
+		local Decision = Fated(Named(Role.Decision, Commit.Stamp, Commit.Print), Fate.Took, Commit.Attempt)
+		Decision.Value = Value
+		Run.State, Run.Changed = Next, true
+		Keep(Run, Name, Decision)
+		return Say(Run, Report.Committed, Commit.Attempt)
+	end
 	local Pin: Book.Pinned = {
 		Form = "Pinned",
 		Stamp = Commit.Stamp,
 		Attempt = Commit.Attempt,
 		Print = Commit.Print,
 		Legs = Commit.Legs,
+		Value = Value,
 	}
 	if Crowded(Run, Name, Pin) then
 		return Listed(Run, Report.Owed, Pins(Record))
@@ -454,12 +482,14 @@ function Work.Fence(Run: Run, Fence: Types.Fence)
 	local Record, Name = Run.Record, Fence.Name
 	local Item = Record.Work[Name]
 	if Item and Item.Form == "Pinned" then
+		Run.Note.Value = Item.Value
 		return Say(Run, Report.Committed, Item.Attempt)
 	end
 	local Held = Record:Held(Name)
 	if Held and Held.Role == Role.Decision then
 		local Attempt = Held.Attempt or 0
 		if Held.Fate == Fate.Took then
+			Run.Note.Value = Held.Value
 			return Say(Run, Report.Committed, Attempt)
 		elseif Held.Fate ~= Fate.Fenced then
 			return Say(Run, Report.Refused, Attempt, Held.Fate)

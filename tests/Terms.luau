@@ -40,7 +40,25 @@ local function Op(Key: string): Terms.Given
 	return Leg(Key, { Kind = "Add", Fields = { Add = 1 } })
 end
 
+local function Helper(Given: { Terms.Given })
+	return Terms.Make(Given, nil, nil, 1)
+end
+
+local function Api(Given: { Terms.Given })
+	return Helper(Given)
+end
+
 Describe("Terms", function()
+	Test("a throw through a helper that passes its depth names the game's own line", function()
+		local Line = 0
+		local _, Message = pcall(function()
+			Line = (debug.info(1, "l") :: number) + 1
+			Api({ Delta("a", 5) })
+		end)
+		Expect((string.find(tostring(Message), "a transaction needs at least two legs", 1, true))).never.toBeNil()
+		Expect((string.find(tostring(Message), `:{Line}:`, 1, true))).never.toBeNil()
+	end)
+
 	Test("the decider is the hot leg, else the one game op, else the first credit, else the last leg", function()
 		Expect(Terms.Make({ Delta("a", -5), Delta("b", 5) }, nil, nil).Decider).toBe(2)
 		Expect(Terms.Make({ Delta("a", -5), Delta("b", 5) }, nil, 1).Decider).toBe(1)

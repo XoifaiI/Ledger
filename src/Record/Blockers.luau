@@ -43,6 +43,7 @@ export type Decision = {
 	read Outcome: Types.Outcome?,
 	read Attempt: number,
 	read Gone: boolean,
+	read Value: number?,
 }
 
 local Fate = Book.Fate
@@ -85,13 +86,13 @@ function Blockers.Read(Value: unknown, Found: Blocker): Decision?
 	local Record = Read.Book
 	local Pinned = Record.Work[Found.Name]
 	if Pinned and Pinned.Form == "Pinned" then
-		return { Outcome = Outcome.Commit, Attempt = Pinned.Attempt, Gone = false }
+		return { Outcome = Outcome.Commit, Attempt = Pinned.Attempt, Gone = false, Value = Pinned.Value }
 	end
 	local Held = Record:Held(Found.Name)
 	if Held and Held.Role == Role.Decision then
 		local Attempt = Held.Attempt or 0
 		if Held.Fate == Fate.Took then
-			return { Outcome = Outcome.Commit, Attempt = Attempt, Gone = false }
+			return { Outcome = Outcome.Commit, Attempt = Attempt, Gone = false, Value = Held.Value }
 		elseif Held.Fate ~= Fate.Fenced or Held.Final or Attempt >= Item.Attempt then
 			return { Outcome = Outcome.Abort, Attempt = Item.Attempt, Gone = false }
 		end
@@ -104,7 +105,7 @@ end
 function Blockers.Fenced(Note: Types.Note?, Found: Blocker): Decision?
 	local Said = if Note then Note.Report else nil
 	if Note and Said == Report.Committed then
-		return { Outcome = Outcome.Commit, Attempt = Note.Attempt or Found.Item.Attempt, Gone = false }
+		return { Outcome = Outcome.Commit, Attempt = Note.Attempt or Found.Item.Attempt, Gone = false, Value = Note.Value }
 	elseif Said == Report.Fenced or Said == Report.Refused or Said == Report.Forgotten then
 		return { Outcome = Outcome.Abort, Attempt = Found.Item.Attempt, Gone = false }
 	elseif Note and Note.Why == Why.Missing then
@@ -130,8 +131,8 @@ function Blockers.Fence(Found: Blocker): Types.Request
 	}
 end
 
-function Blockers.End(Found: Blocker, Outcome: Types.Outcome, Attempt: number): Types.End
-	return { Name = Found.Name, Stamp = Found.Item.Stamp, Attempt = Attempt, Print = Found.Item.Print, Outcome = Outcome }
+function Blockers.End(Found: Blocker, Outcome: Types.Outcome, Attempt: number, Value: number?): Types.End
+	return { Name = Found.Name, Stamp = Found.Item.Stamp, Attempt = Attempt, Print = Found.Item.Print, Outcome = Outcome, Value = Value }
 end
 
 return Blockers

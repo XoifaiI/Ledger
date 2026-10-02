@@ -25,6 +25,12 @@ export type Leg = Store.Leg
 export type Options = Store.Options
 export type CutOptions = Store.CutOptions
 export type BumpOptions = Store.BumpOptions
+export type TakeOptions = Store.TakeOptions
+export type CreditOptions = Store.CreditOptions
+export type MoveOptions = Store.MoveOptions
+export type Ticket = Store.Ticket
+export type Taken = Store.Taken
+export type Stock = Store.Stock
 export type Naming = Store.Naming
 
 return {

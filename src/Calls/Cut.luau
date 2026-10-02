@@ -244,7 +244,7 @@ local function Fenced(Call: Call): string
 		local Found = Context.Asked[Order]
 		local Decided = if Found then Blockers.Fenced(Reply.Note, Found) else nil
 		if Found and Decided and Decided.Outcome then
-			Ride(Context, Blockers.End(Found, Decided.Outcome, Decided.Attempt))
+			Ride(Context, Blockers.End(Found, Decided.Outcome, Decided.Attempt, Decided.Value))
 		end
 	end
 	Context.Rounds += 1

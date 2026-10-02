@@ -25,7 +25,8 @@
 	Windows.SEAL_AGE past its rt is left over. A request that may create a key replaces a left over
 	seal, and a seal stamp stamps it again. A stamp from the server that stamped rt, carrying that
 	rt, lands at once. A stamp drops the namings once the seal is the cut window old. A tidy carries
-	no op and lands only when the age step dropped something.
+	no op and lands only when the age step dropped something. The build's Upkeep runs after the ends
+	and again before the rooms are aged.
 
 	Return type: A function that gives back the note, whose Stored is the value to write or nil.
 	Example usage:
@@ -217,6 +218,21 @@ local function Begin(Current: unknown, Request: Request, Clock: number, Build: B
 	return Run
 end
 
+local function Upkeep(Run: Run)
+	local Keep, Now = Run.Build.Upkeep, Run.Now
+	if Keep == nil or Now == nil then
+		return
+	end
+	local Marked = false
+	for _, Item in Run.Record.Work do
+		Marked = Marked or Item.Form == "Escrow"
+	end
+	local Next = Keep(Run.State, Now, Marked)
+	if Next ~= Run.State then
+		Run.State, Run.Changed = Next, true
+	end
+end
+
 local function SetEntry(Run: Run)
 	if Run.Entry == nil and Run.Minted == 0 then
 		return
@@ -230,6 +246,7 @@ local function Finish(Run: Run): Note
 	if Run.Folding then
 		Run.State = Run.Folding.State
 	end
+	Upkeep(Run)
 	SetEntry(Run)
 	if Run.Changed then
 		Marks.Unclean(Record.Work, Run.Placed)
@@ -328,6 +345,7 @@ local function Attempt(Current: unknown, Request: Request, Clock: number, Build:
 		return Refused(Request, Why.Overdue, Late)
 	end
 	Work.Ends(Run)
+	Upkeep(Run)
 	local Probe, Tent, Commit, Fence, Cut = Request.Probe, Request.Tent, Request.Commit, Request.Fence, Request.Cut
 	if Probe then
 		return Probed(Run, Probe)

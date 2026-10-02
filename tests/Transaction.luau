@@ -16,6 +16,7 @@
 local Testing = require("./Testing")
 local Answer = require("../src/Core/Answer")
 local Asks = require("../src/Machine/Asks")
+local Blockers = require("../src/Record/Blockers")
 local Book = require("../src/Record/Book")
 local Clock = require("../src/Machine/Clock")
 local Game = require("./Gold")
@@ -298,6 +299,73 @@ Describe("Tent words", function()
 		Expect(Said).toBe(Answer.Full)
 		State = Tents(Heard.Sent({ Report = "Mine" }), Heard.Sent({ Report = "Ahead" }))
 		Expect(State).toBe("Resting")
+	end)
+end)
+
+Describe("Transaction decider value", function()
+	local Valued = Game.Build({
+		Output = function(State: any): number?
+			return State.Gold
+		end,
+	})
+
+	Test("the leg whose refusal answered the call is kept", function()
+		local Use: Tx.Use = { Name = Book.Drawn(16, 13), Stamp = NOW }
+		local Legs = { Leg("a", { Field = 1, Amount = -1 }), Leg("b", { Field = 1, Amount = -1 }), Leg("d", { Field = 1, Amount = 2 }) }
+		local Context = Tx.Context(Use, Legs, 3, 16)
+		local Call, Asked = Machine.Start(Tx.Run, Context, NOW)
+		Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Mine", Attempt = 1 }))
+		Machine.Step(Call, Asked[2].Id, Heard.Sent({ Report = "Refused", Attempt = 1, Fate = Book.Fate.Refused }, true))
+		Expect(Context.Refuser).toBe(2)
+		local Decided = Tx.Context(Use, Legs, 3, 16)
+		Call, Asked = Machine.Start(Tx.Run, Decided, NOW)
+		Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Mine", Attempt = 1 }))
+		Asked = Machine.Step(Call, Asked[2].Id, Heard.Sent({ Report = "Mine", Attempt = 1 }))
+		Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Refused", Attempt = 1, Fate = Book.Fate.Refused }, true))
+		Expect(Decided.Refuser).toBe(3)
+	end)
+
+	Test("a commit's decider value rides on every resolve of commit", function()
+		local Use: Tx.Use = { Name = Book.Drawn(16, 11), Stamp = NOW }
+		local Legs = { Leg("a", { Body = { Add = 1 }, Slot = { "Tag" } }), Leg("d", { Field = 1, Amount = 5 }) }
+		local Call, Asked = Machine.Start(Tx.Run, Tx.Context(Use, Legs, 2, 16), NOW)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Mine", Attempt = 1 }))
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Report = "Committed", Attempt = 1, Value = 9 }, true))
+		local Ask = Asked[1].Ask
+		local Ends = if Ask.Kind == "Send" then Ask.Request.Ends or {} else {}
+		Expect(Ends[#Ends].Outcome).toBe("Commit")
+		Expect(Ends[#Ends].Value).toBe(9)
+		Expect(Machine.AnswerOf(Call)).toBe(true)
+	end)
+
+	Test("a retry and a touch that read the decider learn the value its decision or pinned record keeps", function()
+		local Name = Book.Drawn(16, 12)
+		local Alone: Types.Request = {
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Commit = { Name = Name, Stamp = NOW, Attempt = 1, Legs = {}, Leg = { Field = 1, Amount = 2 } },
+		}
+		local Decided = Step(Seed(5), Alone, NOW, Valued).Stored
+		local Use: Tx.Use = { Name = Name, Stamp = NOW }
+		local Context = Tx.Context(Use, { Leg("a", { Field = 1, Amount = -2 }), Leg("d", { Field = 1, Amount = 2 }) }, 2, 16)
+		local Call, Asked = Machine.Start(Tx.Retry, Context, NOW)
+		Machine.Step(Call, Asked[1].Id, Heard.Read(Decided))
+		Expect(Machine.AnswerOf(Call)).toBe(true)
+		Expect(Context.Value).toBe(7)
+		local Shared: Types.Request = {
+			Writer = 0,
+			Ack = 0,
+			MustExist = true,
+			Ops = {},
+			Commit = { Name = Name, Stamp = NOW, Attempt = 1, Legs = { Ref("a") }, Leg = { Field = 1, Amount = 2 } },
+		}
+		local Pinned = Step(Seed(5), Shared, NOW, Valued).Stored
+		local Mark: Book.Exclusive = { Form = "Exclusive", Stamp = NOW, Attempt = 1, Clean = false, Decider = Ref("d") }
+		local Found = Blockers.Read(Pinned, { Name = Name, Item = Mark, Ref = Ref("a") }) :: Blockers.Decision
+		Expect(Found.Value).toBe(7)
+		Expect(Blockers.End({ Name = Name, Item = Mark, Ref = Ref("a") }, "Commit", 1, Found.Value).Value).toBe(7)
 	end)
 end)
 

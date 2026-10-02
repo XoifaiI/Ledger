@@ -90,7 +90,7 @@ local function Judge(Call: Call, Decided: Blockers.Decision?): string
 	local Context = Call.Context
 	local Result = if Decided then Decided.Outcome else nil
 	if Decided and Result then
-		Context.End = Blockers.End(Found(Context), Result, Decided.Attempt)
+		Context.End = Blockers.End(Found(Context), Result, Decided.Attempt, Decided.Value)
 		return WORD.Decided
 	elseif Decided and Decided.Gone and Old(Call) then
 		Context.End = Blockers.End(Found(Context), Outcome.Orphan, Decided.Attempt)
@@ -139,7 +139,7 @@ local function Verify(Call: Call)
 	local Context = Call.Context
 	local Item = Context.Item
 	assert(Item.Form == "Pinned", "Touch: a mark is not a pinned record")
-	local End: Types.End = { Name = Context.Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Outcome = Outcome.Commit }
+	local End: Types.End = { Name = Context.Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Outcome = Outcome.Commit, Value = Item.Value }
 	for _, Ref in Item.Legs do
 		Machine.Ask(Call, Asks.Send(Ref, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }))
 	end

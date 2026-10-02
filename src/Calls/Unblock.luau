@@ -62,7 +62,7 @@ local function Judged(Call: Call, Decided: Blockers.Decision?): string
 	local Context = Call.Context
 	local Outcome = if Decided then Decided.Outcome else nil
 	if Decided and Outcome then
-		Context.End = Blockers.End(Context.Blocker, Outcome, Decided.Attempt)
+		Context.End = Blockers.End(Context.Blocker, Outcome, Decided.Attempt, Decided.Value)
 		return WORD.Decided
 	elseif Decided then
 		return WORD.Nothing

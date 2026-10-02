@@ -77,6 +77,7 @@ export type Exclusive = {
 	read Print: number?,
 	Clean: boolean,
 	read Decider: Ref,
+	read Slot: { string }?,
 }
 
 export type Pinned = {
@@ -322,6 +323,12 @@ local function PutWork(Text: Writer.Writer, Name: string, Item: Work, Now: numbe
 		if Item.Form == "Escrow" then
 			Writer.Var(Text, Item.Field)
 			Writer.Signed(Text, Item.Amount)
+		elseif Item.Slot then
+			Head += VALUE
+			Writer.Var(Text, #Item.Slot)
+			for _, Step in Item.Slot do
+				Writer.Name(Text, Step)
+			end
 		end
 	end
 	Writer.Patch(Text, At, Head, 1)
@@ -510,9 +517,17 @@ local function TakeWork(Text: Reader.Reader, Now: number): { [string]: Work }
 				Field = Field,
 				Amount = Reader.Signed(Text),
 			}
-		elseif Form == EXCLUSIVE and not bit32.btest(Head, VALUE) then
+		elseif Form == EXCLUSIVE then
 			local Decider = TakeRef(Text)
-			Room[Name] = { Form = "Exclusive", Stamp = Stamp, Attempt = Attempt, Print = Print, Clean = Clean, Decider = Decider }
+			local Slot: { string }? = nil
+			if bit32.btest(Head, VALUE) then
+				local Steps: { string } = {}
+				for Index = 1, Reader.Var(Text) do
+					Steps[Index] = Reader.Name(Text)
+				end
+				Slot = Steps
+			end
+			Room[Name] = { Form = "Exclusive", Stamp = Stamp, Attempt = Attempt, Print = Print, Clean = Clean, Decider = Decider, Slot = Slot }
 		else
 			error(`Book: {Head} is not the head of a work item`, 0)
 		end

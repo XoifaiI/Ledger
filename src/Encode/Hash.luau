@@ -2,10 +2,10 @@
 --!optimize 2
 
 --[=[
+	Hash: Plumbing. The first four bytes of a string's Blake3 hash, little endian.
 
-	Hash: Plumbing. The first four bytes of a string's Blake3 hash, little endian. It must never change.
-
-	A seed goes in front of the string.
+	Shards, parts, prints and touch levels are all chosen by it, so it must never change. A seed goes
+	in front of the string as `{Seed}:{Text}`.
 
 	Return type: A function that gives back a whole number below 2^32.
 	Example usage:

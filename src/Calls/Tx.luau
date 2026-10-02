@@ -20,10 +20,12 @@
 	rides on the resend. A pinned record runs Touch, which verifies and drops it. A Tent or a Commit
 	that meets a cut's gate waits until the gate is Windows.SETTLE old. It then finishes that cut as
 	its helper and is sent again. A commit that is owed verifies the pinned records it lists and
-	sends again with their drops. Each of these goes round at most Limits.TRIES times. Anything else
-	fences the decider with final and answers by the fence. TENT_WORDS gives the word each Tent
-	reply says, and a decision that refused says Refused. When the Tents disagree, the first of
-	TENTS they said decides, in the order transaction 3.6 gives.
+	sends again with their drops. Each of these goes round at most Limits.TRIES times. Verdict keeps
+	the last note the decider gave a Commit or a Fence. Value keeps the decider value the commit
+	kept, and every resolve of commit carries it. Refuser is the leg whose refusal answered the call. Anything else fences the decider with final and
+	answers by the fence. TENT_WORDS gives the word each Tent reply says, and a decision that
+	refused says Refused. When the Tents disagree, the first of TENTS they said decides, in the
+	order transaction 3.6 gives.
 
 	Return type: A table with Run, Retry and Context. The types are Leg, Use and Context.
 	Example usage:
@@ -87,6 +89,9 @@ export type Context = {
 	Learned: { number },
 	Gate: Book.Gate?,
 	Gated: number?,
+	Refuser: number?,
+	Verdict: Types.Note?,
+	Value: number?,
 }
 
 type Call = Machine.Call<Context, Reply>
@@ -190,7 +195,7 @@ end
 local function Settle(Call: Call, Result: Types.Outcome, Attempt: number): string
 	local Context = Call.Context
 	local Use = Context.Use
-	Context.End = { Name = Use.Name, Stamp = Use.Stamp, Attempt = Attempt, Print = Use.Print, Outcome = Result }
+	Context.End = { Name = Use.Name, Stamp = Use.Stamp, Attempt = Attempt, Print = Use.Print, Outcome = Result, Value = Context.Value }
 	table.clear(Context.Keys)
 	for Index in Context.Legs do
 		if Index ~= Context.Decider and (Result == Outcome.Commit or Context.Landed[Index]) then
@@ -293,9 +298,9 @@ local function Took(Call: Call): string
 	local Held = Found.Book:Held(Use.Name)
 	local Print: number? = nil
 	if Item and Item.Form == "Pinned" then
-		Print = Item.Print
+		Print, Call.Context.Value = Item.Print, Item.Value
 	elseif Held and Held.Role == Role.Decision and Held.Fate == Fate.Took then
-		Print = Held.Print
+		Print, Call.Context.Value = Held.Print, Held.Value
 	else
 		return SAID.Done
 	end
@@ -401,7 +406,7 @@ local function Tents(Call: Call): string
 		elseif Word == WORD.Stuck and not Stuck(Call, Reply, Context.Legs[Index].Ref) then
 			continue
 		elseif Word == Report.Refused and Note then
-			Context.Code = Note.Fate
+			Context.Code, Context.Refuser = Note.Fate, Index
 		elseif Word == WORD.Gated and Note then
 			Context.Gate, Context.Gated = Note.Gate, Index
 		end
@@ -457,6 +462,11 @@ local function Committing(Call: Call): string
 	local Note = Reply.Note
 	if Reply.Wrote or Note == nil then
 		Context.Landed[Context.Decider] = true
+	end
+	Context.Verdict = Note or Context.Verdict
+	Context.Value = if Note and Note.Value then Note.Value else Context.Value
+	if Note and Note.Report == Report.Refused then
+		Context.Refuser = Context.Decider
 	end
 	if Note and Note.Report == Report.Gated then
 		Context.Gate, Context.Gated = Note.Gate, Context.Decider
@@ -526,6 +536,14 @@ local function Fence(Call: Call)
 	Machine.Ask(Call, Asks.Send(Decider, Request))
 end
 
+local function Ruled(Call: Call): string
+	local Context, Reply = Call.Context, Machine.Reply(Call)
+	local Note = Reply.Note
+	Context.Verdict = Note or Context.Verdict
+	Context.Value = if Note and Note.Value then Note.Value else Context.Value
+	return Reply.Said
+end
+
 local function Again(Call: Call): string
 	Call.Context.Rounds += 1
 	return STATE.Fencing
@@ -559,7 +577,7 @@ local function Verify(Call: Call)
 		if Item.Form ~= "Pinned" then
 			continue
 		end
-		local End: Types.End = { Name = Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Outcome = Outcome.Commit }
+		local End: Types.End = { Name = Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Outcome = Outcome.Commit, Value = Item.Value }
 		for _, Ref in Item.Legs do
 			table.insert(Context.Checked, Name)
 			Machine.Ask(Call, Asks.Send(Ref, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }))
@@ -676,6 +694,7 @@ local STATES: { [string]: Machine.State<Context, Reply> } = {
 	},
 	[STATE.Fencing] = {
 		Enter = Fence,
+		Hear = Ruled,
 		On = {
 			{ Said = Report.Committed, Go = Committed },
 			{ Said = Report.Fenced, Go = Fenced },

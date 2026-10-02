@@ -7,6 +7,7 @@
 
 	Spec: extras 2.4, 2.5 and 4. Model: Tot.tla, the reads rd[s] and Answer.
 
+	The answer is the sum of each value of the pairs, a list as wide as the kind's pairs.
 	Checking answers the sum of this server's pairs when every shard has one and its last full view
 	is within MaxAge. Fetching gets the summary item and merges its pairs by write count. When every
 	shard then has a pair it answers the sum and notes its full view. An item of a newer format
@@ -36,7 +37,7 @@ local Totals = require("../Record/Totals")
 local Types = require("../Record/Types")
 local Windows = require("../Core/Constants/Windows")
 
-type Said = number | Answer.Answer
+type Said = { number } | Answer.Answer
 
 export type Context = {
 	read Held: Totals.Held,
@@ -92,7 +93,7 @@ local WORD: {
 local Total = {}
 
 local function Ref(Held: Totals.Held, Index: number): Book.Ref
-	return { Store = Held.Place, Key = Totals.Key(Held.Name, Held.Shards, Index) }
+	return { Store = Held.Place, Key = Totals.Key(Held.Name, Held.Shards, Index, Held.Kind.Prefix) }
 end
 
 local function Every(Held: Totals.Held): { number }
@@ -145,7 +146,7 @@ local function Check(Call: Call): string
 	local Context = Call.Context
 	local Held = Context.Held
 	local Seen = Held.Seen
-	local Sum = Totals.Sum(Held.Pairs, Held.Shards)
+	local Sum = Totals.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
 	Held.Called = Call.Now
 	if Sum and Seen and Call.Now - Seen <= Context.MaxAge then
 		Machine.Answer(Call, Sum)
@@ -169,7 +170,7 @@ local function Fetched(Call: Call): string
 		Context.Asked = Every(Held)
 		return WORD.Missing
 	end
-	local Found = Totals.Read(Reply.Value, Held.Shards)
+	local Found = Totals.Read(Reply.Value, Held.Shards, Held.Kind.Width)
 	if Found == "Behind" then
 		Machine.Answer(Call, Answer.Behind)
 		return WORD.Behind
@@ -180,7 +181,7 @@ local function Fetched(Call: Call): string
 	if Totals.Lapsed(Reply.Value, Call.Now, Context.Lapse) then
 		Claim(Context)
 	end
-	local Sum = Totals.Sum(Held.Pairs, Held.Shards)
+	local Sum = Totals.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
 	if Sum then
 		Held.Seen = Call.Now
 		Machine.Answer(Call, Sum)
@@ -193,7 +194,7 @@ end
 local function Down(Call: Call): string
 	local Context = Call.Context
 	local Held = Context.Held
-	local Sum = Totals.Sum(Held.Pairs, Held.Shards)
+	local Sum = Totals.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
 	if Sum and Totals.Recent(Held, Call.Now, Windows.DOWN) then
 		Machine.Answer(Call, Sum)
 		return STATE.Done
@@ -215,7 +216,7 @@ local function Merge(Call: Call)
 	for Order, Index in Context.Asked do
 		local Reply = Call.Heard[Order]
 		if Reply and Reply.Said ~= Asks.SAID.Failed then
-			Totals.Take(Held, Index, Totals.Pair(Reply.Value))
+			Totals.Take(Held, Index, Totals.Pair(Reply.Value, Held.Kind))
 			Held.Read[Index] = Reply.Now
 			local Tidied = Held.Tidied[Index]
 			if Totals.Untidy(Reply.Value, Reply.Now) and (Tidied == nil or Reply.Now - Tidied >= Windows.PRUNE_AGE) then
@@ -229,7 +230,7 @@ end
 local function Gathered(Call: Call): string
 	Merge(Call)
 	local Held = Call.Context.Held
-	local Sum = Totals.Sum(Held.Pairs, Held.Shards)
+	local Sum = Totals.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
 	if Sum then
 		Held.Seen = Call.Now
 	end
@@ -261,7 +262,7 @@ local function Summarize(Call: Call)
 	local Held, Now, Server = Context.Held, Call.Now, Context.Server
 	local Pairs = table.clone(Held.Pairs)
 	local function Transform(Current: unknown): unknown
-		return Totals.Summary(Current, Pairs, Held.Shards, Server, Now, Now + Windows.LEASE)
+		return Totals.Summary(Current, Pairs, Held.Shards, Held.Kind.Width, Server, Now, Now + Windows.LEASE)
 	end
 	Machine.Ask(Call, Asks.Change(Held.Map, Held.Item, Transform, Windows.SUMMARY))
 end
@@ -269,7 +270,7 @@ end
 local function Summarized(Call: Call): string
 	local Context, Reply = Call.Context, Machine.Reply(Call)
 	local Held = Context.Held
-	local Found = if Reply.Said == Asks.SAID.Failed then nil else Totals.Read(Reply.Value, Held.Shards)
+	local Found = if Reply.Said == Asks.SAID.Failed then nil else Totals.Read(Reply.Value, Held.Shards, Held.Kind.Width)
 	Context.Holder = type(Found) == "table"
 	if type(Found) == "table" then
 		for Index, Pair in Found do
