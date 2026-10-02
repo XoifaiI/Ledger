@@ -189,6 +189,10 @@ local FORMAT = 1
 local DRAWN = "\255"
 local COUNT_WIDTH = 3
 local PRINT_WIDTH = 3
+local SLOT_COUNT_WIDTH = 1
+local ROLES = 3
+local SLOTS_MAX = 2
+local OFF_ALPHABET = "!"
 
 local Fate = {
 	Took = 0,
@@ -212,25 +216,41 @@ local Cause = {
 	Orphan = 3,
 }
 
-local ROLES = 3
-local FENCED_FINAL = 6
-local BASE64 = 8
-local GAME = 16
-local VALUE = 32
-local CLEAN = 4
-local FORMS = 4
-local ESCROW = 0
-local EXCLUSIVE = 1
-local PINNED = 2
-local HAS_ID = 1
-local HAS_GATE = 2
-local CAUSES = 4
-local EVENT_BASE64 = 4
-local EVENT_GAME = 8
-local EVENT_REF = 16
-local SLOTS_MAX = 2
-local SLOT_COUNT_WIDTH = 1
-local OFF_ALPHABET = "!"
+local FLAGS = {
+	Id = 1,
+	Gate = 2,
+}
+
+local NAMED_HEAD = {
+	FateSpan = 8,
+	FencedFinal = 6,
+	Base64 = 8,
+	Game = 16,
+	Value = 32,
+}
+
+local WORK_HEAD = {
+	FormSpan = 4,
+	Escrow = 0,
+	Exclusive = 1,
+	Pinned = 2,
+	Clean = 4,
+	Base64 = 8,
+	Game = 16,
+	Payload = 32,
+}
+
+local GATE_HEAD = {
+	Base64 = 8,
+	Game = 16,
+}
+
+local EVENT_HEAD = {
+	CauseSpan = 4,
+	Base64 = 4,
+	Game = 8,
+	Ref = 16,
+}
 
 local Book = {} :: BookImpl
 Book.__index = Book
@@ -242,30 +262,48 @@ Book.FORMAT = FORMAT
 Book.DRAWN = DRAWN
 Book.SLOTS_MAX = SLOTS_MAX
 
-local function PutNamed(Text: Writer.Writer, Name: string, Item: Named, Now: number)
-	local Game = Item.Print ~= nil
-	if Game == (string.sub(Name, 1, 1) == DRAWN) then
-		error(`Book: the name {Name} and its fingerprint disagree about who chose it`, 0)
+local function IsDrawn(Name: string): boolean
+	return string.sub(Name, 1, #DRAWN) == DRAWN
+end
+
+local function CheckFingerprint(Noun: string, Name: string, Print: number?)
+	if (Print ~= nil) == IsDrawn(Name) then
+		error(`Book: the {Noun} {Name} and its fingerprint disagree about who chose it`, 0)
 	end
+end
+
+local function StoresAttempt(ItemRole: number, Code: Fate): boolean
+	return ItemRole ~= Role.Op or Code == Fate.Fenced or Code == Fate.Aborted
+end
+
+local function PutLabel(Text: Writer.Writer, Name: string): (boolean, boolean)
+	local Game = not IsDrawn(Name)
+	local Stored = if Game then Name else string.sub(Name, #DRAWN + 1)
+	return Writer.Label(Text, Stored), Game
+end
+
+local function PutNamed(Text: Writer.Writer, Name: string, Item: Named, Now: number)
+	CheckFingerprint("name", Name, Item.Print)
 	if Item.Final and Item.Fate ~= Fate.Fenced then
 		error(`Book: only a fence is final, and {Name} is not fenced`, 0)
 	end
+	local ItemRole = Item.Role or Role.Op
 	local At = Writer.Fixed(Text, 0, 1)
-	Writer.Var(Text, Item.Kind * ROLES + (Item.Role or Role.Op))
-	local Base64 = Writer.Label(Text, if Game then Name else string.sub(Name, #DRAWN + 1))
-	local Head = if Item.Final then FENCED_FINAL else Item.Fate
+	Writer.Var(Text, Item.Kind * ROLES + ItemRole)
+	local Base64, Game = PutLabel(Text, Name)
+	local Head = if Item.Final then NAMED_HEAD.FencedFinal else Item.Fate
 	if Base64 then
-		Head += BASE64
+		Head += NAMED_HEAD.Base64
 	end
 	if Game then
-		Head += GAME
+		Head += NAMED_HEAD.Game
 	end
 	if Item.Value then
-		Head += VALUE
+		Head += NAMED_HEAD.Value
 	end
 	Writer.Patch(Text, At, Head, 1)
 	Writer.Signed(Text, Item.Stamp - Now)
-	if (Item.Role or Role.Op) ~= Role.Op or Item.Fate == Fate.Fenced or Item.Fate == Fate.Aborted then
+	if StoresAttempt(ItemRole, Item.Fate) then
 		Writer.Var(Text, Item.Attempt or 0)
 	end
 	if Item.Print then
@@ -291,6 +329,16 @@ local function PutEntry(Text: Writer.Writer, Found: Entry, Now: number)
 	end
 end
 
+local function PutWriters(Text: Writer.Writer, Writers: { [number]: Entry }, Now: number)
+	local At = Writer.Fixed(Text, 0, COUNT_WIDTH)
+	local Count = 0
+	for _, Found in Writers do
+		PutEntry(Text, Found, Now)
+		Count += 1
+	end
+	Writer.Patch(Text, At, Count, COUNT_WIDTH)
+end
+
 local function PutRoom(Text: Writer.Writer, Room: { [string]: Named }, Now: number)
 	local At = Writer.Fixed(Text, 0, COUNT_WIDTH)
 	local Count = 0
@@ -307,44 +355,45 @@ local function PutRef(Text: Writer.Writer, Held: Ref)
 end
 
 local function PutWork(Text: Writer.Writer, Name: string, Item: Work, Now: number)
-	local Game = Item.Print ~= nil
-	if Game == (string.sub(Name, 1, 1) == DRAWN) then
-		error(`Book: the name {Name} and its fingerprint disagree about who chose it`, 0)
-	elseif Item.Attempt < 1 then
+	CheckFingerprint("name", Name, Item.Print)
+	if Item.Attempt < 1 then
 		error(`Book: {Name} has no attempt`, 0)
 	end
 	local At = Writer.Fixed(Text, 0, 1)
-	local Base64 = Writer.Label(Text, if Game then Name else string.sub(Name, #DRAWN + 1))
+	local Base64, Game = PutLabel(Text, Name)
 	Writer.Signed(Text, Item.Stamp - Now)
 	Writer.Var(Text, Item.Attempt)
 	if Item.Print then
 		Writer.Fixed(Text, Item.Print, PRINT_WIDTH)
 	end
-	local Head = if Base64 then BASE64 else 0
+	local Head = 0
+	if Base64 then
+		Head += WORK_HEAD.Base64
+	end
 	if Game then
-		Head += GAME
+		Head += WORK_HEAD.Game
 	end
 	if Item.Form == WorkForm.Pinned then
-		Head += PINNED
+		Head += WORK_HEAD.Pinned
 		Writer.Var(Text, #Item.Legs)
 		for _, Leg in Item.Legs do
 			PutRef(Text, Leg)
 		end
 		if Item.Value then
-			Head += VALUE
+			Head += WORK_HEAD.Payload
 			Writer.Var(Text, Item.Value)
 		end
 	else
-		Head += if Item.Form == WorkForm.Escrow then ESCROW else EXCLUSIVE
+		Head += if Item.Form == WorkForm.Escrow then WORK_HEAD.Escrow else WORK_HEAD.Exclusive
 		if Item.Clean then
-			Head += CLEAN
+			Head += WORK_HEAD.Clean
 		end
 		PutRef(Text, Item.Decider)
 		if Item.Form == WorkForm.Escrow then
 			Writer.Var(Text, Item.Field)
 			Writer.Signed(Text, Item.Amount)
 		elseif Item.Slot then
-			Head += VALUE
+			Head += WORK_HEAD.Payload
 			Writer.Var(Text, #Item.Slot)
 			for _, Step in Item.Slot do
 				Writer.Name(Text, Step)
@@ -364,24 +413,24 @@ local function PutWorkRoom(Text: Writer.Writer, Room: { [string]: Work }, Now: n
 	Writer.Patch(Text, At, Count, COUNT_WIDTH)
 end
 
-local function PutLabel(Text: Writer.Writer, Name: string): (boolean, boolean)
-	local Game = string.sub(Name, 1, 1) ~= DRAWN
-	return Writer.Label(Text, if Game then Name else string.sub(Name, #DRAWN + 1)), Game
-end
-
 local function PutGate(Text: Writer.Writer, Item: Gate, Now: number)
+	CheckFingerprint("gate", Item.Name, Item.Print)
 	local At = Writer.Fixed(Text, 0, 1)
 	local Base64, Game = PutLabel(Text, Item.Name)
-	if Game ~= (Item.Print ~= nil) then
-		error(`Book: the gate {Item.Name} and its fingerprint disagree about who chose it`, 0)
-	end
 	Writer.Var(Text, Item.Kind)
 	Writer.Signed(Text, Item.Stamp - Now)
 	Writer.Signed(Text, Item.At - Now)
 	if Item.Print then
 		Writer.Fixed(Text, Item.Print, PRINT_WIDTH)
 	end
-	Writer.Patch(Text, At, (if Base64 then BASE64 else 0) + (if Game then GAME else 0), 1)
+	local Head = 0
+	if Base64 then
+		Head += GATE_HEAD.Base64
+	end
+	if Game then
+		Head += GATE_HEAD.Game
+	end
+	Writer.Patch(Text, At, Head, 1)
 end
 
 local function Magnitude(Item: Sum): (boolean, number, number)
@@ -424,7 +473,16 @@ local function PutEvent(Text: Writer.Writer, Item: Event, Now: number)
 	if Item.Ref then
 		PutRef(Text, Item.Ref)
 	end
-	local Head = Item.Cause + (if Base64 then EVENT_BASE64 else 0) + (if Game then EVENT_GAME else 0) + (if Item.Ref then EVENT_REF else 0)
+	local Head = Item.Cause
+	if Base64 then
+		Head += EVENT_HEAD.Base64
+	end
+	if Game then
+		Head += EVENT_HEAD.Game
+	end
+	if Item.Ref then
+		Head += EVENT_HEAD.Ref
+	end
 	Writer.Patch(Text, At, Head, 1)
 end
 
@@ -462,30 +520,35 @@ local function TakeFate(Code: number): Fate
 	return Code
 end
 
+local function TakeLabel(Text: Reader.Reader, Base64: boolean, Game: boolean): string
+	local Name = Reader.Label(Text, Base64)
+	return if Game then Name else `{DRAWN}{Name}`
+end
+
 local function TakeRoom(Text: Reader.Reader, Now: number): { [string]: Named }
 	local Room: { [string]: Named } = {}
 	for _ = 1, Reader.Fixed(Text, COUNT_WIDTH) do
 		local Head = Reader.Fixed(Text, 1)
-		local Final = Head % BASE64 == FENCED_FINAL
-		local Code = if Final then Fate.Fenced else TakeFate(Head % BASE64)
+		local Final = Head % NAMED_HEAD.FateSpan == NAMED_HEAD.FencedFinal
+		local Code = if Final then Fate.Fenced else TakeFate(Head % NAMED_HEAD.FateSpan)
 		local Kind = Reader.Var(Text)
-		local Name = Reader.Label(Text, bit32.btest(Head, BASE64))
+		local ItemRole = Kind % ROLES
+		local Game = bit32.btest(Head, NAMED_HEAD.Game)
+		local Name = TakeLabel(Text, bit32.btest(Head, NAMED_HEAD.Base64), Game)
 		local Item: Named = { Kind = Kind // ROLES, Stamp = Now + Reader.Signed(Text), Fate = Code }
-		if Kind % ROLES ~= Role.Op then
-			Item.Role = Kind % ROLES
+		if ItemRole ~= Role.Op then
+			Item.Role = ItemRole
 		end
-		if Item.Role or Code == Fate.Fenced or Code == Fate.Aborted then
+		if StoresAttempt(ItemRole, Code) then
 			Item.Attempt = Reader.Var(Text)
 		end
 		if Final then
 			Item.Final = true
 		end
-		if bit32.btest(Head, GAME) then
+		if Game then
 			Item.Print = Reader.Fixed(Text, PRINT_WIDTH)
-		else
-			Name = `{DRAWN}{Name}`
 		end
-		if bit32.btest(Head, VALUE) then
+		if bit32.btest(Head, NAMED_HEAD.Value) then
 			Item.Value = Reader.Var(Text)
 		end
 		if Room[Name] then
@@ -505,26 +568,25 @@ local function TakeWork(Text: Reader.Reader, Now: number): { [string]: Work }
 	local Room: { [string]: Work } = {}
 	for _ = 1, Reader.Fixed(Text, COUNT_WIDTH) do
 		local Head = Reader.Fixed(Text, 1)
-		local Form = Head % FORMS
-		local Name = Reader.Label(Text, bit32.btest(Head, BASE64))
+		local Form = Head % WORK_HEAD.FormSpan
+		local Game = bit32.btest(Head, WORK_HEAD.Game)
+		local Name = TakeLabel(Text, bit32.btest(Head, WORK_HEAD.Base64), Game)
 		local Stamp = Now + Reader.Signed(Text)
 		local Attempt = Reader.Var(Text)
-		local Print = if bit32.btest(Head, GAME) then Reader.Fixed(Text, PRINT_WIDTH) else nil
-		if Print == nil then
-			Name = `{DRAWN}{Name}`
-		end
+		local Print = if Game then Reader.Fixed(Text, PRINT_WIDTH) else nil
 		if Attempt < 1 or Room[Name] then
 			error("Book: a work item with no attempt, or one name twice", 0)
 		end
-		local Clean = bit32.btest(Head, CLEAN)
-		if Form == PINNED and not Clean then
+		local Clean = bit32.btest(Head, WORK_HEAD.Clean)
+		local HasPayload = bit32.btest(Head, WORK_HEAD.Payload)
+		if Form == WORK_HEAD.Pinned and not Clean then
 			local Legs: { Ref } = {}
 			for Index = 1, Reader.Var(Text) do
 				Legs[Index] = TakeRef(Text)
 			end
-			local Value = if bit32.btest(Head, VALUE) then Reader.Var(Text) else nil
+			local Value = if HasPayload then Reader.Var(Text) else nil
 			Room[Name] = { Form = WorkForm.Pinned, Stamp = Stamp, Attempt = Attempt, Print = Print, Legs = Legs, Value = Value }
-		elseif Form == ESCROW and not bit32.btest(Head, VALUE) then
+		elseif Form == WORK_HEAD.Escrow and not HasPayload then
 			local Decider = TakeRef(Text)
 			local Field = Reader.Var(Text)
 			Room[Name] = {
@@ -537,10 +599,10 @@ local function TakeWork(Text: Reader.Reader, Now: number): { [string]: Work }
 				Field = Field,
 				Amount = Reader.Signed(Text),
 			}
-		elseif Form == EXCLUSIVE then
+		elseif Form == WORK_HEAD.Exclusive then
 			local Decider = TakeRef(Text)
 			local Slot: { string }? = nil
-			if bit32.btest(Head, VALUE) then
+			if HasPayload then
 				local Steps: { string } = {}
 				for Index = 1, Reader.Var(Text) do
 					Steps[Index] = Reader.Name(Text)
@@ -558,32 +620,29 @@ end
 local function TakeWriters(Text: Reader.Reader, Now: number): { [number]: Entry }
 	local Writers: { [number]: Entry } = {}
 	for _ = 1, Reader.Fixed(Text, COUNT_WIDTH) do
-		local Found: Entry = { Id = Reader.Var(Text), Lo = Reader.Var(Text), Stamp = 0, Fates = {} }
-		Found.Stamp = Now + Reader.Signed(Text)
+		local Id = Reader.Var(Text)
+		local Lo = Reader.Var(Text)
+		local Stamp = Now + Reader.Signed(Text)
+		local Fates: { [number]: Fate } = {}
 		for _ = 1, Reader.Var(Text) do
-			local Seq = Found.Lo - Reader.Var(Text)
-			Found.Fates[Seq] = TakeFate(Reader.Fixed(Text, 1))
+			local Seq = Lo - Reader.Var(Text)
+			Fates[Seq] = TakeFate(Reader.Fixed(Text, 1))
 		end
-		if Writers[Found.Id] then
+		if Writers[Id] then
 			error("Book: two entries for one writer", 0)
 		end
-		Writers[Found.Id] = Found
+		Writers[Id] = { Id = Id, Lo = Lo, Stamp = Stamp, Fates = Fates }
 	end
 	return Writers
 end
 
-local function TakeLabel(Text: Reader.Reader, Base64: boolean, Game: boolean): string
-	local Name = Reader.Label(Text, Base64)
-	return if Game then Name else `{DRAWN}{Name}`
-end
-
 local function TakeGate(Text: Reader.Reader, Now: number): Gate
 	local Head = Reader.Fixed(Text, 1)
-	if bit32.band(Head, BASE64 + GAME) ~= Head then
+	if bit32.band(Head, GATE_HEAD.Base64 + GATE_HEAD.Game) ~= Head then
 		error(`Book: {Head} is not the head of a gate`, 0)
 	end
-	local Game = bit32.btest(Head, GAME)
-	local Name = TakeLabel(Text, bit32.btest(Head, BASE64), Game)
+	local Game = bit32.btest(Head, GATE_HEAD.Game)
+	local Name = TakeLabel(Text, bit32.btest(Head, GATE_HEAD.Base64), Game)
 	local Kind = Reader.Var(Text)
 	local Stamp = Now + Reader.Signed(Text)
 	local At = Now + Reader.Signed(Text)
@@ -616,14 +675,14 @@ local function TakeLosses(Text: Reader.Reader, Now: number): ({ Event }, { Slot 
 	local Events: { Event } = {}
 	for _ = 1, Reader.Fixed(Text, COUNT_WIDTH) do
 		local Head = Reader.Fixed(Text, 1)
-		if Head >= EVENT_REF * 2 then
+		if Head >= EVENT_HEAD.Ref * 2 then
 			error(`Book: {Head} is not the head of an event`, 0)
 		end
-		local Name = TakeLabel(Text, bit32.btest(Head, EVENT_BASE64), bit32.btest(Head, EVENT_GAME))
+		local Name = TakeLabel(Text, bit32.btest(Head, EVENT_HEAD.Base64), bit32.btest(Head, EVENT_HEAD.Game))
 		local Stamp = Now + Reader.Signed(Text)
 		local Amounts = TakeFields(Text, Reader.Signed)
-		local Ref = if bit32.btest(Head, EVENT_REF) then TakeRef(Text) else nil
-		table.insert(Events, { Cause = Head % CAUSES, Name = Name, Stamp = Stamp, Amounts = Amounts, Ref = Ref })
+		local Ref = if bit32.btest(Head, EVENT_HEAD.Ref) then TakeRef(Text) else nil
+		table.insert(Events, { Cause = Head % EVENT_HEAD.CauseSpan, Name = Name, Stamp = Stamp, Amounts = Amounts, Ref = Ref })
 	end
 	local Slots: { Slot } = {}
 	local Count = Reader.Fixed(Text, SLOT_COUNT_WIDTH)
@@ -646,20 +705,20 @@ local function Take(Source: string): Book
 		error(`Book: format {Record.Format} is not one this build reads`, 0)
 	end
 	local Flags = Reader.Fixed(Text, 1)
-	if Flags > HAS_ID + HAS_GATE then
+	if Flags > FLAGS.Id + FLAGS.Gate then
 		error(`Book: flags {Flags} are not ones this build writes`, 0)
 	end
 	Record.Level = Reader.Var(Text)
 	Record.Floor = Reader.Var(Text)
 	Record.Writes = Reader.Var(Text)
 	Record.Cuts = Reader.Var(Text)
-	if bit32.btest(Flags, HAS_ID) then
+	if bit32.btest(Flags, FLAGS.Id) then
 		Record.Id = Reader.Name(Text)
 	end
 	local Now = Reader.Var(Text)
 	Record.Horizon = Reader.Var(Text)
 	Record.CutHorizon = Reader.Var(Text)
-	if bit32.btest(Flags, HAS_GATE) then
+	if bit32.btest(Flags, FLAGS.Gate) then
 		Record.Gate = TakeGate(Text, Now)
 	end
 	Record.Writers = TakeWriters(Text, Now)
@@ -851,8 +910,15 @@ end
 
 function Book.Encode(self: Book, Now: number): string
 	local Text = Writer.New()
+	local Flags = 0
+	if self.Id then
+		Flags += FLAGS.Id
+	end
+	if self.Gate then
+		Flags += FLAGS.Gate
+	end
 	Writer.Fixed(Text, self.Format, 1)
-	Writer.Fixed(Text, (if self.Id then HAS_ID else 0) + (if self.Gate then HAS_GATE else 0), 1)
+	Writer.Fixed(Text, Flags, 1)
 	Writer.Var(Text, self.Level)
 	Writer.Var(Text, self.Floor)
 	Writer.Var(Text, self.Writes)
@@ -866,15 +932,7 @@ function Book.Encode(self: Book, Now: number): string
 	if self.Gate then
 		PutGate(Text, self.Gate, Now)
 	end
-
-	local At = Writer.Fixed(Text, 0, COUNT_WIDTH)
-	local Count = 0
-	for _, Found in self.Writers do
-		PutEntry(Text, Found, Now)
-		Count += 1
-	end
-	Writer.Patch(Text, At, Count, COUNT_WIDTH)
-
+	PutWriters(Text, self.Writers, Now)
 	PutRoom(Text, self.Timed, Now)
 	PutRoom(Text, self.Cut, Now)
 	PutRoom(Text, self.Untimed, Now)

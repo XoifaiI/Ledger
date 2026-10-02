@@ -2,7 +2,8 @@
 
 --[=[
 
-	Touch: The cases for Record/Touches, Calls/Touch and Calls/Resettle.
+	Touch: The cases for Record/Touches, Calls/Touch and Calls/Resettle, and for a writer that meets
+	a mark whose decider is gone.
 
 	tests/Replay answers each effect as it is sent. Every key is in the store of tests/Gold, whose
 	money field is Gold. The use Y has a debit mark on key a and decides on key d.
@@ -18,8 +19,11 @@ local Asks = require("../src/Machine/Asks")
 local Book = require("../src/Record/Book")
 local Clock = require("../src/Machine/Clock")
 local Game = require("./Gold")
+local Heard = require("./Heard")
 local Machine = require("../src/Machine/Machine")
+local Queue = require("../src/Record/Queue")
 local Replay = require("./Replay")
+local Save = require("../src/Calls/Save")
 local Step = require("../src/Record/Step")
 local Resettle = require("../src/Calls/Resettle")
 local Shown = require("../src/Record/Shown")
@@ -118,6 +122,42 @@ Describe("Touch", function()
 		Expect(Record(Old.a).Work[Y]).toBeNil()
 		Expect(Record(Old.a).Horizon >= NOW - Windows.ORPHAN).toBe(true)
 		local Returned = Record(Old.a).Events[1]
+		Expect(Returned.Cause).toBe(Book.Cause.Returned)
+		Expect(Returned.Amounts[1]).toBe(-30)
+		Expect((Returned.Ref :: Book.Ref).Key).toBe("d")
+	end)
+
+	Test("a fence that reports its decider missing is no orphan evidence, however old the mark", function()
+		local Item: Book.Escrow = { Form = "Escrow", Stamp = Heard.NOW - Windows.ORPHAN, Attempt = 1, Clean = true, Decider = Ref("d"), Field = 1, Amount = -30 }
+		local Call, Asked = Machine.Start(Touch.Mark, Touch.Context(Y, Item, Ref("a"), Windows.SETTLE), Heard.NOW)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Read(Seed(0)))
+		local Ask = Asked[1].Ask
+		Expect(Ask.Kind == "Send" and Ask.Request.Fence ~= nil).toBe(true)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Why = "Missing" }))
+		Expect(#Asked).toBe(0)
+		Expect(Machine.AnswerOf(Call)).toBe(false)
+	end)
+
+	Test("a read of no value asked before the mark is ORPHAN old ends nothing, though it is heard after", function()
+		local Item: Book.Escrow = { Form = "Escrow", Stamp = Heard.NOW - Windows.ORPHAN, Attempt = 1, Clean = true, Decider = Ref("d"), Field = 1, Amount = -30 }
+		local Call, Asked = Machine.Start(Touch.Mark, Touch.Context(Y, Item, Ref("a"), Windows.SETTLE), Heard.NOW - 1)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Read(nil))
+		Expect(#Asked).toBe(0)
+		Expect(Machine.AnswerOf(Call)).toBe(false)
+	end)
+
+	Test("a key that is only written ends a mark whose decider reads gone past ORPHAN, and the blocked op lands", function()
+		local Keys = Marked(NOW - Windows.ORPHAN)
+		local Kept = Queue.New(Ref("a"), DEFAULT, 16, nil, NOW)
+		local Replies: { Queue.Reply } = {}
+		Queue.Push(Kept, { Form = "Minted", Kind = 0, MustExist = true, Body = { Add = -80 } }, function(_: Queue.Asked, Reply: Queue.Reply)
+			table.insert(Replies, Reply)
+		end)
+		Expect((Replay.Run(Save.Machine, Save.Context(Kept), Keys, DEFAULT, NOW))).toBe(Save.SAID.Empty)
+		Expect(Replies[1]).toBe(true)
+		Expect(Gold(Keys.a)).toBe(20)
+		Expect(Record(Keys.a).Work[Y]).toBeNil()
+		local Returned = Record(Keys.a).Events[1]
 		Expect(Returned.Cause).toBe(Book.Cause.Returned)
 		Expect(Returned.Amounts[1]).toBe(-30)
 		Expect((Returned.Ref :: Book.Ref).Key).toBe("d")

@@ -196,7 +196,7 @@ end
 
 function Quantities.Hold(Held: Quantity, Count: number, Seconds: number): (Reply, Ticket?)
 	local Declared = Held.Declared
-	local Id = Shared:Draw()
+	local Id = Shared:Mint()
 	local Now = Clock.Now()
 	local Body = Ops.Body("Hold", { Id = Id, Count = Count, End = Now + Seconds, Print = Declared.Print })
 	local Found = Walking(Held, Body, {}, nil, nil, Now, nil)

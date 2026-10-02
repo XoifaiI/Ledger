@@ -162,6 +162,95 @@ Describe("Transaction", function()
 		Expect(Record(Keys.a).Timed[X].Fate).toBe(Fate.Aborted)
 	end)
 
+	Test("a name its decider holds as a leg's fate answers Spent, and the fence is written there all the same", function()
+		local X = Book.Drawn(16, 40)
+		local Keys: Keys = { a = Seed(100), d = Seed(1) }
+		Put(Keys, "a", { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Fence = { Name = X, Stamp = NOW, Attempt = 1, Final = false } })
+		Put(Keys, "d", { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tent = { Name = X, Stamp = NOW, Attempt = 1, Decider = Ref("z"), Leg = { Field = 1, Amount = -50 } } })
+		Expect(Record(Keys.d).Timed[X].Role).toBe(Role.Leg)
+		local Reply = Replay.Run(Tx.Run, Transfer(X, 30), Keys, DEFAULT, NOW)
+		Expect(Reply).toBe(Answer.Spent)
+		Expect(Record(Keys.d).Timed[X].Role).toBe(Role.Decision)
+		Expect(Record(Keys.d).Timed[X].Fate).toBe(Fate.Fenced)
+		Expect(Record(Keys.d).Timed[X].Final).toBe(true)
+		Expect(Gold(Keys.a)).toBe(100)
+		Expect(Gold(Keys.d)).toBe(1)
+	end)
+
+	Test("a Tent that meets no key after another Tent of the call landed fences the decider before it gives the amount back", function()
+		local X = Book.Drawn(16, 41)
+		local Keys: Keys = { a = Seed(50), d = Seed(1) }
+		local Use: Tx.Use = { Name = X, Stamp = NOW }
+		local Legs = { Leg("a", { Field = 1, Amount = -5 }), Leg("b", { Field = 1, Amount = -5 }), Leg("d", { Field = 1, Amount = 10 }) }
+		local Reply = Replay.Run(Tx.Run, Tx.Context(Use, Legs, 3, 16), Keys, DEFAULT, NOW)
+		Expect(Reply).toBe(Answer.Spent)
+		Expect(Gold(Keys.a)).toBe(50)
+		Expect((next(Record(Keys.a).Work))).toBeNil()
+		Expect(Record(Keys.a).Timed[X].Fate).toBe(Fate.Aborted)
+		Expect(Record(Keys.d).Timed[X].Fate).toBe(Fate.Fenced)
+		Expect(Record(Keys.d).Timed[X].Final).toBe(true)
+		Expect(Keys.b).toBeNil()
+	end)
+
+	Test("a retry of a game name on another server that commits while the first call's Tent met no key keeps money whole", function()
+		local Keys: Keys = { a = Seed(50), d = Seed(1) }
+		local function Start(Server: number): (Machine.Call<Tx.Context, any>, { Machine.Asked })
+			local Use: Tx.Use = { Name = "order-1", Stamp = NOW, Print = 5 }
+			local Legs = { Leg("a", { Field = 1, Amount = -5 }), Leg("b", { Field = 1, Amount = -5 }), Leg("d", { Field = 1, Amount = 10 }) }
+			return Machine.Start(Tx.Run, Tx.Context(Use, Legs, 3, Server), NOW)
+		end
+		local function Carry(Call: Machine.Call<Tx.Context, any>, Each: Machine.Asked): { Machine.Asked }
+			local Ask = Each.Ask
+			if Ask.Kind ~= "Send" then
+				return table.clone(Machine.Step(Call, Each.Id, Asks.Done(NOW)))
+			end
+			local Note = Step(Keys[Ask.Ref.Key], Ask.Request, NOW, DEFAULT)
+			if Note.Stored ~= nil then
+				Keys[Ask.Ref.Key] = Note.Stored
+			end
+			return table.clone(Machine.Step(Call, Each.Id, Asks.Noted(Note, NOW, Note.Stored ~= nil)))
+		end
+		local function All(Call: Machine.Call<Tx.Context, any>, Asked: { Machine.Asked }): { Machine.Asked }
+			local Next: { Machine.Asked } = {}
+			for _, Each in table.clone(Asked) do
+				for _, Made in Carry(Call, Each) do
+					table.insert(Next, Made)
+				end
+			end
+			return Next
+		end
+
+		local First, Tents = Start(3)
+		local Held = All(First, Tents)
+		Keys.b = Seed(20)
+		local Second, Again = Start(4)
+		local Commit = All(Second, Again)
+		local Resolves = All(Second, Commit)
+		Expect(Machine.AnswerOf(Second)).toBe(true)
+
+		local Late = All(First, Held)
+		while Late[1] do
+			Late = All(First, Late)
+		end
+		while Resolves[1] do
+			Resolves = All(Second, Resolves)
+		end
+		Expect(Gold(Keys.a) + Gold(Keys.b) + Gold(Keys.d)).toBe(71)
+		Expect(Gold(Keys.a)).toBe(45)
+		Expect(Gold(Keys.d)).toBe(11)
+		Expect((next(Record(Keys.a).Work))).toBeNil()
+		Expect((next(Record(Keys.b).Work))).toBeNil()
+	end)
+
+	Test("a Tent that meets no key after a run of it may have written fences the decider, and does not answer Missing", function()
+		local Call, Asked = Machine.Start(Tx.Run, Transfer(Book.Drawn(16, 42), 30), NOW)
+		local Next = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Why = "Missing" }, true))
+		Expect(Machine.StateOf(Call)).toBe("Fencing")
+		Expect(Machine.AnswerOf(Call)).toBeNil()
+		local Ask = Next[1].Ask
+		Expect(Ask.Kind == "Send" and Ask.Ref.Key == "d" and Ask.Request.Fence ~= nil).toBe(true)
+	end)
+
 	Test("a retry that finds its decision answers true and writes nothing", function()
 		local X = Book.Drawn(16, 5)
 		local Keys: Keys = { a = Seed(100), d = Seed(1) }

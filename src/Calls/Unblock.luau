@@ -9,8 +9,11 @@
 	The machine reads the mark's decider. A decision answers the end the writer carries to the mark's
 	key. A mark not decided is fenced once Blockers.Due allows. For a mark older than the writer's
 	op, that is after a wait until the mark is Windows.SETTLE old. The fence's report then decides
-	it. A read or a fence that fails, and a decider that holds no value, answer nothing, and the
-	writer asks again at its next blocked send.
+	it. A read or a fence that fails answers nothing, and so does a decider that holds no value or a
+	seal, until a read asked Windows.ORPHAN past the mark's stamp shows it. That read is the orphan
+	evidence of transaction 5.1, and the machine answers the mark's orphan end. A fence that says
+	missing is not evidence, since a run may read an old version. The writer asks again at its next
+	blocked send.
 
 	Return type: The Unblock module, and the Context type.
 	Example usage:
@@ -27,6 +30,7 @@ export type Context = {
 	read Blocker: Blockers.Blocker,
 	read Stamp: number,
 	read Name: string,
+	ReadAt: number?,
 	End: Requests.End?,
 }
 
@@ -60,16 +64,27 @@ local function Judged(Call: Call, Decided: Blockers.Decision?): string
 	return if Blockers.Due(Context.Blocker, Context.Stamp, Context.Name, Call.Now) then WORD.Due else WORD.Early
 end
 
+local function IsOrphanEvidence(Context: Context): boolean
+	local ReadAt = Context.ReadAt
+	return ReadAt ~= nil and ReadAt - Context.Blocker.Item.Stamp >= Windows.ORPHAN
+end
+
 local function Read(Call: Call)
+	Call.Context.ReadAt = Call.Now
 	Machine.Ask(Call, Asks.Read(Call.Context.Blocker.Item.Decider))
 end
 
 local function HearRead(Call: Call): string
-	local Reply = Machine.Reply(Call)
+	local Context, Reply = Call.Context, Machine.Reply(Call)
 	if Reply.Said == Asks.SAID.Failed then
 		return WORD.Nothing
 	end
-	return Judged(Call, Blockers.Read(Reply.Value, Call.Context.Blocker))
+	local Decided = Blockers.Read(Reply.Value, Context.Blocker)
+	if Decided and Decided.Gone and IsOrphanEvidence(Context) then
+		Context.End = Blockers.End(Context.Blocker, Requests.Outcome.Orphan, Decided.Attempt)
+		return WORD.Decided
+	end
+	return Judged(Call, Decided)
 end
 
 local function Wait(Call: Call)

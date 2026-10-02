@@ -7,12 +7,15 @@
 	Spec: transaction 5.1. Model: Tx.tla, the tread and tver steps of Steps.
 
 	Mark reads the mark's decider, and a decision resolves the mark on its key. A mark that is not
-	decided is fenced once it is FenceAfter seconds old, and the fence's report decides it. A decider
-	that holds no value decides nothing until the mark is Windows.ORPHAN old, and then the mark ends
-	as an orphan. Pinned resolves the record's use as committed on every leg key, all at once. It
-	drops the record on its decider only once each leg key is resolved, or reads gone past
-	Windows.ORPHAN. The drop then carries a named return of the first leg key that read gone. Each
-	machine answers true once a write ended the item, and false when it could not.
+	decided is fenced once it is FenceAfter seconds old, and the fence's report decides it. A read
+	that shows the decider with no value or a seal decides nothing unless it was asked once the mark
+	was Windows.ORPHAN old, and then the mark ends as an orphan. A fence that reports missing is no
+	evidence, since a run may read a version from before the key was made.
+
+	Pinned resolves the record's use as committed on every leg key, all at once. It drops the record
+	on its decider only once each leg key is resolved, or reads gone past Windows.ORPHAN. The drop
+	then carries a named return of the first leg key that read gone. Each machine answers true once
+	a write ended the item, and false when it could not.
 
 	Return type: The Touch module, with the machines Mark and Pinned, and the Context type.
 	Example usage:
@@ -32,6 +35,7 @@ export type Context = {
 	read Item: Book.Work,
 	read Ref: Book.Ref,
 	read FenceAfter: number,
+	ReadAt: number?,
 	End: Requests.End?,
 	Gone: Book.Ref?,
 }
@@ -67,6 +71,11 @@ local function Old(Call: Call): boolean
 	return Call.Now - Call.Context.Item.Stamp >= Windows.ORPHAN
 end
 
+local function IsOrphanEvidence(Context: Context): boolean
+	local ReadAt = Context.ReadAt
+	return ReadAt ~= nil and ReadAt - Context.Item.Stamp >= Windows.ORPHAN
+end
+
 local function Answered(Ended: boolean): (Call: Call) -> string
 	return function(Call: Call): string
 		Machine.Answer(Call, Ended)
@@ -80,7 +89,7 @@ local function Judge(Call: Call, Decided: Blockers.Decision?): string
 	if Decided and Result then
 		Context.End = Blockers.End(Found(Context), Result, Decided.Attempt, Decided.Value)
 		return WORD.Decided
-	elseif Decided and Decided.Gone and Old(Call) then
+	elseif Decided and Decided.Gone and IsOrphanEvidence(Context) then
 		Context.End = Blockers.End(Found(Context), Outcome.Orphan, Decided.Attempt)
 		return WORD.Decided
 	end
@@ -88,6 +97,7 @@ local function Judge(Call: Call, Decided: Blockers.Decision?): string
 end
 
 local function Read(Call: Call)
+	Call.Context.ReadAt = Call.Now
 	Machine.Ask(Call, Asks.Read(Found(Call.Context).Item.Decider))
 end
 
@@ -109,7 +119,11 @@ local function Wound(Call: Call)
 end
 
 local function HearWound(Call: Call): string
-	return Judge(Call, Blockers.Fenced(Machine.Reply(Call).Note, Found(Call.Context)))
+	local Decided = Blockers.Fenced(Machine.Reply(Call).Note, Found(Call.Context))
+	if Decided and Decided.Outcome then
+		return Judge(Call, Decided)
+	end
+	return Asks.SAID.Done
 end
 
 local function Resolve(Call: Call)
