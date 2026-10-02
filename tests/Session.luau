@@ -12,6 +12,7 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Answer = require("../src/Core/Answer")
 local Game = require("./Gold")
@@ -24,7 +25,6 @@ local Session = require("../src/Store/Session")
 local Step = require("../src/Record/Step")
 local Types = require("../src/Record/Types")
 local View = require("../src/Record/View")
-local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
@@ -78,10 +78,10 @@ Describe("Session", function()
 	end)
 
 	Test("an op a mark on the view could decide answers Busy, and one it cannot is queued", function()
-		local function Viewed(Leg: Types.Leg): (View.View, unknown)
-			local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 100 } }
+		local function Viewed(Leg: Requests.Leg): (View.View, unknown)
+			local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 100 } }
 			local Key = Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, Game.DEFAULT).Stored
-			local Tent: Types.Tent = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Decider = { Store = "Gold", Key = "d" }, Leg = Leg }
+			local Tent: Requests.Tent = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Decider = { Store = "Gold", Key = "d" }, Leg = Leg }
 			Key = Step(Key, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tent = Tent }, NOW, Game.DEFAULT).Stored
 			return View.Read(Key, Game.DEFAULT) :: View.View, Key
 		end
@@ -89,7 +89,7 @@ Describe("Session", function()
 		local Player = Session.New(Shared, Held("46"), Marked, false, NOW)
 		Expect(Player:Apply("Add", { Add = -30 })).toBe(true)
 		Expect(Player:Apply("Add", { Add = -20 })).toBe(Answer.Busy)
-		local End: Types.End = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Outcome = "Abort" }
+		local End: Requests.End = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Outcome = "Abort" }
 		local Cleared = Step(Key, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }, NOW, Game.DEFAULT).Stored
 		Player:Adopt(View.Read(Cleared, Game.DEFAULT) :: View.View)
 		Expect(Player:Apply("Add", { Add = -20 })).toBe(true)
@@ -107,11 +107,11 @@ Describe("Session", function()
 
 	Test("a push is due after SAVE while ops wait, and an idle read after IDLE when none do", function()
 		local Player = Open()
-		Expect(Player:Due(NOW + Windows.IDLE)).toBe(Session.DUE.Read)
-		Player:Read(NOW + Windows.IDLE)
+		Expect(Player:Due(NOW + Session.IDLE)).toBe(Session.DUE.Read)
+		Player:Read(NOW + Session.IDLE)
 		Player:Apply("Add", { Add = 1 })
-		Expect(Player:Due(NOW + Windows.SAVE - 1)).toBeNil()
-		Expect(Player:Due(NOW + Windows.SAVE)).toBe(Session.DUE.Push)
+		Expect(Player:Due(NOW + Session.SAVE - 1)).toBeNil()
+		Expect(Player:Due(NOW + Session.SAVE)).toBe(Session.DUE.Push)
 	end)
 end)
 

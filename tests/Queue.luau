@@ -13,11 +13,11 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Answer = require("../src/Core/Answer")
 local Book = require("../src/Record/Book")
 local Game = require("./Gold")
-local Limits = require("../src/Core/Constants/Limits")
 local Queue = require("../src/Record/Queue")
 local Step = require("../src/Record/Step")
 local Types = require("../src/Record/Types")
@@ -41,7 +41,7 @@ local function New(Id: number): Held
 	return Queue.New({ Store = "Gold", Key = "42" }, Game.DEFAULT, Id, nil, NOW)
 end
 
-local function Runs(Request: Types.Request, Clock: number, ...: unknown): (Types.Note, { [number]: true }, unknown)
+local function Runs(Request: Requests.Request, Clock: number, ...: unknown): (Types.Note, { [number]: true }, unknown)
 	local Ran: { [number]: true } = {}
 	local Note: Types.Note? = nil
 	local After: unknown = nil
@@ -219,12 +219,12 @@ Describe("Queue", function()
 
 	Test("past SEQ_MAX an op waits unnumbered until every numbered op is heard, and a renewed queue counts from 1", function()
 		local Kept = New(1)
-		Kept.Next = Limits.SEQ_MAX
+		Kept.Next = Queue.SEQ_MAX
 		Queue.Push(Kept, Asked(1))
 		local Waiting = assert(Queue.Push(Kept, Asked(2)))
 		local Request = assert(Queue.Build(Kept, NOW))
 		Expect(#Request.Ops).toBe(1)
-		Expect(Request.Ops[1].Seq).toBe(Limits.SEQ_MAX)
+		Expect(Request.Ops[1].Seq).toBe(Queue.SEQ_MAX)
 		Expect(Waiting.Seq).toBeNil()
 		local Note, Ran, Key = Runs(Request, NOW, nil)
 		Expect(Replies(Queue.Learn(Kept, Request, Note, Ran, NOW))).toBe(Similar({ true }))

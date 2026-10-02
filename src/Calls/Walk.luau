@@ -2,33 +2,28 @@
 --!optimize 2
 
 --[=[
-
 	Walk: Machine. Takes or holds units of a split quantity on at most one of its parts.
 
 	Spec: hot keys 2.4 and 2.5. Model: Hot.tla, SendOp and Hear.
 
-	Choosing orders the parts. Under a game name the order is the name's hash and then each next part,
-	the same on every server. Each step sends under a sub name, the name and the part's alphabet
-	character. Under drawn names the server's home part goes first, then the parts its view shows
-	with the most free units. A part the view shows sealed, closed or short is left out, and at most
-	Limits.PROBES parts are tried. Each step takes a fresh drawn name. A call given Only tries that
-	one part. The view trusts a part it saw short for Windows.VIEW_AGE, and one it saw sealed or
-	closed for ever. Each refusal a step hears goes into the view.
+	Under a game name the order of the parts is the name's hash and then each next part, the same on
+	every server. Each step sends under a sub name, the name and the part's alphabet character. Under
+	drawn names the server's home part goes first, then the parts its view shows with the most free
+	units, at most Parts.PROBES in all, and each step takes a fresh drawn name. The view trusts a
+	part it saw short for Parts.VIEW_AGE, and one it saw sealed or closed for ever. A drawn walk
+	leaves such a part out. A game name never answers from memory: it sends such a part a final fence
+	in place of a try.
 
-	Trying runs one transaction whose decider is the part, with the game's legs. Under a game name,
-	a part the view shows sealed, closed or short gets a final fence in place of a try. A step goes
-	on to the next part only on a definite no. That is the part's own refusal, or a fence that
-	reported fenced. A commit answers true with the part. Missing answers Missing, and every other
-	answer stops the walk with it. Under drawn names a part the view shows sealed or closed counts
-	as known. A walk that tried nothing then answers SoldOut from memory when every part is known. A
-	drawn walk that tried nothing otherwise answers Busy. A game name never answers from memory. A
-	commit's result carries the decider value and the part's state, when it heard them. After the
-	last part, the walk answers SoldOut when every part is known sealed or closed, and Short with
-	the last part's reason otherwise. Known keeps each part this walk heard sealed or closed.
+	A try is one transaction whose decider is the part, with the game's legs. The walk goes on to the
+	next part only on a definite no: the part's own refusal, or a fence that reported fenced. A
+	commit answers true with the part, the decider value and the part's state. Any other answer stops
+	the walk with it. After the last part, the walk answers SoldOut when every part is known sealed
+	or closed, and Short with the last part's reason otherwise. A drawn walk that tried nothing
+	answers Busy, or SoldOut when every part is known.
 
-	Return type: A table with Machine, Context and Sub. The types are Context, View and Result.
+	Return type: The Walk module, and the Context, View and Result types.
 	Example usage:
-		local Result = Runner.Run(Walk.Machine, Walk.Context(Declared, Body, Legs, Server), Places):Wait()
+		local Result = Runner.Run(Walk.Machine, Walk.Context(Declared, Body, Legs, Server, Home), Places):Wait()
 --]=]
 
 local Alphabet = require("../Encode/Alphabet")
@@ -36,13 +31,12 @@ local Answer = require("../Core/Answer")
 local Asks = require("../Machine/Asks")
 local Book = require("../Record/Book")
 local Hash = require("../Encode/Hash")
-local Limits = require("../Core/Constants/Limits")
 local Machine = require("../Machine/Machine")
 local Parts = require("../Record/Parts")
 local Queue = require("../Record/Queue")
+local Requests = require("../Record/Requests")
 local Tx = require("./Tx")
 local Types = require("../Record/Types")
-local Windows = require("../Core/Constants/Windows")
 
 export type View = {
 	read Free: number,
@@ -81,24 +75,16 @@ export type Context = {
 
 type Call = Machine.Call<Context, Result>
 
-local STATE: {
-	read Choosing: "Choosing",
-	read Trying: "Trying",
-	read Ending: "Ending",
-	read Done: "Done",
-} = {
-	Choosing = "Choosing",
-	Trying = "Trying",
-	Ending = "Ending",
-	Done = "Done",
+local STATE = {
+	Choosing = "Choosing" :: "Choosing",
+	Trying = "Trying" :: "Trying",
+	Ending = "Ending" :: "Ending",
+	Done = "Done" :: "Done",
 }
 
-local WORD: {
-	read Next: "Next",
-	read Stop: "Stop",
-} = {
-	Next = "Next",
-	Stop = "Stop",
+local WORD = {
+	Next = "Next" :: "Next",
+	Stop = "Stop" :: "Stop",
 }
 
 local Report = Types.Report
@@ -119,7 +105,7 @@ local function Dry(Context: Context, Index: number, Now: number): boolean
 	if Context.Known[Index] or (Seen and Seen.Shut) then
 		return true
 	end
-	return Seen ~= nil and Seen.Short and Now - Seen.At <= Windows.VIEW_AGE
+	return Seen ~= nil and Seen.Short and Now - Seen.At <= Parts.VIEW_AGE
 end
 
 local function Choose(Call: Call): string
@@ -149,12 +135,13 @@ local function Choose(Call: Call): string
 			table.insert(Order, Context.Home)
 		end
 		for _, Index in Others do
-			if #Order < Limits.PROBES then
+			if #Order < Parts.PROBES then
 				table.insert(Order, Index)
 			end
 		end
 	end
-	Context.Order, Context.Step = Order, 1
+	Context.Order = Order
+	Context.Step = 1
 	return if Order[1] then Asks.SAID.Done else WORD.Stop
 end
 
@@ -166,8 +153,8 @@ local function Try(Call: Call)
 	local Name = if Game then Walk.Sub(Game, Index) else Context.Names[Context.Step]
 	Context.Fencing = Game ~= nil and Dry(Context, Index, Call.Now)
 	if Context.Fencing then
-		local Fence: Types.Fence = { Name = Name, Stamp = Context.Stamp, Attempt = 1, Print = Context.Print, Final = true }
-		Machine.Ask(Call, Asks.Send(Part, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Fence = Fence }))
+		local Fence: Requests.Fence = { Name = Name, Stamp = Context.Stamp, Attempt = 1, Print = Context.Print, Final = true }
+		Machine.Ask(Call, Asks.Send(Part, Requests.Fence(Fence)))
 		return
 	end
 	local Legs = table.clone(Context.Legs)

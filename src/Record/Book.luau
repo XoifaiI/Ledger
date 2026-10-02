@@ -2,28 +2,22 @@
 --!optimize 2
 
 --[=[
-
 	Book: Logic. The record's bookkeeping, as an object and as the text in a key's b field.
 
 	Spec: record 2.2 and 2.3; transaction 2; cuts 2 and 3.4.
 
 	The text holds the fixed fields, then each room as a count and its items. Room stamps are stored
 	as offsets from the clock of the write. A drawn name is held behind DRAWN and stored as its
-	server number and counter. A named entry has a role: an op's name, a leg's fate or a decision,
-	stored with its kind. The work room holds escrow marks, exclusive marks and pinned records by
-	name. The gate holds the one cut in progress. The loss room holds events and at most two fold
-	slots. An event is a reset that destroyed money, or a named return of the orphan rule. A slot is
-	an exact sum per money field, kept as two limbs of Alphabet.LIMB. A seal is what an erase leaves
-	in place of the value: its cut, the server that sealed, rt, and the namings. Decode and
-	DecodeSeal refuse any text the encoders do not write, and give back nil for it. Version reads
-	only the format. The Width functions give the width of one item. LossFloor gives the least loss
-	room for a count of money fields. It holds two of the widest fold slots and one of the widest
-	reset events, as these encoders write them. Incarnation gives the id a key is made with.
+	server number and counter. A named entry has a role: an op's name, a leg's fate or a decision.
+	The work room holds escrow marks, exclusive marks and pinned records by name, and WorkForm names
+	the three. The gate holds the one cut in progress. The loss room holds events and at most
+	SLOTS_MAX fold slots. A slot is an exact sum per money field, kept as two limbs of Alphabet.LIMB.
+	A seal is what an erase leaves in place of the value. Decode and DecodeSeal give nil for any text
+	the encoders do not write. LossFloor is the least loss room for a count of money fields:
+	SLOTS_MAX of the widest slots and one of the widest reset events, measured with these encoders.
+	Every fate, role, cause and head bit here is stored, so none may change.
 
-	Return type: The Book class, with New, Decode, Drawn, Incarnation, Version, EntryWidth, NamedWidth,
-	WorkWidth, EventWidth, SlotWidth, LossFloor, EncodeSeal, DecodeSeal, Fate, Role, Cause, FORMAT and DRAWN, and
-	the methods Held and Encode. The types are Entry, Named, Ref, Escrow, Exclusive, Pinned, Work,
-	Gate, Event, Sum, Slot and Seal.
+	Return type: The Book class, and the types of its items.
 	Example usage:
 		local Again = Book.Decode(Record:Encode(Now))
 --]=]
@@ -33,6 +27,14 @@ local Limits = require("../Core/Constants/Limits")
 local Reader = require("../Encode/Reader")
 local Windows = require("../Core/Constants/Windows")
 local Writer = require("../Encode/Writer")
+
+local WorkForm = {
+	Escrow = "Escrow" :: "Escrow",
+	Exclusive = "Exclusive" :: "Exclusive",
+	Pinned = "Pinned" :: "Pinned",
+}
+
+export type WorkForm = keyof<typeof(WorkForm)>
 
 export type Fate = number
 
@@ -130,7 +132,6 @@ export type Seal = {
 
 type BookImpl = {
 	__index: BookImpl,
-	Held: (self: Book, Name: string) -> Named?,
 	New: () -> Book,
 	Decode: (Source: string) -> Book?,
 	Version: (Source: string) -> number?,
@@ -142,13 +143,24 @@ type BookImpl = {
 	EventWidth: (Item: Event, Now: number) -> number,
 	SlotWidth: (Item: Slot) -> number,
 	LossFloor: (Fields: number) -> number,
+	LossWidth: (Events: { Event }, Slots: { Slot }, Now: number) -> number,
 	EncodeSeal: (Item: Seal) -> string,
 	DecodeSeal: (Source: string) -> Seal?,
+	LegFate: (Stamp: number, Print: number?, Code: Fate, Attempt: number) -> Named,
+	Decision: (Stamp: number, Print: number?, Code: Fate, Attempt: number, Final: boolean?, Value: number?) -> Named,
+	Marks: (Room: { [string]: Work }) -> { [string]: Work },
+	Of: (Room: { [string]: Work }, Form: WorkForm) -> { [string]: Work },
+	AsMark: (Item: Work) -> (Escrow | Exclusive)?,
+	AsPinned: (Item: Work) -> Pinned?,
+	Address: (Held: Ref) -> string,
+	WorkForm: typeof(WorkForm),
 	Fate: { read Took: number, read Refused: number, read Full: number, read Fenced: number, read Aborted: number, read Turned: number },
 	Role: { read Op: number, read Leg: number, read Decision: number },
 	Cause: { read Reset: number, read Erase: number, read Returned: number, read Orphan: number },
 	FORMAT: number,
 	DRAWN: string,
+	SLOTS_MAX: number,
+	Held: (self: Book, Name: string) -> Named?,
 	Encode: (self: Book, Now: number) -> string,
 }
 
@@ -217,10 +229,18 @@ local EVENT_BASE64 = 4
 local EVENT_GAME = 8
 local EVENT_REF = 16
 local SLOTS_MAX = 2
+local SLOT_COUNT_WIDTH = 1
 local OFF_ALPHABET = "!"
 
 local Book = {} :: BookImpl
 Book.__index = Book
+Book.WorkForm = WorkForm
+Book.Fate = Fate
+Book.Role = Role
+Book.Cause = Cause
+Book.FORMAT = FORMAT
+Book.DRAWN = DRAWN
+Book.SLOTS_MAX = SLOTS_MAX
 
 local function PutNamed(Text: Writer.Writer, Name: string, Item: Named, Now: number)
 	local Game = Item.Print ~= nil
@@ -304,7 +324,7 @@ local function PutWork(Text: Writer.Writer, Name: string, Item: Work, Now: numbe
 	if Game then
 		Head += GAME
 	end
-	if Item.Form == "Pinned" then
+	if Item.Form == WorkForm.Pinned then
 		Head += PINNED
 		Writer.Var(Text, #Item.Legs)
 		for _, Leg in Item.Legs do
@@ -315,12 +335,12 @@ local function PutWork(Text: Writer.Writer, Name: string, Item: Work, Now: numbe
 			Writer.Var(Text, Item.Value)
 		end
 	else
-		Head += if Item.Form == "Escrow" then ESCROW else EXCLUSIVE
+		Head += if Item.Form == WorkForm.Escrow then ESCROW else EXCLUSIVE
 		if Item.Clean then
 			Head += CLEAN
 		end
 		PutRef(Text, Item.Decider)
-		if Item.Form == "Escrow" then
+		if Item.Form == WorkForm.Escrow then
 			Writer.Var(Text, Item.Field)
 			Writer.Signed(Text, Item.Amount)
 		elseif Item.Slot then
@@ -427,7 +447,7 @@ local function PutLosses(Text: Writer.Writer, Events: { Event }, Slots: { Slot }
 	for _, Item in Events do
 		PutEvent(Text, Item, Now)
 	end
-	Writer.Fixed(Text, #Slots, 1)
+	Writer.Fixed(Text, #Slots, SLOT_COUNT_WIDTH)
 	for _, Item in Slots do
 		PutSlot(Text, Item)
 	end
@@ -503,12 +523,12 @@ local function TakeWork(Text: Reader.Reader, Now: number): { [string]: Work }
 				Legs[Index] = TakeRef(Text)
 			end
 			local Value = if bit32.btest(Head, VALUE) then Reader.Var(Text) else nil
-			Room[Name] = { Form = "Pinned", Stamp = Stamp, Attempt = Attempt, Print = Print, Legs = Legs, Value = Value }
+			Room[Name] = { Form = WorkForm.Pinned, Stamp = Stamp, Attempt = Attempt, Print = Print, Legs = Legs, Value = Value }
 		elseif Form == ESCROW and not bit32.btest(Head, VALUE) then
 			local Decider = TakeRef(Text)
 			local Field = Reader.Var(Text)
 			Room[Name] = {
-				Form = "Escrow",
+				Form = WorkForm.Escrow,
 				Stamp = Stamp,
 				Attempt = Attempt,
 				Print = Print,
@@ -527,7 +547,7 @@ local function TakeWork(Text: Reader.Reader, Now: number): { [string]: Work }
 				end
 				Slot = Steps
 			end
-			Room[Name] = { Form = "Exclusive", Stamp = Stamp, Attempt = Attempt, Print = Print, Clean = Clean, Decider = Decider, Slot = Slot }
+			Room[Name] = { Form = WorkForm.Exclusive, Stamp = Stamp, Attempt = Attempt, Print = Print, Clean = Clean, Decider = Decider, Slot = Slot }
 		else
 			error(`Book: {Head} is not the head of a work item`, 0)
 		end
@@ -606,7 +626,7 @@ local function TakeLosses(Text: Reader.Reader, Now: number): ({ Event }, { Slot 
 		table.insert(Events, { Cause = Head % CAUSES, Name = Name, Stamp = Stamp, Amounts = Amounts, Ref = Ref })
 	end
 	local Slots: { Slot } = {}
-	local Count = Reader.Fixed(Text, 1)
+	local Count = Reader.Fixed(Text, SLOT_COUNT_WIDTH)
 	if Count > SLOTS_MAX then
 		error("Book: more fold slots than a loss room keeps", 0)
 	end
@@ -734,6 +754,17 @@ function Book.SlotWidth(Item: Slot): number
 	return Scratch.Cursor
 end
 
+function Book.LossWidth(Events: { Event }, Slots: { Slot }, Now: number): number
+	local Total = COUNT_WIDTH + SLOT_COUNT_WIDTH
+	for _, Item in Events do
+		Total += Book.EventWidth(Item, Now)
+	end
+	for _, Item in Slots do
+		Total += Book.SlotWidth(Item)
+	end
+	return Total
+end
+
 function Book.LossFloor(Fields: number): number
 	local Amounts: { [number]: number } = {}
 	local Sums: { [number]: Sum } = {}
@@ -766,6 +797,52 @@ end
 
 function Book.Incarnation(Server: number, Counter: number): string
 	return string.sub(Book.Drawn(Server, Counter), #DRAWN + 1)
+end
+
+function Book.LegFate(Stamp: number, Print: number?, Code: Fate, Attempt: number): Named
+	return { Kind = 0, Role = Role.Leg, Stamp = Stamp, Fate = Code, Attempt = Attempt, Print = Print }
+end
+
+function Book.Decision(Stamp: number, Print: number?, Code: Fate, Attempt: number, Final: boolean?, Value: number?): Named
+	return { Kind = 0, Role = Role.Decision, Stamp = Stamp, Fate = Code, Attempt = Attempt, Print = Print, Final = if Final then true else nil, Value = Value }
+end
+
+function Book.Marks(Room: { [string]: Work }): { [string]: Work }
+	local Found: { [string]: Work } = {}
+	for Name, Item in Room do
+		if Item.Form ~= WorkForm.Pinned then
+			Found[Name] = Item
+		end
+	end
+	return Found
+end
+
+function Book.Of(Room: { [string]: Work }, Form: WorkForm): { [string]: Work }
+	local Found: { [string]: Work } = {}
+	for Name, Item in Room do
+		if Item.Form == Form then
+			Found[Name] = Item
+		end
+	end
+	return Found
+end
+
+function Book.AsMark(Item: Work): (Escrow | Exclusive)?
+	if Item.Form == WorkForm.Pinned then
+		return nil
+	end
+	return Item
+end
+
+function Book.AsPinned(Item: Work): Pinned?
+	if Item.Form == WorkForm.Pinned then
+		return Item
+	end
+	return nil
+end
+
+function Book.Address(Held: Ref): string
+	return `{Held.Store}/{Held.Key}`
 end
 
 function Book.Held(self: Book, Name: string): Named?
@@ -805,11 +882,5 @@ function Book.Encode(self: Book, Now: number): string
 	PutLosses(Text, self.Events, self.Slots, Now)
 	return Writer.Finish(Text)
 end
-
-Book.Fate = Fate
-Book.Role = Role
-Book.Cause = Cause
-Book.FORMAT = FORMAT
-Book.DRAWN = DRAWN
 
 return Book

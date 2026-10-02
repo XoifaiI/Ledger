@@ -2,29 +2,28 @@
 --!optimize 2
 
 --[=[
-
 	Total: Machine. Answers a total, and keeps its summary item while this server holds it.
 
 	Spec: extras 2.4, 2.5 and 4. Model: Tot.tla, the reads rd[s] and Answer.
 
-	The answer is the sum of each value of the pairs, a list as wide as the kind's pairs.
-	Checking answers the sum of this server's pairs when every shard has one and its last full view
-	is within MaxAge. Fetching gets the summary item and merges its pairs by write count. When every
-	shard then has a pair it answers the sum and notes its full view. An item of a newer format
-	answers Behind, and an item that lacks a shard reads the shards that have no pair. With no item,
-	or with its map failing, a server that read every shard within Windows.DOWN answers from its own
-	pairs. Any other server reads every shard. Reading merges each shard it read and answers the
-	sum, or Unresolved while a shard has no pair. A missing item makes this server a taker once it
-	has answered. So does an item whose holder's lease is past by Lapse on this server's clock. A
-	server that holds the total already does not take it. Refreshing reads every shard, unless it
-	read them all within Windows.REFRESH. Summarizing merges the pairs into the item by write count.
-	It names this server the holder until Windows.LEASE past its clock. The transform cancels while
-	another holder's lease is ahead. A holder refreshes again every Windows.REFRESH while this
-	server read the total within Windows.HOLDING. A shard read that shows an entry Windows.PRUNE_AGE
-	old sends that shard one tidy after the answer. It sends at most one tidy per shard per
-	Windows.PRUNE_AGE. No pair is ever a sum this server made up: each is one its shard held.
+	The answer is the sum of each value of the pairs, a list as wide as the kind's pairs. No pair is
+	ever a sum this server made up: each is one its shard held. The machine answers from this
+	server's pairs when every shard has one and its last full view is within MaxAge. Else it gets the
+	summary item and merges its pairs by write count. An item of a newer format answers Behind, and
+	an item that lacks a shard reads the shards that have no pair. With no item, or with its map
+	failing, a server that read every shard within Shards.DOWN answers from its own pairs, and any
+	other server reads every shard. A sum is Unresolved while a shard has no pair.
 
-	Return type: A table with Machine and Context. The type is Context.
+	The machine runs on after it answers. A missing item makes this server a taker, and so does an
+	item whose holder's lease is past by Lapse on this server's clock. A server that holds the total
+	already does not take it. A taker reads every shard, unless it read them all within
+	Windows.REFRESH, and merges its pairs into the item. The item names this server the holder until
+	Windows.LEASE past its clock, and its transform cancels while another holder's lease is ahead. A
+	holder refreshes every Windows.REFRESH while this server read the total within Shards.HOLDING. A
+	shard read that shows an entry Shards.PRUNE_AGE old sends that shard one tidy, at most one per
+	shard per Shards.PRUNE_AGE.
+
+	Return type: The Total module, and the Context type.
 	Example usage:
 		local Sum = Runner.Run(Total.Machine, Total.Context(Held, 60, Server, Lapse), Places):Wait()
 --]=]
@@ -33,14 +32,14 @@ local Answer = require("../Core/Answer")
 local Asks = require("../Machine/Asks")
 local Book = require("../Record/Book")
 local Machine = require("../Machine/Machine")
-local Totals = require("../Record/Totals")
-local Types = require("../Record/Types")
+local Requests = require("../Record/Requests")
+local Shards = require("../Record/Shards")
 local Windows = require("../Core/Constants/Windows")
 
 type Said = { number } | Answer.Answer
 
 export type Context = {
-	read Held: Totals.Held,
+	read Held: Shards.Held,
 	read MaxAge: number,
 	read Server: number,
 	read Lapse: number,
@@ -53,50 +52,33 @@ export type Context = {
 
 type Call = Machine.Call<Context, Said>
 
-local STATE: {
-	read Checking: "Checking",
-	read Fetching: "Fetching",
-	read Reading: "Reading",
-	read Tidying: "Tidying",
-	read Refreshing: "Refreshing",
-	read Summarizing: "Summarizing",
-	read Holding: "Holding",
-	read Done: "Done",
-} =
-	{
-		Checking = "Checking",
-		Fetching = "Fetching",
-		Reading = "Reading",
-		Tidying = "Tidying",
-		Refreshing = "Refreshing",
-		Summarizing = "Summarizing",
-		Holding = "Holding",
-		Done = "Done",
-	}
+local STATE = {
+	Checking = "Checking" :: "Checking",
+	Fetching = "Fetching" :: "Fetching",
+	Reading = "Reading" :: "Reading",
+	Tidying = "Tidying" :: "Tidying",
+	Refreshing = "Refreshing" :: "Refreshing",
+	Summarizing = "Summarizing" :: "Summarizing",
+	Holding = "Holding" :: "Holding",
+	Done = "Done" :: "Done",
+}
 
-local WORD: {
-	read Fresh: "Fresh",
-	read Whole: "Whole",
-	read Partial: "Partial",
-	read Missing: "Missing",
-	read Down: "Down",
-	read Behind: "Behind",
-} = {
-	Fresh = "Fresh",
-	Whole = "Whole",
-	Partial = "Partial",
-	Missing = "Missing",
-	Down = "Down",
-	Behind = "Behind",
+local WORD = {
+	Fresh = "Fresh" :: "Fresh",
+	Whole = "Whole" :: "Whole",
+	Partial = "Partial" :: "Partial",
+	Missing = "Missing" :: "Missing",
+	Down = "Down" :: "Down",
+	Behind = "Behind" :: "Behind",
 }
 
 local Total = {}
 
-local function Ref(Held: Totals.Held, Index: number): Book.Ref
-	return { Store = Held.Place, Key = Totals.Key(Held.Name, Held.Shards, Index, Held.Kind.Prefix) }
+local function Ref(Held: Shards.Held, Index: number): Book.Ref
+	return { Store = Held.Place, Key = Shards.Key(Held.Name, Held.Shards, Index, Held.Kind.Prefix) }
 end
 
-local function Every(Held: Totals.Held): { number }
+local function Every(Held: Shards.Held): { number }
 	local Found: { number } = {}
 	for Index = 0, Held.Shards - 1 do
 		table.insert(Found, Index)
@@ -104,7 +86,7 @@ local function Every(Held: Totals.Held): { number }
 	return Found
 end
 
-local function Lacking(Held: Totals.Held): { number }
+local function Lacking(Held: Shards.Held): { number }
 	local Found: { number } = {}
 	for Index = 0, Held.Shards - 1 do
 		if Held.Pairs[Index] == nil then
@@ -115,16 +97,17 @@ local function Lacking(Held: Totals.Held): { number }
 end
 
 local function Claim(Context: Context)
-	local Held = Context.Held
-	if not Held.Holding then
-		Held.Holding, Context.Refresh, Context.Owns = true, true, true
+	if Shards.StartHolding(Context.Held) then
+		Context.Refresh = true
+		Context.Owns = true
 	end
 end
 
 local function Release(Call: Call): string
 	local Context = Call.Context
 	if Context.Owns then
-		Context.Held.Holding, Context.Owns = false, false
+		Shards.StopHolding(Context.Held)
+		Context.Owns = false
 	end
 	return STATE.Done
 end
@@ -135,7 +118,7 @@ local function After(Call: Call): string
 		return STATE.Tidying
 	elseif Context.Refresh then
 		Context.Refresh = false
-		return if Totals.Recent(Context.Held, Call.Now, Windows.REFRESH) then STATE.Summarizing else STATE.Refreshing
+		return if Shards.Recent(Context.Held, Call.Now, Windows.REFRESH) then STATE.Summarizing else STATE.Refreshing
 	elseif Context.Holder then
 		return STATE.Holding
 	end
@@ -146,8 +129,8 @@ local function Check(Call: Call): string
 	local Context = Call.Context
 	local Held = Context.Held
 	local Seen = Held.Seen
-	local Sum = Totals.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
-	Held.Called = Call.Now
+	local Sum = Shards.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
+	Shards.NoteCall(Held, Call.Now)
 	if Sum and Seen and Call.Now - Seen <= Context.MaxAge then
 		Machine.Answer(Call, Sum)
 		return WORD.Fresh
@@ -170,20 +153,20 @@ local function Fetched(Call: Call): string
 		Context.Asked = Every(Held)
 		return WORD.Missing
 	end
-	local Found = Totals.Read(Reply.Value, Held.Shards, Held.Kind.Width)
+	local Found = Shards.Read(Reply.Value, Held.Shards, Held.Kind.Width)
 	if Found == "Behind" then
 		Machine.Answer(Call, Answer.Behind)
 		return WORD.Behind
 	end
 	for Index, Pair in Found or {} do
-		Totals.Take(Held, Index, Pair)
+		Shards.Take(Held, Index, Pair)
 	end
-	if Totals.Lapsed(Reply.Value, Call.Now, Context.Lapse) then
+	if Shards.Lapsed(Reply.Value, Call.Now, Context.Lapse) then
 		Claim(Context)
 	end
-	local Sum = Totals.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
+	local Sum = Shards.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
 	if Sum then
-		Held.Seen = Call.Now
+		Shards.NoteFullView(Held, Call.Now)
 		Machine.Answer(Call, Sum)
 		return WORD.Whole
 	end
@@ -194,8 +177,8 @@ end
 local function Down(Call: Call): string
 	local Context = Call.Context
 	local Held = Context.Held
-	local Sum = Totals.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
-	if Sum and Totals.Recent(Held, Call.Now, Windows.DOWN) then
+	local Sum = Shards.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
+	if Sum and Shards.Recent(Held, Call.Now, Shards.DOWN) then
 		Machine.Answer(Call, Sum)
 		return STATE.Done
 	end
@@ -216,11 +199,8 @@ local function Merge(Call: Call)
 	for Order, Index in Context.Asked do
 		local Reply = Call.Heard[Order]
 		if Reply and Reply.Said ~= Asks.SAID.Failed then
-			Totals.Take(Held, Index, Totals.Pair(Reply.Value, Held.Kind))
-			Held.Read[Index] = Reply.Now
-			local Tidied = Held.Tidied[Index]
-			if Totals.Untidy(Reply.Value, Reply.Now) and (Tidied == nil or Reply.Now - Tidied >= Windows.PRUNE_AGE) then
-				Held.Tidied[Index] = Reply.Now
+			Shards.TakeRead(Held, Index, Reply.Value, Reply.Now)
+			if Shards.StartTidy(Held, Index, Reply.Value, Reply.Now) then
 				table.insert(Context.Tidy, Index)
 			end
 		end
@@ -230,9 +210,9 @@ end
 local function Gathered(Call: Call): string
 	Merge(Call)
 	local Held = Call.Context.Held
-	local Sum = Totals.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
+	local Sum = Shards.Sum(Held.Pairs, Held.Shards, Held.Kind.Width)
 	if Sum then
-		Held.Seen = Call.Now
+		Shards.NoteFullView(Held, Call.Now)
 	end
 	Machine.Answer(Call, Sum or Answer.Unresolved)
 	return Asks.SAID.Done
@@ -241,8 +221,7 @@ end
 local function Tidy(Call: Call)
 	local Context = Call.Context
 	for _, Index in Context.Tidy do
-		local Request: Types.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tidy = true }
-		Machine.Ask(Call, Asks.Send(Ref(Context.Held, Index), Request))
+		Machine.Ask(Call, Asks.Send(Ref(Context.Held, Index), Requests.Tidy()))
 	end
 	table.clear(Context.Tidy)
 end
@@ -262,19 +241,19 @@ local function Summarize(Call: Call)
 	local Held, Now, Server = Context.Held, Call.Now, Context.Server
 	local Pairs = table.clone(Held.Pairs)
 	local function Transform(Current: unknown): unknown
-		return Totals.Summary(Current, Pairs, Held.Shards, Held.Kind.Width, Server, Now, Now + Windows.LEASE)
+		return Shards.Summary(Current, Pairs, Held.Shards, Held.Kind.Width, Server, Now, Now + Windows.LEASE)
 	end
-	Machine.Ask(Call, Asks.Change(Held.Map, Held.Item, Transform, Windows.SUMMARY))
+	Machine.Ask(Call, Asks.Change(Held.Map, Held.Item, Transform, Shards.SUMMARY))
 end
 
 local function Summarized(Call: Call): string
 	local Context, Reply = Call.Context, Machine.Reply(Call)
 	local Held = Context.Held
-	local Found = if Reply.Said == Asks.SAID.Failed then nil else Totals.Read(Reply.Value, Held.Shards, Held.Kind.Width)
+	local Found = if Reply.Said == Asks.SAID.Failed then nil else Shards.Read(Reply.Value, Held.Shards, Held.Kind.Width)
 	Context.Holder = type(Found) == "table"
 	if type(Found) == "table" then
 		for Index, Pair in Found do
-			Totals.Take(Held, Index, Pair)
+			Shards.Take(Held, Index, Pair)
 		end
 	end
 	return Asks.SAID.Done
@@ -286,7 +265,7 @@ end
 
 local function Held(Call: Call): string
 	local Context = Call.Context
-	if Call.Now - Context.Held.Called <= Windows.HOLDING then
+	if Call.Now - Context.Held.Called <= Shards.HOLDING then
 		return STATE.Refreshing
 	end
 	Context.Holder = false
@@ -337,7 +316,7 @@ local STATES: { [string]: Machine.State<Context, Said> } = {
 	[STATE.Done] = {},
 }
 
-function Total.Context(Held: Totals.Held, MaxAge: number, Server: number, Lapse: number): Context
+function Total.Context(Held: Shards.Held, MaxAge: number, Server: number, Lapse: number): Context
 	return {
 		Held = Held,
 		MaxAge = MaxAge,

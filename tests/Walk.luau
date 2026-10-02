@@ -16,7 +16,6 @@
 local Testing = require("./Testing")
 local Hash = require("../src/Encode/Hash")
 local Heard = require("./Heard")
-local Limits = require("../src/Core/Constants/Limits")
 local Machine = require("../src/Machine/Machine")
 local Parts = require("../src/Record/Parts")
 local Tx = require("../src/Calls/Tx")
@@ -159,7 +158,7 @@ Describe("Walk", function()
 		end)
 		local Keys: { string } = {}
 		local Names: { string } = {}
-		for _ = 1, Limits.PROBES do
+		for _ = 1, Parts.PROBES do
 			local Key, What = Asked(Steps[1])
 			table.insert(Keys, Key)
 			table.insert(Names, What)
@@ -170,7 +169,7 @@ Describe("Walk", function()
 		Expect(table.concat(Names, " ")).toBe("Run d1 Run d2 Run d3")
 		Expect((Machine.AnswerOf(Call) :: Walk.Result).Reply).toBe("Short")
 		Call, Steps, Context = Start(nil, 1)
-		for _ = 1, Limits.PROBES do
+		for _ = 1, Parts.PROBES do
 			Steps = Machine.Step(Call, Steps[1].Id, Refuse(Context, { Free = 0 }))
 		end
 		Expect(#Steps).toBe(0)

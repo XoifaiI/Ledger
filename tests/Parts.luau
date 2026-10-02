@@ -12,15 +12,14 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Game = require("./Gold")
 local Heard = require("./Heard")
 local Key = require("../src/Record/Key")
-local Limits = require("../src/Core/Constants/Limits")
 local Parts = require("../src/Record/Parts")
 local Step = require("../src/Record/Step")
 local Types = require("../src/Record/Types")
-local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
@@ -35,8 +34,8 @@ local Counter = 0
 local function Send(Current: unknown, Body: { [string]: any }, Using: Types.Build, At: number?, Name: string?): (unknown, Types.Note)
 	Counter += 1
 	local Clock = At or NOW
-	local Commit: Types.Commit = { Name = Name or `op{Counter}`, Stamp = Clock, Attempt = 1, Print = 1, Legs = {}, Leg = { Body = Body } }
-	local Request: Types.Request = { Writer = 0, Ack = 0, MustExist = Body.Kind ~= "Open", Ops = {}, Commit = Commit }
+	local Commit: Requests.Commit = { Name = Name or `op{Counter}`, Stamp = Clock, Attempt = 1, Print = 1, Legs = {}, Leg = { Body = Body } }
+	local Request: Requests.Request = { Writer = 0, Ack = 0, MustExist = Body.Kind ~= "Open", Ops = {}, Commit = Commit }
 	local Note = Step(Current, Request, Clock, Using)
 	return Note.Stored or Current, Note
 end
@@ -118,7 +117,7 @@ Describe("Parts", function()
 		local Value, Using = Opened(SWORDS, 2)
 		Value = Send(Value, Op("Hold", { Id = "h", Count = 2, End = NOW + 10 }), Using)
 		Expect(Part(Value).Free).toBe(0)
-		local Later = NOW + 10 + Windows.HOLD_SLACK + 1
+		local Later = NOW + 10 + Parts.HOLD_SLACK + 1
 		local Expired = Send(Value, Op("Release", { Id = "other" }), Using, Later)
 		Expect(Part(Expired).Free).toBe(2)
 		Expect(#Part(Expired).Holds).toBe(0)
@@ -136,11 +135,11 @@ Describe("Parts", function()
 
 	Test("a hold ending far past the longest hold expires at once, and a part keeps at most HOLDS_MAX holds", function()
 		local Value, Using = Opened(SWORDS, 2)
-		Value = Send(Value, Op("Hold", { Id = "far", Count = 1, End = NOW + Windows.HOLD_MAX + Windows.HOLD_SLACK + 1 }), Using)
+		Value = Send(Value, Op("Hold", { Id = "far", Count = 1, End = NOW + Parts.HOLD_MAX + Parts.HOLD_SLACK + 1 }), Using)
 		local Next = Send(Value, Op("Release", { Id = "none" }), Using)
 		Expect(Part(Next).Free).toBe(2)
 		local Full = Part(Next) :: any
-		Full.Holds = table.create(Limits.HOLDS_MAX, { Id = "x", Count = 0, End = NOW + 60 })
+		Full.Holds = table.create(Parts.HOLDS_MAX, { Id = "x", Count = 0, End = NOW + 60 })
 		Expect(Parts.Reason(Full, "Hold", 1, PRINT)).toBe("Holds")
 	end)
 
@@ -173,7 +172,7 @@ Describe("Parts", function()
 		local Again, Drawn = Send(Took, Op("Take", { Count = 1 }), Using)
 		Expect(Drawn.Value).toBe(103)
 		Again = Send(Again, Op("Hold", { Id = "g", Count = 1, End = NOW + 10 }), Using)
-		local Later = NOW + 10 + Windows.HOLD_SLACK + 1
+		local Later = NOW + 10 + Parts.HOLD_SLACK + 1
 		local Back, Fallback = Send(Again, Op("Confirm", { Id = "g", Count = 1 }), Using, Later)
 		Expect(Fallback.Value).toBe(105)
 		Expect(Part(Back).Sealed).toBe(true)
@@ -195,7 +194,7 @@ Describe("Parts", function()
 	Test("a delta moves units out of a closed or sealed part, and is refused moving any in", function()
 		local Value, Using = Opened(SWORDS, 1)
 		local function Shift(Current: unknown, Amount: number, Name: string): Types.Note
-			local Commit: Types.Commit = { Name = Name, Stamp = NOW, Attempt = 1, Print = 1, Legs = {}, Leg = { Field = 1, Amount = Amount } }
+			local Commit: Requests.Commit = { Name = Name, Stamp = NOW, Attempt = 1, Print = 1, Legs = {}, Leg = { Field = 1, Amount = Amount } }
 			return Step(Current, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Commit = Commit }, NOW, Using)
 		end
 		local Moved = Shift(Value, 2, "in")
@@ -203,7 +202,7 @@ Describe("Parts", function()
 		Expect(Part(Moved.Stored).Free).toBe(3)
 		local Closed = Send(Moved.Stored, Op("Close"), Using)
 		Expect(Shift(Closed, 1, "in2").Report).toBe("Refused")
-		local Tent: Types.Tent = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Decider = { Store = "Gold", Key = "d" }, Leg = { Field = 1, Amount = 1 } }
+		local Tent: Requests.Tent = { Name = "t", Stamp = NOW, Attempt = 1, Print = 1, Decider = { Store = "Gold", Key = "d" }, Leg = { Field = 1, Amount = 1 } }
 		Expect(Step(Closed, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tent = Tent }, NOW, Using).Report).toBe("Refused")
 		local Out = Shift(Closed, -3, "out")
 		Expect(Out.Report).toBe("Committed")

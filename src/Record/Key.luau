@@ -2,18 +2,16 @@
 --!optimize 2
 
 --[=[
-
-	Key: Logic. What a key holds.
+	Key: Logic. What a key's value holds, read and written.
 
 	Spec: record 2.1; cuts 3.4 and 3.5.
 
-	Read gives back the book, the state, the post diff of an exclusive mark, and the state a Reset
-	was given. It gives nil for an empty key. Else it gives why every op stops: Missing for a seal,
-	Behind for a newer format, and Corrupt otherwise. Seal gives back the seal a key holds in place
-	of its value, or nil. Store gives back the value to write, and Sealed the value that holds a
-	seal.
+	A value is { s, b, p, r }: the state, the book as text, the post diff of an exclusive mark, and
+	the state a Reset was given. An erased key holds { z }, a seal, in place of all four. Read gives
+	nil for an empty key. For a value no op can use, it gives why every op stops: Missing for a seal,
+	Behind for a newer format, and Corrupt otherwise.
 
-	Return type: A table with Read, Seal, Store and Sealed. The type is Found.
+	Return type: The Key module, and the Found type.
 	Example usage:
 		local Found = Key.Read(Current)
 --]=]

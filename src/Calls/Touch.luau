@@ -2,21 +2,19 @@
 --!optimize 2
 
 --[=[
-
 	Touch: Machine. Ends one item a transaction left on a key.
 
 	Spec: transaction 5.1. Model: Tx.tla, the tread and tver steps of Steps.
 
-	Mark reads the mark's decider. A decision resolves the mark on its key by that decision. A mark
-	that is not decided is fenced once it is FenceAfter seconds old, and the fence's report decides
-	it. A decider that holds no value decides nothing until the mark is Windows.ORPHAN old, and then
-	the mark ends as an orphan. Pinned resolves the record's use as committed on every leg key, all
-	at once. It drops the record on its decider once each leg key is resolved or reads gone past
-	Windows.ORPHAN. The drop carries a named return of the first leg key that read gone. Each
-	answers true once a write ended the item, and false when it could not. Known says whether this
-	server knows the store of every other key an item names.
+	Mark reads the mark's decider, and a decision resolves the mark on its key. A mark that is not
+	decided is fenced once it is FenceAfter seconds old, and the fence's report decides it. A decider
+	that holds no value decides nothing until the mark is Windows.ORPHAN old, and then the mark ends
+	as an orphan. Pinned resolves the record's use as committed on every leg key, all at once. It
+	drops the record on its decider only once each leg key is resolved, or reads gone past
+	Windows.ORPHAN. The drop then carries a named return of the first leg key that read gone. Each
+	machine answers true once a write ended the item, and false when it could not.
 
-	Return type: A table with Mark, Pinned, Known and Context. The type is Context.
+	Return type: The Touch module, with the machines Mark and Pinned, and the Context type.
 	Example usage:
 		local Ended = Runner.Run(Touch.Mark, Touch.Context(Name, Item, Ref, Windows.SETTLE), Places):Wait()
 --]=]
@@ -25,6 +23,7 @@ local Asks = require("../Machine/Asks")
 local Blockers = require("../Record/Blockers")
 local Book = require("../Record/Book")
 local Machine = require("../Machine/Machine")
+local Requests = require("../Record/Requests")
 local Types = require("../Record/Types")
 local Windows = require("../Core/Constants/Windows")
 
@@ -33,46 +32,35 @@ export type Context = {
 	read Item: Book.Work,
 	read Ref: Book.Ref,
 	read FenceAfter: number,
-	End: Types.End?,
+	End: Requests.End?,
 	Gone: Book.Ref?,
 }
 
 type Call = Machine.Call<Context, boolean>
 
-local STATE: {
-	read Reading: "Reading",
-	read Wounding: "Wounding",
-	read Resolving: "Resolving",
-	read Verifying: "Verifying",
-	read Dropping: "Dropping",
-	read Done: "Done",
-} = {
-	Reading = "Reading",
-	Wounding = "Wounding",
-	Resolving = "Resolving",
-	Verifying = "Verifying",
-	Dropping = "Dropping",
-	Done = "Done",
+local STATE = {
+	Reading = "Reading" :: "Reading",
+	Wounding = "Wounding" :: "Wounding",
+	Resolving = "Resolving" :: "Resolving",
+	Verifying = "Verifying" :: "Verifying",
+	Dropping = "Dropping" :: "Dropping",
+	Done = "Done" :: "Done",
 }
 
-local WORD: {
-	read Decided: "Decided",
-	read Due: "Due",
-	read Ended: "Ended",
-} = {
-	Decided = "Decided",
-	Due = "Due",
-	Ended = "Ended",
+local WORD = {
+	Decided = "Decided" :: "Decided",
+	Due = "Due" :: "Due",
+	Ended = "Ended" :: "Ended",
 }
 
-local Outcome = Types.Outcome
+local WorkForm = Book.WorkForm
+local Outcome = Requests.Outcome
 
 local Touch = {}
 
 local function Found(Context: Context): Blockers.Blocker
-	local Item = Context.Item
-	assert(Item.Form ~= "Pinned", "Touch: a pinned record is not a mark")
-	return { Name = Context.Name, Item = Item, Ref = Context.Ref }
+	local Mark = assert(Book.AsMark(Context.Item), "Touch: a pinned record is not a mark")
+	return { Name = Context.Name, Item = Mark, Ref = Context.Ref }
 end
 
 local function Old(Call: Call): boolean
@@ -127,7 +115,7 @@ end
 local function Resolve(Call: Call)
 	local Context = Call.Context
 	local End = assert(Context.End, "Touch: nothing to resolve")
-	Machine.Ask(Call, Asks.Send(Context.Ref, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }))
+	Machine.Ask(Call, Asks.Send(Context.Ref, Requests.Ends({ End })))
 end
 
 local function Written(Call: Call): string
@@ -138,17 +126,17 @@ end
 local function Verify(Call: Call)
 	local Context = Call.Context
 	local Item = Context.Item
-	assert(Item.Form == "Pinned", "Touch: a mark is not a pinned record")
-	local End: Types.End = { Name = Context.Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Outcome = Outcome.Commit, Value = Item.Value }
+	assert(Item.Form == WorkForm.Pinned, "Touch: a mark is not a pinned record")
+	local End: Requests.End = { Name = Context.Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Outcome = Outcome.Commit, Value = Item.Value }
 	for _, Ref in Item.Legs do
-		Machine.Ask(Call, Asks.Send(Ref, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }))
+		Machine.Ask(Call, Asks.Send(Ref, Requests.Ends({ End })))
 	end
 end
 
 local function Verified(Call: Call): string
 	local Context = Call.Context
 	local Item = Context.Item
-	assert(Item.Form == "Pinned", "Touch: a mark is not a pinned record")
+	assert(Item.Form == WorkForm.Pinned, "Touch: a mark is not a pinned record")
 	Context.Gone = nil
 	for Index, Reply in Call.Heard do
 		local Note = Reply.Note
@@ -165,9 +153,7 @@ end
 local function Drop(Call: Call)
 	local Context = Call.Context
 	local Gone = Context.Gone
-	local Request: Types.Request = if Gone
-		then { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Orphans = { { Name = Context.Name, Ref = Gone } } }
-		else { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Drops = { Context.Name } }
+	local Request: Requests.Request = if Gone then Requests.Ends(nil, nil, { { Name = Context.Name, Ref = Gone } }) else Requests.Ends(nil, { Context.Name })
 	Machine.Ask(Call, Asks.Send(Context.Ref, Request))
 end
 
@@ -217,12 +203,15 @@ local STATES: { [string]: Machine.State<Context, boolean> } = {
 }
 
 function Touch.Known(Item: Book.Work, Places: { [string]: any }): boolean
-	if Item.Form ~= "Pinned" then
-		return Places[Item.Decider.Store] ~= nil
+	local Mark = Book.AsMark(Item)
+	if Mark then
+		return Places[Mark.Decider.Store] ~= nil
 	end
-	for _, Ref in Item.Legs do
-		if Places[Ref.Store] == nil then
-			return false
+	if Item.Form == WorkForm.Pinned then
+		for _, Ref in Item.Legs do
+			if Places[Ref.Store] == nil then
+				return false
+			end
 		end
 	end
 	return true

@@ -11,6 +11,7 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Book = require("../src/Record/Book")
 local Game = require("./Gold")
@@ -21,7 +22,7 @@ local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect, Similar = Testing.Describe, Testing.Test, Testing.Expect, Testing.Similar
 
-type Op = Types.Op
+type Op = Requests.Op
 type Note = Types.Note
 
 local NOW = Game.NOW
@@ -33,15 +34,15 @@ local function Mint(Seq: number, Add: number, Stamp: number?): Op
 	return { Form = "Minted", Seq = Seq, Stamp = Stamp or NOW, Kind = 0, Body = { Add = Add } }
 end
 
-local function Named(Form: Types.Form, Seq: number, Name: string, Add: number, Stamp: number?, Print: number?): Op
+local function Named(Form: Requests.Form, Seq: number, Name: string, Add: number, Stamp: number?, Print: number?): Op
 	return { Form = Form, Seq = Seq, Stamp = Stamp or NOW, Kind = 1, Name = Name, Print = Print or 7, Body = { Add = Add } }
 end
 
-local function Request(Ops: { Op }, Ack: number?, Writer: number?): Types.Request
+local function Request(Ops: { Op }, Ack: number?, Writer: number?): Requests.Request
 	return { Writer = Writer or 1, Ack = Ack or 0, MustExist = false, Ops = Ops }
 end
 
-local function Land(Current: unknown, Asked: Types.Request, Clock: number?, Using: Types.Build?): (unknown, Note, boolean)
+local function Land(Current: unknown, Asked: Requests.Request, Clock: number?, Using: Types.Build?): (unknown, Note, boolean)
 	local Note = Step(Current, Asked, Clock or NOW, Using or DEFAULT)
 	local Value = Note.Stored
 	return if Value then Value else Current, Note, Value ~= nil
@@ -142,8 +143,8 @@ Describe("Step", function()
 	end)
 
 	Test("a Tent makes a key with the id it carries, and a Tent or Commit for another incarnation is Missing", function()
-		local Leg: Types.Leg = { Field = 1, Amount = 5 }
-		local function Tent(Name: string, Id: string?, Create: string?): Types.Request
+		local Leg: Requests.Leg = { Field = 1, Amount = 5 }
+		local function Tent(Name: string, Id: string?, Create: string?): Requests.Request
 			return {
 				Writer = 0,
 				Ack = 0,
@@ -158,7 +159,7 @@ Describe("Step", function()
 		local _, Other, Wrote = Land(Key, Tent("y", "i8"))
 		Expect(Other.Why).toBe("Missing")
 		Expect(Wrote).toBe(false)
-		local Commit: Types.Request = {
+		local Commit: Requests.Request = {
 			Writer = 0,
 			Ack = 0,
 			MustExist = true,
@@ -270,7 +271,7 @@ Describe("Step", function()
 
 	Test("a probe reports a held name's fate, is forgotten under the horizon, and otherwise lands deciding nothing", function()
 		local Key = Land(nil, Request({ Named("Timed", 1, "order", -99, NOW - 10) }))
-		local function Probe(Name: string, Stamp: number): Types.Request
+		local function Probe(Name: string, Stamp: number): Requests.Request
 			return { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Probe = { Name = Name, Stamp = Stamp } }
 		end
 		local Held = Step(Key, Probe("order", NOW - 10), NOW, DEFAULT)
@@ -285,8 +286,8 @@ Describe("Step", function()
 	end)
 
 	Test("a probe of a pinned use reports it took, and a probe of a standing mark is undecided and lands nothing", function()
-		local Probe: Types.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Probe = { Name = "order", Stamp = NOW } }
-		local Leg: Types.Leg = { Field = 1, Amount = 10 }
+		local Probe: Requests.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Probe = { Name = "order", Stamp = NOW } }
+		local Leg: Requests.Leg = { Field = 1, Amount = 10 }
 		local Pinned = Land(Land(nil, Request({ Mint(1, 1) })), {
 			Writer = 0,
 			Ack = 0,
@@ -312,12 +313,21 @@ Describe("Step", function()
 		Expect(Standing.Stored).toBeNil()
 	end)
 
-	Test("an untimed name past its window stays until its room is needed, and then goes oldest first", function()
+	Test("an untimed name past its window leaves at the next write that lands, and raises no horizon", function()
+		local Key = Land(nil, Request({ Named("Untimed", 1, "daily", 1) }))
+		Key = Land(Key, Request({ Mint(1, 1, NOW + 100) }, 0, 2), NOW + 100)
+		Expect(Record(Key).Untimed.daily).never.toBeNil()
+		local Horizon = Record(Key).Horizon
+		Key = Land(Key, Request({ Mint(2, 1, NOW + 200) }, 1, 2), NOW + 200)
+		Expect(Record(Key).Untimed.daily).toBeNil()
+		Expect(Record(Key).Horizon).toBe(Horizon)
+		Expect(Gold(Key)).toBe(3)
+	end)
+
+	Test("a full untimed room refuses a new name, and makes room from a name past its window in the write that needs it", function()
 		local Key = Land(nil, Request({ Named("Untimed", 1, "daily", 1) }))
 		local _, Early = Land(Key, Request({ Named("Untimed", 1, "weekly", 1) }, 0, 3), NOW, Build({ UntimedRoom = 14 }))
 		Expect(Early.Whys).toBe(Similar({ "NoRoom" }))
-		Key = Land(Key, Request({ Mint(1, 1, NOW + 200) }, 0, 2), NOW + 200)
-		Expect(Record(Key).Untimed.daily).never.toBeNil()
 		local Tight = Build({ UntimedRoom = 14 })
 		local After, Note = Land(Key, Request({ Named("Untimed", 1, "weekly", 1) }, 0, 3), NOW + 200, Tight)
 		Expect(Note.Fates).toBe(Similar({ Fate.Took }))

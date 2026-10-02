@@ -3,11 +3,11 @@
 --!native
 
 --[=[
-
 	Value: Plumbing. Checks that a datastore can hold a value, and counts its json bytes.
 
-	Check gives back the bytes, or nil and where the value cannot be stored. The count is never low.
-	A buffer counts its raw bytes, or what Compress gives back when there is one.
+	Check gives back the bytes, or nil and where the value cannot be stored. The count is never low,
+	so a value it passes under a cap is under the cap once stored. A buffer counts its raw bytes, or
+	what Compress gives back when there is one.
 
 	Return type: A table with Check.
 	Example usage:
@@ -21,6 +21,8 @@ local FRACTION_BYTES = 24
 local SMALL = 1e-5
 local BUFFER_WRAP = 35
 local COMPRESS_FROM = 4096
+local TRUE_BYTES = 4
+local FALSE_BYTES = 5
 
 local SEVENS = 0x7F7F7F7F
 local HIGH = 0x80808080
@@ -102,7 +104,7 @@ local function Walk(Item: unknown, Depth: number, Compress: ((Bytes: buffer) -> 
 		end
 		return StringBytes(Item :: string), nil
 	elseif Kind == "boolean" then
-		return if Item then 4 else 5, nil
+		return if Item then TRUE_BYTES else FALSE_BYTES, nil
 	elseif Kind == "buffer" then
 		return BufferBytes(Item :: buffer, Compress), nil
 	elseif Kind ~= "table" then

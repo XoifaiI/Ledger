@@ -12,12 +12,12 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Asks = require("../src/Machine/Asks")
 local Book = require("../src/Record/Book")
 local Clock = require("../src/Machine/Clock")
 local Game = require("./Gold")
-local Limits = require("../src/Core/Constants/Limits")
 local Machine = require("../src/Machine/Machine")
 local Replay = require("./Replay")
 local Step = require("../src/Record/Step")
@@ -25,7 +25,6 @@ local Resettle = require("../src/Calls/Resettle")
 local Shown = require("../src/Record/Shown")
 local Touch = require("../src/Calls/Touch")
 local Touches = require("../src/Record/Touches")
-local Types = require("../src/Record/Types")
 local View = require("../src/Record/View")
 local Windows = require("../src/Core/Constants/Windows")
 
@@ -43,17 +42,17 @@ local function Ref(Key: string): Book.Ref
 end
 
 local function Seed(Amount: number): unknown
-	local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
+	local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
 	return Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, DEFAULT).Stored
 end
 
-local function Put(Keys: Keys, Key: string, Asked: Types.Request)
+local function Put(Keys: Keys, Key: string, Asked: Requests.Request)
 	Keys[Key] = assert(Step(Keys[Key], Asked, NOW, DEFAULT).Stored, "the setup write did not land")
 end
 
 local function Marked(Stamp: number): Keys
 	local Keys: Keys = { a = Seed(100) }
-	local Tent: Types.Tent = { Name = Y, Stamp = Stamp, Attempt = 1, Decider = Ref("d"), Leg = { Field = 1, Amount = -30 } }
+	local Tent: Requests.Tent = { Name = Y, Stamp = Stamp, Attempt = 1, Decider = Ref("d"), Leg = { Field = 1, Amount = -30 } }
 	Put(Keys, "a", { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tent = Tent })
 	return Keys
 end
@@ -66,21 +65,21 @@ end
 Describe("Touches", function()
 	Test("a server at the top level acts on a mark SETTLE old, and one at the bottom waits a step a level", function()
 		local Item = Record(Marked(NOW - Windows.SETTLE).a).Work[Y]
-		Expect(Touches.Due(Item, Limits.LEVELS, NOW, NOW)).toBe(true)
+		Expect(Touches.Due(Item, Touches.LEVELS, NOW, NOW)).toBe(true)
 		Expect(Touches.Due(Item, 0, NOW, NOW - 3600)).toBe(false)
-		local Wait = Limits.LEVELS * Windows.STEP
+		local Wait = Touches.LEVELS * Touches.STEP
 		local Older = Record(Marked(NOW - Windows.SETTLE - Wait).a).Work[Y]
 		Expect(Touches.Due(Older, 0, NOW, NOW)).toBe(false)
 		Expect(Touches.Due(Older, 0, NOW, NOW - Wait)).toBe(true)
-		Expect(Touches.Level(16, "any name")).toBeLessThan(Limits.LEVELS + 1)
+		Expect(Touches.Level(16, "any name")).toBeLessThan(Touches.LEVELS + 1)
 	end)
 
 	Test("a gate is finished by a toucher at the top level once SETTLE old, and by a lower one a step a level later", function()
 		local Gate: Book.Gate = { Name = "wipe", Stamp = NOW - Windows.SETTLE, Kind = Book.Cause.Reset, At = NOW - Windows.SETTLE + 1 }
-		Expect(Touches.Gated(Gate, Limits.LEVELS, NOW, NOW)).toBe(false)
-		Expect(Touches.Gated(Gate, Limits.LEVELS, NOW + 1, NOW)).toBe(true)
-		Expect(Touches.Gated(Gate, Limits.LEVELS - 1, NOW + 1, NOW)).toBe(false)
-		Expect(Touches.Gated(Gate, Limits.LEVELS - 1, NOW + 1 + Windows.STEP, NOW)).toBe(true)
+		Expect(Touches.Gated(Gate, Touches.LEVELS, NOW, NOW)).toBe(false)
+		Expect(Touches.Gated(Gate, Touches.LEVELS, NOW + 1, NOW)).toBe(true)
+		Expect(Touches.Gated(Gate, Touches.LEVELS - 1, NOW + 1, NOW)).toBe(false)
+		Expect(Touches.Gated(Gate, Touches.LEVELS - 1, NOW + 1 + Touches.STEP, NOW)).toBe(true)
 	end)
 end)
 
@@ -88,7 +87,7 @@ Describe("Touch", function()
 	Test("a mark whose decider committed is resolved by that commit", function()
 		local Keys = Marked(NOW - Windows.SETTLE)
 		Keys.d = Seed(1)
-		local Commit: Types.Commit = { Name = Y, Stamp = NOW, Attempt = 1, Legs = { Ref("a") }, Leg = { Field = 1, Amount = 30 } }
+		local Commit: Requests.Commit = { Name = Y, Stamp = NOW, Attempt = 1, Legs = { Ref("a") }, Leg = { Field = 1, Amount = 30 } }
 		Put(Keys, "d", { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Commit = Commit })
 		local Of, Context = Mark(Keys)
 		Expect((Replay.Run(Of, Context, Keys, DEFAULT, NOW))).toBe(true)
@@ -145,10 +144,10 @@ Describe("Touch", function()
 	end)
 
 	Test("a pinned record is dropped only after every leg key is resolved by its commit", function()
-		local Keys = Marked(NOW - Windows.PINNED)
+		local Keys = Marked(NOW - Touches.PINNED)
 		Keys.b, Keys.d = Seed(5), Seed(1)
 		local Legs = { Ref("a"), Ref("b") }
-		local Commit: Types.Commit = { Name = Y, Stamp = NOW - Windows.PINNED, Attempt = 1, Legs = Legs, Leg = { Field = 1, Amount = 30 } }
+		local Commit: Requests.Commit = { Name = Y, Stamp = NOW - Touches.PINNED, Attempt = 1, Legs = Legs, Leg = { Field = 1, Amount = 30 } }
 		Put(Keys, "d", { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Commit = Commit })
 		local Item = Record(Keys.d).Work[Y]
 		Expect((Replay.Run(Touch.Pinned, Touch.Context(Y, Item, Ref("d"), Windows.SETTLE), Keys, DEFAULT, NOW))).toBe(true)

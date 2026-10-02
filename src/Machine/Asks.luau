@@ -2,29 +2,22 @@
 --!optimize 2
 
 --[=[
-
 	Asks: Logic. What a machine may ask for, and what it hears back.
 
-	Send runs one request through Step on a key. Read reads a key. Remove removes a key, once. Wait
-	passes time. Run runs another machine. Count adds 1 to one of the counter keys that hand out
-	server numbers. Item reads an item of a MemoryStore hash map, Change runs a transform on one, Put
-	sets one and Drop removes one, each once. The runner answers
-	each ask once with a heard reply, and so do the tests. A reply to a Send carries its word: the
-	note's report, else its why, else Done. It also carries the note, whether any run of it returned a
-	write, and every op number any run decided. A reply to a Read carries the value, and one to a
-	Count the count its own write made. A reply to an Item carries its value, and one to a Change
-	the value it wrote, or nil when the transform cancelled. Put and Drop hear Done. A reply to a Run carries the answer. A reply that failed says
-	Failed. Every reply carries the time it came back.
+	Every ask is answered once, by the runner or a test, with the time the reply came back, so a
+	machine never reads a clock. A Send's word is the note's report, else its why, else Done. Its
+	reply also says whether any run returned a write and which op numbers any run decided. A Change
+	hears the value it wrote, or nil when its transform cancelled. A failed write may have written,
+	and its reply says so. Run carries its machine as any, since Machine requires this module.
 
-	Return type: A table with Send, Read, Remove, Wait, Run, Count, Item, Change, Put, Drop, Noted,
-	Got, Done, Failed and SAID. The
-	types are Place, Ask and Heard.
+	Return type: A table of the ask and reply builders and SAID, and the Place, Ask and Heard types.
 	Example usage:
 		Machine.Ask(Call, Asks.Send(Ref, Request))
 --]=]
 
 local Book = require("../Record/Book")
 local DataStore = require("../Adapters/DataStore")
+local Requests = require("../Record/Requests")
 local Types = require("../Record/Types")
 
 export type Place = {
@@ -33,7 +26,7 @@ export type Place = {
 }
 
 export type Ask =
-	{ read Kind: "Send", read Ref: Book.Ref, read Request: Types.Request, read UserIds: { number }? }
+	{ read Kind: "Send", read Ref: Book.Ref, read Request: Requests.Request, read UserIds: { number }? }
 	| { read Kind: "Read", read Ref: Book.Ref }
 	| { read Kind: "Remove", read Ref: Book.Ref }
 	| { read Kind: "Wait", read Seconds: number }
@@ -54,17 +47,14 @@ export type Heard = {
 	read Answer: unknown,
 }
 
-local SAID: {
-	read Done: "Done",
-	read Failed: "Failed",
-} = {
-	Done = "Done",
-	Failed = "Failed",
+local SAID = {
+	Done = "Done" :: "Done",
+	Failed = "Failed" :: "Failed",
 }
 
 local Asks = { SAID = SAID }
 
-function Asks.Send(Ref: Book.Ref, Request: Types.Request, UserIds: { number }?): Ask
+function Asks.Send(Ref: Book.Ref, Request: Requests.Request, UserIds: { number }?): Ask
 	return { Kind = "Send", Ref = Ref, Request = Request, UserIds = UserIds }
 end
 

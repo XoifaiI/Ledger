@@ -2,16 +2,17 @@
 --!optimize 2
 
 --[=[
-
 	Guard: Logic. Runs the game's reducer on only the fields its build declares.
 
 	Spec: record 4, step 9.
 
-	Undeclared top level fields are set aside and put back. A result that adds one, or leaves a money
-	field anything but a whole number below 2^53, is refused. Capped also gives Fate.Full past
-	StateCap. Admits is the same check for a migration.
+	Undeclared top level fields are set aside before the reducer runs and put back after it. A result
+	that adds an undeclared field, or leaves a money field anything but a whole number below 2^53, is
+	refused. The capped reducer also gives Fate.Full for a state past StateCap, and refuses a state
+	that cannot be stored. A migration sees every field, so Admits lets it keep an undeclared field
+	the state already held.
 
-	Return type: A table with Plain, Capped and Admits.
+	Return type: The Guard module.
 	Example usage:
 		local Reducer = Guard.Plain(Build)
 --]=]

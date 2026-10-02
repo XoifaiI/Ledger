@@ -2,18 +2,17 @@
 --!optimize 2
 
 --[=[
-
 	Resettle: Machine. Ends every item on a key now, as a touch would, and says whether it is clear.
 
 	Spec: transaction 5.3.
 
-	Reading runs a fresh Peek of the key. Ending runs Touch on every item of its work room at once,
-	with no level wait. It fences an undecided mark once the mark is Windows.SETTLE old. Checking
-	runs a fresh Peek again. No item stamped before the call started answers true. Otherwise Waiting
-	waits Windows.SETTLE and the call goes round again, up to Limits.TRIES rounds, and then answers
-	Unresolved. A peek that answers why answers that.
+	The machine runs a fresh Peek of the key, then Touch on every item of its work room at once, with
+	no level wait. Touch fences an undecided mark once the mark is Windows.SETTLE old. A second fresh
+	Peek answers true when no item stamped before the call started is left. Otherwise the call waits
+	Windows.SETTLE and goes round again, up to Limits.TRIES rounds, and then answers Unresolved. A
+	Peek that answers why answers that.
 
-	Return type: A table with Machine and Context. The type is Context.
+	Return type: The Resettle module, and the Context type.
 	Example usage:
 		local Said = Runner.Run(Resettle.Machine, Resettle.Context(Ref, Build, Shown, Now), Places):Wait()
 --]=]
@@ -46,28 +45,20 @@ export type Context = {
 
 type Call = Machine.Call<Context, Reply>
 
-local STATE: {
-	read Reading: "Reading",
-	read Ending: "Ending",
-	read Checking: "Checking",
-	read Waiting: "Waiting",
-	read Done: "Done",
-} = {
-	Reading = "Reading",
-	Ending = "Ending",
-	Checking = "Checking",
-	Waiting = "Waiting",
-	Done = "Done",
+local WorkForm = Book.WorkForm
+
+local STATE = {
+	Reading = "Reading" :: "Reading",
+	Ending = "Ending" :: "Ending",
+	Checking = "Checking" :: "Checking",
+	Waiting = "Waiting" :: "Waiting",
+	Done = "Done" :: "Done",
 }
 
-local WORD: {
-	read Viewed: "Viewed",
-	read Clear: "Clear",
-	read Left: "Left",
-} = {
-	Viewed = "Viewed",
-	Clear = "Clear",
-	Left = "Left",
+local WORD = {
+	Viewed = "Viewed" :: "Viewed",
+	Clear = "Clear" :: "Clear",
+	Left = "Left" :: "Left",
 }
 
 local Resettle = {}
@@ -105,7 +96,7 @@ end
 local function End(Call: Call)
 	local Context = Call.Context
 	for Name, Item in Context.Work do
-		local Start = if Item.Form == "Pinned" then Touch.Pinned else Touch.Mark
+		local Start = if Item.Form == WorkForm.Pinned then Touch.Pinned else Touch.Mark
 		Machine.Ask(Call, Asks.Run(Start, Touch.Context(Name, Item, Context.Ref, Windows.SETTLE)))
 	end
 end

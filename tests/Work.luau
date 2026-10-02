@@ -13,6 +13,7 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Book = require("../src/Record/Book")
 local Game = require("./Gold")
@@ -25,7 +26,7 @@ local Windows = require("../src/Core/Constants/Windows")
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
 type Note = Types.Note
-type Request = Types.Request
+type Request = Requests.Request
 
 local NOW = Game.NOW
 local DEFAULT = Game.DEFAULT
@@ -43,15 +44,15 @@ local function Land(Current: unknown, Asked: Request, Clock: number?): (unknown,
 end
 
 local function Seed(Amount: number): unknown
-	local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
+	local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
 	return (Land(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }))
 end
 
-local function Delta(Amount: number): Types.Leg
+local function Delta(Amount: number): Requests.Leg
 	return { Field = GOLD, Amount = Amount }
 end
 
-local function Tent(Name: string, Attempt: number, Leg: Types.Leg, Print: number?): Request
+local function Tent(Name: string, Attempt: number, Leg: Requests.Leg, Print: number?): Request
 	return {
 		Writer = 0,
 		Ack = 0,
@@ -61,7 +62,7 @@ local function Tent(Name: string, Attempt: number, Leg: Types.Leg, Print: number
 	}
 end
 
-local function Commit(Name: string, Attempt: number, Leg: Types.Leg): Request
+local function Commit(Name: string, Attempt: number, Leg: Requests.Leg): Request
 	return {
 		Writer = 0,
 		Ack = 0,
@@ -75,13 +76,13 @@ local function Fence(Name: string, Attempt: number, Final: boolean): Request
 	return { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Fence = { Name = Name, Stamp = NOW, Attempt = Attempt, Final = Final } }
 end
 
-local function Resolve(Name: string, Attempt: number, Outcome: Types.Outcome, Print: number?, Value: number?): Request
-	local End: Types.End = { Name = Name, Stamp = NOW, Attempt = Attempt, Print = Print, Outcome = Outcome, Value = Value }
+local function Resolve(Name: string, Attempt: number, Outcome: Requests.Outcome, Print: number?, Value: number?): Request
+	local End: Requests.End = { Name = Name, Stamp = NOW, Attempt = Attempt, Print = Print, Outcome = Outcome, Value = Value }
 	return { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }
 end
 
 local function Edit(Seq: number, Amount: number): Request
-	local Op: Types.Op = { Form = "Minted", Seq = Seq, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
+	local Op: Requests.Op = { Form = "Minted", Seq = Seq, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
 	return { Writer = 2, Ack = Seq - 1, MustExist = true, Ops = { Op } }
 end
 
@@ -117,7 +118,7 @@ Describe("Work", function()
 
 	Test("a resolve of commit on a money field this build does not know ends nothing and says it is behind", function()
 		local Newer = Game.Build({ Money = { "Gold", "Gems" }, Default = { Gold = 0, Gems = 0 }, Fields = { Gold = true, Tag = true, Gems = true } })
-		local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 1 } }
+		local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 1 } }
 		local Key = Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, Newer).Stored
 		Key = Step(Key, Tent(X, 1, { Field = 2, Amount = 5 }), NOW, Newer).Stored
 		Expect(Record(Key).Work[X].Form).toBe("Escrow")
@@ -256,7 +257,7 @@ Describe("Work", function()
 		Expect(Record(Made).Work[X]).never.toBeNil()
 		local _, Fenced = Land(nil, Fence(X, 1, false))
 		Expect(Fenced.Why).toBe("Missing")
-		local Stale = Commit(X, 1, Delta(1)).Commit :: Types.Commit
+		local Stale = Commit(X, 1, Delta(1)).Commit :: Requests.Commit
 		local Late: Request = { Writer = 0, Ack = 0, MustExist = false, Ops = {}, Commit = Stale }
 		local _, Old = Land(nil, Late, NOW + DEFAULT.Minted + 1)
 		Expect(Old.Why).toBe("Missing")
@@ -264,7 +265,7 @@ Describe("Work", function()
 
 	Test("a slot mark keeps its path, and its resolve writes the decider value there or ends nothing without it", function()
 		local Key0 = Seed(5)
-		local Slotted: Types.Leg = { Body = { Add = 1, Tag = "t" }, Slot = { "Tag" } }
+		local Slotted: Requests.Leg = { Body = { Add = 1, Tag = "t" }, Slot = { "Tag" } }
 		local Marked = Land(Key0, Tent(Y, 1, Slotted))
 		local Mark = Record(Marked).Work[Y]
 		Expect(Mark.Form == "Exclusive" and Mark.Slot and Mark.Slot[1]).toBe("Tag")

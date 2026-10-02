@@ -2,7 +2,6 @@
 --!optimize 2
 
 --[=[
-
 	Session: Object. One key as this server shows it to a game, and the hopeful ops queued on it.
 
 	Spec: record 5.2 and 6. Model: Rec.tla, the session sv[s].
@@ -12,15 +11,12 @@
 	mark on the view could change answers Busy. An op the reducer refuses answers Refused, and one
 	that takes the state past its cap answers Full. Otherwise the op joins the key's queue with the
 	view's cut count, is laid on the view, and answers true. Commit sends one durable op with the
-	queued ones and settles with its reply. Adopt takes a view with a higher write count, lays the
-	queued ops on top and shows it. Every landing of the key is adopted. The key stays pinned in the
-	shown table until the session closes. Due says whether a push or an idle read is due, and Beat
-	does it. Fates gets one fate per hopeful op, and Changed the state after every change. Flush
-	sends what is queued and settles once the queue is empty, and Unload closes the session and
-	flushes.
+	queued ones. A view with a higher write count is adopted with the queued ops laid on top, and
+	every landing of the key is adopted. The key stays pinned in the shown table until the session
+	closes. A push is due SAVE seconds after the last one while ops wait. A read is due IDLE seconds
+	after the last one while none do.
 
-	Return type: The Session class, with New and DUE, and the methods Get, Apply, Commit, Adopt, Due,
-	Beat, Read, Flush, Unload and Close. The types are Session, Due and Fate.
+	Return type: The Session class, and the Session, Due and Fate types.
 	Example usage:
 		local Reply = Player:Apply("SpendGold", { Amount = 25 })
 --]=]
@@ -36,19 +32,23 @@ local Ops = require("../Store/Ops")
 local Peek = require("../Calls/Peek")
 local Queue = require("../Record/Queue")
 local Reduce = require("../Core/Reduce")
+local Requests = require("../Record/Requests")
 local Runner = require("../Machine/Runner")
 local Runtime = require("./Runtime")
 local Shown = require("../Record/Shown")
-local Sizes = require("../Core/Constants/Sizes")
 local Types = require("../Record/Types")
 local Value = require("../Encode/Value")
 local View = require("../Record/View")
-local Windows = require("../Core/Constants/Windows")
 
 type State = { [string]: any }
 type Reply = Queue.Reply
 
-export type Due = "Push" | "Read"
+local DUE = {
+	Push = "Push" :: "Push",
+	Read = "Read" :: "Read",
+}
+
+export type Due = keyof<typeof(DUE)>
 
 export type Fate = {
 	read Asked: Queue.Asked,
@@ -59,7 +59,9 @@ export type Fate = {
 type SessionImpl = {
 	__index: SessionImpl,
 	New: (Shared: Runtime.Runtime, Held: Queue.Queue, Loaded: View.View?, MustExist: boolean, Now: number) -> Session,
-	DUE: { read Push: "Push", read Read: "Read" },
+	DUE: typeof(DUE),
+	SAVE: number,
+	IDLE: number,
 	Apply: (self: Session, Kind: string, Fields: { [string]: any }?) -> Reply,
 	Commit: (self: Session, Kind: string, Fields: { [string]: any }?) -> Future.Future<Reply>,
 	Adopt: (self: Session, Found: View.View) -> (),
@@ -97,10 +99,17 @@ type Data = {
 
 export type Session = setmetatable<Data, SessionImpl>
 
-local Form = Types.Form
+local Form = Requests.Form
+
+local QUEUE_BYTES = 1.5 * 1024 * 1024
+local SAVE = 30
+local IDLE = 120
 
 local Session = {} :: SessionImpl
 Session.__index = Session
+Session.DUE = DUE
+Session.SAVE = SAVE
+Session.IDLE = IDLE
 
 local function Hopeful(Item: Queue.Item): boolean
 	return Item.Asked.Form == Form.Hopeful
@@ -140,7 +149,7 @@ function Session.New(Shared: Runtime.Runtime, Held: Queue.Queue, Loaded: View.Vi
 	local Fresh: Data = {
 		Runtime = Shared,
 		Queue = Held,
-		Mark = `{Held.Ref.Store}/{Held.Ref.Key}`,
+		Mark = Book.Address(Held.Ref),
 		Shown = Shared.Shown,
 		MustExist = MustExist,
 		Fates = Observer.New(),
@@ -170,8 +179,6 @@ function Session.New(Shared: Runtime.Runtime, Held: Queue.Queue, Loaded: View.Vi
 	return Player
 end
 
-Session.DUE = { Push = "Push", Read = "Read" }
-
 function Session.Apply(self: Session, Kind: string, Fields: { [string]: any }?): Reply
 	if Fields and (Fields.Once ~= nil or Fields.OnceAt ~= nil) then
 		Errors.Misuse("an op with Once needs a durable call, so use Commit")
@@ -183,7 +190,7 @@ function Session.Apply(self: Session, Kind: string, Fields: { [string]: any }?):
 	local Bytes = Value.Check(Body)
 	if Bytes == nil then
 		return Answer.Invalid
-	elseif self.Queued + Bytes > Sizes.QUEUE_BYTES then
+	elseif self.Queued + Bytes > QUEUE_BYTES then
 		return Answer.Backlog
 	end
 	local Build = self.Queue.Build
@@ -227,7 +234,10 @@ function Session.Adopt(self: Session, Found: View.View)
 		end
 	end
 	self.State = Reduce.Fold(Found.State, Bodies, Guard.Plain(self.Queue.Build))
-	self.Writes, self.Cuts, self.Horizon, self.Id = Found.Writes, Found.Cuts, Found.Horizon, Found.Id
+	self.Writes = Found.Writes
+	self.Cuts = Found.Cuts
+	self.Horizon = Found.Horizon
+	self.Id = Found.Id
 	self.Work = Found.Work
 	self.Shown:Show(self.Mark, Found.Writes)
 	self.Changed:Push(self.State)
@@ -238,9 +248,9 @@ function Session.Due(self: Session, Now: number): Due?
 		return nil
 	end
 	local Waiting = self.Queue.Items[1] ~= nil
-	if Waiting and Now - self.LastPush >= Windows.SAVE then
+	if Waiting and Now - self.LastPush >= SAVE then
 		return Session.DUE.Push
-	elseif not Waiting and Now - self.LastRead >= Windows.IDLE then
+	elseif not Waiting and Now - self.LastRead >= IDLE then
 		return Session.DUE.Read
 	end
 	return nil

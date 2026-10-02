@@ -2,51 +2,34 @@
 --!optimize 2
 
 --[=[
-
 	Answer: Logic. Every answer a call gives besides true.
 
-	Compare against a field, so a misspelt name is a type error.
+	A game compares a reply against a field, Answer.Busy, so a misspelt name is a type error where a
+	string would not be. The table is frozen, since every server and the client must agree on it.
 
-	Return type: A table from each name to itself.
+	Return type: A frozen table from each name to itself, and the Answer type.
 	Example usage:
 		if Result == Answer.Busy then return end
 --]=]
 
-export type Answer = "Backlog" | "Behind" | "Busy" | "Closed" | "Expired" | "Full" | "Invalid" | "Missing" | "NoRoom" | "Refused" | "Short" | "SoldOut" | "Spent" | "Unresolved" | "Worn"
+local Answer = table.freeze({
+	Backlog = "Backlog" :: "Backlog",
+	Behind = "Behind" :: "Behind",
+	Busy = "Busy" :: "Busy",
+	Closed = "Closed" :: "Closed",
+	Expired = "Expired" :: "Expired",
+	Full = "Full" :: "Full",
+	Invalid = "Invalid" :: "Invalid",
+	Missing = "Missing" :: "Missing",
+	NoRoom = "NoRoom" :: "NoRoom",
+	Refused = "Refused" :: "Refused",
+	Short = "Short" :: "Short",
+	SoldOut = "SoldOut" :: "SoldOut",
+	Spent = "Spent" :: "Spent",
+	Unresolved = "Unresolved" :: "Unresolved",
+	Worn = "Worn" :: "Worn",
+})
 
-local Answer: {
-	read Backlog: "Backlog",
-	read Behind: "Behind",
-	read Busy: "Busy",
-	read Closed: "Closed",
-	read Expired: "Expired",
-	read Full: "Full",
-	read Invalid: "Invalid",
-	read Missing: "Missing",
-	read NoRoom: "NoRoom",
-	read Refused: "Refused",
-	read Short: "Short",
-	read SoldOut: "SoldOut",
-	read Spent: "Spent",
-	read Unresolved: "Unresolved",
-	read Worn: "Worn",
-} =
-	{
-		Backlog = "Backlog",
-		Behind = "Behind",
-		Busy = "Busy",
-		Closed = "Closed",
-		Expired = "Expired",
-		Full = "Full",
-		Invalid = "Invalid",
-		Missing = "Missing",
-		NoRoom = "NoRoom",
-		Refused = "Refused",
-		Short = "Short",
-		SoldOut = "SoldOut",
-		Spent = "Spent",
-		Unresolved = "Unresolved",
-		Worn = "Worn",
-	}
+export type Answer = keyof<typeof(Answer)>
 
 return Answer

@@ -2,18 +2,17 @@
 --!optimize 2
 
 --[=[
-
 	Peek: Machine. Shows a key's state, never older than this server showed before.
 
 	Spec: record 5.3; transaction 4.3. Model: Rec.tla, StartRead and ReadHear.
 
-	Cached starts with a read, and Fresh with a fresh read, an update that decides nothing and
-	lands. A read the shown table does not allow goes on to a fresh read, which is always current. A
-	view with marks whose clean flag is off reads their deciders, all at once. When none committed
-	the view is shown. When some did, a fresh read carrying their resolves lands and its view is
-	shown. A decider the runner cannot read shows Unresolved. A request that fails shows Unresolved.
+	Cached starts with a read. Fresh starts with a fresh read, an update that decides nothing and
+	lands, so it is always current. A read the shown table does not allow goes on to a fresh read. A
+	view with marks whose clean flag is off reads their deciders, all at once. When none committed,
+	the view is shown. When some did, a fresh read that carries their resolves lands, and its view is
+	shown. A decider read or a request that fails shows Unresolved.
 
-	Return type: A table with Cached, Fresh and Context. The type is Context.
+	Return type: The Peek module, with the machines Cached and Fresh, and the Context type.
 	Example usage:
 		local Shown = Runner.Run(Peek.Cached, Peek.Context(Ref, Build, Table), Places):Wait()
 --]=]
@@ -23,6 +22,7 @@ local Asks = require("../Machine/Asks")
 local Blockers = require("../Record/Blockers")
 local Book = require("../Record/Book")
 local Machine = require("../Machine/Machine")
+local Requests = require("../Record/Requests")
 local Shown = require("../Record/Shown")
 local Types = require("../Record/Types")
 local View = require("../Record/View")
@@ -36,36 +36,24 @@ export type Context = {
 	read Shown: Shown.Shown,
 	Found: Result,
 	Checks: { Blockers.Blocker },
-	Commits: { Types.End },
+	Commits: { Requests.End },
 }
 
 type Call = Machine.Call<Context, Result>
 
-local STATE: {
-	read Reading: "Reading",
-	read Refreshing: "Refreshing",
-	read Checking: "Checking",
-	read Resolving: "Resolving",
-	read Done: "Done",
-} = {
-	Reading = "Reading",
-	Refreshing = "Refreshing",
-	Checking = "Checking",
-	Resolving = "Resolving",
-	Done = "Done",
+local STATE = {
+	Reading = "Reading" :: "Reading",
+	Refreshing = "Refreshing" :: "Refreshing",
+	Checking = "Checking" :: "Checking",
+	Resolving = "Resolving" :: "Resolving",
+	Done = "Done" :: "Done",
 }
 
-local WORD: {
-	read Stale: "Stale",
-	read Unclean: "Unclean",
-	read Committed: "Committed",
-} = {
-	Stale = "Stale",
-	Unclean = "Unclean",
-	Committed = "Committed",
+local WORD = {
+	Stale = "Stale" :: "Stale",
+	Unclean = "Unclean" :: "Unclean",
+	Committed = "Committed" :: "Committed",
 }
-
-local FRESH: Types.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Fresh = true }
 
 local STOPS: { [Types.Why]: Answer.Answer } = {
 	[Types.Why.Missing] = Answer.Missing,
@@ -78,8 +66,9 @@ local Peek = {}
 local function Unclean(Context: Context, Found: View.View): { Blockers.Blocker }
 	local Marks: { Blockers.Blocker } = {}
 	for Name, Item in Found.Work do
-		if Item.Form ~= "Pinned" and not Item.Clean then
-			table.insert(Marks, { Name = Name, Item = Item, Ref = Context.Ref })
+		local Mark = Book.AsMark(Item)
+		if Mark and not Mark.Clean then
+			table.insert(Marks, { Name = Name, Item = Mark, Ref = Context.Ref })
 		end
 	end
 	return Marks
@@ -129,7 +118,7 @@ local function Got(Call: Call): string
 end
 
 local function Refresh(Call: Call)
-	Machine.Ask(Call, Asks.Send(Call.Context.Ref, FRESH))
+	Machine.Ask(Call, Asks.Send(Call.Context.Ref, Requests.Fresh()))
 end
 
 local function Refreshed(Call: Call): string
@@ -154,7 +143,7 @@ local function Checked(Call: Call): string
 			return Asks.SAID.Done
 		end
 		local Decided = Blockers.Read(Reply.Value, Found)
-		if Decided and Decided.Outcome == Types.Outcome.Commit then
+		if Decided and Decided.Outcome == Requests.Outcome.Commit then
 			table.insert(Context.Commits, Blockers.End(Found, Decided.Outcome, Decided.Attempt, Decided.Value))
 		end
 	end
@@ -163,8 +152,7 @@ end
 
 local function Resolve(Call: Call)
 	local Context = Call.Context
-	local Request: Types.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Fresh = true, Ends = table.clone(Context.Commits) }
-	Machine.Ask(Call, Asks.Send(Context.Ref, Request))
+	Machine.Ask(Call, Asks.Send(Context.Ref, Requests.Fresh(table.clone(Context.Commits))))
 end
 
 local function Resolved(Call: Call): string
@@ -209,7 +197,7 @@ local STATES: { [string]: Machine.State<Context, Result> } = {
 function Peek.Context(Ref: Book.Ref, Build: Types.Build, Table: Shown.Shown): Context
 	return {
 		Ref = Ref,
-		Mark = `{Ref.Store}/{Ref.Key}`,
+		Mark = Book.Address(Ref),
 		Build = Build,
 		Shown = Table,
 		Found = Answer.Unresolved,

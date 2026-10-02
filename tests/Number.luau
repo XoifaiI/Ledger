@@ -11,7 +11,6 @@
 
 local Testing = require("./Testing")
 local Heard = require("./Heard")
-local Limits = require("../src/Core/Constants/Limits")
 local Machine = require("../src/Machine/Machine")
 local Number = require("../src/Calls/Number")
 
@@ -31,7 +30,7 @@ Describe("Number", function()
 		end
 		Expect(table.concat(Waits, " ")).toBe("1 2 4 8 16 30")
 		Machine.Step(Call, Asked[1].Id, Heard.Read(5))
-		Expect(Machine.AnswerOf(Call)).toBe(5 * Limits.COUNTERS + Context.Index)
+		Expect(Machine.AnswerOf(Call)).toBe(5 * Number.COUNTERS + Context.Index)
 		Expect(Machine.IsFinal(Call)).toBe(true)
 	end)
 end)

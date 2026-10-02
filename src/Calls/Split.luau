@@ -2,25 +2,22 @@
 --!optimize 2
 
 --[=[
-
 	Split: Machine. Opens a split quantity's parts, and closes and removes them.
 
 	Spec: hot keys 2.1 and 2.5. Model: Hot.tla, SendOp and Hear for open and close.
 
 	Open commits the open op on every part at once, under the quantity's open name and one stamp,
-	with the declaration's print. The
-	open op makes a part with its share and its range of serials, and does nothing on a part that
-	exists. A part that did not
-	answer true is tried again after a rest, but only while the clock reads at most
-	Windows.REMOVE_SEND past the stamp. Past it Open answers Unresolved, and true once every part
-	answered true.
+	with the declaration's print. A part that did not answer true is tried again after a rest, but
+	only while the clock reads at most Windows.REMOVE_SEND past the stamp. Past it, Open answers
+	Unresolved. It answers true once every part answered true.
 
 	Close commits the close op on every part at once, then reads every part that closed. A part is
-	removed with one RemoveAsync only when its state is empty and its work room holds nothing. The
-	clock must also read Windows.SEAL_AGE past the stamp it was opened at. A part that reads gone
-	counts as removed. Close answers true with how many parts are removed and how many are left.
+	removed with one RemoveAsync only when its state is empty, its work room holds nothing, and the
+	clock reads Windows.SEAL_AGE past the stamp it was opened at. A part that reads gone counts as
+	removed. Close answers true with how many parts are removed and how many are left.
 
-	Return type: A table with Open, Close and Context. The types are Context and Closed.
+	Return type: The Split module, with the machines Open and Close, and the Context and Closed
+	types.
 	Example usage:
 		local Done = Runner.Run(Split.Open, Split.Context(Declared, Name, Stamp, Server), Places):Wait()
 --]=]
@@ -56,37 +53,30 @@ export type Context = {
 	Rounds: number,
 }
 
-type Call = Machine.Call<Context, any>
+type Said = Queue.Reply | Closed
+type Call = Machine.Call<Context, Said>
 
-local STATE: {
-	read Opening: "Opening",
-	read Resting: "Resting",
-	read Closing: "Closing",
-	read Reading: "Reading",
-	read Removing: "Removing",
-	read Done: "Done",
-} = {
-	Opening = "Opening",
-	Resting = "Resting",
-	Closing = "Closing",
-	Reading = "Reading",
-	Removing = "Removing",
-	Done = "Done",
+local STATE = {
+	Opening = "Opening" :: "Opening",
+	Resting = "Resting" :: "Resting",
+	Closing = "Closing" :: "Closing",
+	Reading = "Reading" :: "Reading",
+	Removing = "Removing" :: "Removing",
+	Done = "Done" :: "Done",
 }
 
-local WORD: {
-	read Opened: "Opened",
-	read Late: "Late",
-	read Read: "Read",
-	read Remove: "Remove",
-} = {
-	Opened = "Opened",
-	Late = "Late",
-	Read = "Read",
-	Remove = "Remove",
+local WORD = {
+	Opened = "Opened" :: "Opened",
+	Late = "Late" :: "Late",
+	Read = "Read" :: "Read",
+	Remove = "Remove" :: "Remove",
 }
 
 local Split = {}
+
+local function Give(Call: Call, Result: Said)
+	Machine.Answer(Call, Result)
+end
 
 local function Ref(Declared: Parts.Declared, Index: number): Book.Ref
 	return { Store = Declared.Place, Key = Parts.Key(Declared.Name, Declared.Parts, Index) }
@@ -121,10 +111,10 @@ local function Opened(Call: Call): string
 	end
 	Context.Pending = Left
 	if Left[1] == nil then
-		Machine.Answer(Call, true)
+		Give(Call, true)
 		return WORD.Opened
 	elseif Call.Now - Context.Stamp > Windows.REMOVE_SEND then
-		Machine.Answer(Call, Answer.Unresolved)
+		Give(Call, Answer.Unresolved)
 		return WORD.Late
 	end
 	return Asks.SAID.Done
@@ -200,11 +190,11 @@ end
 local function Report(Call: Call): string
 	local Context = Call.Context
 	local Made: Closed = { Reply = true, Removed = Context.Removed, Left = Context.Declared.Parts - Context.Removed }
-	Machine.Answer(Call, Made)
+	Give(Call, Made)
 	return STATE.Done
 end
 
-local STATES: { [string]: Machine.State<Context, any> } = {
+local STATES: { [string]: Machine.State<Context, Said> } = {
 	[STATE.Opening] = {
 		Enter = Open,
 		Hear = Opened,

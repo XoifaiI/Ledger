@@ -2,17 +2,17 @@
 --!optimize 2
 
 --[=[
-
 	Unseal: Machine. Takes off a seal an erase left on a key.
 
 	Spec: cuts 3.4, step 6.
 
-	Stamping sends a seal stamp. Step lands it only on a seal past Windows.SEAL_AGE, or one this
-	server stamped carrying that rt. When it lands, this server is the one sealer of the new rt.
-	Removing sends the key's one RemoveAsync while the clock reads at most Windows.REMOVE_SEND past
-	that rt. It answers true once its removal went out, and false when it sent none.
+	The machine sends a seal stamp. Step lands it only on a seal past Windows.SEAL_AGE, or on one
+	this server stamped, carrying that rt. When it lands, this server is the one sealer of the new
+	rt. The machine then sends the key's one RemoveAsync, and only while the clock reads at most
+	Windows.REMOVE_SEND past that rt. It answers true once its removal went out, and false when it
+	sent none.
 
-	Return type: A table with Machine and Context. The type is Context.
+	Return type: The Unseal module, and the Context type.
 	Example usage:
 		local Removed = Runner.Run(Unseal.Machine, Unseal.Context(Ref, Server, nil), Places):Wait()
 --]=]
@@ -20,6 +20,7 @@
 local Asks = require("../Machine/Asks")
 local Book = require("../Record/Book")
 local Machine = require("../Machine/Machine")
+local Requests = require("../Record/Requests")
 local Types = require("../Record/Types")
 local Windows = require("../Core/Constants/Windows")
 
@@ -32,20 +33,14 @@ export type Context = {
 
 type Call = Machine.Call<Context, boolean>
 
-local STATE: {
-	read Stamping: "Stamping",
-	read Removing: "Removing",
-	read Done: "Done",
-} = {
-	Stamping = "Stamping",
-	Removing = "Removing",
-	Done = "Done",
+local STATE = {
+	Stamping = "Stamping" :: "Stamping",
+	Removing = "Removing" :: "Removing",
+	Done = "Done" :: "Done",
 }
 
-local WORD: {
-	read Due: "Due",
-} = {
-	Due = "Due",
+local WORD = {
+	Due = "Due" :: "Due",
 }
 
 local Unseal = {}
@@ -59,8 +54,7 @@ end
 
 local function Stamp(Call: Call)
 	local Context = Call.Context
-	local Request: Types.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Stamp = { Server = Context.Server, Rt = Context.Rt } }
-	Machine.Ask(Call, Asks.Send(Context.Ref, Request))
+	Machine.Ask(Call, Asks.Send(Context.Ref, Requests.Stamp({ Server = Context.Server, Rt = Context.Rt })))
 end
 
 local function Stamped(Call: Call): string

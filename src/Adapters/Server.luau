@@ -2,11 +2,9 @@
 --!optimize 2
 
 --[=[
-
 	Server: Plumbing. The engine's server, as Ledger reaches it.
 
-	IsServer says whether this code runs on a server. JobId names this server. Each reaches the
-	engine only when it is called.
+	Each function reaches the engine only when it is called, so a client may require this module.
 
 	Return type: A table with IsServer and JobId.
 	Example usage:

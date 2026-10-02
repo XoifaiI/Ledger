@@ -2,20 +2,18 @@
 --!optimize 2
 
 --[=[
-
 	Rooms: Logic. The widths of the record's rooms, and the two steps that keep them in bounds.
 
-	Spec: record 2.4 and 4, steps 7 and 8.
+	Spec: record 2.4; record 4, steps 7 and 8.
 
-	Work gives the width of the work room, and Count how many marks and pinned records it holds. Age
-	drops what has outlived its window, except this writer's entry and untimed names, and says
-	whether it dropped any. It raises the horizon over each writer entry and timed item it drops,
-	and the cut horizon over each cut name. An untimed name past its window stays until Evict needs
-	its bytes, oldest first. Fit drops the least stamp from the timed room until it fits, and raises
-	the horizon each time. Items held ahead and this request's items go last. It trims cut names to
-	the room's count.
+	Age drops what has outlived its window, and never this writer's entry. It raises the horizon over
+	each writer entry and timed name it drops, and the cut horizon over each cut name. An untimed
+	name leaves at its window and raises nothing. Evict frees such names first, oldest first, for an
+	untimed op that meets a full room before Age has run. Fit drops the least stamp
+	from the timed room until it fits, and raises the horizon each time. Items held ahead and this
+	request's own names go last. Fit also trims the cut names to the build's count, oldest first.
 
-	Return type: A table with Timed, Untimed, Work, Count, Evict, Age and Fit.
+	Return type: The Rooms module.
 	Example usage:
 		Rooms.Fit(Record, Build, Now, Writer, Written)
 --]=]
@@ -34,6 +32,8 @@ type Candidate = {
 	Name: string?,
 	Width: number,
 }
+
+local WorkForm = Book.WorkForm
 
 local Rooms = {}
 
@@ -67,7 +67,7 @@ end
 function Rooms.Count(Record: Book): (number, number)
 	local Marked, Pinned = 0, 0
 	for _, Item in Record.Work do
-		if Item.Form == "Pinned" then
+		if Item.Form == WorkForm.Pinned then
 			Pinned += 1
 		else
 			Marked += 1
@@ -108,22 +108,32 @@ function Rooms.Age(Record: Book, Build: Build, Now: number, Writer: number): boo
 	for Id, Found in Record.Writers do
 		if Id ~= Writer and Now - Found.Stamp >= Build.Minted then
 			Record.Writers[Id] = nil
-			Horizon, Dropped = math.max(Horizon, Found.Stamp), true
+			Horizon = math.max(Horizon, Found.Stamp)
+			Dropped = true
 		end
 	end
 	for Name, Item in Record.Timed do
 		if Now - Item.Stamp >= Window(Build, Item.Kind) then
 			Record.Timed[Name] = nil
-			Horizon, Dropped = math.max(Horizon, Item.Stamp), true
+			Horizon = math.max(Horizon, Item.Stamp)
+			Dropped = true
 		end
 	end
 	for Name, Item in Record.Cut do
 		if Now - Item.Stamp >= Build.CutWindow then
 			Record.Cut[Name] = nil
-			CutHorizon, Dropped = math.max(CutHorizon, Item.Stamp), true
+			CutHorizon = math.max(CutHorizon, Item.Stamp)
+			Dropped = true
 		end
 	end
-	Record.Horizon, Record.CutHorizon = Horizon, CutHorizon
+	for Name, Item in Record.Untimed do
+		if Now - Item.Stamp >= Window(Build, Item.Kind) then
+			Record.Untimed[Name] = nil
+			Dropped = true
+		end
+	end
+	Record.Horizon = Horizon
+	Record.CutHorizon = CutHorizon
 	return Dropped
 end
 

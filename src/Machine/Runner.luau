@@ -2,21 +2,14 @@
 --!optimize 2
 
 --[=[
-
 	Runner: Plumbing. Runs a machine, and carries out every ask it makes.
 
-	A Send runs Step inside one UpdateAsync on the key's store. Each run keeps its note, notes
-	whether it returned a write, and adds the op numbers it decided. Each run tells Step whether an
-	earlier run or try of the request wrote, or failed and so may have. A landing that made a key
-	for a request sent long before warns that an erase may have come between. A Read is one
-	GetAsync. A call that fails waits as Backoff says and is made again with a fresh transform, and
-	after Limits.TRIES failures the reply says Failed. A Remove is one RemoveAsync and is never made
-	again. A Send that failed may have written, so its reply says so. A Count adds 1 to its counter
-	key, and hears the count only when its own write made it. A Run runs the other machine to its
-	end and hears its answer. An Item, a Change, a Put or a Drop is one call to its map, never made
-	again. A MemoryStore write that failed may have written. The runner decides nothing. Places
-	gives the store and build of each store name a ref names. Run's future settles once, with the
-	machine's first answer, or nil at its final state.
+	The runner decides nothing. A Send runs Step inside one UpdateAsync, and tells each run whether
+	an earlier run or try may have written. A Send or a Read that fails is made again with a fresh
+	transform after Backoff, up to Limits.TRIES times. A Remove and every MemoryStore call is made
+	once. A Count hears its count only when its own write made it. A landing that made a key for a
+	request sent long before warns that an erase may have come between. The future settles once,
+	with the machine's first answer, or nil at its final state.
 
 	Return type: A table with Run.
 	Example usage:

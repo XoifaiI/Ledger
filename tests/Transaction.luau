@@ -13,6 +13,7 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Answer = require("../src/Core/Answer")
 local Asks = require("../src/Machine/Asks")
@@ -26,7 +27,6 @@ local Replay = require("./Replay")
 local Sizes = require("../src/Core/Constants/Sizes")
 local Step = require("../src/Record/Step")
 local Tx = require("../src/Calls/Tx")
-local Types = require("../src/Record/Types")
 local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
@@ -43,15 +43,15 @@ local function Ref(Key: string): Book.Ref
 end
 
 local function Seed(Amount: number): unknown
-	local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
+	local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
 	return Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, DEFAULT).Stored
 end
 
-local function Put(Keys: Keys, Key: string, Asked: Types.Request)
+local function Put(Keys: Keys, Key: string, Asked: Requests.Request)
 	Keys[Key] = assert(Step(Keys[Key], Asked, NOW, DEFAULT).Stored, "the setup write did not land")
 end
 
-local function Leg(Key: string, Change: Types.Leg): Tx.Leg
+local function Leg(Key: string, Change: Requests.Leg): Tx.Leg
 	return { Ref = Ref(Key), MustExist = true, Change = Change }
 end
 
@@ -62,7 +62,7 @@ local function Transfer(Name: string, Amount: number): Tx.Context
 end
 
 Describe("Transaction incarnations", function()
-	local function Erasable(Key: string, Change: Types.Leg): Tx.Leg
+	local function Erasable(Key: string, Change: Requests.Leg): Tx.Leg
 		return { Ref = Ref(Key), MustExist = false, Erasable = true, Change = Change }
 	end
 
@@ -72,13 +72,13 @@ Describe("Transaction incarnations", function()
 		return Machine.Start(Tx.Run, Tx.Context(Use, Legs, 2, 16, {}, "f1"), NOW)
 	end
 
-	local function Sent(Asked: { Machine.Asked }): Types.Request
+	local function Sent(Asked: { Machine.Asked }): Requests.Request
 		local Ask = Asked[1].Ask
 		return if Ask.Kind == "Send" then Ask.Request else error("not a send")
 	end
 
 	Test("the legs it does not know are read at once, and each Tent and Commit carries what was found", function()
-		local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 10 }, Create = "ia" }
+		local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 10 }, Create = "ia" }
 		local KeyA = Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, DEFAULT).Stored
 		local Call, Asked = Start()
 		Expect(#Asked).toBe(2)
@@ -200,7 +200,7 @@ Describe("Transaction", function()
 		for Index, Name in Names do
 			local Key = `l{Index}`
 			Keys[Key] = if Index == 1 then nil else Seed(1)
-			local Commit: Types.Commit = {
+			local Commit: Requests.Commit = {
 				Name = Name,
 				Stamp = NOW,
 				Attempt = 1,
@@ -340,7 +340,7 @@ Describe("Transaction decider value", function()
 
 	Test("a retry and a touch that read the decider learn the value its decision or pinned record keeps", function()
 		local Name = Book.Drawn(16, 12)
-		local Alone: Types.Request = {
+		local Alone: Requests.Request = {
 			Writer = 0,
 			Ack = 0,
 			MustExist = true,
@@ -354,7 +354,7 @@ Describe("Transaction decider value", function()
 		Machine.Step(Call, Asked[1].Id, Heard.Read(Decided))
 		Expect(Machine.AnswerOf(Call)).toBe(true)
 		Expect(Context.Value).toBe(7)
-		local Shared: Types.Request = {
+		local Shared: Requests.Request = {
 			Writer = 0,
 			Ack = 0,
 			MustExist = true,

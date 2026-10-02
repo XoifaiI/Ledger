@@ -12,6 +12,7 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Answer = require("../src/Core/Answer")
 local Book = require("../src/Record/Book")
@@ -32,11 +33,11 @@ local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
 local NOW = Game.NOW
 
-local function Key(Ops: { Types.Op }, Using: Types.Build?): unknown
+local function Key(Ops: { Requests.Op }, Using: Types.Build?): unknown
 	return Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = Ops }, NOW, Using or Game.DEFAULT).Stored
 end
 
-local function Mint(Add: number): Types.Op
+local function Mint(Add: number): Requests.Op
 	return { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Add } }
 end
 
@@ -138,22 +139,22 @@ Describe("Peek beside marks", function()
 	local Live = Clock.Now()
 	local Y = Book.Drawn(4, 1)
 
-	local function Write(Current: unknown, Asked: Types.Request): unknown
+	local function Write(Current: unknown, Asked: Requests.Request): unknown
 		return assert(Step(Current, Asked, Live, Game.DEFAULT).Stored, "the setup write did not land")
 	end
 
 	local function Keys(Unclean: boolean, Committed: boolean): Replay.Keys
-		local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = Live, Kind = 0, Body = { Add = 100 } }
-		local Tent: Types.Tent = { Name = Y, Stamp = Live, Attempt = 1, Decider = { Store = "Gold", Key = "d" }, Leg = { Field = 1, Amount = -30 } }
+		local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = Live, Kind = 0, Body = { Add = 100 } }
+		local Tent: Requests.Tent = { Name = Y, Stamp = Live, Attempt = 1, Decider = { Store = "Gold", Key = "d" }, Leg = { Field = 1, Amount = -30 } }
 		local A = Write(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } })
 		A = Write(A, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tent = Tent })
 		if Unclean then
-			local Edit: Types.Op = { Form = "Minted", Seq = 2, Stamp = Live, Kind = 0, Body = { Add = 5 } }
+			local Edit: Requests.Op = { Form = "Minted", Seq = 2, Stamp = Live, Kind = 0, Body = { Add = 5 } }
 			A = Write(A, { Writer = 1, Ack = 1, MustExist = true, Ops = { Edit } })
 		end
 		local D = Write(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } })
 		if Committed then
-			local Commit: Types.Commit = { Name = Y, Stamp = Live, Attempt = 1, Legs = { { Store = "Gold", Key = "a" } }, Leg = { Field = 1, Amount = 30 } }
+			local Commit: Requests.Commit = { Name = Y, Stamp = Live, Attempt = 1, Legs = { { Store = "Gold", Key = "a" } }, Leg = { Field = 1, Amount = 30 } }
 			D = Write(D, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Commit = Commit })
 		end
 		return { a = A, d = D }
@@ -212,8 +213,8 @@ Describe("DidApply", function()
 	end)
 
 	Test("a use pinned on its decider answers true, and a standing mark answers Unresolved, from a read or a probe", function()
-		local Leg: Types.Leg = { Field = 1, Amount = 10 }
-		local function Placed(Asked: Types.Request): unknown
+		local Leg: Requests.Leg = { Field = 1, Amount = 10 }
+		local function Placed(Asked: Requests.Request): unknown
 			return Step(Key({ Mint(1) }), Asked, NOW, Game.DEFAULT).Stored
 		end
 		local Pinned = Placed({

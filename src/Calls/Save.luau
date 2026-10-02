@@ -2,24 +2,20 @@
 --!optimize 2
 
 --[=[
-
 	Save: Machine. Sends one key's queue until it is empty.
 
 	Spec: record 3.2 and 6. Model: Rec.tla, Send and Hear.
 
-	Checking looks at the queue. Empty, it answers Empty. Spent, it answers Spent, and its owner
-	renews the queue's number and runs it again. A paced queue waits out its gap. A queue that does not know the key's incarnation
-	reads the key first, and a read that fails rests. Otherwise it sends. Sending sends the request
-	Queue.Build makes, and Queue.Learn reads the reply. Each fate goes to its op's Tell, and a landing
-	goes to Landed. A reply that lands or settles an op sends again at once. A reply that says an
-	item blocks an op, or is overdue, picks one of the items it lists by the writer's number. A mark
-	runs Unblock, and the next request carries the end it answers. A pinned record runs Touch, which
-	verifies and drops it, and the op is sent again. A reply that meets a seal an erase left over runs
-	Unseal, which takes it off. A landing on a paced queue moves its gap. Any other reply rests as
-	Backoff says, or from Windows.RETRY_GAP doubling to Windows.RETRY_MAX on a paced queue, then sends
-	again.
+	The machine answers Empty for an empty queue, and Spent for a spent one, whose owner renews its
+	number and runs it again. Each fate a reply gives goes to its op's Tell, and a landing goes to
+	Landed. A reply that lands or settles an op sends again at once. A reply that says an item blocks
+	an op, or is overdue, picks one of the items it lists by the writer's number. A mark runs
+	Unblock, and the next request carries the end it answers. A pinned record runs Touch. A reply
+	that meets a seal an erase left over runs Unseal. Any other reply rests as Backoff says, and a
+	paced queue rests from Pacing.RETRY_GAP doubling to Pacing.RETRY_MAX. On an erasable store, a
+	queue that does not know the key's incarnation reads the key before it sends.
 
-	Return type: A table with Machine, Context and SAID. The type is Context.
+	Return type: The Save module, and the Context type.
 	Example usage:
 		local Said = Runner.Run(Save.Machine, Save.Context(Held, Landed), Places):Wait()
 --]=]
@@ -28,7 +24,9 @@ local Asks = require("../Machine/Asks")
 local Backoff = require("../Machine/Backoff")
 local Blockers = require("../Record/Blockers")
 local Machine = require("../Machine/Machine")
+local Pacing = require("../Record/Pacing")
 local Queue = require("../Record/Queue")
+local Requests = require("../Record/Requests")
 local Touch = require("./Touch")
 local Types = require("../Record/Types")
 local Unblock = require("./Unblock")
@@ -39,64 +37,40 @@ local Windows = require("../Core/Constants/Windows")
 export type Context = {
 	read Queue: Queue.Queue,
 	read Landed: ((Note: Types.Note) -> ())?,
-	Request: Types.Request?,
+	Request: Requests.Request?,
 	Blocker: Blockers.Found?,
 	Idle: number,
 }
 
-type Said = "Empty" | "Spent"
+local SAID = {
+	Empty = "Empty" :: "Empty",
+	Spent = "Spent" :: "Spent",
+}
+
+type Said = keyof<typeof(SAID)>
 type Call = Machine.Call<Context, Said>
 
-local STATE: {
-	read Checking: "Checking",
-	read Learning: "Learning",
-	read Pacing: "Pacing",
-	read Sending: "Sending",
-	read Unblocking: "Unblocking",
-	read Unsealing: "Unsealing",
-	read Resting: "Resting",
-	read Done: "Done",
-} =
-	{
-		Checking = "Checking",
-		Learning = "Learning",
-		Pacing = "Pacing",
-		Sending = "Sending",
-		Unblocking = "Unblocking",
-		Unsealing = "Unsealing",
-		Resting = "Resting",
-		Done = "Done",
-	}
+local STATE = {
+	Checking = "Checking" :: "Checking",
+	Learning = "Learning" :: "Learning",
+	Pacing = "Pacing" :: "Pacing",
+	Sending = "Sending" :: "Sending",
+	Unblocking = "Unblocking" :: "Unblocking",
+	Unsealing = "Unsealing" :: "Unsealing",
+	Resting = "Resting" :: "Resting",
+	Done = "Done" :: "Done",
+}
 
-local WORD: {
-	read Empty: "Empty",
-	read Spent: "Spent",
-	read Unknown: "Unknown",
-	read Paced: "Paced",
-	read Known: "Known",
-	read Moved: "Moved",
-	read Blocked: "Blocked",
-	read Helped: "Helped",
-	read Left: "Left",
-} =
-	{
-		Empty = "Empty",
-		Spent = "Spent",
-		Unknown = "Unknown",
-		Paced = "Paced",
-		Known = "Known",
-		Moved = "Moved",
-		Blocked = "Blocked",
-		Helped = "Helped",
-		Left = "Left",
-	}
-
-local SAID: {
-	read Empty: "Empty",
-	read Spent: "Spent",
-} = {
-	Empty = "Empty",
-	Spent = "Spent",
+local WORD = {
+	Empty = "Empty" :: "Empty",
+	Spent = "Spent" :: "Spent",
+	Unknown = "Unknown" :: "Unknown",
+	Paced = "Paced" :: "Paced",
+	Known = "Known" :: "Known",
+	Moved = "Moved" :: "Moved",
+	Blocked = "Blocked" :: "Blocked",
+	Helped = "Helped" :: "Helped",
+	Left = "Left" :: "Left",
 }
 
 local Save = { SAID = SAID }
@@ -118,14 +92,14 @@ local function Check(Call: Call): string
 		return WORD.Spent
 	elseif Queue.Unknown(Held) then
 		return WORD.Unknown
-	elseif Queue.Wait(Held, Call.Now) > 0 then
+	elseif Pacing.Wait(Held.Pace, Call.Now) > 0 then
 		return WORD.Paced
 	end
 	return Asks.SAID.Done
 end
 
 local function Pace(Call: Call)
-	Machine.Ask(Call, Asks.Wait(Queue.Wait(Call.Context.Queue, Call.Now)))
+	Machine.Ask(Call, Asks.Wait(Pacing.Wait(Call.Context.Queue.Pace, Call.Now)))
 end
 
 local function Look(Call: Call)
@@ -174,7 +148,7 @@ local function Learn(Call: Call): string
 		end
 	end
 	if Note and Note.Stored and Held.Pace then
-		Queue.Paced(Held, Note.Writes, Value.Check(Note.Stored) or 0, Reply.Now)
+		Pacing.Landed(Held.Pace, Note.Writes, Value.Check(Note.Stored) or 0, Reply.Now)
 	end
 	if Note and Note.Stored and Context.Landed then
 		Context.Landed(Note)
@@ -211,7 +185,7 @@ local function Helped(Call: Call): string
 	local End = Machine.Reply(Call).Answer
 	Context.Blocker = nil
 	if type(End) == "table" then
-		Queue.Ride(Context.Queue, End :: Types.End)
+		Queue.Ride(Context.Queue, End :: Requests.End)
 		return WORD.Helped
 	elseif End == true then
 		return WORD.Helped
@@ -228,7 +202,7 @@ end
 local function Rest(Call: Call)
 	local Context = Call.Context
 	local Idle = Context.Idle
-	local Wait = if Context.Queue.Pace then Backoff.Retry(Idle, Windows.RETRY_GAP, Windows.RETRY_MAX) else Backoff.Retry(Idle)
+	local Wait = if Context.Queue.Pace then Backoff.Retry(Idle, Pacing.RETRY_GAP, Pacing.RETRY_MAX) else Backoff.Retry(Idle)
 	Machine.Ask(Call, Asks.Wait(Wait))
 end
 

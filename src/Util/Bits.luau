@@ -2,13 +2,12 @@
 --!optimize 2
 
 --[=[
-
 	Bits: Plumbing. A fixed set of bits, one for each name to hash to.
 
-	Has says whether a name's bit is set, Set sets it, and Clear clears every bit. Two names may hash
-	to one bit, so Has may say true for a name never set.
+	Two names may hash to one bit, so Has may say true for a name never set, and never says false for
+	a name that was.
 
-	Return type: The Bits class, with New and the methods Has, Set and Clear.
+	Return type: The Bits class.
 	Example usage:
 		local Forgot = Bits.New(65536)
 		Forgot:Set(Name)

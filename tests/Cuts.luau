@@ -12,6 +12,7 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Answer = require("../src/Core/Answer")
 local Book = require("../src/Record/Book")
@@ -29,7 +30,7 @@ local Windows = require("../src/Core/Constants/Windows")
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 
 type Note = Types.Note
-type Request = Types.Request
+type Request = Requests.Request
 
 local NOW = Game.NOW
 local DEFAULT = Game.DEFAULT
@@ -44,7 +45,7 @@ local function Land(Current: unknown, Asked: Request, Clock: number?, Using: Typ
 end
 
 local function Seed(Amount: number): unknown
-	local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
+	local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = Amount } }
 	return (Land(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }))
 end
 
@@ -66,7 +67,7 @@ local function Tent(Name: string, Amount: number): Request
 	}
 end
 
-local function Ends(Name: string, Outcome: Types.Outcome): { Types.End }
+local function Ends(Name: string, Outcome: Requests.Outcome): { Requests.End }
 	return { { Name = Name, Stamp = NOW, Attempt = 1, Print = 3, Outcome = Outcome } }
 end
 
@@ -137,7 +138,7 @@ Describe("Reset", function()
 		local Erase = Land(Land(Seed(100), Tent("x", -30)), Cut("gone", Cause.Erase))
 		Expect((select(2, Land(Erase, Commit)) :: Note).Report).toBe("Gated")
 		local Later = NOW + Windows.CUT
-		local Edit: Types.Op = { Form = "Minted", Seq = 2, Stamp = Later, Kind = 0, Body = { Add = 1 } }
+		local Edit: Requests.Op = { Form = "Minted", Seq = 2, Stamp = Later, Kind = 0, Body = { Add = 1 } }
 		local Aged = Land(Reset, { Writer = 1, Ack = 1, MustExist = true, Ops = { Edit } }, Later)
 		Expect(Record(Aged).Gate).toBeNil()
 		Expect((Aged :: any).r).toBeNil()
@@ -229,7 +230,7 @@ Describe("Erase", function()
 
 	Test("a seal turns away every other request until it is left over, and then a create replaces it", function()
 		local Sealed = Land(Seed(25), Cut("forget", Cause.Erase))
-		local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 4 } }
+		local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 4 } }
 		local Create: Request = { Writer = 3, Ack = 0, MustExist = false, Ops = { Op } }
 		local _, Early = Land(Sealed, Create)
 		Expect(Early.Whys[1]).toBe("Missing")
@@ -268,7 +269,7 @@ Describe("Cut machine", function()
 	local REF: Book.Ref = { Store = "Gold", Key = "k" }
 
 	local function Start(Kind: number, Erasable: boolean?, Helper: boolean?): (Machine.Call<CutMachine.Context, CutMachine.Result>, { Machine.Asked })
-		local Asked: Types.Cut = { Name = "wipe", Stamp = LATER, Kind = Kind, Print = 7, Helper = Helper == true, Server = 16 }
+		local Asked: Requests.Cut = { Name = "wipe", Stamp = LATER, Kind = Kind, Print = 7, Helper = Helper == true, Server = 16 }
 		return Machine.Start(CutMachine.Machine, CutMachine.Context(REF, Asked, Erasable == true), LATER)
 	end
 
@@ -309,10 +310,10 @@ Describe("Cut machine", function()
 		Expect(#Asked).toBe(0)
 		Expect(Reply(Call)).toBe(Answer.Unresolved)
 		Call, Asked = Start(Cause.Reset, true)
-		local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 1 }, Create = "i3" }
+		local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 1 }, Create = "i3" }
 		local Held = Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, DEFAULT).Stored
 		Asked = Machine.Step(Call, Asked[1].Id, Heard.Read(Held))
-		Expect((Sent(Asked).Cut :: Types.Cut).Id).toBe("i3")
+		Expect((Sent(Asked).Cut :: Requests.Cut).Id).toBe("i3")
 	end)
 
 	Test("marks are fenced, not finally, at their deciders, and what the fences report rides on the next send", function()

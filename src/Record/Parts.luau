@@ -2,42 +2,24 @@
 --!optimize 2
 
 --[=[
-
 	Parts: Logic. A split quantity's parts, and the one reducer every part runs.
 
 	Spec: hot keys 2.1 to 2.3, 2.6 and 2.7. Model: Hot.tla, Step, Expire and Draw.
 
 	A quantity of m parts keeps part i under the key $P:<name>:<m>:<i>. Each part is a record whose
-	state is Ledger's own. It holds the print of its declaration, the clock it was opened, its free
-	and sold units, its holds, and the Sealed and Closed flags. A quantity with serials gives each
-	part its own range of them. A part keeps the next serial of its range, its end, and the serials
-	of holds that ended unsold. Share gives part i's share of the stock, and From the first serial
-	of its range. A quantity may name up to Limits.PROCEEDS_MAX money fields its takes pay into. Build
-	gives the build every part of a quantity is judged with. Its writers are paced at the whole write
-	ceiling, and its Output is the first serial a commit issued. Its Accepts refuses any delta into a
-	sealed or closed part.
+	state is Ledger's own: the print of its declaration, the clock it was opened, its free and sold
+	units, its holds, and the Sealed and Closed flags. A quantity with serials gives each part its
+	own range, and a part draws from its returned serials first, smallest first. Open does nothing on
+	a part that exists, and every other op is refused on a part opened under another declaration.
+	Take, Hold and Credit are refused on a sealed or closed part. Confirm sells a hold that stands,
+	and takes as Take does when none stands. Release always writes. Upkeep runs on every write. It
+	expires each hold whose end the clock passed by HOLD_SLACK, or whose end is more than HOLD_MAX and
+	the slack ahead. In final mode it then seals a part with no free unit, no hold, no returned
+	serial and no escrow mark. Nothing clears Sealed or Closed. The field names of the state and the
+	Kind strings of the ops are stored, so none may change. KIND measures a part's free, held and
+	sold units, and 1 when it is shut, for the summary path of Shards.
 
-	Open makes a part with its share and range, and does nothing on a part that exists. Every other
-	op is refused on a part opened under another declaration. Take moves free units to sold, and
-	Hold moves them into a hold. Both are refused on a sealed or closed part, or short of free units.
-	Hold is also refused when Limits.HOLDS_MAX holds stand. Each draws its serials from the returned
-	ones first, smallest first, then from the next. A take pays its price into the proceeds. Confirm
-	sells a hold that stands, with its serials, and pays its price. When none stands, it takes as Take does. Release returns a hold that stands, with its
-	serials, and always writes. Credit adds free units. It is refused on a sealed or closed part, on
-	a quantity with serials, or past the money limit. Close sets Closed.
-
-	Upkeep runs on every write to a part. It first expires each hold whose end the clock passed by
-	Windows.HOLD_SLACK, and returns its units and serials. It does the same for a hold whose end is
-	more than Windows.HOLD_MAX and the slack ahead. Then in final mode it seals a part with no free
-	unit, no hold, no returned serial and no escrow mark. Nothing clears Sealed or Closed. Reason
-	says why a part refused an op. Plan picks the fewest parts, most free first and at most Room
-	of them, whose free units cover a gather, or nil when they cannot. KIND reads a part's free, held and sold units, and 1 when it is
-	shut, for the summary path totals use. SLOT gives the place of each of those by name. Empty says a part holds no unit, hold, serial or proceeds, and Read
-	reads a part's state.
-
-	Return type: A table with Key, Share, From, Build, Reason, Empty, Read, Plan, KIND, SLOT, PREFIX,
-	MODE and FIELDS. The
-	types are Mode, Declared, Hold, Part and Reason.
+	Return type: The Parts module, and the Mode, Declared, Hold, Part and Reason types.
 	Example usage:
 		local Using = Parts.Build(Base, Declared)
 --]=]
@@ -46,8 +28,6 @@ local Key = require("./Key")
 local Limits = require("../Core/Constants/Limits")
 local Types = require("./Types")
 local Windows = require("../Core/Constants/Windows")
-
-export type Mode = "Final" | "Open"
 
 export type Declared = {
 	read Name: string,
@@ -91,13 +71,12 @@ type Drawn = {
 
 local PREFIX = "$P:"
 
-local MODE: {
-	read Final: "Final",
-	read Open: "Open",
-} = {
-	Final = "Final",
-	Open = "Open",
+local MODE = {
+	Final = "Final" :: "Final",
+	Open = "Open" :: "Open",
 }
+
+export type Mode = keyof<typeof(MODE)>
 
 local FIELDS: { [string]: true } = {
 	Print = true,
@@ -113,20 +92,15 @@ local FIELDS: { [string]: true } = {
 	Issued = true,
 }
 
-local Parts = { PREFIX = PREFIX, MODE = MODE, FIELDS = FIELDS }
-
-function Parts.Key(Name: string, Count: number, Index: number): string
-	return `{PREFIX}{Name}:{Count}:{Index}`
-end
-
-function Parts.Share(Stock: number, Count: number, Index: number): number
-	return Stock * (Index + 1) // Count - Stock * Index // Count
-end
-
-function Parts.From(Declared: Declared, Index: number): number?
-	local First = Declared.First
-	return if First then First + Declared.Stock * Index // Declared.Parts else nil
-end
+local SPLIT_MAX = 64
+local SPLIT_NAME = 37
+local PROCEEDS_MAX = 4
+local HOLDS_MAX = 256
+local HOLD_MAX = 15 * 60
+local HOLD_SLACK = 2 * Windows.SIGMA
+local PROBES = 3
+local VIEW_AGE = 30
+local PACE_PART = 1
 
 local function Held(Holds: { Hold }): number
 	local Total = 0
@@ -179,7 +153,10 @@ end
 
 local function Changed(Part: Part, Free: number, Sold: number, Holds: { Hold }, Drew: Drawn?): Part
 	local Made = table.clone(Part) :: any
-	Made.Free, Made.Sold, Made.Holds, Made.Issued = Free, Sold, Holds, nil
+	Made.Free = Free
+	Made.Sold = Sold
+	Made.Holds = Holds
+	Made.Issued = nil
 	Made.Next = if Drew then Drew.Next else Part.Next
 	Made.Returned = if Drew then Drew.Returned else Part.Returned
 	return Made
@@ -240,7 +217,7 @@ local function Reduce(Declared: Declared, State: any, Op: any): unknown
 	elseif Op.Kind == "Take" then
 		return Paid(Take(Part, Op.Count), Op.Price)
 	elseif Op.Kind == "Hold" then
-		if Shut(Part) or Part.Free < Op.Count or #Part.Holds >= Limits.HOLDS_MAX then
+		if Shut(Part) or Part.Free < Op.Count or #Part.Holds >= HOLDS_MAX then
 			return nil
 		end
 		local Drew = Draw(Part, Op.Count)
@@ -274,7 +251,7 @@ local function Reduce(Declared: Declared, State: any, Op: any): unknown
 end
 
 local function Lapsed(Each: Hold, Clock: number): boolean
-	return Clock > Each.End + Windows.HOLD_SLACK or Each.End > Clock + Windows.HOLD_MAX + Windows.HOLD_SLACK
+	return Clock > Each.End + HOLD_SLACK or Each.End > Clock + HOLD_MAX + HOLD_SLACK
 end
 
 local function Upkeep(Declared: Declared, State: any, Clock: number, Marked: boolean): any
@@ -309,6 +286,59 @@ local function Accepts(State: any, Amount: number): boolean
 	return Amount <= 0 or (Part.Opened ~= nil and not Shut(Part))
 end
 
+local MEASURES = 4
+
+local SLOT = {
+	Free = 1,
+	Held = 2,
+	Sold = 3,
+	Shut = 4,
+}
+
+local function Measure(State: any): { number }?
+	local Part = State :: Part
+	if Part.Opened == nil then
+		return nil
+	end
+	local Values = table.create(MEASURES, 0)
+	Values[SLOT.Free] = Part.Free
+	Values[SLOT.Held] = Held(Part.Holds)
+	Values[SLOT.Sold] = Part.Sold
+	Values[SLOT.Shut] = if Shut(Part) then 1 else 0
+	return Values
+end
+
+local KIND = { Prefix = PREFIX, Width = MEASURES, Measure = Measure }
+
+local Parts = {
+	PREFIX = PREFIX,
+	MODE = MODE,
+	FIELDS = FIELDS,
+	SPLIT_MAX = SPLIT_MAX,
+	SPLIT_NAME = SPLIT_NAME,
+	PROCEEDS_MAX = PROCEEDS_MAX,
+	HOLDS_MAX = HOLDS_MAX,
+	HOLD_MAX = HOLD_MAX,
+	HOLD_SLACK = HOLD_SLACK,
+	PROBES = PROBES,
+	VIEW_AGE = VIEW_AGE,
+	KIND = KIND,
+	SLOT = SLOT,
+}
+
+function Parts.Key(Name: string, Count: number, Index: number): string
+	return `{PREFIX}{Name}:{Count}:{Index}`
+end
+
+function Parts.Share(Stock: number, Count: number, Index: number): number
+	return Stock * (Index + 1) // Count - Stock * Index // Count
+end
+
+function Parts.From(Declared: Declared, Index: number): number?
+	local First = Declared.First
+	return if First then First + Declared.Stock * Index // Declared.Parts else nil
+end
+
 function Parts.Build(Base: Types.Build, Declared: Declared): Types.Build
 	local Made = table.clone(Base) :: any
 	local Fields = table.clone(FIELDS)
@@ -329,9 +359,16 @@ function Parts.Build(Base: Types.Build, Declared: Declared): Types.Build
 	Made.Accepts = function(State: any, _: number, Amount: number): boolean
 		return Accepts(State, Amount)
 	end
-	Made.Migrations, Made.Default, Made.Level, Made.Floor = {}, {}, 0, 0
-	Made.Money, Made.Fields, Made.Window = Money, Fields, {}
-	Made.Erasable, Made.UntimedRoom, Made.Paced = false, 0, Limits.PACE_PART
+	Made.Migrations = {}
+	Made.Default = {}
+	Made.Level = 0
+	Made.Floor = 0
+	Made.Money = Money
+	Made.Fields = Fields
+	Made.Window = {}
+	Made.Erasable = false
+	Made.UntimedRoom = 0
+	Made.Paced = PACE_PART
 	return Made :: Types.Build
 end
 
@@ -343,7 +380,7 @@ function Parts.Reason(State: unknown, Kind: string, Count: number, Print: number
 		return "Closed"
 	elseif Part.Sealed then
 		return "Sealed"
-	elseif Kind == "Hold" and #Part.Holds >= Limits.HOLDS_MAX then
+	elseif Kind == "Hold" and #Part.Holds >= HOLDS_MAX then
 		return "Holds"
 	elseif Kind == "Confirm" then
 		return "Gone"
@@ -392,22 +429,6 @@ function Parts.Plan(Free: { [number]: number }, Within: number, Need: number, Ro
 		end
 	end
 	return if Left == 0 then Plan else nil
-end
-
-local MEASURES = { "Free", "Held", "Sold", "Shut" }
-
-local function Measure(State: any): { number }?
-	local Part = State :: Part
-	if Part.Opened == nil then
-		return nil
-	end
-	return { Part.Free, Held(Part.Holds), Part.Sold, if Shut(Part) then 1 else 0 }
-end
-
-Parts.KIND = { Prefix = PREFIX, Width = #MEASURES, Measure = Measure }
-Parts.SLOT = {} :: { [string]: number }
-for Index, Name in MEASURES do
-	Parts.SLOT[Name] = Index
 end
 
 return Parts

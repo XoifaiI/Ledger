@@ -2,29 +2,22 @@
 --!optimize 2
 
 --[=[
-
 	Build: Logic. Turns a store's config into the build every write of this server judges with.
 
 	Spec: record 5.1 and 7.
 
 	The fields a build declares are the keys of Default. A migration is a function, which breaks old
 	servers, or { Apply, Compatible }, which does not when Compatible is true. The level is the
-	number of migrations and the floor the index of the last one that breaks. A config that cannot
-	work throws at the game's own call. Windows gives an op kind how long its names are kept. A
-	store is Erasable when its keys carry an incarnation id, by default when its keys must exist. A
-	game may set each room within its bounds, and every room together within Limits.ROOMS_MAX. It
-	may set KeepNamed from 7 to 30 days. LegLimit is the most legs a transaction on the store may
-	have. A loss room must hold two fold slots and one event of every money field, and a store
-	declares at most Limits.MONEY_MAX money fields. OnLoadFailed is called with a player whose load
-	failed, and a player it does not handle is kicked. Totals gives the shard count of each total a
-	config declares, from 1 to Limits.SHARDS_MAX. A total with no count gets Limits.SHARDS. A
-	total's name has at most Limits.TOTAL_NAME bytes. Splits gives the declaration of each split
-	quantity a config declares: from 1 to Limits.SPLIT_MAX parts, Final or Open, with a whole stock.
-	A quantity's name has at most Limits.SPLIT_NAME bytes, and its print covers the whole
-	declaration. Serials gives a final quantity serial numbers from that first one, one per unit of
-	its stock. Proceeds names at most Limits.PROCEEDS_MAX money fields its takes pay into.
+	number of migrations, and the floor the index of the last one that breaks. A store is Erasable
+	when its keys carry an incarnation id, by default when its keys must exist. A game may set each
+	room within its bounds, every room together within Sizes.ROOMS_MAX, and KeepNamed within its
+	bounds. A loss room must hold two fold slots and one event of every money field. A total with no
+	count gets Shards.SHARDS shards. A quantity's print covers its whole declaration, so a part
+	opened under another declaration refuses every op. Serials gives a final quantity serial numbers
+	from that first one, one per unit of its stock. A config that cannot work throws at the game's
+	call.
 
-	Return type: A table with New, Totals and Splits. The types are Config and Migration.
+	Return type: The Build module, and the Config and Migration types.
 	Example usage:
 		local Made = Build.New(Config)
 --]=]
@@ -37,6 +30,7 @@ local Limits = require("../Core/Constants/Limits")
 local Ops = require("../Store/Ops")
 local Parts = require("../Record/Parts")
 local Sizes = require("../Core/Constants/Sizes")
+local Shards = require("../Record/Shards")
 local Types = require("../Record/Types")
 local Value = require("../Encode/Value")
 local Windows = require("../Core/Constants/Windows")
@@ -86,7 +80,8 @@ local function Steps(Migrations: { Migration }): ({ (State: any) -> unknown }, n
 	local Floor = 0
 	for Index, Migration in Migrations do
 		if type(Migration) == "function" then
-			Made[Index], Floor = Migration, Index
+			Made[Index] = Migration
+			Floor = Index
 		elseif type(Migration) == "table" and type(Migration.Apply) == "function" then
 			Made[Index] = Migration.Apply
 			Floor = if Migration.Compatible then Floor else Index
@@ -106,13 +101,13 @@ function Build.Totals(Config: Config): { [string]: number }
 		Errors.Misuse(`the Totals of {Config.Name} is not a table of totals by name`, 1)
 	end
 	for Name, Total in Declared do
-		local Shards = if type(Total) == "table" then Total.Shards or Limits.SHARDS else nil
-		if type(Name) ~= "string" or Name == "" or #Name > Limits.TOTAL_NAME then
-			Errors.Misuse(`a total of {Config.Name} needs a name of 1 to {Limits.TOTAL_NAME} bytes`, 1)
-		elseif not (type(Shards) == "number" and Shards % 1 == 0 and Shards >= 1 and Shards <= Limits.SHARDS_MAX) then
-			Errors.Misuse(`the total {Name} of {Config.Name} needs Shards, a whole number from 1 to {Limits.SHARDS_MAX}`, 1)
+		local Count = if type(Total) == "table" then Total.Shards or Shards.SHARDS else nil
+		if type(Name) ~= "string" or Name == "" or #Name > Shards.TOTAL_NAME then
+			Errors.Misuse(`a total of {Config.Name} needs a name of 1 to {Shards.TOTAL_NAME} bytes`, 1)
+		elseif not (type(Count) == "number" and Count % 1 == 0 and Count >= 1 and Count <= Shards.SHARDS_MAX) then
+			Errors.Misuse(`the total {Name} of {Config.Name} needs Shards, a whole number from 1 to {Shards.SHARDS_MAX}`, 1)
 		end
-		Found[Name] = Shards
+		Found[Name] = Count
 	end
 	return Found
 end
@@ -128,10 +123,10 @@ function Build.Splits(Config: Config): { [string]: Parts.Declared }
 	for Name, Split in Declared do
 		local Given: any = if type(Split) == "table" then Split else {}
 		local Mode, Stock = Given.Mode or Parts.MODE.Final, Given.Stock or 0
-		if type(Name) ~= "string" or Name == "" or #Name > Limits.SPLIT_NAME then
-			Errors.Misuse(`a split quantity of {Config.Name} needs a name of 1 to {Limits.SPLIT_NAME} bytes`, 1)
-		elseif not Whole(Given.Parts, 1, Limits.SPLIT_MAX) then
-			Errors.Misuse(`the quantity {Name} of {Config.Name} needs Parts, a whole number from 1 to {Limits.SPLIT_MAX}`, 1)
+		if type(Name) ~= "string" or Name == "" or #Name > Parts.SPLIT_NAME then
+			Errors.Misuse(`a split quantity of {Config.Name} needs a name of 1 to {Parts.SPLIT_NAME} bytes`, 1)
+		elseif not Whole(Given.Parts, 1, Parts.SPLIT_MAX) then
+			Errors.Misuse(`the quantity {Name} of {Config.Name} needs Parts, a whole number from 1 to {Parts.SPLIT_MAX}`, 1)
 		elseif Mode ~= Parts.MODE.Final and Mode ~= Parts.MODE.Open then
 			Errors.Misuse(`the Mode of the quantity {Name} of {Config.Name} is not Final or Open`, 1)
 		elseif not Whole(Stock, 0, Limits.MONEY_LIMIT - 1) then
@@ -140,8 +135,8 @@ function Build.Splits(Config: Config): { [string]: Parts.Declared }
 			Errors.Misuse(`the Serials of the quantity {Name} of {Config.Name} is not the whole first serial of a final quantity`, 1)
 		end
 		local Proceeds: { string } = Given.Proceeds or {}
-		if type(Proceeds) ~= "table" or #Proceeds > Limits.PROCEEDS_MAX then
-			Errors.Misuse(`the Proceeds of the quantity {Name} of {Config.Name} is not a list of at most {Limits.PROCEEDS_MAX} names`, 1)
+		if type(Proceeds) ~= "table" or #Proceeds > Parts.PROCEEDS_MAX then
+			Errors.Misuse(`the Proceeds of the quantity {Name} of {Config.Name} is not a list of at most {Parts.PROCEEDS_MAX} names`, 1)
 		end
 		for _, Field in Proceeds do
 			if type(Field) ~= "string" or Parts.FIELDS[Field] then
@@ -197,8 +192,8 @@ function Build.New(Config: Config): Types.Build
 		Loss = Setting(Config, "LossRoom", math.max(Sizes.LOSS_ROOM, LossFloor), LossFloor, Sizes.LOSS_ROOM_MAX),
 		Cut = Setting(Config, "CutNames", Sizes.CUT_NAMES, Sizes.CUT_NAMES_MIN, Sizes.CUT_NAMES_MAX),
 	}
-	if Rooms.Timed + Rooms.Untimed + Rooms.Work + Rooms.Loss + Rooms.Cut * Limits.ITEM_MAX > Limits.ROOMS_MAX then
-		Errors.Misuse(`the rooms of {Config.Name} take more than {Limits.ROOMS_MAX} bytes together`, 1)
+	if Rooms.Timed + Rooms.Untimed + Rooms.Work + Rooms.Loss + Rooms.Cut * Sizes.ITEM_MAX > Sizes.ROOMS_MAX then
+		Errors.Misuse(`the rooms of {Config.Name} take more than {Sizes.ROOMS_MAX} bytes together`, 1)
 	end
 	local Migrations, BreakingFloor = Steps(Config.Migrations or {})
 	return {

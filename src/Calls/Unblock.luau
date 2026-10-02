@@ -2,17 +2,17 @@
 --!optimize 2
 
 --[=[
-
 	Unblock: Machine. Finds out how a mark that stands in a writer's way ends.
 
 	Spec: transaction 4.2. Model: Tx.tla, the hread, hwait and hfence steps of Steps.
 
-	Reading reads the mark's decider. A decision answers the end the writer carries to the mark's
-	key. A mark not decided is fenced once Blockers.Due allows, after a wait while it is older and
-	fresh, and the fence's report decides it. A read or fence that fails, and a decider that holds no
-	value, answer nothing, and the writer asks again at its next blocked send.
+	The machine reads the mark's decider. A decision answers the end the writer carries to the mark's
+	key. A mark not decided is fenced once Blockers.Due allows. For a mark older than the writer's
+	op, that is after a wait until the mark is Windows.SETTLE old. The fence's report then decides
+	it. A read or a fence that fails, and a decider that holds no value, answer nothing, and the
+	writer asks again at its next blocked send.
 
-	Return type: A table with Machine and Context. The type is Context.
+	Return type: The Unblock module, and the Context type.
 	Example usage:
 		local End = Runner.Run(Unblock.Machine, Unblock.Context(Found, Stamp, Name), Places):Wait()
 --]=]
@@ -20,40 +20,30 @@
 local Asks = require("../Machine/Asks")
 local Blockers = require("../Record/Blockers")
 local Machine = require("../Machine/Machine")
-local Types = require("../Record/Types")
+local Requests = require("../Record/Requests")
 local Windows = require("../Core/Constants/Windows")
 
 export type Context = {
 	read Blocker: Blockers.Blocker,
 	read Stamp: number,
 	read Name: string,
-	End: Types.End?,
+	End: Requests.End?,
 }
 
-type Call = Machine.Call<Context, Types.End>
+type Call = Machine.Call<Context, Requests.End>
 
-local STATE: {
-	read Reading: "Reading",
-	read Waiting: "Waiting",
-	read Wounding: "Wounding",
-	read Done: "Done",
-} = {
-	Reading = "Reading",
-	Waiting = "Waiting",
-	Wounding = "Wounding",
-	Done = "Done",
+local STATE = {
+	Reading = "Reading" :: "Reading",
+	Waiting = "Waiting" :: "Waiting",
+	Wounding = "Wounding" :: "Wounding",
+	Done = "Done" :: "Done",
 }
 
-local WORD: {
-	read Decided: "Decided",
-	read Due: "Due",
-	read Early: "Early",
-	read Nothing: "Nothing",
-} = {
-	Decided = "Decided",
-	Due = "Due",
-	Early = "Early",
-	Nothing = "Nothing",
+local WORD = {
+	Decided = "Decided" :: "Decided",
+	Due = "Due" :: "Due",
+	Early = "Early" :: "Early",
+	Nothing = "Nothing" :: "Nothing",
 }
 
 local Unblock = {}
@@ -101,7 +91,7 @@ local function Answer(Call: Call): string
 	return STATE.Done
 end
 
-local STATES: { [string]: Machine.State<Context, Types.End> } = {
+local STATES: { [string]: Machine.State<Context, Requests.End> } = {
 	[STATE.Reading] = {
 		Enter = Read,
 		Hear = HearRead,

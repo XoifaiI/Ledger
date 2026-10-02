@@ -2,14 +2,13 @@
 --!optimize 2
 
 --[=[
-
 	DataStore: Plumbing. One datastore call, answered as pcall answers.
 
-	Open gives back the datastore of a name. Nothing retries. Update also answers, last, whether a run
-	gave a value to write. Every write keeps the key's user ids and metadata, and a write that makes a
-	key gives it the user ids passed in.
+	Nothing here retries; Machine/Runner does. Update answers, last, whether any run of the transform
+	gave a value to write, which is true even when the call then failed. Every write keeps the key's
+	user ids and metadata, and a write that makes a key gives it the user ids passed in.
 
-	Return type: A table with Open, Get, Update and Remove. The types are Transform and Store.
+	Return type: A table of the calls, and the Transform and Store types.
 	Example usage:
 		local Ok, Value, Info, Wrote = DataStore.Update(Store, "42", Transform, { UserId })
 --]=]

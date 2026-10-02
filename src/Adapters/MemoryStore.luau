@@ -2,22 +2,18 @@
 --!optimize 2
 
 --[=[
-
 	MemoryStore: Plumbing. One call to a MemoryStore map, answered as pcall answers.
 
-	Nothing retries. Limits.MISSES misses in a row stop the calls to that map for Windows.BREAKER
-	seconds, and those calls answer false. Any answer clears the count. Open gives back the one
-	cache of a hash map's name. Every call of this server to that map shares its breaker.
+	Nothing retries. MISSES misses in a row stop the calls to that map for BREAKER
+	seconds, and those calls answer false without a request. Any answer clears the count. Open gives
+	one Cache per map name, so every call of this server to that map shares one breaker.
 
-	Return type: The Cache class, with New, Open and the methods Get, Set, Update and Remove.
+	Return type: The Cache class.
 	Example usage:
 		local Ok, Value = Cache:Get(Now, "t/Gold")
 --]=]
 
 local MemoryStoreService = game:GetService("MemoryStoreService")
-
-local Limits = require("../Core/Constants/Limits")
-local Windows = require("../Core/Constants/Windows")
 
 export type Map = {
 	GetAsync: (self: any, Key: string) -> unknown,
@@ -44,6 +40,9 @@ type Data = {
 
 export type Cache = setmetatable<Data, CacheImpl>
 
+local MISSES = 3
+local BREAKER = 120
+
 local Cache = {} :: CacheImpl
 Cache.__index = Cache
 
@@ -55,8 +54,8 @@ local function Settle(Held: Data, Now: number, Ok: boolean, Value: unknown): (bo
 		return true, Value
 	end
 	Held.Row += 1
-	if Held.Row >= Limits.MISSES then
-		Held.Quiet = Now + Windows.BREAKER
+	if Held.Row >= MISSES then
+		Held.Quiet = Now + BREAKER
 	end
 	return false, Value
 end

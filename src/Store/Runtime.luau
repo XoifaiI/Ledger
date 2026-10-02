@@ -2,39 +2,30 @@
 --!optimize 2
 
 --[=[
-
 	Runtime: Object. What one server holds for every store: its numbers, its shown table, one queue
 	per key, and the heartbeat.
 
-	A writer's id is a server number this server never used on its key. The server holds one number
-	at a time, and a bit for each key a queue under it was made on. A queue for a key whose bit is
-	set takes a fresh number, which clears every bit. SaveFor gives back the one queue of a key,
-	made on first use. Flush runs Save on a queue from the next frame until the queue is empty, and
-	a spent queue is renewed the same way. Every landing it hears goes to the queue's Landed, and is
-	a touch. Send pushes one op and waits for its reply. An op still unsent after Windows.SHED
-	seconds is withdrawn and answers Busy. An op with no fate after Windows.ANSWER answers
-	Unresolved. On a paced queue both waits are Windows.GAP_MAX longer. A new paced queue first
-	waits a random time up to Windows.GAP_MAX. Touch runs Touch on each item of a work room that
-	Touches says this server may end. It also finishes a cut's gate as its helper once Touches
-	allows it. Watch puts a session on the heartbeat, a thread that beats it every Windows.BEAT
-	seconds and drops each quiet queue no session holds. CloseAll releases every session, stops the
-	heartbeat and flushes every queue. Server gives a number this server holds, and Draw a name no
-	other call draws. Places holds every store built here. Ids keeps, for the last Limits.SHOWN_MAX
-	keys, the incarnation this server last saw on each, or false when it saw no key. A new queue
-	starts from it, every landing updates it, and Learn puts in what a load or a read saw. Mint
-	gives a fresh id for a key a call may make. First gives the first server number this server
-	took. Landing hears the write count of every landing of every queue.
+	Shared is the one runtime of this server, and every store and feature uses it. A writer's id is a
+	server number this server never used on its key. The server holds one number at a time, and a bit
+	for each key a queue under it was made on. A queue for a key whose bit is set takes a fresh
+	number, which clears every bit. A flush runs Save on a queue from the next frame until the queue
+	is empty, and renews a spent queue. Send withdraws an op still unsent after SHED seconds and
+	answers Busy. An op with no fate after Windows.ANSWER answers Unresolved. On a paced queue both
+	waits are Pacing.GAP_MAX longer, and a new paced queue first waits a random time up to
+	Pacing.GAP_MAX. Every landing is a touch. Touch runs Touch on each item of a work room that
+	Touches says this server may end, and finishes a cut's gate as its helper. The heartbeat beats
+	each watched session every BEAT seconds, and drops each quiet queue no session holds. Ids keeps,
+	for the last Limits.SHOWN_MAX keys, the incarnation this server last saw on each, or false when
+	it saw no key. A call with no name draws one, at most DRAWS times.
 
-	Return type: The Runtime class, with New and the methods Server, First, Draw, Mint, SaveFor, Learn,
-	Flush, Send, Landed, Touch, Watch, Unwatch and CloseAll. The types are Runtime, Beating and
-	Landing.
+	Return type: The Runtime class, and the Runtime, Beating and Landing types.
 	Example usage:
-		local Reply = Shared:Send(Shared:SaveFor(Ref), Asked)
+		local Reply = Runtime.Shared:Send(Runtime.Shared:SaveFor(Ref), Asked)
 --]=]
 
 local Answer = require("../Core/Answer")
-local Backoff = require("../Machine/Backoff")
 local Asks = require("../Machine/Asks")
+local Backoff = require("../Machine/Backoff")
 local Bits = require("../Util/Bits")
 local Book = require("../Record/Book")
 local Clock = require("../Machine/Clock")
@@ -45,7 +36,9 @@ local Limits = require("../Core/Constants/Limits")
 local Lru = require("../Util/Lru")
 local Number = require("../Calls/Number")
 local Observer = require("../Util/Observer")
+local Pacing = require("../Record/Pacing")
 local Queue = require("../Record/Queue")
+local Requests = require("../Record/Requests")
 local Runner = require("../Machine/Runner")
 local Save = require("../Calls/Save")
 local Server = require("../Adapters/Server")
@@ -65,6 +58,8 @@ export type Beating = {
 type RuntimeImpl = {
 	__index: RuntimeImpl,
 	New: () -> Runtime,
+	Shared: Runtime,
+	DRAWS: number,
 	Server: (self: Runtime) -> number,
 	First: (self: Runtime) -> number,
 	Draw: (self: Runtime) -> string,
@@ -108,12 +103,17 @@ type Data = {
 
 export type Runtime = setmetatable<Data, RuntimeImpl>
 
+local WorkForm = Book.WorkForm
+
+local WROTE_BITS = 65536
+local SHED = 10
+local BEAT = 1
+local CLOSE = 25
+local DRAWS = 2
+
 local Runtime = {} :: RuntimeImpl
 Runtime.__index = Runtime
-
-local function Where(Ref: Book.Ref): string
-	return `{Ref.Store}/{Ref.Key}`
-end
+Runtime.DRAWS = DRAWS
 
 local function Take(Shared: Runtime): Future.Future<number?>
 	return Runner.Run(Number.Machine, Number.Context(Server.JobId()), Shared.Places)
@@ -141,16 +141,16 @@ local function NumberFor(Shared: Runtime, Mark: string): number
 end
 
 local function Clear(Shared: Runtime, Name: string, Item: Book.Work, Ref: Book.Ref, Mark: string)
-	local Start = if Item.Form == "Pinned" then Touch.Pinned else Touch.Mark
+	local Start = if Item.Form == WorkForm.Pinned then Touch.Pinned else Touch.Mark
 	Runner.Run(Start, Touch.Context(Name, Item, Ref, Windows.SETTLE), Shared.Places):Wait()
 	Shared.Touching[Mark] = nil
 end
 
 local function Finish(Shared: Runtime, Gate: Book.Gate, Ref: Book.Ref, Mark: string, Server: number)
 	local Place = Shared.Places[Ref.Store]
-	local Helper: Types.Cut = { Name = Gate.Name, Stamp = Gate.Stamp, Kind = Gate.Kind, Print = Gate.Print, Helper = true, Server = Server }
+	local Helper: Requests.Cut = { Name = Gate.Name, Stamp = Gate.Stamp, Kind = Gate.Kind, Print = Gate.Print, Helper = true, Server = Server }
 	local Context = Cut.Context(Ref, Helper, Place ~= nil and Place.Build.Erasable)
-	Context.Seen = Shared.Ids:Get(Where(Ref))
+	Context.Seen = Shared.Ids:Get(Book.Address(Ref))
 	Runner.Run(Cut.Machine, Context, Shared.Places):Wait()
 	Shared.Touching[Mark] = nil
 end
@@ -161,7 +161,7 @@ local function Drain(Shared: Runtime, Kept: Queue, Settle: (boolean) -> ())
 		Landed:Push(Note)
 		Shared.Landing:Push({ Ref = Kept.Ref, Writes = Note.Writes })
 		if Kept.Seen ~= nil then
-			Shared.Ids:Put(Where(Kept.Ref), Kept.Seen)
+			Shared.Ids:Put(Book.Address(Kept.Ref), Kept.Seen)
 		end
 		local Found = Key.Read(Note.Stored)
 		if type(Found) == "table" then
@@ -171,7 +171,7 @@ local function Drain(Shared: Runtime, Kept: Queue, Settle: (boolean) -> ())
 	while Kept.Items[1] do
 		local Said = Runner.Run(Save.Machine, Save.Context(Kept, Land), Shared.Places):Wait()
 		if Said == Save.SAID.Spent then
-			Queue.Renew(Kept, NumberFor(Shared, Where(Kept.Ref)))
+			Queue.Renew(Kept, NumberFor(Shared, Book.Address(Kept.Ref)))
 		end
 	end
 	Kept.Running = false
@@ -194,7 +194,7 @@ end
 
 local function Heartbeat(Shared: Runtime)
 	while true do
-		task.wait(Windows.BEAT)
+		task.wait(BEAT)
 		Beat(Shared)
 	end
 end
@@ -203,7 +203,7 @@ function Runtime.New(): Runtime
 	local Fresh: Data = {
 		Shown = Shown.New(),
 		Places = {},
-		Wrote = Bits.New(Limits.WROTE_BITS),
+		Wrote = Bits.New(WROTE_BITS),
 		Queues = {},
 		Draining = {},
 		Landings = {},
@@ -244,7 +244,7 @@ function Runtime.Mint(self: Runtime): string
 end
 
 function Runtime.Learn(self: Runtime, Ref: Book.Ref, Seen: string | false)
-	local Mark = Where(Ref)
+	local Mark = Book.Address(Ref)
 	self.Ids:Put(Mark, Seen)
 	local Kept = self.Queues[Mark]
 	if Kept then
@@ -253,7 +253,7 @@ function Runtime.Learn(self: Runtime, Ref: Book.Ref, Seen: string | false)
 end
 
 function Runtime.SaveFor(self: Runtime, Ref: Book.Ref, UserIds: { number }?): Queue
-	local Mark = Where(Ref)
+	local Mark = Book.Address(Ref)
 	local Found = self.Queues[Mark]
 	if Found then
 		return Found
@@ -267,7 +267,7 @@ function Runtime.SaveFor(self: Runtime, Ref: Book.Ref, UserIds: { number }?): Qu
 	local Made = Queue.New(Ref, Place.Build, Number, UserIds, Clock.Now())
 	Made.Seen = self.Ids:Get(Mark)
 	if Made.Pace then
-		Made.Sent = Clock.Now() + Backoff.Jitter(Windows.GAP_MAX) - Made.Gap
+		Pacing.Stagger(Made.Pace, Clock.Now(), Backoff.Jitter(Pacing.GAP_MAX))
 	end
 	self.Queues[Mark] = Made
 	return Made
@@ -297,14 +297,14 @@ function Runtime.Send(self: Runtime, Kept: Queue, Asked: Queue.Asked): (Queue.Re
 		return Answer.Busy, nil
 	end
 	self:Flush(Kept)
-	local Extra = if Kept.Pace then Windows.GAP_MAX else 0
-	local Reply, Code = Job:Wait(Windows.SHED + Extra)
+	local Extra = if Kept.Pace then Pacing.GAP_MAX else 0
+	local Reply, Code = Job:Wait(SHED + Extra)
 	if Reply ~= nil then
 		return Reply, Code
 	elseif Queue.Withdraw(Kept, Item) then
 		return Answer.Busy, nil
 	end
-	Reply, Code = Job:Wait(Windows.ANSWER - Windows.SHED)
+	Reply, Code = Job:Wait(Windows.ANSWER - SHED)
 	return Reply or Answer.Unresolved, Code
 end
 
@@ -324,7 +324,7 @@ function Runtime.Touch(self: Runtime, Ref: Book.Ref, Work: { [string]: Book.Work
 	end
 	local Now = Clock.Now()
 	if Gate and self.Places[Ref.Store] then
-		local Mark = `{Where(Ref)}/gate/{Gate.Name}`
+		local Mark = `{Book.Address(Ref)}/gate/{Gate.Name}`
 		local First = self.Seen:Get(Mark) or Now
 		self.Seen:Put(Mark, First)
 		if not self.Touching[Mark] and Touches.Gated(Gate, Touches.Level(Owned, Gate.Name), Now, First) then
@@ -333,7 +333,7 @@ function Runtime.Touch(self: Runtime, Ref: Book.Ref, Work: { [string]: Book.Work
 		end
 	end
 	for Name, Item in Work do
-		local Mark = `{Where(Ref)}/{Name}`
+		local Mark = `{Book.Address(Ref)}/{Name}`
 		if self.Touching[Mark] or not Touch.Known(Item, self.Places) then
 			continue
 		end
@@ -347,7 +347,7 @@ function Runtime.Touch(self: Runtime, Ref: Book.Ref, Work: { [string]: Book.Work
 end
 
 function Runtime.Watch(self: Runtime, Player: Beating, Ref: Book.Ref)
-	local Mark = Where(Ref)
+	local Mark = Book.Address(Ref)
 	self.Watched[Player] = Mark
 	self.Held[Mark] = true
 	if self.Ticker == nil then
@@ -381,8 +381,10 @@ function Runtime.CloseAll(self: Runtime)
 		end
 	end
 	for _, Job in Waits do
-		Job:Wait(Windows.CLOSE)
+		Job:Wait(CLOSE)
 	end
 end
+
+Runtime.Shared = Runtime.New()
 
 return Runtime

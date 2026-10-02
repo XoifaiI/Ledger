@@ -2,18 +2,17 @@
 --!optimize 2
 
 --[=[
-
 	View: Logic. A key's state as one build reads it, with the counters a server shows it by.
 
 	Spec: record 5.3 and 7.
 
-	Read runs the migrations the key has not had in memory and writes nothing. A key that holds
-	nothing or is being erased is Missing. A key past this build's floor or format is Behind. A key
-	whose migrations fail is Refused, and a broken key is Unresolved. A view carries the key's work
-	room, for touches and for judging beside its marks, and its loss room and gate. Level and Floor
-	are those of the state it shows: the build's when it ran migrations, else the key's.
+	Read runs the migrations the key has not had, in memory, and writes nothing. An empty or sealed
+	key is Missing. A key past this build's floor or format is Behind. A key whose migrations fail is
+	Refused, and a broken key is Unresolved. Level and Floor are those of the state the view shows:
+	the build's when migrations ran, else the key's. The view carries the work room, the loss room
+	and the gate as the key holds them.
 
-	Return type: A table with Read. The type is View.
+	Return type: The View module, and the View type.
 	Example usage:
 		local Shown = View.Read(Current, Build)
 --]=]
@@ -66,7 +65,9 @@ function View.Read(Current: unknown, Build: Types.Build): View | Answer
 		if Migrated == nil then
 			return Answer.Refused
 		end
-		State, Level, Floor = Migrated, Build.Level, Build.Floor
+		State = Migrated
+		Level = Build.Level
+		Floor = Build.Floor
 	end
 	return {
 		State = State,

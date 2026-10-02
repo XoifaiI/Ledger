@@ -2,30 +2,27 @@
 --!optimize 2
 
 --[=[
-
 	Cut: Machine. Runs one Reset or one Erase for the server that asked, or finishes another cut's
 	gate as its helper.
 
 	Spec: cuts 3.2 to 3.4.
 
-	Learning reads the key once when its store is erasable and the call does not know its
-	incarnation, and a read that fails answers Unresolved. Cutting sends the cut with every end it
-	has learned. A name kept answers true, and one under other terms Spent. Forgotten and Behind
-	answer so when no request of the call may have written, and Unresolved when one may. Marks, and
-	the items an overdue key lists, go to Fencing. Each mark is fenced, not finally, at its decider,
-	and what that fence reports rides on the next send. Each pinned record runs Touch, which
-	verifies and drops it. Another cut's gate is finished first by this machine as its helper. Ahead
-	and Wait wait for the clock they name. A left over seal is taken off by Unseal, and a seal
-	another erase holds answers Busy. Missing answers Missing when nothing of the call may have
-	written. When something may have written, it answers true for an Erase and Unresolved for a
-	Reset. Each of these goes round at most Limits.TRIES times.
+	The cut is sent with every end the call has learned. A name kept answers true, and one under
+	other terms Spent. Forgotten and Behind answer so when no request of the call may have written,
+	and Unresolved when one may. Missing answers Missing when none may have written. When one may, it
+	answers true for an Erase and Unresolved for a Reset. Marks, and the items an overdue key lists,
+	are fenced at their deciders, not finally, and what each fence reports rides on the next send. A
+	pinned record runs Touch. Another cut's gate is finished first, by this machine as its helper. A
+	seal an erase left over is taken off by Unseal, and a seal another erase holds answers Busy. Each
+	of these goes round at most Limits.TRIES times.
 
-	An Erase that meets its seal answers true with it. When its own write made the seal, it sends
-	the key's one RemoveAsync while the clock reads at most Windows.REMOVE_SEND past rt. Later, it
-	stamps the seal again first. A helper waits the cut window first. Every sealer reads the key
-	again once rt is Windows.SEAL_AGE old, and stamps and removes the same seal if it still stands.
+	An Erase that meets its seal answers true with it, and the machine runs on after it answers.
+	When its own write made the seal, it sends the key's one RemoveAsync while the clock reads at
+	most Windows.REMOVE_SEND past rt. Later than that, it stamps the seal again first. A helper waits
+	the cut window first. Every sealer reads the key again once rt is Windows.SEAL_AGE old, and
+	stamps and removes the same seal if it still stands.
 
-	Return type: A table with Machine and Context. The types are Context and Result.
+	Return type: The Cut module, and the Context and Result types.
 	Example usage:
 		local Result = Runner.Run(Cut.Machine, Cut.Context(Ref, Asked, true), Places):Wait()
 --]=]
@@ -38,6 +35,7 @@ local Key = require("../Record/Key")
 local Limits = require("../Core/Constants/Limits")
 local Machine = require("../Machine/Machine")
 local Queue = require("../Record/Queue")
+local Requests = require("../Record/Requests")
 local Touch = require("./Touch")
 local Types = require("../Record/Types")
 local Unseal = require("./Unseal")
@@ -50,10 +48,10 @@ export type Result = {
 
 export type Context = {
 	read Ref: Book.Ref,
-	read Cut: Types.Cut,
+	read Cut: Requests.Cut,
 	read Erasable: boolean,
 	Seen: (string | false)?,
-	Ends: { Types.End },
+	Ends: { Requests.End },
 	Rounds: number,
 	Checks: number,
 	Wrote: boolean,
@@ -66,47 +64,29 @@ export type Context = {
 
 type Call = Machine.Call<Context, Result>
 
-local STATE: {
-	read Learning: "Learning",
-	read Cutting: "Cutting",
-	read Fencing: "Fencing",
-	read Helping: "Helping",
-	read Waiting: "Waiting",
-	read Unsealing: "Unsealing",
-	read Removing: "Removing",
-	read Ripening: "Ripening",
-	read Checking: "Checking",
-	read Rechecking: "Rechecking",
-	read Restamping: "Restamping",
-	read Done: "Done",
-} =
-	{
-		Learning = "Learning",
-		Cutting = "Cutting",
-		Fencing = "Fencing",
-		Helping = "Helping",
-		Waiting = "Waiting",
-		Unsealing = "Unsealing",
-		Removing = "Removing",
-		Ripening = "Ripening",
-		Checking = "Checking",
-		Rechecking = "Rechecking",
-		Restamping = "Restamping",
-		Done = "Done",
-	}
-
-local WORD: {
-	read Left: "Left",
-	read Busy: "Busy",
-	read Standing: "Standing",
-	read Due: "Due",
-} = {
-	Left = "Left",
-	Busy = "Busy",
-	Standing = "Standing",
-	Due = "Due",
+local STATE = {
+	Learning = "Learning" :: "Learning",
+	Cutting = "Cutting" :: "Cutting",
+	Fencing = "Fencing" :: "Fencing",
+	Helping = "Helping" :: "Helping",
+	Waiting = "Waiting" :: "Waiting",
+	Unsealing = "Unsealing" :: "Unsealing",
+	Removing = "Removing" :: "Removing",
+	Ripening = "Ripening" :: "Ripening",
+	Checking = "Checking" :: "Checking",
+	Rechecking = "Rechecking" :: "Rechecking",
+	Restamping = "Restamping" :: "Restamping",
+	Done = "Done" :: "Done",
 }
 
+local WORD = {
+	Left = "Left" :: "Left",
+	Busy = "Busy" :: "Busy",
+	Standing = "Standing" :: "Standing",
+	Due = "Due" :: "Due",
+}
+
+local WorkForm = Book.WorkForm
 local Report = Types.Report
 local Why = Types.Why
 local SAID = Asks.SAID
@@ -132,7 +112,7 @@ local function RoundsLeft(Call: Call): boolean
 	return Call.Context.Rounds < Limits.TRIES
 end
 
-local function Ride(Context: Context, End: Types.End)
+local function Ride(Context: Context, End: Requests.End)
 	for Index, Riding in Context.Ends do
 		if Riding.Name == End.Name then
 			Context.Ends[Index] = End
@@ -166,15 +146,8 @@ local function Send(Call: Call)
 	local Asked = table.clone(Context.Cut) :: any
 	local Seen = Context.Seen
 	Asked.Id = if Context.Erasable and Seen and Seen ~= "" then Seen else nil
-	local Request: Types.Request = {
-		Writer = 0,
-		Ack = 0,
-		MustExist = true,
-		Ops = {},
-		Ends = if Context.Ends[1] then table.clone(Context.Ends) else nil,
-		Cut = Asked,
-	}
-	Machine.Ask(Call, Asks.Send(Context.Ref, Request))
+	local Ends = if Context.Ends[1] then table.clone(Context.Ends) else nil
+	Machine.Ask(Call, Asks.Send(Context.Ref, Requests.Cut(Asked, Ends)))
 end
 
 local function Heard(Call: Call): string
@@ -187,7 +160,9 @@ local function Heard(Call: Call): string
 	if Note == nil then
 		return SAID.Failed
 	end
-	Context.Items, Context.Gate, Context.Wait = Note.Items or {}, Note.Gate, Note.Wait
+	Context.Items = Note.Items or {}
+	Context.Gate = Note.Gate
+	Context.Wait = Note.Wait
 	if Note.Seal then
 		Context.Seal = Note.Seal
 	end
@@ -227,7 +202,7 @@ local function Fence(Call: Call)
 	local Context = Call.Context
 	table.clear(Context.Asked)
 	for Name, Item in Context.Items do
-		if Item.Form == "Pinned" then --TODO hunt down magic consts
+		if Item.Form == WorkForm.Pinned then
 			Context.Asked[#Context.Asked + 1] = false
 			Machine.Ask(Call, Asks.Run(Touch.Pinned, Touch.Context(Name, Item, Context.Ref, Windows.SETTLE)))
 		else
@@ -255,7 +230,7 @@ local function Help(Call: Call)
 	local Context = Call.Context
 	local Gate = assert(Context.Gate, "Cut: helping with no gate")
 	local Mine = Context.Cut
-	local Helper: Types.Cut = { Name = Gate.Name, Stamp = Gate.Stamp, Kind = Gate.Kind, Print = Gate.Print, Helper = true, Server = Mine.Server }
+	local Helper: Requests.Cut = { Name = Gate.Name, Stamp = Gate.Stamp, Kind = Gate.Kind, Print = Gate.Print, Helper = true, Server = Mine.Server }
 	local Other = Cut.Context(Context.Ref, Helper, Context.Erasable)
 	Other.Seen = Context.Seen
 	Machine.Ask(Call, Asks.Run(Self, Other))
@@ -311,14 +286,8 @@ local function Restamp(Call: Call)
 	local Context = Call.Context
 	local Seal = assert(Context.Seal, "Cut: stamping with no seal")
 	local Server = Context.Cut.Server
-	local Request: Types.Request = {
-		Writer = 0,
-		Ack = 0,
-		MustExist = true,
-		Ops = {},
-		Stamp = { Server = Server, Rt = if Seal.Server == Server then Seal.Rt else nil },
-	}
-	Machine.Ask(Call, Asks.Send(Context.Ref, Request))
+	local Step: Requests.Stamp = { Server = Server, Rt = if Seal.Server == Server then Seal.Rt else nil }
+	Machine.Ask(Call, Asks.Send(Context.Ref, Requests.Stamp(Step)))
 end
 
 local function Restamped(Call: Call): string
@@ -410,7 +379,7 @@ local STATES: { [string]: Machine.State<Context, Result> } = {
 	[STATE.Done] = {},
 }
 
-function Cut.Context(Ref: Book.Ref, Asked: Types.Cut, Erasable: boolean): Context
+function Cut.Context(Ref: Book.Ref, Asked: Requests.Cut, Erasable: boolean): Context
 	return {
 		Ref = Ref,
 		Cut = Asked,

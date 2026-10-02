@@ -2,32 +2,29 @@
 --!optimize 2
 
 --[=[
-
 	Tx: Machine. Runs one transaction for the server that coordinates it.
 
 	Spec: transaction 3.1, 3.5 to 3.7. Model: Tx.tla, Steps for a tx call.
 
-	Reading, for a game name, reads the decider first: a decision that took under the call's
-	fingerprint answers true, and one under another answers Spent. Learning reads, all at once,
-	every leg key of an erasable store whose incarnation the call does not know. A read that fails
-	answers Unresolved. Each Tent and Commit carries the key's id, or a create of the call's fresh
-	id where the key read absent. It carries the id itself once a request of the call to that key
-	may have written. Tenting sends a Tent to every leg key but the decider, all at once. When each
-	reports its mark, Committing sends the Commit. A commit answers true and resolves every leg. A
-	fence that is not final goes again under the next attempt, up to Limits.ATTEMPTS. A refusal
-	answers Refused or Full and resolves abort wherever a mark of the call may have landed. A step
-	an item blocks picks one item by the server's number. A mark runs Unblock, and what it answers
-	rides on the resend. A pinned record runs Touch, which verifies and drops it. A Tent or a Commit
-	that meets a cut's gate waits until the gate is Windows.SETTLE old. It then finishes that cut as
-	its helper and is sent again. A commit that is owed verifies the pinned records it lists and
-	sends again with their drops. Each of these goes round at most Limits.TRIES times. Verdict keeps
-	the last note the decider gave a Commit or a Fence. Value keeps the decider value the commit
-	kept, and every resolve of commit carries it. Refuser is the leg whose refusal answered the call. Anything else fences the decider with final and
-	answers by the fence. TENT_WORDS gives the word each Tent reply says, and a decision that
-	refused says Refused. When the Tents disagree, the first of TENTS they said decides, in the
-	order transaction 3.6 gives.
+	Retry, for a game name, reads the decider first: a decision that took under the call's
+	fingerprint answers true, and one under another answers Spent. A Tent goes to every leg key but
+	the decider, all at once, and the Commit goes only when each reported its mark. When the Tents
+	disagree, the first word of TENTS they said decides, in the order transaction 3.6 gives. A fence
+	that is not final goes again under the next attempt, up to ATTEMPTS. The call answers once, and
+	the machine runs on to resolve. A commit resolves every leg key. A refusal resolves abort
+	wherever a mark of the call may have landed. Any reply the rows do not name fences the decider
+	with final, and the fence answers the call.
 
-	Return type: A table with Run, Retry and Context. The types are Leg, Use and Context.
+	On an erasable store each Tent and Commit carries the key's id, or a create of the call's fresh
+	id where the key read absent. It carries the fresh id itself once a request of the call to that
+	key may have written. A step that an item blocks picks one item by the server's number. A mark
+	runs Unblock, and its answer rides on the resend. A pinned record runs Touch. A step that meets a
+	cut's gate waits until the gate is Windows.SETTLE old, then finishes that cut as its helper. A
+	commit that is owed verifies the pinned records it lists, and sends again with their drops. Each
+	of these goes round at most Limits.TRIES times. Verdict keeps the last note the decider gave a
+	Commit or a Fence, and Value the decider value, for a machine that ran this one to read.
+
+	Return type: The Tx module, with the machines Run and Retry, and the Leg, Use and Context types.
 	Example usage:
 		local Reply = Runner.Run(Tx.Run, Tx.Context(Use, Legs, Decider, Server), Places):Wait()
 --]=]
@@ -42,6 +39,7 @@ local Key = require("../Record/Key")
 local Limits = require("../Core/Constants/Limits")
 local Machine = require("../Machine/Machine")
 local Queue = require("../Record/Queue")
+local Requests = require("../Record/Requests")
 local Touch = require("./Touch")
 local Types = require("../Record/Types")
 local Unblock = require("./Unblock")
@@ -54,7 +52,7 @@ export type Leg = {
 	read Ref: Book.Ref,
 	read MustExist: boolean,
 	read Erasable: boolean?,
-	read Change: Types.Leg,
+	read Change: Requests.Leg,
 }
 
 export type Use = {
@@ -73,7 +71,7 @@ export type Context = {
 	Marked: { [number]: true },
 	Landed: { [number]: true },
 	Wrote: boolean,
-	Rides: { [string]: { Types.End } },
+	Rides: { [string]: { Requests.End } },
 	Drops: { string },
 	Owed: { [string]: Book.Work },
 	Sent: { number },
@@ -83,7 +81,7 @@ export type Context = {
 	Fallback: Answer,
 	Code: number?,
 	Keys: { number },
-	End: Types.End?,
+	End: Requests.End?,
 	Ids: { [number]: string | false },
 	read Fresh: string,
 	Learned: { number },
@@ -96,53 +94,34 @@ export type Context = {
 
 type Call = Machine.Call<Context, Reply>
 
-local STATE: {
-	read Reading: "Reading",
-	read Learning: "Learning",
-	read Tenting: "Tenting",
-	read Committing: "Committing",
-	read Fencing: "Fencing",
-	read Resolving: "Resolving",
-	read Verifying: "Verifying",
-	read Helping: "Helping",
-	read Gating: "Gating",
-	read Finishing: "Finishing",
-	read Resting: "Resting",
-	read Done: "Done",
-} =
-	{
-		Reading = "Reading",
-		Learning = "Learning",
-		Tenting = "Tenting",
-		Committing = "Committing",
-		Fencing = "Fencing",
-		Resolving = "Resolving",
-		Verifying = "Verifying",
-		Helping = "Helping",
-		Gating = "Gating",
-		Finishing = "Finishing",
-		Resting = "Resting",
-		Done = "Done",
-	}
-
-local WORD: {
-	read Took: "Took",
-	read Taken: "Taken",
-	read Marked: "Marked",
-	read Stuck: "Stuck",
-	read Gated: "Gated",
-} = {
-	Took = "Took",
-	Taken = "Taken",
-	Marked = "Marked",
-	Stuck = "Stuck",
-	Gated = "Gated",
+local STATE = {
+	Reading = "Reading" :: "Reading",
+	Learning = "Learning" :: "Learning",
+	Tenting = "Tenting" :: "Tenting",
+	Committing = "Committing" :: "Committing",
+	Fencing = "Fencing" :: "Fencing",
+	Resolving = "Resolving" :: "Resolving",
+	Verifying = "Verifying" :: "Verifying",
+	Helping = "Helping" :: "Helping",
+	Gating = "Gating" :: "Gating",
+	Finishing = "Finishing" :: "Finishing",
+	Resting = "Resting" :: "Resting",
+	Done = "Done" :: "Done",
 }
 
+local WORD = {
+	Took = "Took" :: "Took",
+	Taken = "Taken" :: "Taken",
+	Marked = "Marked" :: "Marked",
+	Stuck = "Stuck" :: "Stuck",
+	Gated = "Gated" :: "Gated",
+}
+
+local WorkForm = Book.WorkForm
 local Fate = Book.Fate
 local Role = Book.Role
 local Report = Types.Report
-local Outcome = Types.Outcome
+local Outcome = Requests.Outcome
 local Why = Types.Why
 local SAID = Asks.SAID
 
@@ -176,11 +155,10 @@ local TENT_WORDS: { [string]: string } = {
 	[Report.Gated] = WORD.Gated,
 }
 
-local Tx = {}
+local ATTEMPTS = 3
+local OWED_FREE = 8
 
-local function Where(Ref: Book.Ref): string
-	return `{Ref.Store}/{Ref.Key}`
-end
+local Tx = { ATTEMPTS = ATTEMPTS }
 
 local function Give(Call: Call, Result: Reply)
 	if Call.Answered == nil then
@@ -192,7 +170,7 @@ local function Refusal(Code: number?): Answer
 	return if Code == Fate.Full then Answer.Full else Answer.Refused
 end
 
-local function Settle(Call: Call, Result: Types.Outcome, Attempt: number): string
+local function Settle(Call: Call, Result: Requests.Outcome, Attempt: number): string
 	local Context = Call.Context
 	local Use = Context.Use
 	Context.End = { Name = Use.Name, Stamp = Use.Stamp, Attempt = Attempt, Print = Use.Print, Outcome = Result, Value = Context.Value }
@@ -247,7 +225,7 @@ end
 
 local function NotFinal(Call: Call): boolean
 	local Note = Machine.Reply(Call).Note
-	return Note ~= nil and not Note.Final and Call.Context.Attempt < Limits.ATTEMPTS
+	return Note ~= nil and not Note.Final and Call.Context.Attempt < ATTEMPTS
 end
 
 local function RoundsLeft(Call: Call): boolean
@@ -297,10 +275,12 @@ local function Took(Call: Call): string
 	local Item = Found.Book.Work[Use.Name]
 	local Held = Found.Book:Held(Use.Name)
 	local Print: number? = nil
-	if Item and Item.Form == "Pinned" then
-		Print, Call.Context.Value = Item.Print, Item.Value
+	if Item and Item.Form == WorkForm.Pinned then
+		Print = Item.Print
+		Call.Context.Value = Item.Value
 	elseif Held and Held.Role == Role.Decision and Held.Fate == Fate.Took then
-		Print, Call.Context.Value = Held.Print, Held.Value
+		Print = Held.Print
+		Call.Context.Value = Held.Value
 	else
 		return SAID.Done
 	end
@@ -360,24 +340,17 @@ local function Tent(Call: Call)
 		end
 		table.insert(Context.Sent, Index)
 		local Id, Create = Incarnation(Context, Index)
-		local Request: Types.Request = {
-			Writer = 0,
-			Ack = 0,
-			MustExist = Leg.MustExist,
-			Ops = {},
-			Ends = Context.Rides[Where(Leg.Ref)],
-			Tent = {
-				Name = Use.Name,
-				Stamp = Use.Stamp,
-				Attempt = Context.Attempt,
-				Print = Use.Print,
-				Decider = Decider.Ref,
-				Leg = Leg.Change,
-				Id = Id,
-				Create = Create,
-			},
+		local Step: Requests.Tent = {
+			Name = Use.Name,
+			Stamp = Use.Stamp,
+			Attempt = Context.Attempt,
+			Print = Use.Print,
+			Decider = Decider.Ref,
+			Leg = Leg.Change,
+			Id = Id,
+			Create = Create,
 		}
-		Machine.Ask(Call, Asks.Send(Leg.Ref, Request))
+		Machine.Ask(Call, Asks.Send(Leg.Ref, Requests.Tent(Step, Leg.MustExist, Context.Rides[Book.Address(Leg.Ref)])))
 	end
 end
 
@@ -401,14 +374,17 @@ local function Tents(Call: Call): string
 		end
 		local Word = TentWord(Reply)
 		if Word == WORD.Marked then
-			Context.Marked[Index], Context.Landed[Index] = true, true
+			Context.Marked[Index] = true
+			Context.Landed[Index] = true
 			continue
 		elseif Word == WORD.Stuck and not Stuck(Call, Reply, Context.Legs[Index].Ref) then
 			continue
 		elseif Word == Report.Refused and Note then
-			Context.Code, Context.Refuser = Note.Fate, Index
+			Context.Code = Note.Fate
+			Context.Refuser = Index
 		elseif Word == WORD.Gated and Note then
-			Context.Gate, Context.Gated = Note.Gate, Index
+			Context.Gate = Note.Gate
+			Context.Gated = Index
 		end
 		Heard[Word] = true
 	end
@@ -435,25 +411,18 @@ local function Commit(Call: Call)
 	end
 	local Decider = Context.Legs[Context.Decider]
 	local Id, Create = Incarnation(Context, Context.Decider)
-	local Request: Types.Request = {
-		Writer = 0,
-		Ack = 0,
-		MustExist = Decider.MustExist,
-		Ops = {},
-		Ends = Context.Rides[Where(Decider.Ref)],
-		Drops = if Context.Drops[1] then table.clone(Context.Drops) else nil,
-		Commit = {
-			Name = Use.Name,
-			Stamp = Use.Stamp,
-			Attempt = Context.Attempt,
-			Print = Use.Print,
-			Legs = Others,
-			Leg = Decider.Change,
-			Id = Id,
-			Create = Create,
-		},
+	local Step: Requests.Commit = {
+		Name = Use.Name,
+		Stamp = Use.Stamp,
+		Attempt = Context.Attempt,
+		Print = Use.Print,
+		Legs = Others,
+		Leg = Decider.Change,
+		Id = Id,
+		Create = Create,
 	}
-	Machine.Ask(Call, Asks.Send(Decider.Ref, Request))
+	local Drops = if Context.Drops[1] then table.clone(Context.Drops) else nil
+	Machine.Ask(Call, Asks.Send(Decider.Ref, Requests.Commit(Step, Decider.MustExist, Context.Rides[Book.Address(Decider.Ref)], Drops)))
 end
 
 local function Committing(Call: Call): string
@@ -469,7 +438,8 @@ local function Committing(Call: Call): string
 		Context.Refuser = Context.Decider
 	end
 	if Note and Note.Report == Report.Gated then
-		Context.Gate, Context.Gated = Note.Gate, Context.Decider
+		Context.Gate = Note.Gate
+		Context.Gated = Context.Decider
 	end
 	return Reply.Said
 end
@@ -491,7 +461,7 @@ local function Finish(Call: Call)
 	local Gate = assert(Context.Gate, "Tx: finishing with no gate")
 	local Index = assert(Context.Gated, "Tx: finishing with no gated leg")
 	local Leg = Context.Legs[Index]
-	local Helper: Types.Cut = { Name = Gate.Name, Stamp = Gate.Stamp, Kind = Gate.Kind, Print = Gate.Print, Helper = true, Server = Context.Server }
+	local Helper: Requests.Cut = { Name = Gate.Name, Stamp = Gate.Stamp, Kind = Gate.Kind, Print = Gate.Print, Helper = true, Server = Context.Server }
 	local Other = Cut.Context(Leg.Ref, Helper, Leg.Erasable == true)
 	local Seen = Context.Ids[Index]
 	Other.Seen = if Seen == nil then nil else Seen
@@ -500,7 +470,8 @@ end
 
 local function Finished(Call: Call): string
 	local Context = Call.Context
-	Context.Gate, Context.Gated = nil, nil
+	Context.Gate = nil
+	Context.Gated = nil
 	Context.Rounds += 1
 	return Context.Back
 end
@@ -525,15 +496,8 @@ local function Fence(Call: Call)
 	local Context = Call.Context
 	local Use = Context.Use
 	local Decider = Context.Legs[Context.Decider].Ref
-	local Request: Types.Request = {
-		Writer = 0,
-		Ack = 0,
-		MustExist = true,
-		Ops = {},
-		Ends = Context.Rides[Where(Decider)],
-		Fence = { Name = Use.Name, Stamp = Use.Stamp, Attempt = Context.Attempt, Print = Use.Print, Final = true },
-	}
-	Machine.Ask(Call, Asks.Send(Decider, Request))
+	local Step: Requests.Fence = { Name = Use.Name, Stamp = Use.Stamp, Attempt = Context.Attempt, Print = Use.Print, Final = true }
+	Machine.Ask(Call, Asks.Send(Decider, Requests.Fence(Step, Context.Rides[Book.Address(Decider)])))
 end
 
 local function Ruled(Call: Call): string
@@ -554,9 +518,9 @@ local function Resolve(Call: Call)
 	local End = assert(Context.End, "Tx: nothing to resolve")
 	for _, Index in Context.Keys do
 		local Ref = Context.Legs[Index].Ref
-		local Ends = table.clone(Context.Rides[Where(Ref)] or {})
+		local Ends = table.clone(Context.Rides[Book.Address(Ref)] or {})
 		table.insert(Ends, End)
-		Machine.Ask(Call, Asks.Send(Ref, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = Ends }))
+		Machine.Ask(Call, Asks.Send(Ref, Requests.Ends(Ends)))
 	end
 end
 
@@ -564,38 +528,44 @@ local function Verify(Call: Call)
 	local Context = Call.Context
 	local Names: { string } = {}
 	for Name, Item in Context.Owed do
-		if Item.Form == "Pinned" then
+		if Item.Form == WorkForm.Pinned then
 			table.insert(Names, Name)
 		end
 	end
 	table.sort(Names)
 	table.clear(Context.Checked)
 	local Offset = if Names[1] then Context.Server % #Names else 0
-	for Index = 1, math.min(#Names, Limits.OWED_FREE) do
+	for Index = 1, math.min(#Names, OWED_FREE) do
 		local Name = Names[(Offset + Index - 1) % #Names + 1]
 		local Item = Context.Owed[Name]
-		if Item.Form ~= "Pinned" then
+		if Item.Form ~= WorkForm.Pinned then
 			continue
 		end
-		local End: Types.End = { Name = Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Outcome = Outcome.Commit, Value = Item.Value }
+		local End: Requests.End = { Name = Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Outcome = Outcome.Commit, Value = Item.Value }
 		for _, Ref in Item.Legs do
 			table.insert(Context.Checked, Name)
-			Machine.Ask(Call, Asks.Send(Ref, { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Ends = { End } }))
+			Machine.Ask(Call, Asks.Send(Ref, Requests.Ends({ End })))
 		end
 	end
 end
 
 local function Verified(Call: Call): string
 	local Context = Call.Context
-	local Lands: { [string]: number } = {}
+	local Landed: { [string]: number } = {}
+	local Missed: { [string]: true } = {}
 	for Order, Reply in Call.Heard do
 		local Name = Context.Checked[Order]
 		local Note = Reply.Note
-		Lands[Name] = if Note and Note.Why == nil then (Lands[Name] or 0) + 1 else -math.huge
+		Landed[Name] = Landed[Name] or 0
+		if Note and Note.Why == nil then
+			Landed[Name] += 1
+		else
+			Missed[Name] = true
+		end
 	end
-	for Name, Count in Lands do
+	for Name, Count in Landed do
 		local Item = Context.Owed[Name]
-		if Item and Item.Form == "Pinned" and Count == #Item.Legs then
+		if Item and Item.Form == WorkForm.Pinned and not Missed[Name] and Count == #Item.Legs then
 			table.insert(Context.Drops, Name)
 		end
 	end
@@ -619,9 +589,9 @@ local function Helped(Call: Call): string
 	local Found = assert(Context.Blocker, "Tx: helped with no blocker")
 	local End = Machine.Reply(Call).Answer
 	if type(End) == "table" then
-		local Place = Where(Found.Ref)
+		local Place = Book.Address(Found.Ref)
 		local Rides = Context.Rides[Place] or {}
-		table.insert(Rides, End :: Types.End)
+		table.insert(Rides, End :: Requests.End)
 		Context.Rides[Place] = Rides
 	end
 	Context.Blocker = nil

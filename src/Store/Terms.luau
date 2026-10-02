@@ -2,24 +2,21 @@
 --!optimize 2
 
 --[=[
-
 	Terms: Logic. A transaction's legs as a game gives them, checked and made into Tx's legs.
 
 	Spec: transaction 3 and 3.1.
 
-	A leg is a field delta, with Field and Amount, or a game op, with Kind and Fields. Make throws
-	at the game's call for a call that cannot run. That is fewer than two legs, two legs on one key,
-	or a delta on a field the store does not declare as money. It is also an amount that is 0 or not
-	a whole number below 2^53. It is also a game op a datastore cannot hold, or one past
-	Limits.OP_BYTES. It is also a Once inside a leg, or a hot leg that is not a leg. It is also more
-	legs than the LegLimit of any store a leg is in, or a mark or pinned record past Sizes.MARK_MAX.
-	A call with no name is measured with the widest name Ledger draws. The decider is the hot leg,
-	else the one game op leg, else the first leg that credits, else the last leg. A game name's
-	print is 16 bits of the hash of every leg and which one decides.
+	A leg is a field delta, with Field and Amount, or a game op, with Kind and Fields. Make throws at
+	the game's call for a call that cannot run: fewer than two legs, two legs on one key, a delta on
+	a field the store does not declare as money, an amount that is 0 or not a whole number below
+	2^53, a game op a datastore cannot hold or one past OP_BYTES, a Once inside a leg, a hot leg that
+	is not a leg, more legs than the LegLimit of any store a leg is in, or a mark or pinned record
+	past Sizes.MARK_MAX. A call with no name is measured with the widest name Ledger draws. The
+	decider is the hot leg, else the one game op leg, else the first leg that credits, else the last
+	leg. A game name's print is 16 bits of the hash of every leg and which one decides. Depth counts
+	the helpers between Make and the game's call, so each throw names the game's line.
 
-	Depth counts the helpers between Make and the game's call, so each throw names the game's line.
-
-	Return type: A table with Make. The types are Given and Made.
+	Return type: The Terms module, and the Given and Made types.
 	Example usage:
 		local Made = Terms.Make(Given, Name, Hot)
 --]=]
@@ -29,10 +26,12 @@ local Book = require("../Record/Book")
 local Errors = require("../Core/Errors")
 local Limits = require("../Core/Constants/Limits")
 local Ops = require("./Ops")
+local Requests = require("../Record/Requests")
 local Sizes = require("../Core/Constants/Sizes")
 local Tx = require("../Calls/Tx")
-local Types = require("../Record/Types")
 local Value = require("../Encode/Value")
+
+local WorkForm = Book.WorkForm
 
 export type Given = {
 	read Ref: Book.Ref,
@@ -53,11 +52,9 @@ export type Made = {
 
 local WIDEST_DRAWN = Book.Drawn(2 ^ 40, 2 ^ 40)
 
-local Terms = {}
+local OP_BYTES = 512
 
-local function Where(Ref: Book.Ref): string
-	return `{Ref.Store}/{Ref.Key}`
-end
+local Terms = {}
 
 local function Delta(Leg: Given): (number?, number?)
 	local Field, Amount = Leg.Field, Leg.Amount
@@ -98,11 +95,11 @@ local function Widest(Name: string, Print: number?, Legs: { Tx.Leg }, Decider: n
 			table.insert(Others, Leg.Ref)
 		end
 	end
-	local Pinned: Book.Pinned = { Form = "Pinned", Stamp = 0, Attempt = Limits.ATTEMPTS, Print = Print, Legs = Others }
+	local Pinned: Book.Pinned = { Form = WorkForm.Pinned, Stamp = 0, Attempt = Tx.ATTEMPTS, Print = Print, Legs = Others }
 	local Mark: Book.Escrow = {
-		Form = "Escrow",
+		Form = WorkForm.Escrow,
 		Stamp = 0,
-		Attempt = Limits.ATTEMPTS,
+		Attempt = Tx.ATTEMPTS,
 		Print = Print,
 		Clean = true,
 		Decider = Legs[Decider].Ref,
@@ -122,13 +119,13 @@ local function GameOp(Leg: Given, Index: number, Depth: number): unknown
 	end
 	local Body = Ops.Body(Leg.Kind :: string, Fields)
 	local Bytes = Value.Check(Body)
-	if Bytes == nil or Bytes > Limits.OP_BYTES then
-		Errors.Misuse(`the op of leg {Index} is not one a datastore can hold in {Limits.OP_BYTES} bytes`, 3 + Depth)
+	if Bytes == nil or Bytes > OP_BYTES then
+		Errors.Misuse(`the op of leg {Index} is not one a datastore can hold in {OP_BYTES} bytes`, 3 + Depth)
 	end
 	return Body
 end
 
-local function Change(Leg: Given, Index: number, Depth: number): Types.Leg
+local function Change(Leg: Given, Index: number, Depth: number): Requests.Leg
 	local Field, Amount = Delta(Leg)
 	if Field and Amount and Whole(Amount) then
 		return { Field = Field, Amount = Amount }
@@ -149,7 +146,7 @@ function Terms.Make(Given: { Given }, Name: string?, Hot: unknown, Depth: number
 	local Legs: { Tx.Leg } = {}
 	local Printed: { { [string]: any } } = {}
 	for Index, Leg in Given do
-		local Place = Where(Leg.Ref)
+		local Place = Book.Address(Leg.Ref)
 		if Seen[Place] then
 			Errors.Misuse(`two legs are on the key {Place}`, 1 + Extra)
 		elseif #Given > Leg.Place.Build.LegLimit then

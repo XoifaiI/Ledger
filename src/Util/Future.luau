@@ -2,14 +2,12 @@
 --!optimize 2
 
 --[=[
-
 	Future: Plumbing. Holds the answer to a call that has not finished yet.
 
-	Pending gives back a future and the function that settles it once. Wait yields until then, or
-	gives back nothing after its timeout. Happened says whether it has settled. Spawn runs a function
-	on a thread of its own and settles with what it gives back.
+	A future settles once, and a second settle throws. Wait with a timeout gives back nothing when the
+	timeout comes first, and the future may still settle later.
 
-	Return type: A table with Pending, Completed and Spawn.
+	Return type: The Future class.
 	Example usage:
 		local Answer = Job:Wait()
 --]=]

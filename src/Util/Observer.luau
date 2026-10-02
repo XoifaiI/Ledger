@@ -2,15 +2,12 @@
 --!optimize 2
 
 --[=[
-
 	Observer: Plumbing. Sends each value pushed to every listener, in the order they subscribed.
 
-	A listener must not yield. One that yields is stopped, and one that throws is warned about.
+	A listener runs the moment a value is pushed and must not yield. One that yields is stopped, and
+	one that throws is warned about, so neither stops the listeners after it.
 
-	Count gives how many listeners are connected.
-
-	Return type: The Observer class, with New and the methods Subscribe, Push, Count and Destroy. The
-	types are Observer and Connection.
+	Return type: The Observer class, and the Observer and Connection types.
 	Example usage:
 		Stream:Subscribe(print)
 --]=]
@@ -43,24 +40,6 @@ type Data = {
 
 export type Observer<T> = setmetatable<Data, ObserverImpl<T>>
 
-local Connection = {} :: ConnectionImpl
-Connection.__index = Connection
-
-local Observer = {} :: ObserverImpl<any>
-Observer.__index = Observer
-
-function Connection.Disconnect(self: Connection)
-	if not self.Connected then
-		return
-	end
-	self.Connected = false
-	local Nodes = self.Nodes
-	local At = table.find(Nodes, self)
-	if At then
-		table.remove(Nodes, At)
-	end
-end
-
 local function Run(Listener: (any) -> (), Value: any)
 	local Thread = coroutine.create(Listener)
 	local Ok, Err = coroutine.resume(Thread, Value)
@@ -71,6 +50,12 @@ local function Run(Listener: (any) -> (), Value: any)
 		warn("Ledger: an Observer listener yielded and was stopped. a listener runs the moment a value is pushed")
 	end
 end
+
+local Connection = {} :: ConnectionImpl
+Connection.__index = Connection
+
+local Observer = {} :: ObserverImpl<any>
+Observer.__index = Observer
 
 function Observer.New<T>(): Observer<T>
 	local Fresh: Data = { Nodes = {} }
@@ -101,6 +86,18 @@ function Observer.Destroy<T>(self: Observer<T>)
 		Node.Connected = false
 	end
 	table.clear(self.Nodes)
+end
+
+function Connection.Disconnect(self: Connection)
+	if not self.Connected then
+		return
+	end
+	self.Connected = false
+	local Nodes = self.Nodes
+	local At = table.find(Nodes, self)
+	if At then
+		table.remove(Nodes, At)
+	end
 end
 
 return Observer

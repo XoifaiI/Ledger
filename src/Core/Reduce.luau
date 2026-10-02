@@ -3,16 +3,15 @@
 --!native
 
 --[=[
-
 	Reduce: Logic. Folds ops through a game's reducer.
 
-	A reducer gives back the next state, or nil to refuse. A throw, a yield or a value that is not a
-	table refuses too. A fold hands the reducer a frozen state first. A reducer that throws on it but
-	takes the op on a copy writes, and its folds run on copies, rebuilt from the last frozen state
-	after a refusal. A rebuild that disagrees warns that the reducer is not deterministic. Run makes
-	one guarded call.
+	A reducer gives back the next state, or nil to refuse, and a throw, a yield or a value that is not
+	a table refuses too. A fold hands the reducer a frozen state first. A reducer that throws on that
+	but takes the op on a copy is remembered as one that writes its state, and from then on its folds
+	run on copies, rebuilt from the last clean state after a refusal. A rebuild that disagrees warns
+	that the reducer is not deterministic.
 
-	Return type: A table with Start, Apply, Fold, Run, Copy and Snapshot.
+	Return type: A table of the fold functions, and the Reducer and Fold types.
 	Example usage:
 		local Took = Reduce.Apply(Reduce.Start(Base, Reducer), Op)
 --]=]

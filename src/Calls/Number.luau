@@ -2,15 +2,14 @@
 --!optimize 2
 
 --[=[
-
 	Number: Machine. Takes a server number from the counter key the server's JobId hashes to.
 
 	Spec: record 3.1.
 
-	The number is the count its own write made, times Limits.COUNTERS, plus the index of the key. A
-	count that fails rests as Backoff says and is asked again, until one lands.
+	The number is the count its own write made, times COUNTERS, plus the index of the key. A count
+	that fails rests as Backoff says and is asked again, until one lands.
 
-	Return type: A table with Machine and Context. The type is Context.
+	Return type: The Number module, and the Context type.
 	Example usage:
 		local Number = Runner.Run(Number.Machine, Number.Context(game.JobId), Places):Wait()
 --]=]
@@ -18,7 +17,6 @@
 local Asks = require("../Machine/Asks")
 local Backoff = require("../Machine/Backoff")
 local Hash = require("../Encode/Hash")
-local Limits = require("../Core/Constants/Limits")
 local Machine = require("../Machine/Machine")
 
 export type Context = {
@@ -28,17 +26,15 @@ export type Context = {
 
 type Call = Machine.Call<Context, number>
 
-local STATE: {
-	read Counting: "Counting",
-	read Resting: "Resting",
-	read Done: "Done",
-} = {
-	Counting = "Counting",
-	Resting = "Resting",
-	Done = "Done",
+local STATE = {
+	Counting = "Counting" :: "Counting",
+	Resting = "Resting" :: "Resting",
+	Done = "Done" :: "Done",
 }
 
-local Number = {}
+local COUNTERS = 16
+
+local Number = { COUNTERS = COUNTERS }
 
 local function Count(Call: Call)
 	Machine.Ask(Call, Asks.Count(Call.Context.Index))
@@ -46,7 +42,7 @@ end
 
 local function Taken(Call: Call): string
 	local Context = Call.Context
-	Machine.Answer(Call, (Machine.Reply(Call).Value :: number) * Limits.COUNTERS + Context.Index)
+	Machine.Answer(Call, (Machine.Reply(Call).Value :: number) * COUNTERS + Context.Index)
 	return STATE.Done
 end
 
@@ -75,7 +71,7 @@ local STATES: { [string]: Machine.State<Context, number> } = {
 }
 
 function Number.Context(JobId: string): Context
-	return { Index = Hash(JobId) % Limits.COUNTERS, Tries = 0 }
+	return { Index = Hash(JobId) % COUNTERS, Tries = 0 }
 end
 
 Number.Machine = Machine.Define({ Name = "Number", Initial = STATE.Counting, States = STATES })

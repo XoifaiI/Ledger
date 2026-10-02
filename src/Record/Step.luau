@@ -2,31 +2,20 @@
 --!optimize 2
 
 --[=[
-
 	Step: Logic. The one transform every write to a game key runs.
 
 	Spec: record 4.
 
-	The ends a request carries go first. Then each op goes down RULES until one has the last word,
-	or the request's transaction step runs. Then the writer's entry is set, the rooms are aged and
-	fitted, and a value comes back when anything was decided or acted. A write that changed the
-	state clears the clean flag of every mark it did not place. A state past the cap, or one that
-	cannot be stored, is judged again with the capped guard. A fresh read decides nothing and lands.
-	A probe decides nothing. A held name gives its fate, and a pinned use took. A standing mark is
-	undecided, and a stamp at or under the horizon is forgotten. Any other probe lands. Only an op
-	judged for no key, a Tent, and a Commit within the minted window of its stamp may create a key.
-	Each may create it only when no earlier run of the request wrote. The key it makes takes the id
-	the request carries. A Tent or a Commit judged for another incarnation is Missing. An end path
-	write carries only ends and a fence. Any other request is refused Overdue while the work room
-	holds an item Windows.CEILING old that it does not end. The note lists those items. A cut is
-	judged by Cuts after the ends. A gate keeps the state a Reset was given while it stands. A key
-	made by a request first sent more than the minted window before it lands says Late. A key that
-	holds a seal answers its own erase Sealed and every other request Missing. A seal
-	Windows.SEAL_AGE past its rt is left over. A request that may create a key replaces a left over
-	seal, and a seal stamp stamps it again. A stamp from the server that stamped rt, carrying that
-	rt, lands at once. A stamp drops the namings once the seal is the cut window old. A tidy carries
-	no op and lands only when the age step dropped something. The build's Upkeep runs after the ends
-	and again before the rooms are aged.
+	It checks in one order for every protocol: the key and its incarnation, the guards, the ends,
+	then the request's one step, then each op through Rules. It then sets the writer's entry, ages
+	and fits the rooms, and gives back a value only when something was decided or a step acted. Only
+	an op judged for no key, a Tent, and a Commit within the minted window of its stamp may make a
+	key, and only when no earlier run of the request wrote. A key made for a request first sent more
+	than that window before it landed says Late, since an erase may have come between. Every request
+	but an end path write is refused Overdue while the work room holds an item Windows.CEILING old
+	that it does not end. A write that changed the state clears the clean flag of every mark it did
+	not place. A state past the cap, or one that cannot be stored, is judged again with the capped
+	guard. The build's Upkeep runs after the ends and again before the rooms are aged.
 
 	Return type: A function that gives back the note, whose Stored is the value to write or nil.
 	Example usage:
@@ -35,52 +24,33 @@
 
 local RULES = require("./Rules")
 local Book = require("./Book")
-local Cuts = require("./Cuts")
+local CutRules = require("./CutRules")
 local Guard = require("./Guard")
 local Key = require("./Key")
 local Limits = require("../Core/Constants/Limits")
+local Losses = require("./Losses")
 local Marks = require("./Marks")
 local Reduce = require("../Core/Reduce")
+local Requests = require("./Requests")
 local Rooms = require("./Rooms")
-local Work = require("./Work")
+local Runs = require("./Runs")
+local TxRules = require("./TxRules")
 local Types = require("./Types")
 local Value = require("../Encode/Value")
 local Windows = require("../Core/Constants/Windows")
 
-type Book = Book.Book
 type Build = Types.Build
 type Note = Types.Note
-type Request = Types.Request
-type Run = RULES.Run
+type Request = Requests.Request
+type Run = Runs.Run
 type Guarded = (Build: Build) -> Reduce.Reducer<any, any>
 
+local WorkForm = Book.WorkForm
 local Why = Types.Why
-
-local function Refused(Request: Request, Reason: Types.Why, Items: { [string]: Book.Work }?): Note
-	local Note: Note = {
-		Fates = {},
-		Whys = {},
-		Decided = {},
-		Writes = 0,
-		Cuts = 0,
-		Horizon = 0,
-		CutHorizon = 0,
-		Why = Reason,
-		Items = Items,
-	}
-	for Index in Request.Ops do
-		Note.Whys[Index] = Reason
-	end
-	return Note
-end
-
-local function EndPath(Request: Request): boolean
-	return Request.Ops[1] == nil and not (Request.Tent or Request.Commit or Request.Fresh or Request.Probe or Request.Cut or Request.Stamp)
-end
 
 local function Overdue(Run: Run): { [string]: Book.Work }?
 	local Now, Request = Run.Now, Run.Request
-	if Now == nil or EndPath(Request) then
+	if Now == nil or Requests.IsEndPath(Request) then
 		return nil
 	end
 	local Ended: { [string]: true } = {}
@@ -135,7 +105,9 @@ local function Open(Current: unknown, Request: Request, Clock: number, Build: Bu
 	end
 	local _, Create = Judged(Request)
 	local Made = Book.New()
-	Made.Level, Made.Floor, Made.Id = Build.Level, Build.Floor, Create
+	Made.Level = Build.Level
+	Made.Floor = Build.Floor
+	Made.Id = Create
 	return { Book = Made, State = Reduce.Copy(Build.Default) }
 end
 
@@ -148,7 +120,7 @@ local function Sent(Request: Request): number?
 	return if Asked then Asked.Stamp else nil
 end
 
-local function Elsewhere(Run: Run, Asked: (Types.Tent | Types.Commit)?): boolean
+local function Elsewhere(Run: Run, Asked: (Requests.Tent | Requests.Commit)?): boolean
 	if Asked == nil then
 		return false
 	end
@@ -161,61 +133,13 @@ local function Begin(Current: unknown, Request: Request, Clock: number, Build: B
 	if type(Found) == "string" then
 		return Found
 	end
-	local Record, State = Found.Book, Found.State
+	local Record = Found.Book
 	if Record.Writes >= Limits.WRITES_MAX then
 		return Why.Worn
 	end
 	local First = Sent(Request)
 	local Late = Record.Writes == 0 and First ~= nil and Clock - First > Build.Minted
-
-	local Entry = Record.Writers[Request.Writer]
-	local Fates: { [number]: number } = {}
-	local FatesHeld = 0
-	for Seq, Code in if Entry then Entry.Fates else {} do
-		if Seq > Request.Ack then
-			Fates[Seq] = Code
-			FatesHeld += 1
-		end
-	end
-	local Now = if Clock >= 0 and Clock <= Limits.STAMP_MAX then Clock else nil
-	local Epoch = Now or math.max(Record.Horizon, 0)
-	local Run: Run = {
-		Request = Request,
-		Build = Build,
-		Record = Record,
-		Entry = Entry,
-		Note = {
-			Fates = {},
-			Whys = {},
-			Decided = {},
-			Writes = Record.Writes,
-			Cuts = Record.Cuts,
-			Horizon = Record.Horizon,
-			CutHorizon = Record.CutHorizon,
-			Id = Record.Id,
-			State = State,
-			Late = if Late then true else nil,
-		},
-		Reducer = Guarded(Build),
-		Clock = Clock,
-		Now = Now,
-		Epoch = Epoch,
-		State = State,
-		Folding = nil,
-		Stop = nil,
-		Fates = Fates,
-		FatesHeld = FatesHeld,
-		Minted = 0,
-		Newest = if Entry then Entry.Stamp else -math.huge,
-		Last = if Entry then Entry.Lo else 0,
-		Written = {},
-		UntimedBytes = Rooms.Untimed(Record, Epoch),
-		Post = Found.Post,
-		Given = Found.Given,
-		Changed = false,
-		Acted = false,
-	}
-	return Run
+	return Runs.New(Request, Build, Found, Clock, Guarded(Build), Late)
 end
 
 local function Upkeep(Run: Run)
@@ -225,11 +149,12 @@ local function Upkeep(Run: Run)
 	end
 	local Marked = false
 	for _, Item in Run.Record.Work do
-		Marked = Marked or Item.Form == "Escrow"
+		Marked = Marked or Item.Form == WorkForm.Escrow
 	end
 	local Next = Keep(Run.State, Now, Marked)
 	if Next ~= Run.State then
-		Run.State, Run.Changed = Next, true
+		Run.State = Next
+		Run.Changed = true
 	end
 end
 
@@ -238,7 +163,8 @@ local function SetEntry(Run: Run)
 		return
 	end
 	local Writer = Run.Request.Writer
-	Run.Record.Writers[Writer] = { Id = Writer, Lo = Run.Last, Stamp = Run.Newest, Fates = Run.Fates }
+	local Newest = assert(Run.Newest, "Step: a writer entry with no stamp decided")
+	Run.Record.Writers[Writer] = { Id = Writer, Lo = Run.Last, Stamp = Newest, Fates = Run.Fates }
 end
 
 local function Finish(Run: Run): Note
@@ -258,7 +184,8 @@ local function Finish(Run: Run): Note
 	local Dropped = false
 	if Run.Now then
 		Dropped = Rooms.Age(Record, Run.Build, Run.Now, Run.Request.Writer)
-		Dropped = Cuts.Age(Record, Run.Build, Run.Now) or Dropped
+		Dropped = CutRules.AgeGate(Record, Run.Build, Run.Now) or Dropped
+		Dropped = Losses.Age(Record, Run.Build, Run.Now) or Dropped
 	end
 	Rooms.Fit(Record, Run.Build, Run.Epoch, Run.Request.Writer, Run.Written)
 	local Tidied = Run.Request.Tidy and Dropped
@@ -266,50 +193,19 @@ local function Finish(Run: Run): Note
 		return Note
 	end
 	Record.Writes += 1
-	Note.Writes, Note.Horizon, Note.CutHorizon, Note.State = Record.Writes, Record.Horizon, Record.CutHorizon, Run.State
+	Note.Writes = Record.Writes
+	Note.Horizon = Record.Horizon
+	Note.CutHorizon = Record.CutHorizon
+	Note.State = Run.State
 	Note.Cuts = Record.Cuts
 	Note.Stored = Key.Store(Run.State, Record, Run.Epoch, Run.Post, if Record.Gate then Run.Given else nil)
 	return Note
 end
 
-local function Stamped(Seal: Book.Seal, Stamp: Types.Stamp, Clock: number, Build: Build): Note
-	local Fresh = Clock - Seal.Stamp >= Build.CutWindow
-	local Made: Book.Seal = {
-		Name = Seal.Name,
-		Stamp = Seal.Stamp,
-		Print = Seal.Print,
-		Server = Stamp.Server,
-		Rt = Clock,
-		Events = if Fresh then {} else Seal.Events,
-		Slots = if Fresh then {} else Seal.Slots,
-	}
-	local Note: Note = { Fates = {}, Whys = {}, Decided = {}, Writes = 0, Cuts = 0, Horizon = 0, CutHorizon = 0 }
-	Note.Report, Note.Seal, Note.Stored = Types.Report.Stamped, Made, Key.Sealed(Made)
-	return Note
-end
-
-local function Sealed(Seal: Book.Seal, Request: Request, Clock: number, Build: Build, Wrote: boolean): Note?
-	local Left = Clock >= 0 and Clock <= Limits.STAMP_MAX and Clock - Seal.Rt >= Windows.SEAL_AGE
-	local Cut, Stamp = Request.Cut, Request.Stamp
-	if Cut and Cut.Kind == Book.Cause.Erase and Cut.Name == Seal.Name then
-		local Note = Refused(Request, Why.Missing)
-		Note.Why = nil
-		Note.Report, Note.Seal = if Cut.Print == Seal.Print then Types.Report.Sealed else Types.Report.Spent, Seal
-		return Note
-	elseif Stamp and (Left or (Stamp.Server == Seal.Server and Stamp.Rt == Seal.Rt)) then
-		return Stamped(Seal, Stamp, Clock, Build)
-	elseif Left and MayCreate(Request, Clock, Build, Wrote) then
-		return nil
-	end
-	local Note = Refused(Request, Why.Missing)
-	Note.Left, Note.Seal = Left, Seal
-	return Note
-end
-
-local function Probed(Run: Run, Probe: Types.Probe): Note
+local function Probed(Run: Run, Probe: Requests.Probe): Note
 	local Working = Run.Record.Work[Probe.Name]
 	if Working then
-		if Working.Form == "Pinned" then
+		if Working.Form == WorkForm.Pinned then
 			Run.Note.Held = Book.Fate.Took
 		else
 			Run.Note.Why = Why.Undecided
@@ -330,7 +226,7 @@ end
 local function Attempt(Current: unknown, Request: Request, Clock: number, Build: Build, Guarded: Guarded, Wrote: boolean): Note
 	local Seal = Key.Seal(Current)
 	if Seal then
-		local Note = Sealed(Seal, Request, Clock, Build, Wrote)
+		local Note = CutRules.MeetSeal(Seal, Request, Clock, Build, MayCreate(Request, Clock, Build, Wrote))
 		if Note then
 			return Note
 		end
@@ -338,13 +234,13 @@ local function Attempt(Current: unknown, Request: Request, Clock: number, Build:
 	end
 	local Run = Begin(Current, Request, Clock, Build, Guarded, Wrote)
 	if type(Run) == "string" then
-		return Refused(Request, Run)
+		return Types.RefusedNote(Request, Run)
 	end
 	local Late = Overdue(Run)
 	if Late then
-		return Refused(Request, Why.Overdue, Late)
+		return Types.RefusedNote(Request, Why.Overdue, Late)
 	end
-	Work.Ends(Run)
+	TxRules.Ends(Run)
 	Upkeep(Run)
 	local Probe, Tent, Commit, Fence, Cut = Request.Probe, Request.Tent, Request.Commit, Request.Fence, Request.Cut
 	if Probe then
@@ -352,13 +248,13 @@ local function Attempt(Current: unknown, Request: Request, Clock: number, Build:
 	elseif Elsewhere(Run, Tent or Commit) or (Cut and Cut.Id ~= nil and Cut.Id ~= Run.Record.Id) then
 		Run.Note.Why = Why.Missing
 	elseif Cut then
-		Cuts.Judge(Run, Cut)
+		CutRules.Judge(Run, Cut)
 	elseif Tent then
-		Work.Tent(Run, Tent)
+		TxRules.Tent(Run, Tent)
 	elseif Commit then
-		Work.Commit(Run, Commit)
+		TxRules.Commit(Run, Commit)
 	elseif Fence then
-		Work.Fence(Run, Fence)
+		TxRules.Fence(Run, Fence)
 	end
 	for Index, Op in Request.Ops do
 		for _, Rule in RULES do

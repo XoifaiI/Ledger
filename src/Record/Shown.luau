@@ -2,17 +2,16 @@
 --!optimize 2
 
 --[=[
-
 	Shown: Object. What this server has shown of each key, so a read never shows an older state.
 
 	Spec: record 5.3.
 
 	The table keeps the largest write count shown for up to Limits.SHOWN_MAX keys. A key it forgets
-	sets its bit in a set of Limits.SHOWN_BITS. Allows refuses a view older than the one shown, and a
-	view of a forgotten key whose bit is set, which must be read fresh. Show records a view. Pin keeps
-	a key in the table while a session on it is open, and Unpin lets it be forgotten again.
+	sets a bit in a set of SHOWN_BITS, and a view of a key whose bit is set must come from a fresh
+	read. Two names may share a bit, so a key never shown may also need a fresh read. A pinned key is
+	never forgotten, which an open session on it needs.
 
-	Return type: The Shown class, with New and the methods Allows, Stale, Show, Pin and Unpin.
+	Return type: The Shown class.
 	Example usage:
 		if Table:Allows(Name, View.Writes) then Table:Show(Name, View.Writes) end
 --]=]
@@ -39,11 +38,13 @@ type Data = {
 
 export type Shown = setmetatable<Data, ShownImpl>
 
+local SHOWN_BITS = 65536
+
 local Shown = {} :: ShownImpl
 Shown.__index = Shown
 
 function Shown.New(): Shown
-	local Fresh: Data = { Seen = Lru.New(Limits.SHOWN_MAX), Pinned = {}, Forgot = Bits.New(Limits.SHOWN_BITS) }
+	local Fresh: Data = { Seen = Lru.New(Limits.SHOWN_MAX), Pinned = {}, Forgot = Bits.New(SHOWN_BITS) }
 	return setmetatable(Fresh, Shown)
 end
 

@@ -11,11 +11,11 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Book = require("../src/Record/Book")
 local Game = require("./Gold")
 local Heard = require("./Heard")
-local Limits = require("../src/Core/Constants/Limits")
 local Machine = require("../src/Machine/Machine")
 local Queue = require("../src/Record/Queue")
 local Save = require("../src/Calls/Save")
@@ -40,7 +40,7 @@ local function Start(Kept: Queue.Queue, Landed: ((Note: Types.Note) -> ())?)
 	return Machine.Start(Save.Machine, Save.Context(Kept, Landed), NOW)
 end
 
-local function Request(Asked: { Machine.Asked }): Types.Request
+local function Request(Asked: { Machine.Asked }): Requests.Request
 	local Ask = Asked[1].Ask
 	return if Ask.Kind == "Send" then Ask.Request else error("not a send")
 end
@@ -89,7 +89,7 @@ Describe("Save", function()
 
 	Test("a queue past SEQ_MAX answers Spent once every numbered op is heard", function()
 		local Kept = Held()
-		Kept.Next = Limits.SEQ_MAX
+		Kept.Next = Queue.SEQ_MAX
 		Queue.Push(Kept, Op(1))
 		Queue.Push(Kept, Op(2))
 		local Call, Asked = Start(Kept)
@@ -114,7 +114,7 @@ Describe("Save", function()
 		local Call, Asked = Start(Kept)
 		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Whys = { [1] = "Blocked" }, Items = { [Name] = Mark } }))
 		Expect(Asked[1].Ask.Kind).toBe("Run")
-		local End: Types.End = { Name = Name, Stamp = NOW, Attempt = 1, Outcome = "Abort" }
+		local End: Requests.End = { Name = Name, Stamp = NOW, Attempt = 1, Outcome = "Abort" }
 		Asked = Machine.Step(Call, Asked[1].Id, Heard.Done(End))
 		local Ends = Request(Asked).Ends
 		Expect(Ends and Ends[1].Name).toBe(Name)

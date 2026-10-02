@@ -2,11 +2,11 @@
 --!optimize 2
 
 --[=[
-
 	Errors: Plumbing. Misuse throws at the game's own call, and Bug warns about Ledger's own mistake.
 
-	Every Bug warning starts with BUG. OnServer throws when a call that needs the server runs on a
-	client. It raises its own error at level 3 and does not call Misuse.
+	Misuse's Depth counts the helpers between the game's call and Misuse, so the error names the
+	game's line. Every Bug warning starts with BUG. OnServer raises its own error at level 3 rather
+	than through Misuse, so it too names the game's line.
 
 	Return type: A table with Misuse, Bug, OnServer and BUG.
 	Example usage:

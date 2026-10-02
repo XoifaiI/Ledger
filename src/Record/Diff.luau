@@ -2,17 +2,16 @@
 --!optimize 2
 
 --[=[
-
 	Diff: Logic. The changes a game op made to a state, as data any build can apply.
 
 	Spec: transaction 2 and 3.4.
 
-	Make walks two states and gives back one change for each path whose value differs: k is the path
-	and v the new value, with no v for a value taken out. It walks into a table only when both sides
-	hold one, and compares buffers by their bytes. Apply gives back a new state with the changes laid
-	on it. It copies each table on a changed path and leaves the state it was given alone.
+	A change is a path k and the new value v, with no v for a value taken out. A key stores changes
+	in its p field, so the names k and v stay. Make walks into a table only when both sides hold one,
+	so a table that replaces another kind of value is one change. It compares buffers by their bytes.
+	Apply copies each table on a changed path and leaves the state it was given alone.
 
-	Return type: A table with Make and Apply. The type is Change.
+	Return type: The Diff module, and the Change type.
 	Example usage:
 		local Changes = Diff.Make(State, Next)
 		local After = Diff.Apply(State, Changes)

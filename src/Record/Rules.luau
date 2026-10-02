@@ -2,67 +2,42 @@
 --!optimize 2
 
 --[=[
-
-	Rules: Logic. The rules of record 4, in the order Step tries them.
+	Rules: Logic. The rules each op of a request meets, in the order of record 4 step 4.
 
 	Spec: record 4, step 4.
 
-	A rule passes an op on or has the last word. The last word is a new fate, the fate the key
-	holds, or a stop that leaves every later op undecided. The first op to reach the reducer runs
-	the key's missing migrations. When they fail, every op judged is refused. A name held as a leg's
-	fate, a decision or a work item is spent for an op. An op beside transaction marks is judged by
-	the order rule of Marks, and a blocked op stops with the marks that block it. So does an op that
-	would run a migration beside any mark.
+	A rule passes an op on or has the last word: a new fate, the fate the key holds, or a stop that
+	leaves this op and every later one undecided, so the ops a run decides are always a prefix. The
+	first op that reaches the reducer runs the key's missing migrations, and when they fail every op
+	judged after is refused. A name held as a leg's fate, a decision or a work item is spent for an
+	op. An op beside transaction marks is judged by the order rule of Marks, and one that would run a
+	migration beside any mark is blocked.
 
-	Return type: The ordered list of rules. The types are Run and Rule.
+	Return type: The ordered list of rules, and the Rule type.
 	Example usage:
 		local RULES = require("./Rules")
 --]=]
 
 local Book = require("./Book")
-local Diff = require("./Diff")
-local Limits = require("../Core/Constants/Limits")
 local Marks = require("./Marks")
 local Migrate = require("./Migrate")
 local Reduce = require("../Core/Reduce")
+local Requests = require("./Requests")
 local Rooms = require("./Rooms")
+local Runs = require("./Runs")
 local Types = require("./Types")
 
 type Book = Book.Book
-type Op = Types.Op
+type Op = Requests.Op
 
-export type Run = {
-	read Request: Types.Request,
-	read Build: Types.Build,
-	read Record: Book,
-	read Entry: Book.Entry?,
-	read Note: Types.Note,
-	read Reducer: Reduce.Reducer<any, any>,
-	read Clock: number,
-	read Now: number?,
-	read Epoch: number,
-	State: { [string]: any },
-	Folding: Reduce.Fold<any, any>?,
-	Stop: Types.Why?,
-	Fates: { [number]: number },
-	FatesHeld: number,
-	Minted: number,
-	Newest: number,
-	Last: number,
-	Written: { [string]: true },
-	UntimedBytes: number,
-	Post: { Diff.Change }?,
-	Given: { [string]: any }?,
-	Sealed: Book.Seal?,
-	Changed: boolean,
-	Acted: boolean,
-	Placed: string?,
-}
+type Run = Runs.Run
 
 export type Rule = (Run: Run, Index: number, Op: Op) -> boolean
 
+local FATES_MAX = 64
+
 local Fate = Book.Fate
-local Form = Types.Form
+local Form = Requests.Form
 local Why = Types.Why
 
 local function Stop(Run: Run, Index: number, Reason: Types.Why): boolean
@@ -71,12 +46,12 @@ local function Stop(Run: Run, Index: number, Reason: Types.Why): boolean
 	return true
 end
 
-local function Report(Run: Run, Index: number, Code: number): boolean
+local function ReportFate(Run: Run, Index: number, Code: number): boolean
 	Run.Note.Fates[Index] = Code
 	return true
 end
 
-local function Keep(Run: Run, Name: string, Item: Book.Named, Untimed: boolean)
+local function KeepName(Run: Run, Name: string, Item: Book.Named, Untimed: boolean)
 	Run.Written[Name] = true
 	if Untimed and Item.Fate == Fate.Took then
 		Run.Record.Untimed[Name] = Item
@@ -91,17 +66,18 @@ local function Decide(Run: Run, Index: number, Op: Op, Code: number): boolean
 	local Stamp = if Untimed then Run.Clock else Op.Stamp
 	Run.Note.Fates[Index] = Code
 	table.insert(Run.Note.Decided, Op.Seq)
-	Run.Newest = math.max(Run.Newest, Stamp)
+	local Newest = Run.Newest
+	Run.Newest = if Newest then math.max(Newest, Stamp) else Stamp
 	Run.Last = math.max(Run.Last, Op.Seq)
 	if Op.Form == Form.Minted or Op.Form == Form.Hopeful then
 		Run.Minted += 1
 	elseif Op.Name then
-		Keep(Run, Op.Name, { Kind = Op.Kind, Stamp = Stamp, Fate = Code, Print = Op.Print }, Untimed)
+		KeepName(Run, Op.Name, { Kind = Op.Kind, Stamp = Stamp, Fate = Code, Print = Op.Print }, Untimed)
 	end
 	if Code ~= Fate.Took then
 		Run.Fates[Op.Seq] = Code
 		Run.FatesHeld += 1
-		if Run.FatesHeld >= Limits.FATES_MAX then
+		if Run.FatesHeld >= FATES_MAX then
 			Run.Stop = Why.Undecided
 		end
 	end
@@ -129,7 +105,7 @@ local function DecidedBefore(Run: Run, Index: number, Op: Op): boolean
 	if Entry == nil or Op.Seq > Entry.Lo then
 		return false
 	end
-	return Report(Run, Index, Entry.Fates[Op.Seq] or Fate.Took)
+	return ReportFate(Run, Index, Entry.Fates[Op.Seq] or Fate.Took)
 end
 
 local function NameHeld(Run: Run, Index: number, Op: Op): boolean
@@ -145,7 +121,7 @@ local function NameHeld(Run: Run, Index: number, Op: Op): boolean
 		Run.Note.Whys[Index] = Why.Spent
 		return true
 	end
-	return Report(Run, Index, Item.Fate)
+	return ReportFate(Run, Index, Item.Fate)
 end
 
 local function Forgotten(Run: Run, Index: number, Op: Op): boolean
@@ -199,31 +175,32 @@ local function Blocked(Run: Run, Index: number, Items: { [string]: Book.Work }):
 	return Stop(Run, Index, Why.Blocked)
 end
 
-local function Refuse(_: any, _: any): unknown
+local function RefuseEvery(_: any, _: any): unknown
 	return nil
 end
 
-local function Begin(Run: Run): Reduce.Fold<any, any>
+local function StartFold(Run: Run): Reduce.Fold<any, any>
 	local Record, Build = Run.Record, Run.Build
 	if Record.Level >= Build.Level then
 		return Reduce.Start(Run.State, Run.Reducer)
 	end
 	local State = Migrate(Run.State, Record.Level, Build)
 	if State == nil then
-		return Reduce.Start(Run.State, Refuse)
+		return Reduce.Start(Run.State, RefuseEvery)
 	end
-	Record.Level, Record.Floor = Build.Level, math.max(Record.Floor, Build.Floor)
+	Record.Level = Build.Level
+	Record.Floor = math.max(Record.Floor, Build.Floor)
 	Run.State = State
 	return Reduce.Start(State, Run.Reducer)
 end
 
 local function Judge(Run: Run, Index: number, Op: Op): boolean
 	local Record = Run.Record
-	local Standing = Marks.Standing(Record.Work)
+	local Standing = Book.Marks(Record.Work)
 	if Run.Folding == nil and Record.Level < Run.Build.Level and next(Standing) then
 		return Blocked(Run, Index, Standing)
 	end
-	local Folding = Run.Folding or Begin(Run)
+	local Folding = Run.Folding or StartFold(Run)
 	Run.Folding = Folding
 	local Blockers = Marks.Order(Record.Work, Run.Build, Run.Reducer, Folding.State, Op.Body)
 	if Blockers then

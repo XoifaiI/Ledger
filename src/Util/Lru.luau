@@ -2,13 +2,13 @@
 --!optimize 2
 
 --[=[
-
 	Lru: Plumbing. A bounded map that forgets what was touched longest ago.
 
-	Get touches, and Put touches or adds, each in O(1). Put gives back the key it forgot to make room,
-	if any. Name the entry type on the local that holds it.
+	Get touches as well as Put, each in O(1). Put gives back the key it forgot to make room, so a
+	caller can mark it elsewhere. New makes an Lru of any, so name the entry type on the local that
+	holds it.
 
-	Return type: The Lru class, with New and the methods Get, Put and Clear.
+	Return type: The Lru class.
 	Example usage:
 		local Horizons: Lru.Lru<number> = Lru.New(4096)
 --]=]

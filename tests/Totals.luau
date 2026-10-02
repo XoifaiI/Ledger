@@ -2,7 +2,7 @@
 
 --[=[
 
-	Totals: The cases for Record/Totals, with shards run through the real Step.
+	Totals: The cases for Record/Shards, with shards run through the real Step.
 
 	Shard builds the build of a total's shard from tests/Gold's defaults. Bump lands one minted bump on
 	a shard as the datastore would. The machines are stepped directly, with the replies they hear.
@@ -12,6 +12,8 @@
 		zune test tests/Run.luau
 --]=]
 
+local Pacing = require("../src/Record/Pacing")
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Asks = require("../src/Machine/Asks")
 local Game = require("./Gold")
@@ -22,7 +24,7 @@ local Parts = require("../src/Record/Parts")
 local Queue = require("../src/Record/Queue")
 local Save = require("../src/Calls/Save")
 local Step = require("../src/Record/Step")
-local Total = require("../src/Record/Totals")
+local Total = require("../src/Record/Shards")
 local TotalCall = require("../src/Calls/Total")
 local Types = require("../src/Record/Types")
 local Windows = require("../src/Core/Constants/Windows")
@@ -38,7 +40,7 @@ end
 
 local function Bump(Current: unknown, Seq: number, Add: number, Using: Types.Build, At: number?): (unknown, Types.Note)
 	local Clock = At or NOW
-	local Op: Types.Op = { Form = "Minted", Seq = Seq, Stamp = Clock, Kind = 0, Body = { Kind = "Bump", Add = Add } }
+	local Op: Requests.Op = { Form = "Minted", Seq = Seq, Stamp = Clock, Kind = 0, Body = { Kind = "Bump", Add = Add } }
 	local Note = Step(Current, { Writer = 1, Ack = Seq - 1, MustExist = false, Ops = { Op } }, Clock, Using)
 	return Note.Stored or Current, Note
 end
@@ -49,7 +51,7 @@ local function Newer(): unknown
 	return { b = Writer.Finish(Book) }
 end
 
-local TIDY: Types.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tidy = true }
+local TIDY: Requests.Request = { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Tidy = true }
 
 local function Kinds(Asked: { Machine.Asked }): string
 	local Found: { string } = {}
@@ -132,10 +134,10 @@ Describe("Totals", function()
 
 	Test("a tidy drops what has aged off a shard and lands, cancels when nothing aged, and never makes a shard", function()
 		local Using = Shard(2)
-		local Key0 = Bump(nil, 1, 5, Using, NOW - Windows.PRUNE_AGE)
+		local Key0 = Bump(nil, 1, 5, Using, NOW - Total.PRUNE_AGE)
 		Expect(Total.Untidy(Key0, NOW)).toBe(true)
-		Expect(Total.Untidy(Key0, NOW - Windows.PRUNE_AGE + 10)).toBe(false)
-		Expect(Step(Key0, TIDY, NOW - Windows.PRUNE_AGE + 10, Using).Stored).toBeNil()
+		Expect(Total.Untidy(Key0, NOW - Total.PRUNE_AGE + 10)).toBe(false)
+		Expect(Step(Key0, TIDY, NOW - Total.PRUNE_AGE + 10, Using).Stored).toBeNil()
 		local Tidied = Step(Key0, TIDY, NOW, Using)
 		local Found = Key.Read(Tidied.Stored) :: Key.Found
 		Expect((next(Found.Book.Writers))).toBeNil()
@@ -148,39 +150,40 @@ Describe("Totals", function()
 
 	Test("a shard's writer waits its gap past its last send, and moves the gap by the rate over half the ceiling", function()
 		local Kept = Queue.New({ Store = "x", Key = "k" }, Shard(2), 3, nil, NOW)
-		Expect(Kept.Gap).toBe(Windows.GAP_MAX)
+		local Pace = assert(Kept.Pace, "a shard's queue is paced")
+		Expect(Pace.Gap).toBe(Pacing.GAP_MAX)
 		Queue.Push(Kept, { Form = "Minted", Kind = 0, MustExist = false, Body = { Add = 1 } })
-		Expect(Queue.Wait(Kept, NOW)).toBe(0)
+		Expect(Pacing.Wait(Pace, NOW)).toBe(0)
 		Queue.Build(Kept, NOW)
-		Expect(Queue.Wait(Kept, NOW + 10)).toBe(Windows.GAP_MAX - 10)
-		Queue.Paced(Kept, 1, 200, NOW + 10)
-		Expect(Kept.Gap).toBe(Windows.GAP_MAX)
-		Queue.Paced(Kept, 2, 200, NOW + 70)
-		Expect(Kept.Gap).toBe(Windows.GAP_MAX / 2)
-		Queue.Paced(Kept, 2 + 4096, 200, NOW + 130)
-		Expect(Kept.Gap).toBe(Windows.GAP_MAX)
-		Queue.Paced(Kept, 4098, 200, NOW + 130)
-		Expect(Kept.Landing and Kept.Landing.At).toBe(NOW + 130)
+		Expect(Pacing.Wait(Pace, NOW + 10)).toBe(Pacing.GAP_MAX - 10)
+		Pacing.Landed(Pace, 1, 200, NOW + 10)
+		Expect(Pace.Gap).toBe(Pacing.GAP_MAX)
+		Pacing.Landed(Pace, 2, 200, NOW + 70)
+		Expect(Pace.Gap).toBe(Pacing.GAP_MAX / 2)
+		Pacing.Landed(Pace, 2 + 4096, 200, NOW + 130)
+		Expect(Pace.Gap).toBe(Pacing.GAP_MAX)
+		Pacing.Landed(Pace, 4098, 200, NOW + 130)
+		Expect(Pace.Landing and Pace.Landing.At).toBe(NOW + 130)
 		Queue.Failed(Kept)
-		Expect(Queue.Wait(Kept, NOW + 130)).toBe(0)
+		Expect(Pacing.Wait(Pace, NOW + 130)).toBe(0)
 		local Plain = Queue.New({ Store = "x", Key = "k" }, Game.DEFAULT, 3, nil, NOW)
-		Plain.Sent = NOW
-		Expect(Queue.Wait(Plain, NOW)).toBe(0)
+		Expect(Plain.Pace).toBeNil()
+		Expect(Pacing.Wait(Plain.Pace, NOW)).toBe(0)
 	end)
 
 	Test("Save waits out a paced queue's gap, and after a failed request waits the retry gap and no more", function()
 		local Kept = Queue.New({ Store = "x", Key = "k" }, Shard(2), 3, nil, NOW)
-		Kept.Sent = NOW
+		Pacing.Sent(Kept.Pace, NOW)
 		Queue.Push(Kept, { Form = "Minted", Kind = 0, MustExist = false, Body = { Add = 1 } })
 		local Call, Asked = Machine.Start(Save.Machine, Save.Context(Kept), NOW)
 		local Ask = Asked[1].Ask
-		Expect(if Ask.Kind == "Wait" then Ask.Seconds else -1).toBe(Windows.GAP_MAX)
-		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Windows.GAP_MAX))
+		Expect(if Ask.Kind == "Wait" then Ask.Seconds else -1).toBe(Pacing.GAP_MAX)
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Pacing.GAP_MAX))
 		Expect(Kinds(Asked)).toBe("Send")
-		Asked = Machine.Step(Call, Asked[1].Id, Asks.Failed(NOW + Windows.GAP_MAX, true))
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Failed(NOW + Pacing.GAP_MAX, true))
 		Ask = Asked[1].Ask
-		Expect(if Ask.Kind == "Wait" then Ask.Seconds else -1).toBe(Windows.RETRY_GAP)
-		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Windows.GAP_MAX + 2))
+		Expect(if Ask.Kind == "Wait" then Ask.Seconds else -1).toBe(Pacing.RETRY_GAP)
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Pacing.GAP_MAX + 2))
 		Expect(Kinds(Asked)).toBe("Send")
 	end)
 
@@ -233,7 +236,7 @@ Describe("Totals", function()
 		Machine.Step(Call, Asked[1].Id, Heard.Read(Shard0))
 		Asked = Machine.Step(Call, Asked[2].Id, Heard.Read(Shard1))
 		Asked = Machine.Step(Call, Asked[1].Id, Heard.Read(Wrote))
-		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Windows.HOLDING + 1))
+		Asked = Machine.Step(Call, Asked[1].Id, Asks.Done(NOW + Total.HOLDING + 1))
 		Expect(#Asked).toBe(0)
 		Expect(Machine.IsFinal(Call)).toBe(true)
 		Expect(Held.Holding).toBe(false)
@@ -267,7 +270,7 @@ Describe("Totals", function()
 		Asked = Machine.Step(Call, Asked[1].Id, Heard.Failed())
 		Expect(#Asked).toBe(0)
 		Expect((Machine.AnswerOf(Call) :: { number })[1]).toBe(10)
-		Held.Read[1] = NOW - Windows.DOWN - 1
+		Held.Read[1] = NOW - Total.DOWN - 1
 		Call, Asked = Start(Held, 0)
 		Asked = Machine.Step(Call, Asked[1].Id, Heard.Failed())
 		Expect(Kinds(Asked)).toBe("Read Read")
@@ -298,7 +301,7 @@ Describe("Totals", function()
 	end)
 
 	Test("a shard read with an entry a day old gets one tidy after the answer, and not again within the day", function()
-		local Old = Bump(nil, 1, 5, Shard(1), NOW - Windows.PRUNE_AGE)
+		local Old = Bump(nil, 1, 5, Shard(1), NOW - Total.PRUNE_AGE)
 		local Held = Holding(1)
 		local Item = Total.Summary(nil, {}, 1, 1, 3, NOW, NOW + Windows.LEASE)
 		local Call, Asked = Start(Held, 0)
@@ -318,7 +321,7 @@ Describe("Totals", function()
 	Test("a quantity's parts sum through the same path, four values wide, and a summary of another width is not read", function()
 		local Swords: Parts.Declared = { Name = "Swords", Parts = 2, Mode = "Final", Stock = 3, Proceeds = {}, Print = 7, Place = "Gold$P:Swords:2" }
 		local Using = Parts.Build(Game.DEFAULT, Swords)
-		local Commit: Types.Commit = { Name = "o", Stamp = NOW, Attempt = 1, Print = 1, Legs = {}, Leg = { Body = { Kind = "Open", Share = 2, At = NOW } } }
+		local Commit: Requests.Commit = { Name = "o", Stamp = NOW, Attempt = 1, Print = 1, Legs = {}, Leg = { Body = { Kind = "Open", Share = 2, At = NOW } } }
 		local Part = Step(nil, { Writer = 0, Ack = 0, MustExist = false, Ops = {}, Commit = Commit }, NOW, Using).Stored
 		local Pair = Total.Pair(Part, Parts.KIND) :: Total.Pair
 		Expect(table.concat(Pair.Values, " ")).toBe("2 0 0 0")

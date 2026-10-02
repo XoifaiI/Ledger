@@ -2,32 +2,33 @@
 --!optimize 2
 
 --[=[
-
 	Marks: Logic. What the transaction marks on a key allow.
 
 	Spec: transaction 4.1.
 
-	Bounds gives the least and the most a money field can end at, whichever way each escrow mark on
-	it ends, or nil when the field is not a number or this build does not know it. Order judges a
-	game op beside the marks and gives back the marks that block it, or nil when it may land. An
-	exclusive mark blocks it, and so do more than Limits.ORDER_MARKS escrow marks. Beside escrow marks
-	the reducer runs on the state with each subset of their amounts laid on. The op may land only when
-	every run gives the same verdict and results that differ only by those amounts. Standing gives
-	back every mark, and Unclean clears the clean flag of each but the one named.
+	A money field beside escrow marks has a least and a most value, whichever way each mark ends.
+	Bounds gives nil for both when the field is not a number or this build does not know it. A game
+	op may land beside escrow marks only when its verdict does not depend on how they end. Order runs
+	the reducer on the state with each subset of the amounts laid on. Every run must give the same
+	verdict, and results that differ only by those amounts. An exclusive mark blocks every game op.
+	More than ORDER_MARKS escrow marks block it too, since the runs double with each mark.
 
-	Return type: A table with Bounds, Order, Standing and Unclean.
+	Return type: The Marks module.
 	Example usage:
 		local Blockers = Marks.Order(Work, Build, Reducer, State, Body)
 --]=]
 
 local Book = require("./Book")
-local Limits = require("../Core/Constants/Limits")
 local Reduce = require("../Core/Reduce")
 local Types = require("./Types")
 
 type Build = Types.Build
 type State = { [string]: any }
 type Items = { [string]: Book.Work }
+
+local WorkForm = Book.WorkForm
+
+local ORDER_MARKS = 3
 
 local Marks = {}
 
@@ -69,16 +70,6 @@ local function Shift(Base: State, Build: Build, Escrows: { Book.Escrow }, Mask: 
 	return Shifted
 end
 
-function Marks.Standing(Work: Items): Items
-	local Found: Items = {}
-	for Name, Item in Work do
-		if Item.Form ~= "Pinned" then
-			Found[Name] = Item
-		end
-	end
-	return Found
-end
-
 function Marks.Bounds(Work: Items, State: State, Build: Build, Field: number): (number?, number?)
 	local Amount = if Build.Money[Field] then State[Build.Money[Field]] else nil
 	if type(Amount) ~= "number" then
@@ -86,7 +77,7 @@ function Marks.Bounds(Work: Items, State: State, Build: Build, Field: number): (
 	end
 	local Low, High = Amount, Amount
 	for _, Item in Work do
-		if Item.Form == "Escrow" and Item.Field == Field then
+		if Item.Form == WorkForm.Escrow and Item.Field == Field then
 			if Item.Amount < 0 then
 				Low += Item.Amount
 			else
@@ -99,17 +90,17 @@ end
 
 function Marks.Order(Work: Items, Build: Build, Reducer: Reduce.Reducer<any, any>, State: State, Body: unknown): Items?
 	local Escrows: { Book.Escrow } = {}
-	local Found = Marks.Standing(Work)
+	local Found = Book.Marks(Work)
 	for _, Item in Found do
-		if Item.Form == "Exclusive" then
+		if Item.Form == WorkForm.Exclusive then
 			return Found
-		elseif Item.Form == "Escrow" then
+		elseif Item.Form == WorkForm.Escrow then
 			table.insert(Escrows, Item)
 		end
 	end
 	if #Escrows == 0 then
 		return nil
-	elseif #Escrows > Limits.ORDER_MARKS then
+	elseif #Escrows > ORDER_MARKS then
 		return Found
 	end
 	local Base, _, Why = Reduce.Run(Reducer, Reduce.Copy(State), Body)
@@ -130,8 +121,9 @@ end
 
 function Marks.Unclean(Work: Items, Except: string?)
 	for Name, Item in Work do
-		if Item.Form ~= "Pinned" and Name ~= Except then
-			Item.Clean = false
+		local Mark = Book.AsMark(Item)
+		if Mark and Name ~= Except then
+			Mark.Clean = false
 		end
 	end
 end

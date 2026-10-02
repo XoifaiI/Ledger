@@ -2,39 +2,25 @@
 --!optimize 2
 
 --[=[
-
 	Queue: Logic. The ops one server has for one key, and what each reply says of them.
 
 	Spec: record 3.1 to 3.4. Model: Rec.tla, the writer ws[s] in Send and Hear.
 
-	Push adds an op, with the function its reply goes to, which hears the op as it was asked.
-	Withdraw takes back an op never sent. Ride keeps an end for a mark in the way, one per mark.
-	Build makes the next request from every op whose fate is not heard, in order, with every ride.
-	Its new timed bytes stay within a quarter of the timed room. An op is numbered and stamped when
-	it is first sent, and keeps both. Learn reads a reply: each fate the note gives, and for an op
-	with none, why. Only a clean op, which no failed request carried and no run decided, takes a no
-	from a cancel or a horizon. A clean minted op that is forgotten or ahead is stamped again. An op
-	a mark blocks or an overdue item holds up waits. A landing turns away each hopeful op judged
-	before the key's last cut, and drops the rides it carried. Failed marks every op a request
-	carried as not clean and answers it Unresolved. The op is still sent. Past Limits.SEQ_MAX the
-	queue is Spent, and Renew starts the numbers again under a fresh id once no numbered op is left
-	unheard. Quiet says whether the queue has been empty for the minted window and twice
-	Windows.SIGMA. On an erasable store the queue keeps Seen, the key's id as this server last saw
-	it, or false when it saw no key. Unknown says it must read the key before it sends, and Know
-	takes what that read found. An op takes Seen when it is first sent and keeps it. It carries the
-	id, or a create of a fresh id made from the writer and the op's number. A note that names the
-	key's id, or finds no key, updates Seen. Once a request that carried a create may have written,
-	the op carries that id instead.
+	An op is numbered and stamped when it is first sent, and keeps both. A request carries every op
+	whose fate is not heard, in order, and its new timed bytes stay within a quarter of the timed
+	room. An op is clean until a failed request carried it or a run decided it. Only a clean op takes
+	a no from a cancel or a horizon, and any other answers Unresolved. A clean minted op that is
+	forgotten or ahead is stamped again. An op that a mark blocks or an overdue item holds up waits.
+	A landing turns away each hopeful op judged before the key's last cut. A failed request answers
+	its ops Unresolved, and the ops are still sent. Past SEQ_MAX the queue is spent until it takes a
+	fresh writer id. A ride is an end for a mark in the way, one per mark, and it goes with every
+	request until one lands.
 
-	Spec: extras 2.3, for a paced key. A queue whose build is Paced keeps a gap. Wait gives how long
-	the queue must still wait before it sends, which is the gap past its last send. Paced reads each
-	landing. Once it has two landings, it measures the key's writes a minute from the change in the
-	write count over its own clock. It multiplies the gap by the rate over its target, at least by
-	one half, and keeps it within Windows.GAP_MIN and Windows.GAP_MAX. The target is the key's write
-	ceiling at the bytes of the last landing, over Paced. A failed request waits no gap.
+	On an erasable store the queue keeps Seen, the key's id as this server last saw it, or false when
+	it saw no key. An op takes that id, or a create of a fresh id, when it is first sent, and keeps
+	it. Once a request that carried a create may have written, the op carries that id instead.
 
-	Return type: A table with New, Push, Withdraw, Ride, Build, Learn, Failed, Spent, Renew, Ack,
-	Quiet, Unknown, Know, Wait and Paced. The types are Queue, Asked, Item, Fate and Reply.
+	Return type: The Queue module, and the Queue, Asked, Item, Fate and Reply types.
 	Example usage:
 		local Request = Queue.Build(Held, Now)
 --]=]
@@ -42,19 +28,19 @@
 local Answer = require("../Core/Answer")
 local Book = require("./Book")
 local Key = require("./Key")
-local Limits = require("../Core/Constants/Limits")
-local Sizes = require("../Core/Constants/Sizes")
+local Pacing = require("./Pacing")
+local Requests = require("./Requests")
 local Types = require("./Types")
 local Windows = require("../Core/Constants/Windows")
 
 type Answer = Answer.Answer
 type Note = Types.Note
-type Op = Types.Op
+type Op = Requests.Op
 
 export type Reply = true | Answer
 
 export type Asked = {
-	read Form: Types.Form,
+	read Form: Requests.Form,
 	read Kind: number,
 	read Name: string?,
 	read Print: number?,
@@ -96,18 +82,15 @@ export type Queue = {
 	Items: { Item },
 	Out: { Item }?,
 	Horizon: number,
-	Rides: { Types.End },
+	Rides: { Requests.End },
 	Since: number,
 	Running: boolean,
 	Seen: (string | false)?,
-	read Pace: number?,
-	Gap: number,
-	Sent: number?,
-	Landing: { read Writes: number, read At: number }?,
+	read Pace: Pacing.Pace?,
 }
 
 local Fate = Book.Fate
-local Form = Types.Form
+local Form = Requests.Form
 local Why = Types.Why
 
 local FATES: { [number]: Reply } = {
@@ -123,7 +106,13 @@ local ENDS: { [Types.Why]: Answer } = {
 	[Why.Corrupt] = Answer.Unresolved,
 }
 
-local Queue = {}
+local SEQ_MAX = 32767
+local QUEUE = 4096
+local REQUEST_SHARE = 4
+
+local Queue = {
+	SEQ_MAX = SEQ_MAX,
+}
 
 local function Width(Item: Item, Clock: number): number
 	local Asked = Item.Asked
@@ -145,9 +134,12 @@ local function OpOf(Held: Queue, Item: Item, Clock: number): Op
 		end
 	end
 	local Made = table.clone(Item.Asked) :: any
-	Made.Seq, Made.Id, Made.Create = Item.Seq, Item.Id, Item.Create
+	Made.Seq = Item.Seq
+	Made.Id = Item.Id
+	Made.Create = Item.Create
 	Made.Stamp = Item.Stamp or math.max(Clock, Held.Horizon + 1)
-	Item.Stamp, Item.Op = Made.Stamp, Made
+	Item.Stamp = Made.Stamp
+	Item.Op = Made
 	return Made
 end
 
@@ -180,7 +172,9 @@ end
 
 local function Taint(Item: Item)
 	if Item.Dirty and Item.Create then
-		Item.Id, Item.Create, Item.Op = Item.Create, nil, nil
+		Item.Id = Item.Create
+		Item.Create = nil
+		Item.Op = nil
 	end
 end
 
@@ -196,14 +190,17 @@ local function Judge(Item: Item, Index: number, Note: Note, Clock: number, Said:
 	elseif Reason == Why.Spent then
 		return Settle(Said, Item, Answer.Spent)
 	elseif (Reason == Why.Forgotten or Reason == Why.Ahead) and Clean and Minted(Item) then
-		Item.Stamp, Item.Op = math.max(Clock, Note.Horizon + 1), nil
+		Item.Stamp = math.max(Clock, Note.Horizon + 1)
+		Item.Op = nil
 		return
 	elseif Reason == Why.Ahead or Reason == Why.Blocked or Reason == Why.Overdue then
 		return
 	elseif Reason == Why.Forgotten then
 		return Settle(Said, Item, if Clean then Answer.Expired else Answer.Unresolved)
 	elseif Reason == Why.Missing and Clean and Item.Create and Note.Id then
-		Item.Id, Item.Create, Item.Op = Note.Id, nil, nil
+		Item.Id = Note.Id
+		Item.Create = nil
+		Item.Op = nil
 		return
 	end
 	return Settle(Said, Item, if Clean then ENDS[Reason] else Answer.Unresolved)
@@ -214,7 +211,7 @@ function Queue.New(Ref: Book.Ref, Build: Types.Build, Id: number, UserIds: { num
 		Ref = Ref,
 		Build = Build,
 		UserIds = UserIds,
-		TimedCap = Build.TimedRoom // Sizes.REQUEST_SHARE,
+		TimedCap = Build.TimedRoom // REQUEST_SHARE,
 		Id = Id,
 		Next = 1,
 		Items = {},
@@ -222,8 +219,7 @@ function Queue.New(Ref: Book.Ref, Build: Types.Build, Id: number, UserIds: { num
 		Rides = {},
 		Since = Now,
 		Running = false,
-		Pace = Build.Paced,
-		Gap = Windows.GAP_MAX,
+		Pace = if Build.Paced then Pacing.New(Build.Paced) else nil,
 	}
 end
 
@@ -234,7 +230,7 @@ function Queue.Ack(Held: Queue): number
 end
 
 function Queue.Push(Held: Queue, Asked: Asked, Tell: Tell?): Item?
-	if #Held.Items >= Limits.QUEUE then
+	if #Held.Items >= QUEUE then
 		return nil
 	end
 	local Item: Item = { Asked = Asked, Tell = Tell, Stamp = Asked.Stamp, Dirty = false, Said = false, Done = false }
@@ -251,7 +247,7 @@ function Queue.Withdraw(Held: Queue, Item: Item): boolean
 	return true
 end
 
-function Queue.Ride(Held: Queue, End: Types.End)
+function Queue.Ride(Held: Queue, End: Requests.End)
 	for Index, Riding in Held.Rides do
 		if Riding.Name == End.Name then
 			Held.Rides[Index] = End
@@ -263,16 +259,17 @@ end
 
 function Queue.Spent(Held: Queue): boolean
 	local First = Held.Items[1]
-	return Held.Next > Limits.SEQ_MAX and Held.Out == nil and First ~= nil and First.Seq == nil
+	return Held.Next > SEQ_MAX and Held.Out == nil and First ~= nil and First.Seq == nil
 end
 
 function Queue.Renew(Held: Queue, Id: number)
 	local First = Held.Items[1]
 	assert(Held.Out == nil and (First == nil or First.Seq == nil), "Queue: Renew with a numbered op unheard")
-	Held.Id, Held.Next = Id, 1
+	Held.Id = Id
+	Held.Next = 1
 end
 
-function Queue.Build(Held: Queue, Clock: number): Types.Request?
+function Queue.Build(Held: Queue, Clock: number): Requests.Request?
 	local First = Held.Items[1]
 	if Held.Out or First == nil or Queue.Spent(Held) then
 		return nil
@@ -282,7 +279,7 @@ function Queue.Build(Held: Queue, Clock: number): Types.Request?
 	local Bytes = 0
 	for _, Item in Held.Items do
 		Bytes += Width(Item, Clock)
-		if (Bytes > Held.TimedCap and #Ops > 0) or (Item.Seq == nil and Held.Next > Limits.SEQ_MAX) then
+		if (Bytes > Held.TimedCap and #Ops > 0) or (Item.Seq == nil and Held.Next > SEQ_MAX) then
 			break
 		elseif Item.Seq == nil then
 			Item.Seq = Held.Next
@@ -292,12 +289,12 @@ function Queue.Build(Held: Queue, Clock: number): Types.Request?
 		table.insert(Carried, Item)
 	end
 	Held.Out = Carried
-	Held.Sent = if Held.Pace then Clock else nil
+	Pacing.Sent(Held.Pace, Clock)
 	local Ends = if Held.Rides[1] then table.clone(Held.Rides) else nil
-	return { Writer = Held.Id, Ack = Queue.Ack(Held), MustExist = First.Asked.MustExist, Ops = Ops, Ends = Ends }
+	return Requests.Batch(Held.Id, Queue.Ack(Held), First.Asked.MustExist, Ops, Ends)
 end
 
-function Queue.Learn(Held: Queue, Request: Types.Request, Note: Note, Ran: { [number]: true }, Clock: number): { Fate }
+function Queue.Learn(Held: Queue, Request: Requests.Request, Note: Note, Ran: { [number]: true }, Clock: number): { Fate }
 	local Carried = assert(Held.Out, "Queue: Learn with no request out")
 	Held.Out = nil
 	local Said: { Fate } = {}
@@ -331,7 +328,8 @@ end
 
 function Queue.Failed(Held: Queue): { Fate }
 	local Carried = assert(Held.Out, "Queue: Failed with no request out")
-	Held.Out, Held.Sent = nil, nil
+	Held.Out = nil
+	Pacing.Failed(Held.Pace)
 	local Said: { Fate } = {}
 	for _, Item in Carried do
 		Item.Dirty = true
@@ -354,25 +352,6 @@ function Queue.Know(Held: Queue, Value: unknown)
 	else
 		Held.Seen = ""
 	end
-end
-
-function Queue.Wait(Held: Queue, Clock: number): number
-	local Sent = Held.Sent
-	return if Held.Pace and Sent then math.max(Sent + Held.Gap - Clock, 0) else 0
-end
-
-function Queue.Paced(Held: Queue, Writes: number, Bytes: number, Clock: number)
-	local Pace, Before = Held.Pace, Held.Landing
-	if Pace == nil or (Before and Clock <= Before.At) then
-		return
-	end
-	Held.Landing = { Writes = Writes, At = Clock }
-	if Before == nil then
-		return
-	end
-	local Rate = (Writes - Before.Writes) * Windows.MINUTE / (Clock - Before.At)
-	local Target = (Sizes.KEY_CEILING // math.max(math.ceil(Bytes / Sizes.KB), 1)) / Pace
-	Held.Gap = math.clamp(Held.Gap * math.max(Rate / Target, Limits.GAP_FALL), Windows.GAP_MIN, Windows.GAP_MAX)
 end
 
 function Queue.Quiet(Held: Queue, Now: number): boolean

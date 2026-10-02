@@ -2,20 +2,18 @@
 --!optimize 2
 
 --[=[
-
 	Ops: Logic. The op a game's call asks for.
 
 	Spec: record 5.1.
 
-	Body is what a reducer sees: the op's fields and its Kind. Kind is the number an op kind is stored
-	as. Durable makes the op that Edit and Commit send. An op with no Once is minted. With Once and
-	OnceAt, the unix time the name was first sent, it is timed, and with Once alone it is untimed.
-	Print gives the 16 bits of the hash of a value's canon print, and an op's print is that of its
-	body. A game's name may not start with Book.DRAWN. An op a datastore cannot hold gives nil. Name checks a
-	Once, and Stamp checks a OnceAt and gives it as a stamp. A bad Once or OnceAt throws at the
-	game's call.
+	A body is what a reducer sees: the op's fields and its Kind. An op with no Once is minted. With
+	Once and OnceAt, the unix time the name was first sent, it is timed, and with Once alone it is
+	untimed. A kind is stored as a number, the hash of its name. A print is 16 bits of the hash of a
+	value's canon print, and an op's print is that of its body. A game's name may not start with
+	Book.DRAWN. Durable gives nil for an op a datastore cannot hold. A bad Once or OnceAt throws at
+	the game's call.
 
-	Return type: A table with Body, Kind, Print, Durable, Name and Stamp.
+	Return type: The Ops module.
 	Example usage:
 		local Asked = Ops.Durable("Grant", { Amount = 5, Once = Receipt.PurchaseId }, false)
 --]=]
@@ -25,7 +23,7 @@ local Canon = require("../Encode/Canon")
 local Errors = require("../Core/Errors")
 local Hash = require("../Encode/Hash")
 local Limits = require("../Core/Constants/Limits")
-local Types = require("../Record/Types")
+local Requests = require("../Record/Requests")
 local Value = require("../Encode/Value")
 local Queue = require("../Record/Queue")
 
@@ -35,7 +33,10 @@ local ONCE = `Once has to be a string of 1 to {Limits.NAME_BYTES} bytes`
 local ONCE_AT = "OnceAt has to be the whole unix time the name was first sent"
 local ALONE = "OnceAt needs a Once"
 
-local Form = Types.Form
+local Form = Requests.Form
+
+local KINDS = 32768
+local PRINT_MASK = 0xFFFF
 
 local Ops = {}
 
@@ -54,17 +55,18 @@ function Ops.Body(Kind: string, Fields: Fields?): Fields
 end
 
 function Ops.Kind(Kind: string): number
-	return Hash(Kind) % Limits.KINDS
+	return Hash(Kind) % KINDS
 end
 
 function Ops.Print(Value: unknown): number
-	return bit32.band(Hash(Canon(Value)), Limits.PRINT_MASK)
+	return bit32.band(Hash(Canon(Value)), PRINT_MASK)
 end
 
 function Ops.Durable(Kind: string, Fields: Fields?, MustExist: boolean): Queue.Asked?
 	local Body = Ops.Body(Kind, Fields)
 	local Name, At = Body.Once, Body.OnceAt
-	Body.Once, Body.OnceAt = nil, nil
+	Body.Once = nil
+	Body.OnceAt = nil
 	if Name ~= nil and not (type(Name) == "string" and Named(Name)) then
 		Errors.Misuse(ONCE, 1)
 	elseif At ~= nil and not (type(At) == "number" and Timed(At)) then

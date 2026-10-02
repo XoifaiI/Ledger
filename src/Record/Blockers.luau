@@ -2,28 +2,25 @@
 --!optimize 2
 
 --[=[
-
 	Blockers: Logic. What a writer learns of a mark in its way, and what it sends to end it.
 
 	Spec: transaction 4.2.
 
-	Pick gives one item a note listed, the one the server's number falls on in name order, so
-	helpers on different servers spread. Mark gives it back as a mark, or nil for a pinned record.
-	Read says what a read of the mark's decider decides. It gives a commit with the attempt that
-	committed, or an abort. It gives gone when the decider holds no value, and nil when it decides
-	nothing yet. Fenced says the same of the report of a fence sent there. Due says whether the
-	writer may fence the mark: it is younger than the writer, or Windows.SETTLE old. Fence gives
-	that fence, which is not final, and End gives the end a writer carries to the mark's key once
-	the mark is decided.
+	A note lists the items in the way. Pick takes the one the server's number falls on in name order,
+	so helpers on different servers spread. A read of the mark's decider decides a commit, with the
+	attempt that committed, or an abort. It says gone when the decider holds no value, and nothing
+	while the decider has not decided the mark's attempt. A decider that holds no trace of the name,
+	and whose horizon has passed the mark's stamp, has aborted. A writer may fence a mark that is
+	younger than its own op, or one Windows.SETTLE old. That fence is never final.
 
-	Return type: A table with Pick, Mark, Read, Fenced, Due, Fence and End. The types are Found,
-	Blocker and Decision.
+	Return type: The Blockers module, and the Found, Blocker and Decision types.
 	Example usage:
 		local Decided = Blockers.Read(Value, Found)
 --]=]
 
 local Book = require("../Record/Book")
 local Key = require("../Record/Key")
+local Requests = require("./Requests")
 local Types = require("../Record/Types")
 local Windows = require("../Core/Constants/Windows")
 
@@ -40,16 +37,17 @@ export type Blocker = {
 }
 
 export type Decision = {
-	read Outcome: Types.Outcome?,
+	read Outcome: Requests.Outcome?,
 	read Attempt: number,
 	read Gone: boolean,
 	read Value: number?,
 }
 
+local WorkForm = Book.WorkForm
 local Fate = Book.Fate
 local Role = Book.Role
 local Report = Types.Report
-local Outcome = Types.Outcome
+local Outcome = Requests.Outcome
 local Why = Types.Why
 
 local Blockers = {}
@@ -68,11 +66,11 @@ function Blockers.Pick(Items: { [string]: Book.Work }, Ref: Book.Ref, Server: nu
 end
 
 function Blockers.Mark(Picked: Found): Blocker?
-	local Item = Picked.Item
-	if Item.Form == "Pinned" then
+	local Mark = Book.AsMark(Picked.Item)
+	if Mark == nil then
 		return nil
 	end
-	return { Name = Picked.Name, Item = Item, Ref = Picked.Ref }
+	return { Name = Picked.Name, Item = Mark, Ref = Picked.Ref }
 end
 
 function Blockers.Read(Value: unknown, Found: Blocker): Decision?
@@ -85,7 +83,7 @@ function Blockers.Read(Value: unknown, Found: Blocker): Decision?
 	end
 	local Record = Read.Book
 	local Pinned = Record.Work[Found.Name]
-	if Pinned and Pinned.Form == "Pinned" then
+	if Pinned and Pinned.Form == WorkForm.Pinned then
 		return { Outcome = Outcome.Commit, Attempt = Pinned.Attempt, Gone = false, Value = Pinned.Value }
 	end
 	local Held = Record:Held(Found.Name)
@@ -120,18 +118,12 @@ function Blockers.Due(Found: Blocker, Stamp: number, Name: string, Now: number):
 	return Younger or Now - Held >= Windows.SETTLE
 end
 
-function Blockers.Fence(Found: Blocker): Types.Request
+function Blockers.Fence(Found: Blocker): Requests.Request
 	local Item = Found.Item
-	return {
-		Writer = 0,
-		Ack = 0,
-		MustExist = true,
-		Ops = {},
-		Fence = { Name = Found.Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Final = false },
-	}
+	return Requests.Fence({ Name = Found.Name, Stamp = Item.Stamp, Attempt = Item.Attempt, Print = Item.Print, Final = false })
 end
 
-function Blockers.End(Found: Blocker, Outcome: Types.Outcome, Attempt: number, Value: number?): Types.End
+function Blockers.End(Found: Blocker, Outcome: Requests.Outcome, Attempt: number, Value: number?): Requests.End
 	return { Name = Found.Name, Stamp = Found.Item.Stamp, Attempt = Attempt, Print = Found.Item.Print, Outcome = Outcome, Value = Value }
 end
 

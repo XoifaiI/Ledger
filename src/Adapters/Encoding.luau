@@ -2,7 +2,6 @@
 --!optimize 2
 
 --[=[
-
 	Encoding: Plumbing. The engine's Blake3 hash of a string.
 
 	Return type: A table with Blake3, which gives back the 32 byte digest as a string.

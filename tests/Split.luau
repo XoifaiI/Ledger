@@ -12,6 +12,7 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Asks = require("../src/Machine/Asks")
 local Game = require("./Gold")
@@ -21,7 +22,6 @@ local Parts = require("../src/Record/Parts")
 local Split = require("../src/Calls/Split")
 local Step = require("../src/Record/Step")
 local Tx = require("../src/Calls/Tx")
-local Types = require("../src/Record/Types")
 local Windows = require("../src/Core/Constants/Windows")
 
 local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
@@ -32,7 +32,7 @@ local SWORDS: Parts.Declared = { Name = "Swords", Parts = 2, Mode = "Final", Sto
 local USING = Parts.Build(Game.DEFAULT, SWORDS)
 
 local function Send(Current: unknown, Body: { [string]: any }, Name: string, At: number): unknown
-	local Commit: Types.Commit = { Name = Name, Stamp = At, Attempt = 1, Print = PRINT, Legs = {}, Leg = { Body = Body } }
+	local Commit: Requests.Commit = { Name = Name, Stamp = At, Attempt = 1, Print = PRINT, Legs = {}, Leg = { Body = Body } }
 	local Note = Step(Current, { Writer = 0, Ack = 0, MustExist = Body.Kind ~= "Open", Ops = {}, Commit = Commit }, At, USING)
 	return Note.Stored or Current
 end

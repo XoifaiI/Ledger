@@ -12,6 +12,7 @@
 		zune test tests/Run.luau
 --]=]
 
+local Requests = require("../src/Record/Requests")
 local Testing = require("./Testing")
 local Blockers = require("../src/Record/Blockers")
 local Book = require("../src/Record/Book")
@@ -19,7 +20,6 @@ local Game = require("./Gold")
 local Heard = require("./Heard")
 local Machine = require("../src/Machine/Machine")
 local Step = require("../src/Record/Step")
-local Types = require("../src/Record/Types")
 local Unblock = require("../src/Calls/Unblock")
 local Windows = require("../src/Core/Constants/Windows")
 
@@ -30,7 +30,7 @@ local DEFAULT = Game.DEFAULT
 local Y = Book.Drawn(5, 1)
 
 local function Seed(): unknown
-	local Op: Types.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 1 } }
+	local Op: Requests.Op = { Form = "Minted", Seq = 1, Stamp = NOW, Kind = 0, Body = { Add = 1 } }
 	return Step(nil, { Writer = 1, Ack = 0, MustExist = false, Ops = { Op } }, NOW, DEFAULT).Stored
 end
 
@@ -53,7 +53,7 @@ end
 
 Describe("Unblock", function()
 	Test("a decider that pinned the use answers a commit at its attempt, from one read", function()
-		local Commit: Types.Commit = { Name = Y, Stamp = NOW, Attempt = 2, Legs = {}, Leg = { Field = 1, Amount = 1 } }
+		local Commit: Requests.Commit = { Name = Y, Stamp = NOW, Attempt = 2, Legs = {}, Leg = { Field = 1, Amount = 1 } }
 		local Decider = Step(Seed(), { Writer = 0, Ack = 0, MustExist = true, Ops = {}, Commit = Commit }, NOW, DEFAULT).Stored
 		local Call, Asked = Start(NOW)
 		local Ask = Asked[1].Ask
