@@ -79,6 +79,16 @@ Describe("Losses", function()
 		Expect(Sum).toBe(1)
 	end)
 
+	Test("the new event is tried last, even when its stamp is older than one the room holds", function()
+		local Held, New = Event("e1", NOW - 10, 1), Event("e2", NOW - 20, 10)
+		local Record = Holding({ Held })
+		Expect(Losses.Name(Record, Room({ Held, New }, NOW), NOW, NOW, New)).toBeNil()
+		Expect(Names(Record)).toBe("e2")
+		local Count, Sum = Folded(Record, PERIOD)
+		Expect(Count).toBe(1)
+		Expect(Sum).toBe(1)
+	end)
+
 	Test("an event whose period ended two periods ago is removed and not folded", function()
 		local Late = (PERIOD + 2) * SPAN
 		local Old, New = Event("e1", NOW, 1), Event("e2", Late, 10)

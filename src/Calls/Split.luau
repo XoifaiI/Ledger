@@ -4,8 +4,6 @@
 --[=[
 	Split: Machine. Opens a split quantity's parts, and closes and removes them.
 
-	Spec: hot keys 2.1 and 2.5. Model: Hot.tla, SendOp and Hear for open and close.
-
 	Open commits the open op on every part at once, under the quantity's open name and one stamp,
 	with the declaration's print. A part that did not answer true is tried again after a rest, but
 	only while the clock reads at most Windows.REMOVE_SEND past the stamp. Past it, Open answers
@@ -82,7 +80,7 @@ local function Ref(Declared: Parts.Declared, Index: number): Book.Ref
 	return { Store = Declared.Place, Key = Parts.Key(Declared.Name, Declared.Parts, Index) }
 end
 
-local function Send(Call: Call, Index: number, Body: { [string]: any }, MustExist: boolean)
+local function Send(Call: Call, Index: number, Body: Parts.Op, MustExist: boolean)
 	local Context = Call.Context
 	local Leg: Tx.Leg = { Ref = Ref(Context.Declared, Index), MustExist = MustExist, Erasable = false, Change = { Body = Body } }
 	local Use: Tx.Use = { Name = Context.Name, Stamp = Context.Stamp, Print = Context.Declared.Print }
@@ -97,7 +95,7 @@ local function Open(Call: Call)
 	table.clear(Context.Running)
 	for _, Index in Context.Pending do
 		local Share = Parts.Share(Declared.Stock, Declared.Parts, Index)
-		Send(Call, Index, { Kind = "Open", Share = Share, At = Context.Stamp, From = Parts.From(Declared, Index) }, false)
+		Send(Call, Index, Parts.OpenOp(Share, Context.Stamp, Parts.From(Declared, Index)), false)
 	end
 end
 
@@ -130,7 +128,7 @@ local function Close(Call: Call)
 	local Context = Call.Context
 	table.clear(Context.Running)
 	for Index = 0, Context.Declared.Parts - 1 do
-		Send(Call, Index, { Kind = "Close", Print = Context.Declared.Print }, true)
+		Send(Call, Index, Parts.CloseOp(Context.Declared.Print), true)
 	end
 end
 

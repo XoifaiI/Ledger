@@ -3,8 +3,6 @@
 --[=[
 	Sizes: Logic. The record's rooms and caps, in characters of the book or json bytes.
 
-	Spec: record 2.3 and 2.4.
-
 	Each room has a default and the bounds a game may set it within. The least loss room is not here:
 	Book.LossFloor gives it for the store's money fields. ITEM_MAX is the most one named item takes,
 	and ROOMS_MAX the most every room a game sets may take together. The asserts hold the record's

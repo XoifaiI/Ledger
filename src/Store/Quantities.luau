@@ -4,8 +4,6 @@
 --[=[
 	Quantities: Object. The split quantities a store declares, and each call on one.
 
-	Spec: hot keys 2.1 to 2.9.
-
 	Each quantity's parts are a place of their own, a store whose build is the part build. A quantity
 	keeps a view of its parts, what each last showed free and whether it was shut. A walk picks parts
 	by the view, every refusal goes into it, and a Stock read fills it. Find, Units, Indexed, Priced,
@@ -42,7 +40,6 @@ local Walk = require("../Calls/Walk")
 
 type Answer = Answer.Answer
 type Reply = Queue.Reply
-type State = { [string]: any }
 
 export type Quantity = {
 	read Declared: Parts.Declared,
@@ -74,19 +71,31 @@ local SLOT = Parts.SLOT
 
 local Shared = Runtime.Shared
 
-local function Walking(Held: Quantity, Body: State, Legs: { Tx.Leg }, Only: number?, Name: string?, Stamp: number?, Print: number?): Taken
+local function Walking(Held: Quantity, Body: Parts.Op, Legs: { Tx.Leg }, Only: number?, Name: string?, Stamp: number?, Print: number?): Taken
 	local Declared = Held.Declared
 	local Home = Shards.Home(Declared.Name, Shared:First(), Declared.Parts)
-	local Context = Walk.Context(Declared, Body, Legs, Shared:Server(), Home)
-	Context.Only = Only
-	Context.Name = Name
-	Context.Stamp = Stamp or Clock.Now()
-	Context.Print = Print
-	Context.View = Held.View
-	for _ = 1, if Name then 0 else Parts.PROBES do
-		table.insert(Context.Names, Shared:Draw())
+	local Server = Shared:Server()
+	local At = Stamp or Clock.Now()
+	local Names: { string } = {}
+	if Name == nil then
+		for _ = 1, Parts.PROBES do
+			table.insert(Names, Shared:Draw())
+		end
 	end
-	local Found = Runner.Run(Walk.Machine, Context, Shared.Places):Wait()
+	local Asked: Walk.Asked = {
+		Declared = Declared,
+		Body = Body,
+		Legs = Legs,
+		Server = Server,
+		Home = Home,
+		Only = Only,
+		Name = Name,
+		Stamp = At,
+		Print = Print,
+		Names = Names,
+		View = Held.View,
+	}
+	local Found = Runner.Run(Walk.Machine, Walk.Context(Asked), Shared.Places):Wait()
 	return Found or { Reply = Answer.Unresolved }
 end
 
@@ -157,7 +166,7 @@ function Quantities.Ticketed(Splits: Splits, Held: Ticket): Quantity
 	return Found :: Quantity
 end
 
-function Quantities.Legs(Held: Quantity, Given: { read [number]: Transactions.Asked }?, Body: State, Name: string?): ({ Tx.Leg }, number?)
+function Quantities.Legs(Held: Quantity, Given: { read [number]: Transactions.Asked }?, Body: Parts.Op, Name: string?): ({ Tx.Leg }, number?)
 	local Declared = Held.Declared
 	if Given == nil or Given[1] == nil then
 		return {}, if Name then Ops.Print({ Quantity = Declared.Name, Op = Body }) else nil
@@ -189,7 +198,7 @@ function Quantities.Close(Held: Quantity): (Reply, Split.Closed?)
 	return Splitting(Held, Split.Close, "close")
 end
 
-function Quantities.Take(Held: Quantity, Body: State, Legs: { Tx.Leg }, Only: number?, Name: string?, Stamp: number?, Print: number?): (Reply, Taken)
+function Quantities.Take(Held: Quantity, Body: Parts.Op, Legs: { Tx.Leg }, Only: number?, Name: string?, Stamp: number?, Print: number?): (Reply, Taken)
 	local Found = Walking(Held, Body, Legs, Only, Name, Stamp, Print)
 	return Found.Reply, Found
 end
@@ -198,7 +207,7 @@ function Quantities.Hold(Held: Quantity, Count: number, Seconds: number): (Reply
 	local Declared = Held.Declared
 	local Id = Shared:Mint()
 	local Now = Clock.Now()
-	local Body = Ops.Body("Hold", { Id = Id, Count = Count, End = Now + Seconds, Print = Declared.Print })
+	local Body = Parts.HoldOp(Declared.Print, Id, Count, Now + Seconds)
 	local Found = Walking(Held, Body, {}, nil, nil, Now, nil)
 	local Part = Found.Part
 	if Found.Reply ~= true or Part == nil then
@@ -212,16 +221,16 @@ function Quantities.Hold(Held: Quantity, Count: number, Seconds: number): (Reply
 	return true, { Quantity = Declared.Name, Id = Id, Part = Part, Count = Count, Ends = Now + Seconds + Limits.EPOCH, Serials = Serials }
 end
 
-function Quantities.Confirm(Held: Quantity, Body: State, Legs: { Tx.Leg }, Part: number): (Reply, Taken)
+function Quantities.Confirm(Held: Quantity, Body: Parts.Op, Legs: { Tx.Leg }, Part: number): (Reply, Taken)
 	local Found = Walking(Held, Body, Legs, Part)
 	return if Found.Reply == Answer.SoldOut then Answer.Short else Found.Reply, Found
 end
 
-function Quantities.Release(Held: Quantity, Body: State, Part: number): Reply
+function Quantities.Release(Held: Quantity, Body: Parts.Op, Part: number): Reply
 	return Walking(Held, Body, {}, Part).Reply
 end
 
-function Quantities.Credit(Held: Quantity, Body: State, Part: number?): Reply
+function Quantities.Credit(Held: Quantity, Body: Parts.Op, Part: number?): Reply
 	local Declared = Held.Declared
 	local Only = Part or Shards.Home(Declared.Name, Shared:First(), Declared.Parts)
 	local Found = Walking(Held, Body, {}, Only)
@@ -249,7 +258,7 @@ function Quantities.Stock(Held: Quantity, MaxAge: number): Stock | Answer
 	for Index, Pair in Held.Total.Pairs do
 		local Values = Pair.Values
 		local Free = Values[SLOT.Free]
-		Held.View[Index] = { Free = Free, Shut = Values[SLOT.Shut] == 1, Short = Free == 0, At = Now }
+		Held.View[Index] = { Free = Free, Shut = Values[SLOT.Shut] == 1, Refused = if Free == 0 then 1 else nil, At = Now }
 	end
 	return { Free = Found[SLOT.Free], Held = Found[SLOT.Held], Sold = Found[SLOT.Sold], SoldOut = Found[SLOT.Shut] == Held.Declared.Parts }
 end

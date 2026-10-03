@@ -4,8 +4,6 @@
 --[=[
 	Copies: Logic. The items a followed key's copy is kept in, and how a follower reads them.
 
-	Spec: extras 4 and 5.1 to 5.3. Model: Copy.tla and CopyAbs.tla.
-
 	A copy item is a table like a key's value: s holds state, and b holds the bookkeeping as alphabet
 	text. The header's book holds the format, the write count, the level and floor of the state, the
 	parts count, and the holder fields of extras 4. The header holds the state itself when the whole

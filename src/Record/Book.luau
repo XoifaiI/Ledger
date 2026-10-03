@@ -4,18 +4,19 @@
 --[=[
 	Book: Logic. The record's bookkeeping, as an object and as the text in a key's b field.
 
-	Spec: record 2.2 and 2.3; transaction 2; cuts 2 and 3.4.
-
-	The text holds the fixed fields, then each room as a count and its items. Room stamps are stored
-	as offsets from the clock of the write. A drawn name is held behind DRAWN and stored as its
-	server number and counter. A named entry has a role: an op's name, a leg's fate or a decision.
-	The work room holds escrow marks, exclusive marks and pinned records by name, and WorkForm names
-	the three. The gate holds the one cut in progress. The loss room holds events and at most
-	SLOTS_MAX fold slots. A slot is an exact sum per money field, kept as two limbs of Alphabet.LIMB.
-	A seal is what an erase leaves in place of the value. Decode and DecodeSeal give nil for any text
-	the encoders do not write. LossFloor is the least loss room for a count of money fields:
-	SLOTS_MAX of the widest slots and one of the widest reset events, measured with these encoders.
-	Every fate, role, cause and head bit here is stored, so none may change.
+	The text holds the fixed fields, then each room as a count and its items. Room stamps are stored as
+	offsets from the clock of the write. A drawn name is held behind DRAWN and stored as its server
+	number and counter. A named entry is one type per Role: an OpName, a LegFate or a Decision. Only a
+	decision keeps a value or a final flag. A leg fate and a decision always keep an attempt, and an
+	op's name keeps one only with a fenced or aborted fate. A leg fate and a decision are stored under
+	TX_KIND. The untimed and cut rooms hold op names only, and a cut's name is an op name whose kind is
+	its cause. The work room holds escrow marks, exclusive marks and pinned records by name, and
+	WorkForm names the three. The gate holds the one cut in progress. The loss room holds events and at
+	most SLOTS_MAX fold slots. A slot is an exact sum per money field, kept as two limbs of
+	Alphabet.LIMB. A seal is what an erase leaves in place of the value. Decode and DecodeSeal give nil
+	for any text the encoders do not write. LossFloor is the least loss room for a count of money
+	fields: SLOTS_MAX of the widest slots and one of the widest reset events, measured with these
+	encoders. Every fate, cause, role code and head bit here is stored, so none may change.
 
 	Return type: The Book class, and the types of its items.
 	Example usage:
@@ -36,6 +37,14 @@ local WorkForm = {
 
 export type WorkForm = keyof<typeof(WorkForm)>
 
+local Role = {
+	Op = "Op" :: "Op",
+	Leg = "Leg" :: "Leg",
+	Decision = "Decision" :: "Decision",
+}
+
+export type Role = keyof<typeof(Role)>
+
 export type Fate = number
 
 export type Entry = {
@@ -45,16 +54,34 @@ export type Entry = {
 	Fates: { [number]: Fate },
 }
 
-export type Named = {
-	Kind: number,
-	Role: number?,
-	Stamp: number,
-	Fate: Fate,
-	Attempt: number?,
-	Final: boolean?,
-	Print: number?,
-	Value: number?,
+export type OpName = {
+	read Role: "Op",
+	read Kind: number,
+	read Stamp: number,
+	read Fate: Fate,
+	read Attempt: number?,
+	read Print: number?,
 }
+
+export type LegFate = {
+	read Role: "Leg",
+	read Stamp: number,
+	read Fate: Fate,
+	read Attempt: number,
+	read Print: number?,
+}
+
+export type Decision = {
+	read Role: "Decision",
+	read Stamp: number,
+	read Fate: Fate,
+	read Attempt: number,
+	read Final: boolean?,
+	read Print: number?,
+	read Value: number?,
+}
+
+export type Named = OpName | LegFate | Decision
 
 export type Ref = {
 	read Store: string,
@@ -146,8 +173,9 @@ type BookImpl = {
 	LossWidth: (Events: { Event }, Slots: { Slot }, Now: number) -> number,
 	EncodeSeal: (Item: Seal) -> string,
 	DecodeSeal: (Source: string) -> Seal?,
-	LegFate: (Stamp: number, Print: number?, Code: Fate, Attempt: number) -> Named,
-	Decision: (Stamp: number, Print: number?, Code: Fate, Attempt: number, Final: boolean?, Value: number?) -> Named,
+	OpName: (Stamp: number, Print: number?, Code: Fate, Kind: number) -> OpName,
+	LegFate: (Stamp: number, Print: number?, Code: Fate, Attempt: number) -> LegFate,
+	Decision: (Stamp: number, Print: number?, Code: Fate, Attempt: number, Final: boolean?, Value: number?) -> Decision,
 	Marks: (Room: { [string]: Work }) -> { [string]: Work },
 	Of: (Room: { [string]: Work }, Form: WorkForm) -> { [string]: Work },
 	AsMark: (Item: Work) -> (Escrow | Exclusive)?,
@@ -155,11 +183,12 @@ type BookImpl = {
 	Address: (Held: Ref) -> string,
 	WorkForm: typeof(WorkForm),
 	Fate: { read Took: number, read Refused: number, read Full: number, read Fenced: number, read Aborted: number, read Turned: number },
-	Role: { read Op: number, read Leg: number, read Decision: number },
+	Role: typeof(Role),
 	Cause: { read Reset: number, read Erase: number, read Returned: number, read Orphan: number },
 	FORMAT: number,
 	DRAWN: string,
 	SLOTS_MAX: number,
+	TX_KIND: number,
 	Held: (self: Book, Name: string) -> Named?,
 	Encode: (self: Book, Now: number) -> string,
 }
@@ -176,8 +205,8 @@ type Data = {
 	Gate: Gate?,
 	Writers: { [number]: Entry },
 	Timed: { [string]: Named },
-	Cut: { [string]: Named },
-	Untimed: { [string]: Named },
+	Cut: { [string]: OpName },
+	Untimed: { [string]: OpName },
 	Work: { [string]: Work },
 	Events: { Event },
 	Slots: { Slot },
@@ -191,6 +220,7 @@ local COUNT_WIDTH = 3
 local PRINT_WIDTH = 3
 local SLOT_COUNT_WIDTH = 1
 local ROLES = 3
+local TX_KIND = 0
 local SLOTS_MAX = 2
 local OFF_ALPHABET = "!"
 
@@ -203,10 +233,16 @@ local Fate = {
 	Turned = 5,
 }
 
-local Role = {
+local ROLE_CODE: { [Role]: number } = {
 	Op = 0,
 	Leg = 1,
 	Decision = 2,
+}
+
+local ROLE_OF: { [number]: Role } = {
+	[0] = Role.Op,
+	[1] = Role.Leg,
+	[2] = Role.Decision,
 }
 
 local Cause = {
@@ -260,6 +296,7 @@ Book.Role = Role
 Book.Cause = Cause
 Book.FORMAT = FORMAT
 Book.DRAWN = DRAWN
+Book.TX_KIND = TX_KIND
 Book.SLOTS_MAX = SLOTS_MAX
 
 local function IsDrawn(Name: string): boolean
@@ -272,8 +309,15 @@ local function CheckFingerprint(Noun: string, Name: string, Print: number?)
 	end
 end
 
-local function StoresAttempt(ItemRole: number, Code: Fate): boolean
+local function StoresAttempt(ItemRole: Role, Code: Fate): boolean
 	return ItemRole ~= Role.Op or Code == Fate.Fenced or Code == Fate.Aborted
+end
+
+local function StoredAttempt(Item: Named): number
+	if Item.Role == Role.Op then
+		return Item.Attempt or 0
+	end
+	return Item.Attempt
 end
 
 local function PutLabel(Text: Writer.Writer, Name: string): (boolean, boolean)
@@ -284,33 +328,35 @@ end
 
 local function PutNamed(Text: Writer.Writer, Name: string, Item: Named, Now: number)
 	CheckFingerprint("name", Name, Item.Print)
-	if Item.Final and Item.Fate ~= Fate.Fenced then
+	local Final = Item.Role == Role.Decision and Item.Final == true
+	if Final and Item.Fate ~= Fate.Fenced then
 		error(`Book: only a fence is final, and {Name} is not fenced`, 0)
 	end
-	local ItemRole = Item.Role or Role.Op
+	local Kind = if Item.Role == Role.Op then Item.Kind else TX_KIND
+	local Value = if Item.Role == Role.Decision then Item.Value else nil
 	local At = Writer.Fixed(Text, 0, 1)
-	Writer.Var(Text, Item.Kind * ROLES + ItemRole)
+	Writer.Var(Text, Kind * ROLES + ROLE_CODE[Item.Role])
 	local Base64, Game = PutLabel(Text, Name)
-	local Head = if Item.Final then NAMED_HEAD.FencedFinal else Item.Fate
+	local Head = if Final then NAMED_HEAD.FencedFinal else Item.Fate
 	if Base64 then
 		Head += NAMED_HEAD.Base64
 	end
 	if Game then
 		Head += NAMED_HEAD.Game
 	end
-	if Item.Value then
+	if Value then
 		Head += NAMED_HEAD.Value
 	end
 	Writer.Patch(Text, At, Head, 1)
 	Writer.Signed(Text, Item.Stamp - Now)
-	if StoresAttempt(ItemRole, Item.Fate) then
-		Writer.Var(Text, Item.Attempt or 0)
+	if StoresAttempt(Item.Role, Item.Fate) then
+		Writer.Var(Text, StoredAttempt(Item))
 	end
 	if Item.Print then
 		Writer.Fixed(Text, Item.Print, PRINT_WIDTH)
 	end
-	if Item.Value then
-		Writer.Var(Text, Item.Value)
+	if Value then
+		Writer.Var(Text, Value)
 	end
 end
 
@@ -339,7 +385,7 @@ local function PutWriters(Text: Writer.Writer, Writers: { [number]: Entry }, Now
 	Writer.Patch(Text, At, Count, COUNT_WIDTH)
 end
 
-local function PutRoom(Text: Writer.Writer, Room: { [string]: Named }, Now: number)
+local function PutRoom(Text: Writer.Writer, Room: { read [string]: Named }, Now: number)
 	local At = Writer.Fixed(Text, 0, COUNT_WIDTH)
 	local Count = 0
 	for Name, Item in Room do
@@ -525,33 +571,53 @@ local function TakeLabel(Text: Reader.Reader, Base64: boolean, Game: boolean): s
 	return if Game then Name else `{DRAWN}{Name}`
 end
 
+local function TakeNamed(Text: Reader.Reader, Now: number): (string, Named)
+	local Head = Reader.Fixed(Text, 1)
+	local Final = Head % NAMED_HEAD.FateSpan == NAMED_HEAD.FencedFinal
+	local Code = if Final then Fate.Fenced else TakeFate(Head % NAMED_HEAD.FateSpan)
+	local Packed = Reader.Var(Text)
+	local ItemRole = ROLE_OF[Packed % ROLES]
+	local Kind = Packed // ROLES
+	local Game = bit32.btest(Head, NAMED_HEAD.Game)
+	local Name = TakeLabel(Text, bit32.btest(Head, NAMED_HEAD.Base64), Game)
+	local Stamp = Now + Reader.Signed(Text)
+	local Attempt = if StoresAttempt(ItemRole, Code) then Reader.Var(Text) else nil
+	local Print = if Game then Reader.Fixed(Text, PRINT_WIDTH) else nil
+	local Value = if bit32.btest(Head, NAMED_HEAD.Value) then Reader.Var(Text) else nil
+	if ItemRole ~= Role.Decision and (Final or Value) then
+		error(`Book: {Name} keeps a final flag or a value, which only a decision keeps`, 0)
+	elseif ItemRole == Role.Op then
+		local Item: OpName = { Role = Role.Op, Kind = Kind, Stamp = Stamp, Fate = Code, Attempt = Attempt, Print = Print }
+		return Name, Item
+	elseif Kind ~= TX_KIND then
+		error(`Book: the leg fate or decision {Name} is stored under a kind`, 0)
+	end
+	local Kept = assert(Attempt, "Book: a leg fate and a decision always store their attempt")
+	if ItemRole == Role.Leg then
+		return Name, Book.LegFate(Stamp, Print, Code, Kept)
+	end
+	return Name, Book.Decision(Stamp, Print, Code, Kept, Final, Value)
+end
+
 local function TakeRoom(Text: Reader.Reader, Now: number): { [string]: Named }
 	local Room: { [string]: Named } = {}
 	for _ = 1, Reader.Fixed(Text, COUNT_WIDTH) do
-		local Head = Reader.Fixed(Text, 1)
-		local Final = Head % NAMED_HEAD.FateSpan == NAMED_HEAD.FencedFinal
-		local Code = if Final then Fate.Fenced else TakeFate(Head % NAMED_HEAD.FateSpan)
-		local Kind = Reader.Var(Text)
-		local ItemRole = Kind % ROLES
-		local Game = bit32.btest(Head, NAMED_HEAD.Game)
-		local Name = TakeLabel(Text, bit32.btest(Head, NAMED_HEAD.Base64), Game)
-		local Item: Named = { Kind = Kind // ROLES, Stamp = Now + Reader.Signed(Text), Fate = Code }
-		if ItemRole ~= Role.Op then
-			Item.Role = ItemRole
-		end
-		if StoresAttempt(ItemRole, Code) then
-			Item.Attempt = Reader.Var(Text)
-		end
-		if Final then
-			Item.Final = true
-		end
-		if Game then
-			Item.Print = Reader.Fixed(Text, PRINT_WIDTH)
-		end
-		if bit32.btest(Head, NAMED_HEAD.Value) then
-			Item.Value = Reader.Var(Text)
-		end
+		local Name, Item = TakeNamed(Text, Now)
 		if Room[Name] then
+			error("Book: a room holds one name twice", 0)
+		end
+		Room[Name] = Item
+	end
+	return Room
+end
+
+local function TakeOpRoom(Text: Reader.Reader, Now: number): { [string]: OpName }
+	local Room: { [string]: OpName } = {}
+	for _ = 1, Reader.Fixed(Text, COUNT_WIDTH) do
+		local Name, Item = TakeNamed(Text, Now)
+		if Item.Role ~= Role.Op then
+			error(`Book: {Name} is a leg fate or a decision in a room of op names`, 0)
+		elseif Room[Name] then
 			error("Book: a room holds one name twice", 0)
 		end
 		Room[Name] = Item
@@ -723,8 +789,8 @@ local function Take(Source: string): Book
 	end
 	Record.Writers = TakeWriters(Text, Now)
 	Record.Timed = TakeRoom(Text, Now)
-	Record.Cut = TakeRoom(Text, Now)
-	Record.Untimed = TakeRoom(Text, Now)
+	Record.Cut = TakeOpRoom(Text, Now)
+	Record.Untimed = TakeOpRoom(Text, Now)
 	Record.Work = TakeWork(Text, Now)
 	Record.Events, Record.Slots = TakeLosses(Text, Now)
 	if not Reader.Done(Text) then
@@ -858,12 +924,16 @@ function Book.Incarnation(Server: number, Counter: number): string
 	return string.sub(Book.Drawn(Server, Counter), #DRAWN + 1)
 end
 
-function Book.LegFate(Stamp: number, Print: number?, Code: Fate, Attempt: number): Named
-	return { Kind = 0, Role = Role.Leg, Stamp = Stamp, Fate = Code, Attempt = Attempt, Print = Print }
+function Book.OpName(Stamp: number, Print: number?, Code: Fate, Kind: number): OpName
+	return { Role = Role.Op, Kind = Kind, Stamp = Stamp, Fate = Code, Print = Print }
 end
 
-function Book.Decision(Stamp: number, Print: number?, Code: Fate, Attempt: number, Final: boolean?, Value: number?): Named
-	return { Kind = 0, Role = Role.Decision, Stamp = Stamp, Fate = Code, Attempt = Attempt, Print = Print, Final = if Final then true else nil, Value = Value }
+function Book.LegFate(Stamp: number, Print: number?, Code: Fate, Attempt: number): LegFate
+	return { Role = Role.Leg, Stamp = Stamp, Fate = Code, Attempt = Attempt, Print = Print }
+end
+
+function Book.Decision(Stamp: number, Print: number?, Code: Fate, Attempt: number, Final: boolean?, Value: number?): Decision
+	return { Role = Role.Decision, Stamp = Stamp, Fate = Code, Attempt = Attempt, Print = Print, Final = if Final then true else nil, Value = Value }
 end
 
 function Book.Marks(Room: { [string]: Work }): { [string]: Work }

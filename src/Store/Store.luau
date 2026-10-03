@@ -389,7 +389,7 @@ function Store.Take(self: Store, Name: string, Count: number, Options: TakeOptio
 		Terms.Make(Widest, nil, nil)
 		return Future.Spawn(Quantities.Gather, Held, Count, Given, Room)
 	end
-	local Body = Ops.Body("Take", { Count = Count, Print = Held.Declared.Print, Price = Quantities.Priced(Held, Asked.Price) })
+	local Body = Parts.TakeOp(Held.Declared.Print, Count, Quantities.Priced(Held, Asked.Price))
 	local Legs, Print = Quantities.Legs(Held, Asked.Legs, Body, Once)
 	return Future.Spawn(Quantities.Take, Held, Body, Legs, nil, Once, Stamp, Print)
 end
@@ -411,7 +411,7 @@ function Store.Confirm(self: Store, Held: Ticket, Options: TakeOptions?): Future
 	if Asked.Once ~= nil or Asked.OnceAt ~= nil then
 		Errors.Misuse("a confirm takes no Once. its ticket names it")
 	end
-	local Body = Ops.Body("Confirm", { Id = Held.Id, Count = Held.Count, Print = Found.Declared.Print, Price = Quantities.Priced(Found, Asked.Price) })
+	local Body = Parts.ConfirmOp(Found.Declared.Print, Held.Id, Held.Count, Quantities.Priced(Found, Asked.Price))
 	local Legs = Quantities.Legs(Found, Asked.Legs, Body, nil)
 	return Future.Spawn(Quantities.Confirm, Found, Body, Legs, Held.Part)
 end
@@ -419,7 +419,7 @@ end
 function Store.Release(self: Store, Held: Ticket): Future.Future<Reply>
 	Errors.OnServer("Release")
 	local Found = Quantities.Ticketed(self.Splits, Held)
-	local Body = Ops.Body("Release", { Id = Held.Id, Print = Found.Declared.Print })
+	local Body = Parts.ReleaseOp(Found.Declared.Print, Held.Id)
 	return Future.Spawn(Quantities.Release, Found, Body, Held.Part)
 end
 
@@ -435,7 +435,7 @@ function Store.Credit(self: Store, Name: string, Count: number, Options: CreditO
 		Quantities.Indexed(Held, Part, "Part")
 	end
 	if Asked.From == nil then
-		local Body = Ops.Body("Credit", { Count = Count, Print = Held.Declared.Print })
+		local Body = Parts.CreditOp(Held.Declared.Print, Count)
 		return Future.Spawn(Quantities.Credit, Held, Body, Part)
 	end
 	local From = Transactions.Gather({ Asked.From :: Leg }, 0, false)[1]

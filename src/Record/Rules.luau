@@ -4,8 +4,6 @@
 --[=[
 	Rules: Logic. The rules each op of a request meets, in the order of record 4 step 4.
 
-	Spec: record 4, step 4.
-
 	A rule passes an op on or has the last word: a new fate, the fate the key holds, or a stop that
 	leaves this op and every later one undecided, so the ops a run decides are always a prefix. The
 	first op that reaches the reducer runs the key's missing migrations, and when they fail every op
@@ -19,6 +17,7 @@
 --]=]
 
 local Book = require("./Book")
+local Guard = require("./Guard")
 local Marks = require("./Marks")
 local Migrate = require("./Migrate")
 local Reduce = require("../Core/Reduce")
@@ -37,6 +36,7 @@ export type Rule = (Run: Run, Index: number, Op: Op) -> boolean
 local FATES_MAX = 64
 
 local Fate = Book.Fate
+local Role = Book.Role
 local Form = Requests.Form
 local Why = Types.Why
 
@@ -51,7 +51,7 @@ local function ReportFate(Run: Run, Index: number, Code: number): boolean
 	return true
 end
 
-local function KeepName(Run: Run, Name: string, Item: Book.Named, Untimed: boolean)
+local function KeepName(Run: Run, Name: string, Item: Book.OpName, Untimed: boolean)
 	Run.Written[Name] = true
 	if Untimed and Item.Fate == Fate.Took then
 		Run.Record.Untimed[Name] = Item
@@ -72,7 +72,7 @@ local function Decide(Run: Run, Index: number, Op: Op, Code: number): boolean
 	if Op.Form == Form.Minted or Op.Form == Form.Hopeful then
 		Run.Minted += 1
 	elseif Op.Name then
-		KeepName(Run, Op.Name, { Kind = Op.Kind, Stamp = Stamp, Fate = Code, Print = Op.Print }, Untimed)
+		KeepName(Run, Op.Name, Book.OpName(Stamp, Op.Print, Code, Op.Kind), Untimed)
 	end
 	if Code ~= Fate.Took then
 		Run.Fates[Op.Seq] = Code
@@ -117,7 +117,7 @@ local function NameHeld(Run: Run, Index: number, Op: Op): boolean
 	local Working = Run.Record.Work[Name] ~= nil
 	if Item == nil and not Working then
 		return false
-	elseif Item == nil or Working or Item.Role ~= nil or Item.Print ~= Op.Print then
+	elseif Item == nil or Working or Item.Role ~= Role.Op or Item.Print ~= Op.Print then
 		Run.Note.Whys[Index] = Why.Spent
 		return true
 	end
@@ -160,7 +160,7 @@ local function Room(Run: Run, Index: number, Op: Op): boolean
 	if Op.Form ~= Form.Untimed then
 		return false
 	end
-	local Item: Book.Named = { Kind = Op.Kind, Stamp = Run.Clock, Fate = Fate.Took, Print = Op.Print }
+	local Item = Book.OpName(Run.Clock, Op.Print, Fate.Took, Op.Kind)
 	local Over = Run.UntimedBytes + Book.NamedWidth(Op.Name :: string, Item, Run.Epoch) - Run.Build.UntimedRoom
 	if Over > 0 and Run.Now then
 		local Freed = Rooms.Evict(Run.Record, Run.Build, Run.Now, Run.Epoch, Over)
@@ -208,7 +208,7 @@ local function Judge(Run: Run, Index: number, Op: Op): boolean
 	end
 	local Took, Reason = Reduce.Apply(Folding, Op.Body)
 	Run.Changed = Run.Changed or Took
-	return Decide(Run, Index, Op, if Took then Fate.Took elseif Reason == Fate.Full then Fate.Full else Fate.Refused)
+	return Decide(Run, Index, Op, if Took then Fate.Took else Guard.RefusalFate(Reason))
 end
 
 return {

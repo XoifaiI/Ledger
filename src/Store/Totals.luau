@@ -4,8 +4,6 @@
 --[=[
 	Totals: Object. The totals a store declares, a bump of one, and its sum.
 
-	Spec: extras 2.1 to 2.5 and 4.
-
 	Each total's shards are a place of their own, a store whose build is the shard build. A bump with
 	no name is minted and goes to this server's home shard. A named bump is timed and goes to the
 	shard its name hashes to, so every server sends it to the same key. Every landing on a shard this

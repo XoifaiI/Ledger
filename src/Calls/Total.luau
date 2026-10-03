@@ -4,8 +4,6 @@
 --[=[
 	Total: Machine. Answers a total, and keeps its summary item while this server holds it.
 
-	Spec: extras 2.4, 2.5 and 4. Model: Tot.tla, the reads rd[s] and Answer.
-
 	The answer is the sum of each value of the pairs, a list as wide as the kind's pairs. No pair is
 	ever a sum this server made up: each is one its shard held. The machine answers from this
 	server's pairs when every shard has one and its last full view is within MaxAge. Else it gets the

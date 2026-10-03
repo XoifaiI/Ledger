@@ -4,8 +4,6 @@
 --[=[
 	Build: Logic. Turns a store's config into the build every write of this server judges with.
 
-	Spec: record 5.1 and 7.
-
 	The fields a build declares are the keys of Default. A migration is a function, which breaks old
 	servers, or { Apply, Compatible }, which does not when Compatible is true. The level is the
 	number of migrations, and the floor the index of the last one that breaks. A store is Erasable

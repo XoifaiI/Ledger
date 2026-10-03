@@ -3,17 +3,11 @@
 --[=[
 	Windows: Logic. The times, in seconds, that more than one feature reads.
 
-	Spec: record 13; transaction 11; cuts 13; extras 12.
-
-	Each is a parameter of the spec. MINTED is W[minted] and W[tx], CUT is W[cut], ANSWER is B_op,
-	SETTLE is SettleAge, ORPHAN is OrphanAge, FOLD_SPAN is the fold slot's period, and REFRESH,
-	LEASE and JITTER are the holder's Tr, Tl and Tjit. SIGMA, LAG, DELAY and LATE bound clock error,
-	read lag, request time and how late a retry comes once faults stop. They and every window built
-	from them serve liveness only. REMOVE_LATE is the one platform bound a safety property rests on:
-	a lost removal never lands more than that late. SEAL_AGE is REMOVE_SEND, REMOVE_LATE and two
-	clock errors, plus one second. The asserts are the relations the specs state. B_erase has a term
-	no constant names, so the relation between CUT and B_erase is not asserted. A constant only one
-	feature reads lives in that feature's module.
+	SIGMA, LAG, DELAY and LATE bound clock error, read lag, request time and how late a retry comes
+	once faults stop. They and every window built from them serve liveness only. REMOVE_LATE is the
+	one platform bound a safety property rests on: a lost removal never lands more than that late.
+	SEAL_AGE is REMOVE_SEND, REMOVE_LATE and two clock errors, plus one second. The asserts hold the
+	relations between the windows. A constant only one feature reads lives in that feature's module.
 
 	Return type: A table of the windows.
 	Example usage:

@@ -3,8 +3,6 @@
 --[=[
 	Limits: Logic. The hard bounds more than one feature reads.
 
-	Spec: record 2.1, 2.3 and 3.2; extras 2.1.
-
 	EPOCH is the unix time a stamp counts from, and STAMP_MAX the largest stamp. MONEY_LIMIT is one
 	past the largest whole amount a double holds exactly, so every money check is against it. TRIES
 	is how many failed requests make an op answer Unresolved. MAPS is how many MemoryStore maps each

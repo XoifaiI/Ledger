@@ -5,8 +5,6 @@
 	Shards: Logic. The keys a total or a split quantity is spread over, and the pairs a server sums
 	them from.
 
-	Spec: extras 2.1 to 2.5 and 4; hot keys 2.8 and 2.9. Model: Tot.tla.
-
 	A total of S shards keeps shard i under $T:<name>:<S>:<i>, a record whose state is one Sum. A
 	shard refuses a bump that would pass floor((2^53 - 1) / S), so the sum of every shard stays exact.
 	A server's minted bumps go to its home shard, and a named bump goes to the shard its name hashes

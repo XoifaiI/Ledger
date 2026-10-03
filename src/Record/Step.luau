@@ -4,18 +4,18 @@
 --[=[
 	Step: Logic. The one transform every write to a game key runs.
 
-	Spec: record 4.
-
-	It checks in one order for every protocol: the key and its incarnation, the guards, the ends,
-	then the request's one step, then each op through Rules. It then sets the writer's entry, ages
-	and fits the rooms, and gives back a value only when something was decided or a step acted. Only
-	an op judged for no key, a Tent, and a Commit within the minted window of its stamp may make a
-	key, and only when no earlier run of the request wrote. A key made for a request first sent more
-	than that window before it landed says Late, since an erase may have come between. Every request
-	but an end path write is refused Overdue while the work room holds an item Windows.CEILING old
-	that it does not end. A write that changed the state clears the clean flag of every mark it did
-	not place. A state past the cap, or one that cannot be stored, is judged again with the capped
-	guard. The build's Upkeep runs after the ends and again before the rooms are aged.
+	A ProveGone goes to CutRules before anything else, since it reads no record. Every other request
+	is checked in one order: the key and its incarnation, the guards, the ends, then the request's
+	one step, then each op through Rules. It then sets the writer's entry, ages and fits the rooms,
+	and gives back a value only when something was decided or a step acted. Only an op judged for no
+	key, a Tent, and a Commit within the minted window of its stamp may make a key, and only when no
+	earlier run of the request wrote. A ProveGone writes only a seal. A key made for a request first
+	sent more than that window before it landed says Late, since an erase may have come between.
+	Every request but an end path write is refused Overdue while the work room holds an item
+	Windows.CEILING old that it does not end. A write that changed the state clears the clean flag of
+	every mark it did not place. A state past the cap, or one that cannot be stored, is judged again
+	with the capped guard. The build's Upkeep runs after the ends and again before the rooms are
+	aged.
 
 	Return type: A function that gives back the note, whose Stored is the value to write or nil.
 	Example usage:
@@ -224,6 +224,9 @@ local function Probed(Run: Run, Probe: Requests.Probe): Note
 end
 
 local function Attempt(Current: unknown, Request: Request, Clock: number, Build: Build, Guarded: Guarded, Wrote: boolean): Note
+	if Request.ProveGone then
+		return CutRules.ProveGone(Current, Request, Clock, Build)
+	end
 	local Seal = Key.Seal(Current)
 	if Seal then
 		local Note = CutRules.MeetSeal(Seal, Request, Clock, Build, MayCreate(Request, Clock, Build, Wrote))

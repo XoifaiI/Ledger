@@ -4,8 +4,6 @@
 --[=[
 	Cuts: Object. A Reset or an Erase of one key, as a store runs it.
 
-	Spec: cuts 3.2 to 3.4 and 5.
-
 	A cut with no name has one drawn, and drawn once more when the first expires before anything was
 	written. A named cut's print covers its kind and the state it is given, so the name under other
 	terms answers Spent. An Erase that answers true takes the key's copy off, and tells the key's

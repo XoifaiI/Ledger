@@ -24,14 +24,14 @@ local function Full(): Book.Book
 	Record.Horizon, Record.CutHorizon = NOW - 400, NOW - 900
 	Record.Writers[1_048_577] = { Id = 1_048_577, Lo = 1000, Stamp = NOW, Fates = { [998] = Book.Fate.Refused, [999] = Book.Fate.Turned } }
 	Record.Writers[7] = { Id = 7, Lo = 3, Stamp = NOW - 50, Fates = {} }
-	Record.Timed[Book.Drawn(12345, 678)] = { Kind = 0, Stamp = NOW - 20, Fate = Book.Fate.Took }
-	Record.Timed[Book.Drawn(99, 1)] = { Kind = 0, Stamp = NOW - 30, Fate = Book.Fate.Fenced, Attempt = 2, Final = true }
-	Record.Timed["order-1f9c2a"] = { Kind = 4, Stamp = NOW - 10, Fate = Book.Fate.Took, Print = 40000, Value = 17 }
-	Record.Timed["gift for ✨"] = { Kind = 5, Stamp = NOW - 5, Fate = Book.Fate.Aborted, Attempt = 1, Print = 5 }
-	Record.Cut[Book.Drawn(4, 4)] = { Kind = 1, Stamp = NOW - 60, Fate = Book.Fate.Took }
-	Record.Untimed["daily-reward"] = { Kind = 6, Stamp = NOW - 70, Fate = Book.Fate.Full, Print = 65535 }
-	Record.Timed[Book.Drawn(99, 2)] = { Kind = 0, Role = Book.Role.Leg, Stamp = NOW - 3, Fate = Book.Fate.Took, Attempt = 2 }
-	Record.Timed["trade-9"] = { Kind = 0, Role = Book.Role.Decision, Stamp = NOW - 4, Fate = Book.Fate.Refused, Attempt = 1, Print = 12 }
+	Record.Timed[Book.Drawn(12345, 678)] = Book.OpName(NOW - 20, nil, Book.Fate.Took, 0)
+	Record.Timed[Book.Drawn(99, 1)] = { Role = Book.Role.Op, Kind = 0, Stamp = NOW - 30, Fate = Book.Fate.Fenced, Attempt = 2 }
+	Record.Timed["order-1f9c2a"] = Book.OpName(NOW - 10, 40000, Book.Fate.Took, 4)
+	Record.Timed["gift for ✨"] = { Role = Book.Role.Op, Kind = 5, Stamp = NOW - 5, Fate = Book.Fate.Aborted, Attempt = 1, Print = 5 }
+	Record.Cut[Book.Drawn(4, 4)] = Book.OpName(NOW - 60, nil, Book.Fate.Took, 1)
+	Record.Untimed["daily-reward"] = Book.OpName(NOW - 70, 65535, Book.Fate.Full, 6)
+	Record.Timed[Book.Drawn(99, 2)] = Book.LegFate(NOW - 3, nil, Book.Fate.Took, 2)
+	Record.Timed["trade-9"] = Book.Decision(NOW - 4, 12, Book.Fate.Refused, 1)
 	Record.Work[Book.Drawn(3, 1)] = {
 		Form = "Escrow",
 		Stamp = NOW - 2,
@@ -93,13 +93,13 @@ Describe("Book", function()
 		local Named = Book.New()
 		Named.Writes = 5000
 		Named.Writers[2] = Base.Writers[2]
-		Named.Timed[Book.Drawn(1_048_577, 20000)] = { Kind = 0, Stamp = NOW + 200, Fate = Book.Fate.Took }
+		Named.Timed[Book.Drawn(1_048_577, 20000)] = Book.OpName(NOW + 200, nil, Book.Fate.Took, 0)
 		Expect(Width(Named) - Empty).toBe(13)
 
 		local Game = Book.New()
 		Game.Writes = 5000
 		Game.Writers[2] = Base.Writers[2]
-		Game.Timed["abcdefghijklmnop"] = { Kind = 3, Stamp = NOW + 200, Fate = Book.Fate.Took, Print = 1 }
+		Game.Timed["abcdefghijklmnop"] = Book.OpName(NOW + 200, 1, Book.Fate.Took, 3)
 		Expect(Width(Game) - Empty).toBe(24)
 	end)
 
@@ -107,8 +107,8 @@ Describe("Book", function()
 		local Record = Book.New()
 		local Drawn = Book.Drawn(5, 6)
 		local Plain = string.sub(Drawn, 2)
-		Record.Timed[Drawn] = { Kind = 0, Stamp = NOW, Fate = Book.Fate.Took }
-		Record.Timed[Plain] = { Kind = 0, Stamp = NOW, Fate = Book.Fate.Refused, Print = 9 }
+		Record.Timed[Drawn] = Book.OpName(NOW, nil, Book.Fate.Took, 0)
+		Record.Timed[Plain] = Book.OpName(NOW, 9, Book.Fate.Refused, 0)
 		local Back = Book.Decode(Record:Encode(NOW)) :: Book.Book
 		Expect(Back.Timed[Drawn].Fate).toBe(Book.Fate.Took)
 		Expect(Back.Timed[Plain].Fate).toBe(Book.Fate.Refused)
@@ -135,6 +135,17 @@ Describe("Book", function()
 		for _, Bad in { "", "B", `{Text}A`, string.sub(Text, 1, -2), `C{string.sub(Text, 2)}`, `{Text}=` } do
 			Expect(Book.Decode(Bad)).toBeNil()
 		end
+	end)
+
+	Test("a leg fate or a decision in the untimed or cut room is refused, since those rooms hold op names", function()
+		for _, Room in { "Untimed", "Cut" } do
+			local Record = Book.New();
+			(Record :: any)[Room]["trade-9"] = Book.Decision(NOW - 4, 12, Book.Fate.Refused, 1)
+			Expect(Book.Decode(Record:Encode(NOW))).toBeNil()
+		end
+		local Kept = Book.New()
+		Kept.Untimed["daily-reward"] = Book.OpName(NOW - 70, 65535, Book.Fate.Full, 6)
+		Expect(Book.Decode(Kept:Encode(NOW))).never.toBeNil()
 	end)
 end)
 

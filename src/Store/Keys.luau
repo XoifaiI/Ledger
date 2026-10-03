@@ -5,8 +5,6 @@
 	Keys: Object. The calls a store makes on one key: an edit, the reads, and what the key still
 	holds.
 
-	Spec: record 5.3; transaction 4.3 and 5.3; cuts 5.
-
 	Every read runs Peek, so it goes through the shown table. What a read finds is passed on: the
 	work room and the gate to this server's touches, and the key's incarnation to its queue. Reserved
 	refuses a key under a prefix Ledger keeps for itself, the shards of totals and the parts of split

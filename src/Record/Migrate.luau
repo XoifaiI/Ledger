@@ -4,8 +4,6 @@
 --[=[
 	Migrate: Logic. Runs the migrations a key has not had on a copy of its state.
 
-	Spec: record 7.
-
 	A migration sees every field. The run fails on a throw, a yield, or a result that is not a table.
 	It also fails when the last state is one Guard does not admit, cannot be stored, or passes
 	StateCap. A failed run keeps nothing, and the state it was given is never changed.

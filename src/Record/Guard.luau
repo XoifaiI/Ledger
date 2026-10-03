@@ -4,13 +4,12 @@
 --[=[
 	Guard: Logic. Runs the game's reducer on only the fields its build declares.
 
-	Spec: record 4, step 9.
-
 	Undeclared top level fields are set aside before the reducer runs and put back after it. A result
 	that adds an undeclared field, or leaves a money field anything but a whole number below 2^53, is
-	refused. The capped reducer also gives Fate.Full for a state past StateCap, and refuses a state
-	that cannot be stored. A migration sees every field, so Admits lets it keep an undeclared field
-	the state already held.
+	refused. The capped reducer also refuses a state that cannot be stored, and refuses a state past
+	StateCap with a reason only Guard gives, so RefusalFate can tell that refusal from the others: its
+	fate is Full, and every other refusal's is Refused. A migration sees every field, so Admits lets
+	it keep an undeclared field the state already held.
 
 	Return type: The Guard module.
 	Example usage:
@@ -28,6 +27,8 @@ type Reducer = Reduce.Reducer<any, any>
 type State = { [string]: any }
 
 local Fate = Book.Fate
+
+local PAST_CAP = "PastCap"
 
 local Plains: { [Build]: Reducer } = setmetatable({}, { __mode = "k" }) :: any
 local Cappeds: { [Build]: Reducer } = setmetatable({}, { __mode = "k" }) :: any
@@ -100,8 +101,12 @@ local function MakeCapped(Build: Build): Reducer
 		if Bytes == nil then
 			return nil
 		end
-		return if Bytes > Build.StateCap then Fate.Full else Result
+		return if Bytes > Build.StateCap then PAST_CAP else Result
 	end
+end
+
+function Guard.RefusalFate(Reason: unknown): Book.Fate
+	return if Reason == PAST_CAP then Fate.Full else Fate.Refused
 end
 
 function Guard.Capped(Build: Build): Reducer

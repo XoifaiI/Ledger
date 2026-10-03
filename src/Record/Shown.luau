@@ -4,8 +4,6 @@
 --[=[
 	Shown: Object. What this server has shown of each key, so a read never shows an older state.
 
-	Spec: record 5.3.
-
 	The table keeps the largest write count shown for up to Limits.SHOWN_MAX keys. A key it forgets
 	sets a bit in a set of SHOWN_BITS, and a view of a key whose bit is set must come from a fresh
 	read. Two names may share a bit, so a key never shown may also need a fresh read. A pinned key is

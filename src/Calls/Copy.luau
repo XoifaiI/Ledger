@@ -4,8 +4,6 @@
 --[=[
 	Copy: Machine. Follows a key through its MemoryStore copy, and keeps that copy while it is the holder.
 
-	Spec: extras 4 and 5.2 to 5.3; cuts 3.4 step 7. Model: Copy.tla and CopyAbs.tla.
-
 	Follow runs while the key is followed, or once for a Peek with a MaxAge, which a state this
 	server showed within MaxAge answers. A follower gets the header and shows a state with a write
 	count above the one it showed. Every state goes through the shown table, so a follower never

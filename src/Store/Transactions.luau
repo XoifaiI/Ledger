@@ -5,8 +5,6 @@
 	Transactions: Object. A game's legs made into the legs Terms checks, and one transaction run
 	under a drawn or a game name.
 
-	Spec: transaction 3 and 3.1.
-
 	A leg names its store by the object Ledger.New gave back, and Add records each one, so Gather
 	refuses any other value. Gather throws at the game's call, and Depth counts the helpers between
 	Gather and that call. A leg with no MustExist takes its store's. A transaction with no name has

@@ -5,8 +5,6 @@
 	Losses: Logic. The loss room: the events that name money a Reset destroyed, the named returns of
 	the orphan rule, and the fold slots older events go into.
 
-	Spec: cuts 2 and 5; transaction 5.1.
-
 	The room never refuses. When an event makes it pass the build's LossRoom, Name folds the oldest
 	reset events into exact sums per money field and per period of Windows.FOLD_SPAN, at most
 	Book.SLOTS_MAX slots at a time, the newest event last. A named return never folds, and goes only

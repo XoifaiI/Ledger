@@ -4,26 +4,26 @@
 --[=[
 	Walk: Machine. Takes or holds units of a split quantity on at most one of its parts.
 
-	Spec: hot keys 2.4 and 2.5. Model: Hot.tla, SendOp and Hear.
-
 	Under a game name the order of the parts is the name's hash and then each next part, the same on
 	every server. Each step sends under a sub name, the name and the part's alphabet character. Under
 	drawn names the server's home part goes first, then the parts its view shows with the most free
-	units, at most Parts.PROBES in all, and each step takes a fresh drawn name. The view trusts a
-	part it saw short for Parts.VIEW_AGE, and one it saw sealed or closed for ever. A drawn walk
-	leaves such a part out. A game name never answers from memory: it sends such a part a final fence
-	in place of a try.
+	units, at most Parts.PROBES in all, and each step takes a fresh drawn name. The view is the
+	quantity's, shared by its walks. It keeps the count a part last refused, and for Parts.VIEW_AGE
+	the part is dry for a walk that asks at least that many units; a walk that asks fewer tries it. A
+	part seen sealed or closed is dry for ever. A drawn walk leaves a dry part out. A game name never
+	answers from memory: it sends a dry part a final fence in place of a try.
 
 	A try is one transaction whose decider is the part, with the game's legs. The walk goes on to the
-	next part only on a definite no: the part's own refusal, or a fence that reported fenced. A
-	commit answers true with the part, the decider value and the part's state. Any other answer stops
-	the walk with it. After the last part, the walk answers SoldOut when every part is known sealed
-	or closed, and Short with the last part's reason otherwise. A drawn walk that tried nothing
-	answers Busy, or SoldOut when every part is known.
+	next part only on a definite no: the part's own refusal, or a fence that reported fenced. The
+	reason for a refusal is the part's own decision, run again on the state the refusing write left.
+	A commit answers true with the part, the decider value and the part's state. Any other answer
+	stops the walk with it. After the last part, the walk answers SoldOut when every part is known
+	sealed or closed, and Short with the last part's reason otherwise. A drawn walk that tried
+	nothing answers Busy, or SoldOut when every part is known.
 
-	Return type: The Walk module, and the Context, View and Result types.
+	Return type: The Walk module, and the Asked, Context, View and Result types.
 	Example usage:
-		local Result = Runner.Run(Walk.Machine, Walk.Context(Declared, Body, Legs, Server, Home), Places):Wait()
+		local Result = Runner.Run(Walk.Machine, Walk.Context(Asked), Places):Wait()
 --]=]
 
 local Alphabet = require("../Encode/Alphabet")
@@ -41,7 +41,7 @@ local Types = require("../Record/Types")
 export type View = {
 	read Free: number,
 	read Shut: boolean,
-	read Short: boolean,
+	read Refused: number?,
 	read At: number,
 }
 
@@ -53,18 +53,22 @@ export type Result = {
 	read State: unknown,
 }
 
-export type Context = {
+export type Asked = {
 	read Declared: Parts.Declared,
-	read Body: { [string]: any },
+	read Body: Parts.Op,
 	read Legs: { Tx.Leg },
 	read Server: number,
 	read Home: number,
-	Only: number?,
-	Name: string?,
-	Stamp: number,
-	Print: number?,
-	Names: { string },
-	View: { [number]: View },
+	read Only: number?,
+	read Name: string?,
+	read Stamp: number,
+	read Print: number?,
+	read Names: { string },
+	read View: { [number]: View },
+}
+
+export type Context = {
+	read Asked: Asked,
 	Order: { number },
 	Step: number,
 	Known: { [number]: true },
@@ -92,110 +96,113 @@ local Why = Types.Why
 
 local Walk = {}
 
-function Walk.Sub(Name: string, Index: number): string
-	return `{Name}_{string.char(buffer.readu8(Alphabet.CHARS, Index))}`
-end
-
 local function Ref(Declared: Parts.Declared, Index: number): Book.Ref
 	return { Store = Declared.Place, Key = Parts.Key(Declared.Name, Declared.Parts, Index) }
 end
 
+local function SeenFree(View: { [number]: View }, Index: number): number
+	local Seen = View[Index]
+	if Seen == nil then
+		return 0
+	end
+	return Seen.Free
+end
+
 local function Dry(Context: Context, Index: number, Now: number): boolean
-	local Seen = Context.View[Index]
-	if Context.Known[Index] or (Seen and Seen.Shut) then
+	local Asked = Context.Asked
+	local Seen = Asked.View[Index]
+	if Context.Known[Index] then
 		return true
+	elseif Seen == nil then
+		return false
+	elseif Seen.Shut then
+		return true
+	elseif Seen.Refused == nil or Now - Seen.At > Parts.VIEW_AGE then
+		return false
 	end
-	return Seen ~= nil and Seen.Short and Now - Seen.At <= Parts.VIEW_AGE
+	return Parts.Units(Asked.Body) >= Seen.Refused
 end
 
-local function Choose(Call: Call): string
-	local Context = Call.Context
-	local Count = Context.Declared.Parts
+local function GameOrder(Name: string, Count: number): { number }
+	local First = Hash(Name) % Count
 	local Order: { number } = {}
-	local Name, Only = Context.Name, Context.Only
-	if Only then
-		table.insert(Order, Only)
-	elseif Name then
-		local First = Hash(Name) % Count
-		for Offset = 0, Count - 1 do
-			table.insert(Order, (First + Offset) % Count)
-		end
-	else
-		local Others: { number } = {}
-		for Index = 0, Count - 1 do
-			if Index ~= Context.Home and not Dry(Context, Index, Call.Now) then
-				table.insert(Others, Index)
-			end
-		end
-		table.sort(Others, function(Left: number, Right: number): boolean
-			local Has, Other = Context.View[Left], Context.View[Right]
-			return (if Has then Has.Free else 0) > (if Other then Other.Free else 0)
-		end)
-		if not Dry(Context, Context.Home, Call.Now) then
-			table.insert(Order, Context.Home)
-		end
-		for _, Index in Others do
-			if #Order < Parts.PROBES then
-				table.insert(Order, Index)
-			end
-		end
+	for Offset = 0, Count - 1 do
+		table.insert(Order, (First + Offset) % Count)
 	end
-	Context.Order = Order
-	Context.Step = 1
-	return if Order[1] then Asks.SAID.Done else WORD.Stop
+	return Order
 end
 
-local function Try(Call: Call)
-	local Context = Call.Context
-	local Index = Context.Order[Context.Step]
-	local Part = Ref(Context.Declared, Index)
-	local Game = Context.Name
-	local Name = if Game then Walk.Sub(Game, Index) else Context.Names[Context.Step]
-	Context.Fencing = Game ~= nil and Dry(Context, Index, Call.Now)
-	if Context.Fencing then
-		local Fence: Requests.Fence = { Name = Name, Stamp = Context.Stamp, Attempt = 1, Print = Context.Print, Final = true }
-		Machine.Ask(Call, Asks.Send(Part, Requests.Fence(Fence)))
-		return
+local function DrawnOrder(Context: Context, Now: number): { number }
+	local Asked = Context.Asked
+	local Others: { number } = {}
+	for Index = 0, Asked.Declared.Parts - 1 do
+		if Index ~= Asked.Home and not Dry(Context, Index, Now) then
+			table.insert(Others, Index)
+		end
 	end
-	local Legs = table.clone(Context.Legs)
-	table.insert(Legs, { Ref = Part, MustExist = true, Erasable = false, Change = { Body = Context.Body } })
-	local Use: Tx.Use = { Name = Name, Stamp = Context.Stamp, Print = if Game then Context.Print else nil }
-	local Running = Tx.Context(Use, Legs, #Legs, Context.Server)
-	Context.Tx = Running
-	Machine.Ask(Call, Asks.Run(if Game then Tx.Retry else Tx.Run, Running))
+	table.sort(Others, function(Left: number, Right: number): boolean
+		return SeenFree(Asked.View, Left) > SeenFree(Asked.View, Right)
+	end)
+	local Order: { number } = {}
+	if not Dry(Context, Asked.Home, Now) then
+		table.insert(Order, Asked.Home)
+	end
+	for _, Index in Others do
+		if #Order == Parts.PROBES then
+			break
+		end
+		table.insert(Order, Index)
+	end
+	return Order
+end
+
+local function KnownShut(Context: Context, Index: number): boolean
+	if Context.Known[Index] then
+		return true
+	elseif Context.Asked.Name ~= nil then
+		return false
+	end
+	local Seen = Context.Asked.View[Index]
+	return Seen ~= nil and Seen.Shut
+end
+
+local function EveryPartShut(Context: Context): boolean
+	for Index = 0, Context.Asked.Declared.Parts - 1 do
+		if not KnownShut(Context, Index) then
+			return false
+		end
+	end
+	return true
 end
 
 local function Learn(Context: Context, Index: number, Note: Types.Note, Now: number)
-	local Reason = Parts.Reason(Note.State, Context.Body.Kind, Context.Body.Count or 0, Context.Body.Print)
-	local Shut = Reason == "Sealed" or Reason == "Closed"
-	local Part = Note.State :: Parts.Part
-	Context.Reason = Reason
+	local Asked = Context.Asked
+	local Part = Parts.Opened(Asked.Declared, Note.State)
+	local Shut = Part ~= nil and Parts.IsShut(Part)
+	local Free = if Part then Part.Free else 0
+	Context.Reason = Parts.Refusal(Asked.Declared, Note.State, Asked.Body)
 	Context.Known[Index] = if Shut then true else nil
-	Context.View[Index] = { Free = if type(Part) == "table" then Part.Free or 0 else 0, Shut = Shut, Short = true, At = Now }
+	Asked.View[Index] = { Free = Free, Shut = Shut, Refused = Parts.Units(Asked.Body), At = Now }
 end
 
-local function Stop(Call: Call, Reply: Queue.Reply, Note: Types.Note?): string
+local function Took(Call: Call, Value: number?, State: unknown): string
 	local Context = Call.Context
-	local Running = Context.Tx
-	local Took = Reply == true
-	local Value = if Note and Note.Value then Note.Value elseif Running then Running.Value else nil
-	local Verdict = Note or (if Running then Running.Verdict else nil)
-	Machine.Answer(Call, {
-		Reply = Reply,
-		Part = if Took then Context.Order[Context.Step] else nil,
-		Value = if Took then Value else nil,
-		State = if Took and Verdict then Verdict.State else nil,
-	})
+	local Committed: Result = { Reply = true, Part = Context.Order[Context.Step], Value = Value, State = State }
+	Machine.Answer(Call, Committed)
+	return WORD.Stop
+end
+
+local function Stop(Call: Call, Reply: Queue.Reply): string
+	Machine.Answer(Call, { Reply = Reply })
 	return WORD.Stop
 end
 
 local function Fenced(Call: Call): string
-	local Reply = Machine.Reply(Call)
-	local Note = Reply.Note
+	local Note = Machine.Reply(Call).Note
 	if Note == nil then
 		return Stop(Call, Answer.Unresolved)
 	elseif Note.Report == Report.Committed then
-		return Stop(Call, true, Note)
+		return Took(Call, Note.Value, Note.State)
 	elseif Note.Report == Report.Fenced or Note.Report == Report.Refused then
 		return WORD.Next
 	elseif Note.Why == Why.Missing then
@@ -206,42 +213,98 @@ local function Fenced(Call: Call): string
 	return Stop(Call, Answer.Unresolved)
 end
 
-local function Tried(Call: Call): string
+local function Ran(Call: Call): string
 	local Context = Call.Context
-	if Context.Fencing then
-		Context.Tx = nil
-		return Fenced(Call)
-	end
 	local Said = Machine.Reply(Call).Answer :: Queue.Reply?
-	local Verdict = (Context.Tx :: Tx.Context).Verdict
+	local Running = Context.Tx :: Tx.Context
+	local Verdict = Running.Verdict
 	if Said == true then
-		return Stop(Call, true)
+		return Took(Call, Running.Value, if Verdict then Verdict.State else nil)
 	elseif Verdict and Verdict.Report == Report.Refused then
 		Learn(Context, Context.Order[Context.Step], Verdict, Call.Now)
 		return WORD.Next
 	elseif Verdict and Verdict.Why == Why.Missing then
 		return Stop(Call, Answer.Missing)
+	elseif Said == nil then
+		return Stop(Call, Answer.Unresolved)
 	end
-	return Stop(Call, Said or Answer.Unresolved)
+	return Stop(Call, Said)
+end
+
+local function Ending(Context: Context): Queue.Reply
+	if EveryPartShut(Context) then
+		return Answer.SoldOut
+	elseif Context.Order[1] ~= nil then
+		return Answer.Short
+	end
+	return Answer.Busy
+end
+
+local function StepName(Context: Context, Index: number): string
+	local Game = Context.Asked.Name
+	if Game then
+		return Walk.Sub(Game, Index)
+	end
+	return Context.Asked.Names[Context.Step]
+end
+
+local function Choose(Call: Call): string
+	local Context = Call.Context
+	local Asked = Context.Asked
+	local Only, Name = Asked.Only, Asked.Name
+	if Only then
+		Context.Order = { Only }
+	elseif Name then
+		Context.Order = GameOrder(Name, Asked.Declared.Parts)
+	else
+		Context.Order = DrawnOrder(Context, Call.Now)
+	end
+	Context.Step = 1
+	if Context.Order[1] == nil then
+		return WORD.Stop
+	end
+	return Asks.SAID.Done
+end
+
+local function Try(Call: Call)
+	local Context = Call.Context
+	local Asked = Context.Asked
+	local Index = Context.Order[Context.Step]
+	local Part = Ref(Asked.Declared, Index)
+	local Name = StepName(Context, Index)
+	Context.Fencing = Asked.Name ~= nil and Dry(Context, Index, Call.Now)
+	if Context.Fencing then
+		local Fence: Requests.Fence = { Name = Name, Stamp = Asked.Stamp, Attempt = 1, Print = Asked.Print, Final = true }
+		Machine.Ask(Call, Asks.Send(Part, Requests.Fence(Fence)))
+		return
+	end
+	local Legs = table.clone(Asked.Legs)
+	table.insert(Legs, { Ref = Part, MustExist = true, Erasable = false, Change = { Body = Asked.Body } })
+	local Use: Tx.Use = { Name = Name, Stamp = Asked.Stamp, Print = if Asked.Name then Asked.Print else nil }
+	local Running = Tx.Context(Use, Legs, #Legs, Asked.Server)
+	Context.Tx = Running
+	Machine.Ask(Call, Asks.Run(if Asked.Name then Tx.Retry else Tx.Run, Running))
+end
+
+local function Tried(Call: Call): string
+	if Call.Context.Fencing then
+		return Fenced(Call)
+	end
+	return Ran(Call)
 end
 
 local function Next(Call: Call): string
 	local Context = Call.Context
 	Context.Step += 1
-	return if Context.Order[Context.Step] then STATE.Trying else STATE.Ending
+	if Context.Order[Context.Step] then
+		return STATE.Trying
+	end
+	return STATE.Ending
 end
 
-local function Close(Call: Call): string
+local function Conclude(Call: Call): string
 	local Context = Call.Context
-	local Drawn = Context.Name == nil
-	local Every = true
-	for Index = 0, Context.Declared.Parts - 1 do
-		local Seen = Context.View[Index]
-		Every = Every and (Context.Known[Index] ~= nil or (Drawn and Seen ~= nil and Seen.Shut))
-	end
-	local Tried = Context.Order[1] ~= nil
-	local Reply = if Every then Answer.SoldOut elseif Tried then Answer.Short else Answer.Busy
-	Machine.Answer(Call, { Reply = Reply, Reason = Context.Reason })
+	Machine.Answer(Call, { Reply = Ending(Context), Reason = Context.Reason })
 	return Asks.SAID.Done
 end
 
@@ -262,22 +325,19 @@ local STATES: { [string]: Machine.State<Context, Result> } = {
 		Else = STATE.Done,
 	},
 	[STATE.Ending] = {
-		Hear = Close,
+		Hear = Conclude,
 		Else = STATE.Done,
 	},
 	[STATE.Done] = {},
 }
 
-function Walk.Context(Declared: Parts.Declared, Body: { [string]: any }, Legs: { Tx.Leg }, Server: number, Home: number): Context
+function Walk.Sub(Name: string, Index: number): string
+	return `{Name}_{string.char(buffer.readu8(Alphabet.CHARS, Index))}`
+end
+
+function Walk.Context(Asked: Asked): Context
 	return {
-		Declared = Declared,
-		Body = Body,
-		Legs = Legs,
-		Server = Server,
-		Home = Home,
-		Stamp = 0,
-		Names = {},
-		View = {},
+		Asked = Asked,
 		Order = {},
 		Step = 1,
 		Known = {},

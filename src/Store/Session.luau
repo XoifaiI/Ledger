@@ -4,8 +4,6 @@
 --[=[
 	Session: Object. One key as this server shows it to a game, and the hopeful ops queued on it.
 
-	Spec: record 5.2 and 6. Model: Rec.tla, the session sv[s].
-
 	Apply judges an op on the session's view and sends nothing. A closed session answers Closed, an
 	op a datastore cannot hold Invalid, and a full queue Backlog. An op whose verdict a transaction
 	mark on the view could change answers Busy. An op the reducer refuses answers Refused, and one
@@ -200,7 +198,7 @@ function Session.Apply(self: Session, Kind: string, Fields: { [string]: any }?):
 	local Folding = Reduce.Start(self.State, Guard.Capped(Build))
 	local Took, Reason = Reduce.Apply(Folding, Body)
 	if not Took then
-		return if Reason == Book.Fate.Full then Answer.Full else Answer.Refused
+		return if Guard.RefusalFate(Reason) == Book.Fate.Full then Answer.Full else Answer.Refused
 	end
 	local Asked: Queue.Asked = { Form = Form.Hopeful, Kind = 0, View = self.Cuts, MustExist = self.MustExist, Body = Body }
 	if Queue.Push(self.Queue, Asked, self.Tell) == nil then

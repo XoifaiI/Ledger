@@ -4,8 +4,6 @@
 --[=[
 	Terms: Logic. A transaction's legs as a game gives them, checked and made into Tx's legs.
 
-	Spec: transaction 3 and 3.1.
-
 	A leg is a field delta, with Field and Amount, or a game op, with Kind and Fields. Make throws at
 	the game's call for a call that cannot run: fewer than two legs, two legs on one key, a delta on
 	a field the store does not declare as money, an amount that is 0 or not a whole number below

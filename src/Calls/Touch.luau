@@ -4,18 +4,19 @@
 --[=[
 	Touch: Machine. Ends one item a transaction left on a key.
 
-	Spec: transaction 5.1. Model: Tx.tla, the tread and tver steps of Steps.
-
 	Mark reads the mark's decider, and a decision resolves the mark on its key. A mark that is not
 	decided is fenced once it is FenceAfter seconds old, and the fence's report decides it. A read
 	that shows the decider with no value or a seal decides nothing unless it was asked once the mark
 	was Windows.ORPHAN old, and then the mark ends as an orphan. A fence that reports missing is no
 	evidence, since a run may read a version from before the key was made.
 
-	Pinned resolves the record's use as committed on every leg key, all at once. It drops the record
-	on its decider only once each leg key is resolved, or reads gone past Windows.ORPHAN. The drop
-	then carries a named return of the first leg key that read gone. Each machine answers true once
-	a write ended the item, and false when it could not.
+	Pinned resolves the record's use as committed on every leg key, all at once, and drops the record
+	on its decider once each leg key is resolved. A Resolve that reports missing proves nothing,
+	since its run may have read an old version, so the machine sends that leg key a ProveGone. Only
+	when every such ProveGone landed does it drop the record, with a named return of the first of
+	those keys. It removes each seal it landed while the clock reads at most Windows.REMOVE_SEND past
+	its rt; a seal kept longer is left over, as an erase's is. Each machine answers true once a write
+	ended the item, and false when it could not.
 
 	Return type: The Touch module, with the machines Mark and Pinned, and the Context type.
 	Example usage:
@@ -37,7 +38,8 @@ export type Context = {
 	read FenceAfter: number,
 	ReadAt: number?,
 	End: Requests.End?,
-	Gone: Book.Ref?,
+	read Gone: { Book.Ref },
+	read Sealed: { Book.Ref },
 }
 
 type Call = Machine.Call<Context, boolean>
@@ -47,7 +49,9 @@ local STATE = {
 	Wounding = "Wounding" :: "Wounding",
 	Resolving = "Resolving" :: "Resolving",
 	Verifying = "Verifying" :: "Verifying",
+	Proving = "Proving" :: "Proving",
 	Dropping = "Dropping" :: "Dropping",
+	Removing = "Removing" :: "Removing",
 	Done = "Done" :: "Done",
 }
 
@@ -55,20 +59,20 @@ local WORD = {
 	Decided = "Decided" :: "Decided",
 	Due = "Due" :: "Due",
 	Ended = "Ended" :: "Ended",
+	Missing = "Missing" :: "Missing",
+	Sealed = "Sealed" :: "Sealed",
 }
 
 local WorkForm = Book.WorkForm
 local Outcome = Requests.Outcome
+local Report = Types.Report
+local Why = Types.Why
 
 local Touch = {}
 
 local function Found(Context: Context): Blockers.Blocker
 	local Mark = assert(Book.AsMark(Context.Item), "Touch: a pinned record is not a mark")
 	return { Name = Context.Name, Item = Mark, Ref = Context.Ref }
-end
-
-local function Old(Call: Call): boolean
-	return Call.Now - Call.Context.Item.Stamp >= Windows.ORPHAN
 end
 
 local function Answered(Ended: boolean): (Call: Call) -> string
@@ -150,24 +154,58 @@ local function Verified(Call: Call): string
 	local Context = Call.Context
 	local Item = Context.Item
 	assert(Item.Form == WorkForm.Pinned, "Touch: a mark is not a pinned record")
-	Context.Gone = nil
+	table.clear(Context.Gone)
 	for Index, Reply in Call.Heard do
 		local Note = Reply.Note
-		local Gone = Note ~= nil and Note.Why == Types.Why.Missing and Old(Call)
-		if Note == nil or (Note.Why ~= nil and not Gone) then
+		if Note == nil then
 			return Asks.SAID.Done
-		elseif Gone and Context.Gone == nil then
-			Context.Gone = Item.Legs[Index]
+		elseif Note.Why == Why.Missing then
+			table.insert(Context.Gone, Item.Legs[Index])
+		elseif Note.Why ~= nil then
+			return Asks.SAID.Done
 		end
 	end
-	return WORD.Ended
+	return if Context.Gone[1] then WORD.Missing else WORD.Ended
+end
+
+local function Prove(Call: Call)
+	for _, Ref in Call.Context.Gone do
+		Machine.Ask(Call, Asks.Send(Ref, Requests.ProveGone()))
+	end
+end
+
+local function Proved(Call: Call): string
+	local Context = Call.Context
+	table.clear(Context.Sealed)
+	local Proofs = 0
+	for Index, Reply in Call.Heard do
+		local Note = Reply.Note
+		local Seal = if Note and Note.Report == Report.Stamped then Note.Seal else nil
+		if Seal then
+			Proofs += 1
+		end
+		if Seal and Call.Now - Seal.Rt <= Windows.REMOVE_SEND then
+			table.insert(Context.Sealed, Context.Gone[Index])
+		end
+	end
+	if Proofs == #Context.Gone then
+		return WORD.Ended
+	end
+	return if Context.Sealed[1] then WORD.Sealed else Asks.SAID.Done
+end
+
+local function RemoveSeals(Call: Call)
+	for _, Ref in Call.Context.Sealed do
+		Machine.Ask(Call, Asks.Remove(Ref))
+	end
 end
 
 local function Drop(Call: Call)
 	local Context = Call.Context
-	local Gone = Context.Gone
+	local Gone = Context.Gone[1]
 	local Request: Requests.Request = if Gone then Requests.Ends(nil, nil, { { Name = Context.Name, Ref = Gone } }) else Requests.Ends(nil, { Context.Name })
 	Machine.Ask(Call, Asks.Send(Context.Ref, Request))
+	RemoveSeals(Call)
 end
 
 local STATES: { [string]: Machine.State<Context, boolean> } = {
@@ -201,6 +239,16 @@ local STATES: { [string]: Machine.State<Context, boolean> } = {
 		Hear = Verified,
 		On = {
 			{ Said = WORD.Ended, Go = STATE.Dropping },
+			{ Said = WORD.Missing, Go = STATE.Proving },
+		},
+		Else = Answered(false),
+	},
+	[STATE.Proving] = {
+		Enter = Prove,
+		Hear = Proved,
+		On = {
+			{ Said = WORD.Ended, Go = STATE.Dropping },
+			{ Said = WORD.Sealed, Go = STATE.Removing },
 		},
 		Else = Answered(false),
 	},
@@ -210,6 +258,10 @@ local STATES: { [string]: Machine.State<Context, boolean> } = {
 		On = {
 			{ Said = WORD.Ended, Go = Answered(true) },
 		},
+		Else = Answered(false),
+	},
+	[STATE.Removing] = {
+		Enter = RemoveSeals,
 		Else = Answered(false),
 	},
 	[STATE.Done] = {},
@@ -231,7 +283,7 @@ function Touch.Known(Item: Book.Work, Places: { [string]: any }): boolean
 end
 
 function Touch.Context(Name: string, Item: Book.Work, Ref: Book.Ref, FenceAfter: number): Context
-	return { Name = Name, Item = Item, Ref = Ref, FenceAfter = FenceAfter }
+	return { Name = Name, Item = Item, Ref = Ref, FenceAfter = FenceAfter, Gone = {}, Sealed = {} }
 end
 
 Touch.Mark = Machine.Define({ Name = "Touch", Initial = STATE.Reading, States = STATES })

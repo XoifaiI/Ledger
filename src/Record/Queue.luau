@@ -4,8 +4,6 @@
 --[=[
 	Queue: Logic. The ops one server has for one key, and what each reply says of them.
 
-	Spec: record 3.1 to 3.4. Model: Rec.tla, the writer ws[s] in Send and Hear.
-
 	An op is numbered and stamped when it is first sent, and keeps both. A request carries every op
 	whose fate is not heard, in order, and its new timed bytes stay within a quarter of the timed
 	room. An op is clean until a failed request carried it or a run decided it. Only a clean op takes
@@ -120,7 +118,7 @@ local function Width(Item: Item, Clock: number): number
 	if Item.Op or Asked.Form ~= Form.Timed or Name == nil then
 		return 0
 	end
-	return Book.NamedWidth(Name, { Kind = Asked.Kind, Stamp = Asked.Stamp or Clock, Fate = Fate.Took, Print = Asked.Print }, Clock)
+	return Book.NamedWidth(Name, Book.OpName(Asked.Stamp or Clock, Asked.Print, Fate.Took, Asked.Kind), Clock)
 end
 
 local function OpOf(Held: Queue, Item: Item, Clock: number): Op

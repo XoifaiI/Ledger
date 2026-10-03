@@ -301,9 +301,16 @@ Describe("Controls of the hot keys", function()
 	end)
 
 	local function Start(): (Machine.Call<Walk.Context, Walk.Result>, { Machine.Asked }, Walk.Context)
-		local Context = Walk.Context(SWORDS, { Kind = "Take", Count = 1, Print = PRINT }, {}, 9, 0)
-		Context.Stamp = Heard.NOW
-		Context.Names = { "d1", "d2", "d3" }
+		local Context = Walk.Context({
+			Declared = SWORDS,
+			Body = Parts.TakeOp(PRINT, 1),
+			Legs = {},
+			Server = 9,
+			Home = 0,
+			Stamp = Heard.NOW,
+			Names = { "d1", "d2", "d3" },
+			View = {},
+		})
 		local Call, Asked = Machine.Start(Walk.Machine, Context, Heard.NOW)
 		return Call, Asked, Context
 	end

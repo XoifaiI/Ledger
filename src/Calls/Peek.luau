@@ -4,8 +4,6 @@
 --[=[
 	Peek: Machine. Shows a key's state, never older than this server showed before.
 
-	Spec: record 5.3; transaction 4.3. Model: Rec.tla, StartRead and ReadHear.
-
 	Cached starts with a read. Fresh starts with a fresh read, an update that decides nothing and
 	lands, so it is always current. A read the shown table does not allow goes on to a fresh read. A
 	view with marks whose clean flag is off reads their deciders, all at once. When none committed,

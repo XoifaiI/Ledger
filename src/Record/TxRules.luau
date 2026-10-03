@@ -4,8 +4,6 @@
 --[=[
 	TxRules: Logic. A transaction's steps on one key, run inside Step.
 
-	Spec: transaction 3.2 to 3.5 and 4.1.
-
 	A Tent is a transaction's prepare: it lands a mark on a leg key that is not the decider, and never
 	changes the state. A field delta sets money aside in an escrow mark. A game op stores the change
 	its reducer made in an exclusive mark, alone on its key, and its resolve lays that change on with
@@ -169,7 +167,7 @@ local function Resolve(Run: Run, End: Requests.End)
 		if Held == nil or Held.Fate ~= Fate.Took then
 			WriteFate(Run, Name, Book.LegFate(End.Stamp, End.Print, Fate.Took, End.Attempt))
 		end
-	elseif Held == nil or (Held.Fate == Fate.Aborted and (Held.Attempt or 0) < End.Attempt) then
+	elseif Held == nil or (Held.Fate == Fate.Aborted and Held.Attempt < End.Attempt) then
 		WriteFate(Run, Name, Book.LegFate(End.Stamp, End.Print, Fate.Aborted, End.Attempt))
 	end
 end
@@ -227,7 +225,7 @@ local function SetExclusiveMark(Run: Run, Tent: Requests.Tent, Body: unknown)
 		Next, _, Reason = Reduce.Run(Guard.Capped(Run.Build), Reduce.Copy(Run.State), Body)
 	end
 	if Next == nil then
-		local Code = if Reason == Fate.Full then Fate.Full else Fate.Refused
+		local Code = Guard.RefusalFate(Reason)
 		WriteFate(Run, Tent.Name, Book.LegFate(Tent.Stamp, Tent.Print, Code, Tent.Attempt))
 		return Runs.Report(Run, Report.Refused, Tent.Attempt, Code)
 	end
@@ -300,7 +298,7 @@ local function CommitGameOp(Run: Run, Commit: Requests.Commit, Body: unknown): S
 	end
 	local Next, _, Reason = Reduce.Run(Run.Reducer, Reduce.Copy(Run.State), Body)
 	if Next == nil then
-		RefuseCommit(Run, Commit, if Reason == Fate.Full then Fate.Full else Fate.Refused)
+		RefuseCommit(Run, Commit, Guard.RefusalFate(Reason))
 	end
 	return Next
 end
@@ -334,7 +332,7 @@ function TxRules.Tent(Run: Run, Tent: Requests.Tent)
 	if Held and Held.Role == Role.Leg then
 		if Held.Print ~= Tent.Print then
 			return Runs.Report(Run, Report.Other)
-		elseif not (Held.Fate == Fate.Aborted and (Held.Attempt or 0) < Tent.Attempt) then
+		elseif not (Held.Fate == Fate.Aborted and Held.Attempt < Tent.Attempt) then
 			return Runs.Report(Run, Report.Decided, Held.Attempt, Held.Fate)
 		end
 	elseif Held or Record.Work[Name] then
@@ -365,7 +363,7 @@ function TxRules.Commit(Run: Run, Commit: Requests.Commit)
 	end
 	local Held = Record:Held(Name)
 	if Held and Held.Role == Role.Decision then
-		local Attempt = Held.Attempt or 0
+		local Attempt = Held.Attempt
 		if Held.Print ~= Commit.Print then
 			return Runs.Report(Run, Report.Other)
 		elseif Held.Fate == Fate.Took then
@@ -431,7 +429,7 @@ function TxRules.Fence(Run: Run, Fence: Requests.Fence)
 	end
 	local Held = Record:Held(Name)
 	if Held and Held.Role == Role.Decision then
-		local Attempt = Held.Attempt or 0
+		local Attempt = Held.Attempt
 		if Held.Fate == Fate.Took then
 			Run.Note.Value = Held.Value
 			return Runs.Report(Run, Report.Committed, Attempt)

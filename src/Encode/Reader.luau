@@ -5,8 +5,6 @@
 --[=[
 	Reader: Plumbing. Reads what Writer wrote, and refuses any text Writer would not write.
 
-	Spec: record 2.1.
-
 	A bad character, an early end, a value out of range and a form Writer never makes each raise an
 	error, so a decoder that catches the error refuses the whole text. This module checks only the
 	form of a value. Book decides whether the value means anything.

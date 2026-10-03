@@ -5,14 +5,14 @@
 	Cut: Machine. Runs one Reset or one Erase for the server that asked, or finishes another cut's
 	gate as its helper.
 
-	Spec: cuts 3.2 to 3.4.
-
 	The cut is sent with every end the call has learned. A name kept answers true, and one under
 	other terms Spent. Forgotten and Behind answer so when no request of the call may have written,
 	and Unresolved when one may. Missing answers Missing when none may have written. When one may, it
 	answers true for an Erase and Unresolved for a Reset. Marks, and the items an overdue key lists,
 	are fenced at their deciders, not finally, and what each fence reports rides on the next send. A
-	pinned record runs Touch. Another cut's gate is finished first, by this machine as its helper. A
+	fence's missing is no evidence, so for a mark that Blockers.IsOrphanEvidence finds Windows.ORPHAN
+	old when its fence is heard, the machine reads the decider at once. A read that shows no value or
+	a seal rides the mark's orphan end, as a writer's does. A pinned record runs Touch. Another cut's gate is finished first, by this machine as its helper. A
 	seal an erase left over is taken off by Unseal, and a seal another erase holds answers Busy. Each
 	of these goes round at most Limits.TRIES times.
 
@@ -57,6 +57,7 @@ export type Context = {
 	Wrote: boolean,
 	Items: { [string]: Book.Work },
 	Asked: { Blockers.Blocker | false },
+	read Gone: { Blockers.Blocker },
 	Gate: Book.Gate?,
 	Wait: number?,
 	Seal: Book.Seal?,
@@ -68,6 +69,7 @@ local STATE = {
 	Learning = "Learning" :: "Learning",
 	Cutting = "Cutting" :: "Cutting",
 	Fencing = "Fencing" :: "Fencing",
+	Reading = "Reading" :: "Reading",
 	Helping = "Helping" :: "Helping",
 	Waiting = "Waiting" :: "Waiting",
 	Unsealing = "Unsealing" :: "Unsealing",
@@ -84,6 +86,7 @@ local WORD = {
 	Busy = "Busy" :: "Busy",
 	Standing = "Standing" :: "Standing",
 	Due = "Due" :: "Due",
+	Gone = "Gone" :: "Gone",
 }
 
 local WorkForm = Book.WorkForm
@@ -215,14 +218,35 @@ end
 
 local function Fenced(Call: Call): string
 	local Context = Call.Context
+	table.clear(Context.Gone)
 	for Order, Reply in Call.Heard do
 		local Found = Context.Asked[Order]
 		local Decided = if Found then Blockers.Fenced(Reply.Note, Found) else nil
 		if Found and Decided and Decided.Outcome then
 			Ride(Context, Blockers.End(Found, Decided.Outcome, Decided.Attempt, Decided.Value))
+		elseif Found and Decided and Decided.Gone and Blockers.IsOrphanEvidence(Found, Call.Now) then
+			table.insert(Context.Gone, Found)
 		end
 	end
 	Context.Rounds += 1
+	return if Context.Gone[1] then WORD.Gone else SAID.Done
+end
+
+local function ReadDeciders(Call: Call)
+	for _, Found in Call.Context.Gone do
+		Machine.Ask(Call, Asks.Read(Found.Item.Decider))
+	end
+end
+
+local function HeardDeciders(Call: Call): string
+	local Context = Call.Context
+	for Order, Reply in Call.Heard do
+		local Found = Context.Gone[Order]
+		local Decided = if Reply.Said == SAID.Failed then nil else Blockers.Read(Reply.Value, Found)
+		if Decided and Decided.Gone then
+			Ride(Context, Blockers.End(Found, Requests.Outcome.Orphan, Decided.Attempt))
+		end
+	end
 	return SAID.Done
 end
 
@@ -334,6 +358,14 @@ local STATES: { [string]: Machine.State<Context, Result> } = {
 	[STATE.Fencing] = {
 		Enter = Fence,
 		Hear = Fenced,
+		On = {
+			{ Said = WORD.Gone, Go = STATE.Reading },
+		},
+		Else = STATE.Cutting,
+	},
+	[STATE.Reading] = {
+		Enter = ReadDeciders,
+		Hear = HeardDeciders,
 		Else = STATE.Cutting,
 	},
 	[STATE.Helping] = {
@@ -390,6 +422,7 @@ function Cut.Context(Ref: Book.Ref, Asked: Requests.Cut, Erasable: boolean): Con
 		Wrote = false,
 		Items = {},
 		Asked = {},
+		Gone = {},
 	}
 end
 

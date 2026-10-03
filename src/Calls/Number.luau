@@ -4,8 +4,6 @@
 --[=[
 	Number: Machine. Takes a server number from the counter key the server's JobId hashes to.
 
-	Spec: record 3.1.
-
 	The number is the count its own write made, times COUNTERS, plus the index of the key. A count
 	that fails rests as Backoff says and is asked again, until one lands.
 

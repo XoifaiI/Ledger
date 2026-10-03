@@ -4,8 +4,6 @@
 --[=[
 	Key: Logic. What a key's value holds, read and written.
 
-	Spec: record 2.1; cuts 3.4 and 3.5.
-
 	A value is { s, b, p, r }: the state, the book as text, the post diff of an exclusive mark, and
 	the state a Reset was given. An erased key holds { z }, a seal, in place of all four. Read gives
 	nil for an empty key. For a value no op can use, it gives why every op stops: Missing for a seal,

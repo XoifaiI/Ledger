@@ -4,8 +4,6 @@
 --[=[
 	Diff: Logic. The changes a game op made to a state, as data any build can apply.
 
-	Spec: transaction 2 and 3.4.
-
 	A change is a path k and the new value v, with no v for a value taken out. A key stores changes
 	in its p field, so the names k and v stay. Make walks into a table only when both sides hold one,
 	so a table that replaces another kind of value is one change. It compares buffers by their bytes.

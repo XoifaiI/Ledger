@@ -4,8 +4,6 @@
 --[=[
 	Resettle: Machine. Ends every item on a key now, as a touch would, and says whether it is clear.
 
-	Spec: transaction 5.3.
-
 	The machine runs a fresh Peek of the key, then Touch on every item of its work room at once, with
 	no level wait. Touch fences an undecided mark once the mark is Windows.SETTLE old. A second fresh
 	Peek answers true when no item stamped before the call started is left. Otherwise the call waits

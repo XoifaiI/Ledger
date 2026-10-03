@@ -4,8 +4,6 @@
 --[=[
 	Unseal: Machine. Takes off a seal an erase left on a key.
 
-	Spec: cuts 3.4, step 6.
-
 	The machine sends a seal stamp. Step lands it only on a seal past Windows.SEAL_AGE, or on one
 	this server stamped, carrying that rt. When it lands, this server is the one sealer of the new
 	rt. The machine then sends the key's one RemoveAsync, and only while the clock reads at most

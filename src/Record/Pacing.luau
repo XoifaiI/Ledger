@@ -5,8 +5,6 @@
 	Pacing: Logic. The gap a paced writer keeps between its sends, so a busy key stays under its
 	byte ceiling and its ops ride together.
 
-	Spec: extras 2.3; hot keys 2.10.
-
 	Only Ledger's own keys are paced: a total's shard aims at half its write ceiling and a part at the
 	whole of it, the Share a build gives. The ceiling is KEY_CEILING kilobytes a minute over the
 	kilobytes of the key's last landing. Each landing after the first measures the key's writes a

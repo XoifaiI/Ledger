@@ -3,8 +3,6 @@
 --[=[
 	Types: Logic. The note a Step run gives back, and the build every write judges with.
 
-	Spec: record 4 and 5.1; transaction 3.6.
-
 	A note says, by the index of each op in its request, the fate the op has or why it has none. It
 	holds the value to write, or nothing, and the report of the request's one step, with the items a
 	blocked or crowded step read. A build's Level is its migration count and its Floor the index of

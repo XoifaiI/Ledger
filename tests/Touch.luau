@@ -20,6 +20,7 @@ local Book = require("../src/Record/Book")
 local Clock = require("../src/Machine/Clock")
 local Game = require("./Gold")
 local Heard = require("./Heard")
+local Key = require("../src/Record/Key")
 local Machine = require("../src/Machine/Machine")
 local Queue = require("../src/Record/Queue")
 local Replay = require("./Replay")
@@ -163,9 +164,19 @@ Describe("Touch", function()
 		Expect((Returned.Ref :: Book.Ref).Key).toBe("d")
 	end)
 
-	Test("a pinned record whose leg key reads gone past ORPHAN is dropped with a named return of that key", function()
+	Test("a leg whose Resolve reports missing is proved gone by a write before its pinned record drops, and a key with a value proves nothing", function()
+		local Item: Book.Pinned = { Form = "Pinned", Stamp = Heard.NOW - Windows.ORPHAN, Attempt = 1, Print = 3, Legs = { Ref("a") } }
+		local Call, Asked = Machine.Start(Touch.Pinned, Touch.Context("late", Item, Ref("d"), Windows.SETTLE), Heard.NOW)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({ Why = "Missing" }))
+		local Ask = Asked[1].Ask
+		Expect(Ask.Kind == "Send" and Ask.Ref.Key == "a" and Ask.Request.ProveGone == true).toBe(true)
+		Asked = Machine.Step(Call, Asked[1].Id, Heard.Sent({}))
+		Expect(#Asked).toBe(0)
+		Expect(Machine.AnswerOf(Call)).toBe(false)
+	end)
+
+	Test("a pinned record whose leg key holds no value is dropped, however young, once that key is sealed, and the seal is removed", function()
 		local Keys: Keys = { d = Seed(1) }
-		local Stamp = NOW - Windows.ORPHAN
 		Put(Keys, "d", {
 			Writer = 0,
 			Ack = 0,
@@ -174,16 +185,15 @@ Describe("Touch", function()
 			Commit = { Name = "late", Stamp = NOW, Attempt = 1, Print = 3, Legs = { Ref("gone") }, Leg = { Field = 1, Amount = 1 } },
 		})
 		local Item = Record(Keys.d).Work.late
-		local Old: Book.Pinned = { Form = "Pinned", Stamp = Stamp, Attempt = 1, Print = 3, Legs = { Ref("gone") } }
-		Expect(Item ~= nil).toBe(true)
-		Expect((Replay.Run(Touch.Pinned, Touch.Context("late", Old, Ref("d"), Windows.SETTLE), Keys, DEFAULT, NOW))).toBe(true)
+		Expect((Replay.Run(Touch.Pinned, Touch.Context("late", Item, Ref("d"), Windows.SETTLE), Keys, DEFAULT, NOW))).toBe(true)
 		Expect(Record(Keys.d).Work.late).toBeNil()
 		local Orphan = Record(Keys.d).Events[1]
 		Expect(Orphan.Cause).toBe(Book.Cause.Orphan)
 		Expect((Orphan.Ref :: Book.Ref).Key).toBe("gone")
+		Expect(Keys.gone).toBeNil()
 	end)
 
-	Test("a pinned record is dropped only after every leg key is resolved by its commit", function()
+	Test("a pinned record is dropped only after every leg key is resolved by its commit or proved gone", function()
 		local Keys = Marked(NOW - Touches.PINNED)
 		Keys.b, Keys.d = Seed(5), Seed(1)
 		local Legs = { Ref("a"), Ref("b") }
@@ -194,7 +204,8 @@ Describe("Touch", function()
 		Expect(Gold(Keys.a)).toBe(70)
 		Expect(Record(Keys.d).Work[Y]).toBeNil()
 		Expect(Record(Keys.d).Timed[Y].Fate).toBe(Book.Fate.Took)
-		local Missing: Keys = { d = Keys.d }
+		local Wiped: Book.Seal = { Name = "wipe", Stamp = NOW, Print = 7, Server = 16, Rt = NOW, Events = {}, Slots = {} }
+		local Missing: Keys = { d = Keys.d, gone = Key.Sealed(Wiped) }
 		Put(Missing, "d", {
 			Writer = 0,
 			Ack = 0,

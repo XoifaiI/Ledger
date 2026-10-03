@@ -4,8 +4,6 @@
 --[=[
 	View: Logic. A key's state as one build reads it, with the counters a server shows it by.
 
-	Spec: record 5.3 and 7.
-
 	Read runs the migrations the key has not had, in memory, and writes nothing. An empty or sealed
 	key is Missing. A key past this build's floor or format is Behind. A key whose migrations fail is
 	Refused, and a broken key is Unresolved. Level and Floor are those of the state the view shows:

@@ -4,8 +4,6 @@
 --[=[
 	Runs: Logic. The working state of one run of Step, and how a step reports what it found.
 
-	Spec: record 4.
-
 	Step makes a fresh run each time its transform runs, and encodes the key from it at the end. The
 	ends write to it first, then the request's one step, then each op through Rules. State and
 	Changed are the game state the run has made so far. Acted says a step wrote an item, so the run

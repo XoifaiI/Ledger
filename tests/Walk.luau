@@ -26,19 +26,32 @@ local Describe, Test, Expect = Testing.Describe, Testing.Test, Testing.Expect
 local NOW = Heard.NOW
 local PRINT = 7
 local SWORDS: Parts.Declared = { Name = "Swords", Parts = 4, Mode = "Final", Stock = 8, Proceeds = {}, Print = PRINT, Place = "Gold$P:Swords:4" }
-local BODY = { Kind = "Take", Count = 1, Print = PRINT }
+local BODY = Parts.TakeOp(PRINT, 1)
 
 type Shape = { Free: number?, Sealed: boolean?, Closed: boolean? }
+type Setup = { Only: number?, View: { [number]: Walk.View } }
 
-local function Start(Name: string?, Home: number?, Fill: ((Context: Walk.Context) -> ())?)
-	local Context = Walk.Context(SWORDS, BODY, {}, 9, Home or 0)
-	Context.Name, Context.Stamp, Context.Print = Name, NOW, 3
-	Context.Names = { "d1", "d2", "d3" }
+local function Start(Name: string?, Home: number?, Fill: ((Setup: Setup) -> ())?, Body: Parts.Op?)
+	local Setup: Setup = { View = {} }
 	if Fill then
-		Fill(Context)
+		Fill(Setup)
 	end
-	local Call, Asked = Machine.Start(Walk.Machine, Context, NOW)
-	return Call, Asked, Context
+	local Asked: Walk.Asked = {
+		Declared = SWORDS,
+		Body = Body or BODY,
+		Legs = {},
+		Server = 9,
+		Home = Home or 0,
+		Only = Setup.Only,
+		Name = Name,
+		Stamp = NOW,
+		Print = 3,
+		Names = { "d1", "d2", "d3" },
+		View = Setup.View,
+	}
+	local Context = Walk.Context(Asked)
+	local Call, Steps = Machine.Start(Walk.Machine, Context, NOW)
+	return Call, Steps, Context
 end
 
 local function Asked(Each: Machine.Asked): (string, string)
@@ -93,21 +106,46 @@ Describe("Walk", function()
 
 	Test("a game name fences a part its view shows dry, and goes on only when the fence reports fenced", function()
 		local First = Hash("order-3") % 4
-		local Call, Steps = Start("order-3", 0, function(Context: Walk.Context)
-			Context.View[First] = { Free = 0, Shut = true, Short = false, At = NOW }
+		local Call, Steps = Start("order-3", 0, function(Setup: Setup)
+			Setup.View[First] = { Free = 0, Shut = true, At = NOW }
 		end)
 		local _, What = Asked(Steps[1])
 		Expect(What).toBe(`Fence {Walk.Sub("order-3", First)}`)
 		Steps = Machine.Step(Call, Steps[1].Id, Heard.Sent({ Report = "Fenced" }))
 		local _, Then = Asked(Steps[1])
 		Expect(Then).toBe(`Run {Walk.Sub("order-3", (First + 1) % 4)}`)
-		Call, Steps = Start("order-3", 0, function(Context: Walk.Context)
-			Context.View[First] = { Free = 0, Shut = false, Short = true, At = NOW }
+		Call, Steps = Start("order-3", 0, function(Setup: Setup)
+			Setup.View[First] = { Free = 0, Shut = false, Refused = 1, At = NOW }
 		end)
 		Machine.Step(Call, Steps[1].Id, Heard.Sent({ Report = "Committed" }))
 		local Result = Machine.AnswerOf(Call) :: Walk.Result
 		Expect(Result.Reply).toBe(true)
 		Expect(Result.Part).toBe(First)
+	end)
+
+	Test("a part that refused a count is dry for a walk of at least that count, and is tried by a smaller one", function()
+		local Five = Parts.TakeOp(PRINT, 5)
+		local Call, Steps, Context = Start(nil, 0, nil, Five)
+		Machine.Step(Call, Steps[1].Id, Refuse(Context, { Free = 3 }))
+		local Seen = Context.Asked.View[0]
+		Expect(Seen.Refused).toBe(5)
+		local First = Hash("order-6") % 4
+		Call, Steps = Start("order-6", 0, function(Setup: Setup)
+			Setup.View[First] = Seen
+		end)
+		local _, Smaller = Asked(Steps[1])
+		Expect(Smaller).toBe(`Run {Walk.Sub("order-6", First)}`)
+		Call, Steps = Start("order-6", 0, function(Setup: Setup)
+			Setup.View[First] = Seen
+		end, Five)
+		local _, Same = Asked(Steps[1])
+		Expect(Same).toBe(`Fence {Walk.Sub("order-6", First)}`)
+		local Old: Walk.View = { Free = Seen.Free, Shut = false, Refused = 5, At = NOW - Parts.VIEW_AGE - 1 }
+		Call, Steps = Start("order-6", 0, function(Setup: Setup)
+			Setup.View[First] = Old
+		end, Five)
+		local _, Aged = Asked(Steps[1])
+		Expect(Aged).toBe(`Run {Walk.Sub("order-6", First)}`)
 	end)
 
 	Test("SoldOut only when every part is known sealed or closed, else Short with the last reason", function()
@@ -125,24 +163,55 @@ Describe("Walk", function()
 		Expect(Result.Reason).toBe("Free")
 	end)
 
+	Test("a confirm a part refuses for want of its hold is Short reason Gone, and a shut part is still known shut", function()
+		local Shapes: { Shape } = { { Free = 0 }, { Closed = true }, { Sealed = true } }
+		for _, Shape in Shapes do
+			local Confirm = Parts.ConfirmOp(PRINT, "h", 1)
+			local Call, Steps, Context = Start(nil, 0, function(Setup: Setup)
+				Setup.Only = 0
+			end, Confirm)
+			Machine.Step(Call, Steps[1].Id, Refuse(Context, Shape))
+			local Result = Machine.AnswerOf(Call) :: Walk.Result
+			Expect(Result.Reply).toBe("Short")
+			Expect(Result.Reason).toBe("Gone")
+			Expect(Context.Known[0]).toBe(if Shape.Free then nil else true)
+		end
+	end)
+
+	Test("a hold refused on a part short of units and full of holds is Short for the units", function()
+		local Hold = Parts.HoldOp(PRINT, "h", 2, NOW + 60)
+		local Call, Steps, Context = Start(nil, 0, function(Setup: Setup)
+			Setup.Only = 0
+		end, Hold)
+		local Holds = {}
+		for Index = 1, Parts.HOLDS_MAX do
+			table.insert(Holds, { Id = `x{Index}`, Count = 0, End = NOW + 60 })
+		end
+		local State = { Print = PRINT, Opened = NOW, Free = 1, Sold = 0, Holds = Holds }
+		local Running = Context.Tx :: Tx.Context
+		Running.Verdict = Heard.Note({ Report = "Refused", State = State })
+		Machine.Step(Call, Steps[1].Id, Heard.Done("Refused"))
+		Expect((Machine.AnswerOf(Call) :: Walk.Result).Reason).toBe("Free")
+	end)
+
 	Test("a drawn walk answers SoldOut from memory when the view shows every part shut, and Busy when all are short", function()
-		local Call, Steps = Start(nil, 0, function(Context: Walk.Context)
+		local Call, Steps = Start(nil, 0, function(Setup: Setup)
 			for Index = 0, 3 do
-				Context.View[Index] = { Free = 0, Shut = true, Short = false, At = NOW }
+				Setup.View[Index] = { Free = 0, Shut = true, At = NOW }
 			end
 		end)
 		Expect(#Steps).toBe(0)
 		Expect((Machine.AnswerOf(Call) :: Walk.Result).Reply).toBe("SoldOut")
-		Call, Steps = Start(nil, 0, function(Context: Walk.Context)
+		Call, Steps = Start(nil, 0, function(Setup: Setup)
 			for Index = 0, 3 do
-				Context.View[Index] = { Free = 0, Shut = Index == 0, Short = true, At = NOW }
+				Setup.View[Index] = { Free = 0, Shut = Index == 0, Refused = 1, At = NOW }
 			end
 		end)
 		Expect(#Steps).toBe(0)
 		Expect((Machine.AnswerOf(Call) :: Walk.Result).Reply).toBe("Busy")
-		Call, Steps = Start("order-5", 0, function(Context: Walk.Context)
+		Call, Steps = Start("order-5", 0, function(Setup: Setup)
 			for Index = 0, 3 do
-				Context.View[Index] = { Free = 0, Shut = true, Short = false, At = NOW }
+				Setup.View[Index] = { Free = 0, Shut = true, At = NOW }
 			end
 		end)
 		Expect(#Steps).toBe(1)
@@ -151,10 +220,10 @@ Describe("Walk", function()
 	end)
 
 	Test("drawn names try the home part, then the most free parts the view shows, at most PROBES of them", function()
-		local Call, Steps, Context = Start(nil, 2, function(Context: Walk.Context)
-			Context.View[0] = { Free = 5, Shut = false, Short = false, At = NOW }
-			Context.View[1] = { Free = 9, Shut = true, Short = false, At = NOW }
-			Context.View[3] = { Free = 7, Shut = false, Short = false, At = NOW }
+		local Call, Steps, Context = Start(nil, 2, function(Setup: Setup)
+			Setup.View[0] = { Free = 5, Shut = false, At = NOW }
+			Setup.View[1] = { Free = 9, Shut = true, At = NOW }
+			Setup.View[3] = { Free = 7, Shut = false, At = NOW }
 		end)
 		local Keys: { string } = {}
 		local Names: { string } = {}

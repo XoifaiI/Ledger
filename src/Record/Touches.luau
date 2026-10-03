@@ -4,8 +4,6 @@
 --[=[
 	Touches: Logic. When a server that sees an item left on a key may end it.
 
-	Spec: transaction 5.1; cuts 3.3.
-
 	A server's level for an item is the count of leading zero bits of the hash of the item's name,
 	seeded with the server's number, and at most LEVELS. A server may act once the item is past its
 	age: Windows.SETTLE for a mark or a gate, and PINNED for a pinned record. The item must also be

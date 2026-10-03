@@ -4,16 +4,13 @@
 --[=[
 	Unblock: Machine. Finds out how a mark that stands in a writer's way ends.
 
-	Spec: transaction 4.2. Model: Tx.tla, the hread, hwait and hfence steps of Steps.
-
-	The machine reads the mark's decider. A decision answers the end the writer carries to the mark's
-	key. A mark not decided is fenced once Blockers.Due allows. For a mark older than the writer's
-	op, that is after a wait until the mark is Windows.SETTLE old. The fence's report then decides
-	it. A read or a fence that fails answers nothing, and so does a decider that holds no value or a
-	seal, until a read asked Windows.ORPHAN past the mark's stamp shows it. That read is the orphan
-	evidence of transaction 5.1, and the machine answers the mark's orphan end. A fence that says
-	missing is not evidence, since a run may read an old version. The writer asks again at its next
-	blocked send.
+	The machine reads the mark's decider. A decision answers the end the writer carries to the
+	mark's key. A mark not decided is fenced once Blockers.Due allows. For a mark older than the
+	writer's op, that is after a wait until the mark is Windows.SETTLE old. The fence's report then
+	decides it. A read or a fence that fails answers nothing, and so does a decider that holds no
+	value or a seal, until a read asked Windows.ORPHAN past the mark's stamp shows it, and then the
+	machine answers the mark's orphan end. A fence that says missing is not evidence, since a run
+	may read an old version. The writer asks again at its next blocked send.
 
 	Return type: The Unblock module, and the Context type.
 	Example usage:

@@ -4,8 +4,6 @@
 --[=[
 	Marks: Logic. What the transaction marks on a key allow.
 
-	Spec: transaction 4.1.
-
 	A money field beside escrow marks has a least and a most value, whichever way each mark ends.
 	Bounds gives nil for both when the field is not a number or this build does not know it. A game
 	op may land beside escrow marks only when its verdict does not depend on how they end. Order runs

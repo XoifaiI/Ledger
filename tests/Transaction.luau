@@ -38,6 +38,10 @@ local DEFAULT = Game.DEFAULT
 local Gold, Record = Game.Gold, Game.Record
 local Fate, Role = Book.Fate, Book.Role
 
+local function IsFinal(Item: Book.Named?): boolean
+	return Item ~= nil and Item.Role == Role.Decision and Item.Final == true
+end
+
 local function Ref(Key: string): Book.Ref
 	return { Store = "Gold", Key = Key }
 end
@@ -172,7 +176,7 @@ Describe("Transaction", function()
 		Expect(Reply).toBe(Answer.Spent)
 		Expect(Record(Keys.d).Timed[X].Role).toBe(Role.Decision)
 		Expect(Record(Keys.d).Timed[X].Fate).toBe(Fate.Fenced)
-		Expect(Record(Keys.d).Timed[X].Final).toBe(true)
+		Expect(IsFinal(Record(Keys.d).Timed[X])).toBe(true)
 		Expect(Gold(Keys.a)).toBe(100)
 		Expect(Gold(Keys.d)).toBe(1)
 	end)
@@ -188,7 +192,7 @@ Describe("Transaction", function()
 		Expect((next(Record(Keys.a).Work))).toBeNil()
 		Expect(Record(Keys.a).Timed[X].Fate).toBe(Fate.Aborted)
 		Expect(Record(Keys.d).Timed[X].Fate).toBe(Fate.Fenced)
-		Expect(Record(Keys.d).Timed[X].Final).toBe(true)
+		Expect(IsFinal(Record(Keys.d).Timed[X])).toBe(true)
 		Expect(Keys.b).toBeNil()
 	end)
 

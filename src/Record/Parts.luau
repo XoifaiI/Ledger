@@ -2,32 +2,69 @@
 --!optimize 2
 
 --[=[
-	Parts: Logic. A split quantity's parts, and the one reducer every part runs.
-
-	Spec: hot keys 2.1 to 2.3, 2.6 and 2.7. Model: Hot.tla, Step, Expire and Draw.
+	Parts: Logic. A split quantity's parts, the ops a part takes, and the one reducer every part runs.
 
 	A quantity of m parts keeps part i under the key $P:<name>:<m>:<i>. Each part is a record whose
 	state is Ledger's own: the print of its declaration, the clock it was opened, its free and sold
-	units, its holds, and the Sealed and Closed flags. A quantity with serials gives each part its
-	own range, and a part draws from its returned serials first, smallest first. Open does nothing on
-	a part that exists, and every other op is refused on a part opened under another declaration.
-	Take, Hold and Credit are refused on a sealed or closed part. Confirm sells a hold that stands,
-	and takes as Take does when none stands. Release always writes. Upkeep runs on every write. It
-	expires each hold whose end the clock passed by HOLD_SLACK, or whose end is more than HOLD_MAX and
-	the slack ahead. In final mode it then seals a part with no free unit, no hold, no returned
-	serial and no escrow mark. Nothing clears Sealed or Closed. The field names of the state and the
-	Kind strings of the ops are stored, so none may change. KIND measures a part's free, held and
-	sold units, and 1 when it is shut, for the summary path of Shards.
+	units, its holds, the Sealed and Closed flags, and one field for each proceeds field the
+	declaration names. A quantity with serials gives each part its own range, and a part draws from
+	its returned serials first, smallest first. The key holds the default, an empty table, until an
+	Open lands.
 
-	Return type: The Parts module, and the Mode, Declared, Hold, Part and Reason types.
+	Open does nothing on a part that exists, and every other op is refused Invalid on a part opened
+	under another declaration. A credit on a part with serials is refused Invalid too, since only
+	another declaration sends one. A confirm with no hold standing takes as Take does, and is refused
+	Gone when that refuses. Release always writes. A refusal by Guard, for a money field or the state
+	cap, has no reason here. A delta leg may move units out of any part, and into a part that is open
+	and not shut.
+
+	Upkeep runs on every write. It expires each hold whose end the clock passed by HOLD_SLACK, or
+	whose end is more than HOLD_MAX and the slack ahead. In final mode it then seals a part with no
+	free unit, no hold, no returned serial and no escrow mark. Nothing clears Sealed or Closed. The
+	field names of the state and the Kind strings of the ops are stored, so none may change. KIND
+	measures a part's free, held and sold units, and 1 when it is shut, for the summary path of
+	Shards.
+
+	Return type: The Parts module, and the Mode, Declared, Hold, Part, Reason, Price, Portion and op
+	types.
 	Example usage:
 		local Using = Parts.Build(Base, Declared)
 --]=]
 
 local Key = require("./Key")
-local Limits = require("../Core/Constants/Limits")
 local Types = require("./Types")
 local Windows = require("../Core/Constants/Windows")
+
+local PREFIX = "$P:"
+
+local MODE = {
+	Final = "Final" :: "Final",
+	Open = "Open" :: "Open",
+}
+
+export type Mode = keyof<typeof(MODE)>
+
+local OP = {
+	Open = "Open" :: "Open",
+	Take = "Take" :: "Take",
+	Hold = "Hold" :: "Hold",
+	Confirm = "Confirm" :: "Confirm",
+	Release = "Release" :: "Release",
+	Credit = "Credit" :: "Credit",
+	Close = "Close" :: "Close",
+}
+
+local REASON = {
+	Invalid = "Invalid" :: "Invalid",
+	Closed = "Closed" :: "Closed",
+	Sealed = "Sealed" :: "Sealed",
+	Holds = "Holds" :: "Holds",
+	Held = "Held" :: "Held",
+	Free = "Free" :: "Free",
+	Gone = "Gone" :: "Gone",
+}
+
+export type Reason = keyof<typeof(REASON)>
 
 export type Declared = {
 	read Name: string,
@@ -59,24 +96,45 @@ export type Part = {
 	read Last: number?,
 	read Returned: { number }?,
 	read Issued: number?,
+	read [string]: number,
 }
 
-export type Reason = "Invalid" | "Closed" | "Sealed" | "Holds" | "Held" | "Free" | "Gone"
+type Making = {
+	Print: number,
+	Opened: number,
+	Free: number,
+	Sold: number,
+	Sealed: boolean?,
+	Closed: boolean?,
+	Holds: { Hold },
+	Next: number?,
+	Last: number?,
+	Returned: { number }?,
+	Issued: number?,
+	[string]: number,
+}
+
+export type Price = { [string]: number }
+
+export type OpenOp = { read Kind: "Open", read Share: number, read At: number, read From: number? }
+export type TakeOp = { read Kind: "Take", read Print: number, read Count: number, read Price: Price? }
+export type HoldOp = { read Kind: "Hold", read Print: number, read Id: string, read Count: number, read End: number }
+export type ConfirmOp = { read Kind: "Confirm", read Print: number, read Id: string, read Count: number, read Price: Price? }
+export type ReleaseOp = { read Kind: "Release", read Print: number, read Id: string }
+export type CreditOp = { read Kind: "Credit", read Print: number, read Count: number }
+export type CloseOp = { read Kind: "Close", read Print: number }
+export type Op = OpenOp | TakeOp | HoldOp | ConfirmOp | ReleaseOp | CreditOp | CloseOp
+
+export type Portion = {
+	read Index: number,
+	read Count: number,
+}
 
 type Drawn = {
-	Next: number?,
-	Returned: { number }?,
-	Serials: { number }?,
+	read Next: number?,
+	read Returned: { number }?,
+	read Serials: { number }?,
 }
-
-local PREFIX = "$P:"
-
-local MODE = {
-	Final = "Final" :: "Final",
-	Open = "Open" :: "Open",
-}
-
-export type Mode = keyof<typeof(MODE)>
 
 local FIELDS: { [string]: true } = {
 	Print = true,
@@ -102,7 +160,56 @@ local PROBES = 3
 local VIEW_AGE = 30
 local PACE_PART = 1
 
-local function Held(Holds: { Hold }): number
+local MEASURES = 4
+
+local SLOT = {
+	Free = 1,
+	Held = 2,
+	Sold = 3,
+	Shut = 4,
+}
+
+local Parts = {
+	PREFIX = PREFIX,
+	MODE = MODE,
+	OP = OP,
+	REASON = REASON,
+	FIELDS = FIELDS,
+	SPLIT_MAX = SPLIT_MAX,
+	SPLIT_NAME = SPLIT_NAME,
+	PROCEEDS_MAX = PROCEEDS_MAX,
+	HOLDS_MAX = HOLDS_MAX,
+	HOLD_MAX = HOLD_MAX,
+	HOLD_SLACK = HOLD_SLACK,
+	PROBES = PROBES,
+	VIEW_AGE = VIEW_AGE,
+	SLOT = SLOT,
+}
+
+local function AsOpened(State: any): Part?
+	if type(State) ~= "table" or State.Opened == nil then
+		return nil
+	end
+	return State
+end
+
+local function OpenedUnder(State: any, Print: number): Part?
+	local Part = AsOpened(State)
+	if Part == nil or Part.Print ~= Print then
+		return nil
+	end
+	return Part
+end
+
+local function IsShut(Part: Part): boolean
+	return Part.Closed == true or Part.Sealed == true
+end
+
+local function HasSerials(Part: Part): boolean
+	return Part.Next ~= nil
+end
+
+local function HeldUnits(Holds: { Hold }): number
 	local Total = 0
 	for _, Each in Holds do
 		Total += Each.Count
@@ -110,7 +217,14 @@ local function Held(Holds: { Hold }): number
 	return Total
 end
 
-local function Without(Holds: { Hold }, Id: string): ({ Hold }, Hold?)
+local function NothingLeft(Free: number, Holds: { Hold }, Returned: { number }?): boolean
+	if Free ~= 0 or Holds[1] ~= nil then
+		return false
+	end
+	return Returned == nil or Returned[1] == nil
+end
+
+local function WithoutHold(Holds: { Hold }, Id: string): ({ Hold }, Hold?)
 	local Kept: { Hold } = {}
 	local Found: Hold? = nil
 	for _, Each in Holds do
@@ -123,7 +237,7 @@ local function Without(Holds: { Hold }, Id: string): ({ Hold }, Hold?)
 	return Kept, Found
 end
 
-local function Back(Returned: { number }?, Serials: { number }?): { number }?
+local function GiveBack(Returned: { number }?, Serials: { number }?): { number }?
 	if Serials == nil then
 		return Returned
 	end
@@ -151,49 +265,29 @@ local function Draw(Part: Part, Count: number): Drawn
 	return { Next = Next, Returned = Returned, Serials = Serials }
 end
 
-local function Changed(Part: Part, Free: number, Sold: number, Holds: { Hold }, Drew: Drawn?): Part
-	local Made = table.clone(Part) :: any
-	Made.Free = Free
-	Made.Sold = Sold
-	Made.Holds = Holds
+local function FirstSerial(Serials: { number }?): number?
+	return if Serials then Serials[1] else nil
+end
+
+local function NextPart(Part: Part): Making
+	local Made = table.clone(Part) :: Making
+	-- Issued is the first serial the write that made this version issued, and Output reads it
 	Made.Issued = nil
-	Made.Next = if Drew then Drew.Next else Part.Next
-	Made.Returned = if Drew then Drew.Returned else Part.Returned
 	return Made
 end
 
-local function Paid(Made: Part?, Price: { [string]: number }?): Part?
-	if Made == nil or Price == nil then
-		return Made
+local function Pay(Made: Making, Price: Price?)
+	if Price == nil then
+		return
 	end
-	local Kept = Made :: any
 	for Field, Amount in Price do
-		Kept[Field] = (Kept[Field] or 0) + Amount
+		Made[Field] += Amount
 	end
-	return Kept
 end
 
-local function Shut(Part: Part): boolean
-	return Part.Closed == true or Part.Sealed == true
-end
-
-local function Issue(Made: Part, Serials: { number }?): Part
-	local Issued = Made :: any
-	Issued.Issued = if Serials then Serials[1] else nil
-	return Issued
-end
-
-local function Take(Part: Part, Count: number): Part?
-	if Shut(Part) or Part.Free < Count then
-		return nil
-	end
-	local Drew = Draw(Part, Count)
-	return Issue(Changed(Part, Part.Free - Count, Part.Sold + Count, Part.Holds, Drew), Drew.Serials)
-end
-
-local function Opened(Declared: Declared, Op: any): Part
+local function NewPart(Declared: Declared, Op: OpenOp): Part
 	local From = Op.From
-	local Made: any = {
+	local Made: Making = {
 		Print = Declared.Print,
 		Opened = Op.At,
 		Free = Op.Share,
@@ -208,46 +302,130 @@ local function Opened(Declared: Declared, Op: any): Part
 	return Made
 end
 
-local function Reduce(Declared: Declared, State: any, Op: any): unknown
-	local Part = State :: Part
-	if Op.Kind == "Open" then
-		return if Part.Opened then Part else Opened(Declared, Op)
-	elseif Part.Opened == nil or Part.Print ~= Op.Print then
-		return nil
-	elseif Op.Kind == "Take" then
-		return Paid(Take(Part, Op.Count), Op.Price)
-	elseif Op.Kind == "Hold" then
-		if Shut(Part) or Part.Free < Op.Count or #Part.Holds >= HOLDS_MAX then
-			return nil
-		end
-		local Drew = Draw(Part, Op.Count)
-		local Holds = table.clone(Part.Holds)
-		table.insert(Holds, { Id = Op.Id, Count = Op.Count, End = Op.End, Serials = Drew.Serials })
-		return Changed(Part, Part.Free - Op.Count, Part.Sold, Holds, Drew)
-	elseif Op.Kind == "Confirm" then
-		local Holds, Found = Without(Part.Holds, Op.Id)
-		if Found then
-			return Paid(Issue(Changed(Part, Part.Free, Part.Sold + Found.Count, Holds), Found.Serials), Op.Price)
-		end
-		return if Part.Closed then nil else Paid(Take(Part, Op.Count), Op.Price)
-	elseif Op.Kind == "Release" then
-		local Holds, Found = Without(Part.Holds, Op.Id)
-		if Found == nil then
-			return Part
-		end
-		local Drew: Drawn = { Next = Part.Next, Returned = Back(Part.Returned, Found.Serials) }
-		return Changed(Part, Part.Free + Found.Count, Part.Sold, Holds, Drew)
-	elseif Op.Kind == "Credit" then
-		if Shut(Part) or Part.Next ~= nil or Part.Free + Op.Count >= Limits.MONEY_LIMIT then
-			return nil
-		end
-		return Changed(Part, Part.Free + Op.Count, Part.Sold, Part.Holds)
-	elseif Op.Kind == "Close" then
-		local Made = Changed(Part, Part.Free, Part.Sold, Part.Holds) :: any
-		Made.Closed = true
-		return Made
+local function ShutReason(Part: Part): Reason?
+	if Part.Closed then
+		return REASON.Closed
+	elseif Part.Sealed then
+		return REASON.Sealed
 	end
 	return nil
+end
+
+local function ShortReason(Part: Part, Count: number): Reason
+	if Part.Free + HeldUnits(Part.Holds) >= Count then
+		return REASON.Held
+	end
+	return REASON.Free
+end
+
+local function DecideTake(Part: Part, Count: number, Price: Price?): Part | Reason
+	local Shut = ShutReason(Part)
+	if Shut then
+		return Shut
+	elseif Part.Free < Count then
+		return ShortReason(Part, Count)
+	end
+	local Drew = Draw(Part, Count)
+	local Made = NextPart(Part)
+	Made.Free = Part.Free - Count
+	Made.Sold = Part.Sold + Count
+	Made.Next = Drew.Next
+	Made.Returned = Drew.Returned
+	Made.Issued = FirstSerial(Drew.Serials)
+	Pay(Made, Price)
+	return Made
+end
+
+local function DecideHold(Part: Part, Op: HoldOp): Part | Reason
+	local Shut = ShutReason(Part)
+	if Shut then
+		return Shut
+	elseif Part.Free < Op.Count then
+		return ShortReason(Part, Op.Count)
+	elseif #Part.Holds >= HOLDS_MAX then
+		return REASON.Holds
+	end
+	local Drew = Draw(Part, Op.Count)
+	local Holds = table.clone(Part.Holds)
+	table.insert(Holds, { Id = Op.Id, Count = Op.Count, End = Op.End, Serials = Drew.Serials })
+	local Made = NextPart(Part)
+	Made.Free = Part.Free - Op.Count
+	Made.Holds = Holds
+	Made.Next = Drew.Next
+	Made.Returned = Drew.Returned
+	return Made
+end
+
+local function DecideConfirm(Part: Part, Op: ConfirmOp): Part | Reason
+	local Holds, Found = WithoutHold(Part.Holds, Op.Id)
+	if Found == nil then
+		local Taken = DecideTake(Part, Op.Count, Op.Price)
+		return if type(Taken) == "string" then REASON.Gone else Taken
+	end
+	local Made = NextPart(Part)
+	Made.Sold = Part.Sold + Found.Count
+	Made.Holds = Holds
+	Made.Issued = FirstSerial(Found.Serials)
+	Pay(Made, Op.Price)
+	return Made
+end
+
+local function DecideRelease(Part: Part, Op: ReleaseOp): Part
+	local Holds, Found = WithoutHold(Part.Holds, Op.Id)
+	if Found == nil then
+		return Part
+	end
+	local Made = NextPart(Part)
+	Made.Free = Part.Free + Found.Count
+	Made.Holds = Holds
+	Made.Returned = GiveBack(Part.Returned, Found.Serials)
+	return Made
+end
+
+local function DecideCredit(Part: Part, Op: CreditOp): Part | Reason
+	local Shut = ShutReason(Part)
+	if Shut then
+		return Shut
+	elseif HasSerials(Part) then
+		return REASON.Invalid
+	end
+	local Made = NextPart(Part)
+	Made.Free = Part.Free + Op.Count
+	return Made
+end
+
+local function DecideClose(Part: Part): Part
+	local Made = NextPart(Part)
+	Made.Closed = true
+	return Made
+end
+
+local function Decide(Declared: Declared, State: any, Op: Op): Part | Reason
+	if Op.Kind == OP.Open then
+		local Existing = AsOpened(State)
+		if Existing then
+			return Existing
+		end
+		return NewPart(Declared, Op)
+	end
+	local Part = OpenedUnder(State, Op.Print)
+	if Part == nil then
+		return REASON.Invalid
+	elseif Op.Kind == OP.Take then
+		return DecideTake(Part, Op.Count, Op.Price)
+	elseif Op.Kind == OP.Hold then
+		return DecideHold(Part, Op)
+	elseif Op.Kind == OP.Confirm then
+		return DecideConfirm(Part, Op)
+	elseif Op.Kind == OP.Release then
+		return DecideRelease(Part, Op)
+	elseif Op.Kind == OP.Credit then
+		return DecideCredit(Part, Op)
+	elseif Op.Kind == OP.Close then
+		return DecideClose(Part)
+	end
+	-- a kind this build does not know, sent by a newer build during a deploy
+	return REASON.Invalid
 end
 
 local function Lapsed(Each: Hold, Clock: number): boolean
@@ -255,76 +433,65 @@ local function Lapsed(Each: Hold, Clock: number): boolean
 end
 
 local function Upkeep(Declared: Declared, State: any, Clock: number, Marked: boolean): any
-	local Part = State :: Part
-	if Part.Opened == nil then
+	local Part = AsOpened(State)
+	if Part == nil then
 		return State
 	end
-	local Holds: { Hold } = {}
-	local Count = 0
+	local Kept: { Hold } = {}
+	local Freed = 0
 	local Returned = Part.Returned
 	for _, Each in Part.Holds do
 		if Lapsed(Each, Clock) then
-			Count += Each.Count
-			Returned = Back(Returned, Each.Serials)
+			Freed += Each.Count
+			Returned = GiveBack(Returned, Each.Serials)
 		else
-			table.insert(Holds, Each)
+			table.insert(Kept, Each)
 		end
 	end
-	local Free = Part.Free + Count
-	local Empty = Free == 0 and Holds[1] == nil and (Returned == nil or Returned[1] == nil)
-	local Seals = Declared.Mode == MODE.Final and not Part.Sealed and Empty and not Marked
-	if Count == 0 and not Seals then
+	local Free = Part.Free + Freed
+	local Seals = Declared.Mode == MODE.Final and not Part.Sealed and not Marked and NothingLeft(Free, Kept, Returned)
+	if Freed == 0 and not Seals then
 		return State
 	end
-	local Made = Changed(Part, Free, Part.Sold, Holds, { Next = Part.Next, Returned = Returned }) :: any
-	Made.Sealed = Part.Sealed or Seals or nil
+	local Made = NextPart(Part)
+	Made.Free = Free
+	Made.Holds = Kept
+	Made.Returned = Returned
+	if Seals then
+		Made.Sealed = true
+	end
 	return Made
 end
 
 local function Accepts(State: any, Amount: number): boolean
-	local Part = State :: Part
-	return Amount <= 0 or (Part.Opened ~= nil and not Shut(Part))
+	if Amount <= 0 then
+		return true
+	end
+	local Part = AsOpened(State)
+	if Part == nil then
+		return false
+	end
+	return not IsShut(Part)
 end
 
-local MEASURES = 4
-
-local SLOT = {
-	Free = 1,
-	Held = 2,
-	Sold = 3,
-	Shut = 4,
-}
-
 local function Measure(State: any): { number }?
-	local Part = State :: Part
-	if Part.Opened == nil then
+	local Part = AsOpened(State)
+	if Part == nil then
 		return nil
 	end
 	local Values = table.create(MEASURES, 0)
 	Values[SLOT.Free] = Part.Free
-	Values[SLOT.Held] = Held(Part.Holds)
+	Values[SLOT.Held] = HeldUnits(Part.Holds)
 	Values[SLOT.Sold] = Part.Sold
-	Values[SLOT.Shut] = if Shut(Part) then 1 else 0
+	Values[SLOT.Shut] = if IsShut(Part) then 1 else 0
 	return Values
 end
 
-local KIND = { Prefix = PREFIX, Width = MEASURES, Measure = Measure }
+local function SeenFree(Free: { [number]: number }, Index: number): number
+	return Free[Index] or 0
+end
 
-local Parts = {
-	PREFIX = PREFIX,
-	MODE = MODE,
-	FIELDS = FIELDS,
-	SPLIT_MAX = SPLIT_MAX,
-	SPLIT_NAME = SPLIT_NAME,
-	PROCEEDS_MAX = PROCEEDS_MAX,
-	HOLDS_MAX = HOLDS_MAX,
-	HOLD_MAX = HOLD_MAX,
-	HOLD_SLACK = HOLD_SLACK,
-	PROBES = PROBES,
-	VIEW_AGE = VIEW_AGE,
-	KIND = KIND,
-	SLOT = SLOT,
-}
+Parts.KIND = { Prefix = PREFIX, Width = MEASURES, Measure = Measure }
 
 function Parts.Key(Name: string, Count: number, Index: number): string
 	return `{PREFIX}{Name}:{Count}:{Index}`
@@ -339,64 +506,113 @@ function Parts.From(Declared: Declared, Index: number): number?
 	return if First then First + Declared.Stock * Index // Declared.Parts else nil
 end
 
+function Parts.OpenOp(Share: number, At: number, From: number?): OpenOp
+	return { Kind = OP.Open, Share = Share, At = At, From = From }
+end
+
+function Parts.TakeOp(Print: number, Count: number, Price: Price?): TakeOp
+	return { Kind = OP.Take, Print = Print, Count = Count, Price = Price }
+end
+
+function Parts.HoldOp(Print: number, Id: string, Count: number, End: number): HoldOp
+	return { Kind = OP.Hold, Print = Print, Id = Id, Count = Count, End = End }
+end
+
+function Parts.ConfirmOp(Print: number, Id: string, Count: number, Price: Price?): ConfirmOp
+	return { Kind = OP.Confirm, Print = Print, Id = Id, Count = Count, Price = Price }
+end
+
+function Parts.ReleaseOp(Print: number, Id: string): ReleaseOp
+	return { Kind = OP.Release, Print = Print, Id = Id }
+end
+
+function Parts.CreditOp(Print: number, Count: number): CreditOp
+	return { Kind = OP.Credit, Print = Print, Count = Count }
+end
+
+function Parts.CloseOp(Print: number): CloseOp
+	return { Kind = OP.Close, Print = Print }
+end
+
+function Parts.Units(Op: Op): number
+	if Op.Kind == OP.Take or Op.Kind == OP.Hold or Op.Kind == OP.Confirm or Op.Kind == OP.Credit then
+		return Op.Count
+	end
+	return 0
+end
+
 function Parts.Build(Base: Types.Build, Declared: Declared): Types.Build
-	local Made = table.clone(Base) :: any
 	local Fields = table.clone(FIELDS)
 	local Money = { "Free" }
 	for _, Field in Declared.Proceeds do
 		Fields[Field] = true
 		table.insert(Money, Field)
 	end
-	Made.Reducer = function(State: any, Op: any): unknown
-		return Reduce(Declared, State, Op)
-	end
-	Made.Upkeep = function(State: any, Clock: number, Marked: boolean): any
-		return Upkeep(Declared, State, Clock, Marked)
-	end
-	Made.Output = function(State: any): number?
-		return (State :: Part).Issued
-	end
-	Made.Accepts = function(State: any, _: number, Amount: number): boolean
-		return Accepts(State, Amount)
-	end
-	Made.Migrations = {}
-	Made.Default = {}
-	Made.Level = 0
-	Made.Floor = 0
-	Made.Money = Money
-	Made.Fields = Fields
-	Made.Window = {}
-	Made.Erasable = false
-	Made.UntimedRoom = 0
-	Made.Paced = PACE_PART
-	return Made :: Types.Build
+	local Made: Types.Build = {
+		Reducer = function(State: any, Op: any): unknown
+			local Decided = Decide(Declared, State, Op)
+			if type(Decided) == "string" then
+				return nil
+			end
+			return Decided
+		end,
+		Migrations = {},
+		Default = {},
+		Level = 0,
+		Floor = 0,
+		Money = Money,
+		Fields = Fields,
+		Erasable = false,
+		Window = {},
+		Minted = Base.Minted,
+		CutWindow = Base.CutWindow,
+		TimedRoom = Base.TimedRoom,
+		UntimedRoom = 0,
+		WorkRoom = Base.WorkRoom,
+		CutNames = Base.CutNames,
+		LossRoom = Base.LossRoom,
+		KeepNamed = Base.KeepNamed,
+		LegLimit = Base.LegLimit,
+		StateCap = Base.StateCap,
+		Ahead = Base.Ahead,
+		Hold = Base.Hold,
+		Paced = PACE_PART,
+		Upkeep = function(State: any, Clock: number, Marked: boolean): any
+			return Upkeep(Declared, State, Clock, Marked)
+		end,
+		Output = function(State: any): number?
+			local Part = AsOpened(State)
+			return if Part then Part.Issued else nil
+		end,
+		Accepts = function(State: any, _: number, Amount: number): boolean
+			return Accepts(State, Amount)
+		end,
+	}
+	return Made
 end
 
-function Parts.Reason(State: unknown, Kind: string, Count: number, Print: number): Reason
-	local Part = State :: Part
-	if type(State) ~= "table" or Part.Print ~= Print then
-		return "Invalid"
-	elseif Part.Closed then
-		return "Closed"
-	elseif Part.Sealed then
-		return "Sealed"
-	elseif Kind == "Hold" and #Part.Holds >= HOLDS_MAX then
-		return "Holds"
-	elseif Kind == "Confirm" then
-		return "Gone"
-	end
-	return if Part.Free + Held(Part.Holds) >= Count then "Held" else "Free"
+function Parts.Opened(Declared: Declared, State: unknown): Part?
+	return OpenedUnder(State, Declared.Print)
 end
 
-function Parts.Empty(State: unknown, Declared: Declared): boolean
-	local Part = State :: Part
-	if type(State) ~= "table" then
-		return false
-	elseif Part.Free ~= 0 or Part.Holds[1] ~= nil or (Part.Returned or {})[1] ~= nil then
+function Parts.IsShut(Part: Part): boolean
+	return IsShut(Part)
+end
+
+function Parts.Refusal(Declared: Declared, State: unknown, Op: Op): Reason?
+	local Decided = Decide(Declared, State, Op)
+	if type(Decided) == "string" then
+		return Decided
+	end
+	return nil
+end
+
+function Parts.Empty(Part: Part, Declared: Declared): boolean
+	if not NothingLeft(Part.Free, Part.Holds, Part.Returned) then
 		return false
 	end
 	for _, Field in Declared.Proceeds do
-		if (Part :: any)[Field] ~= 0 then
+		if Part[Field] ~= 0 then
 			return false
 		end
 	end
@@ -405,30 +621,34 @@ end
 
 function Parts.Read(Value: unknown): Part?
 	local Found = Key.Read(Value)
-	if type(Found) ~= "table" or Found.State.Opened == nil then
+	if type(Found) ~= "table" then
 		return nil
 	end
-	return Found.State :: any
+	return AsOpened(Found.State)
 end
 
-function Parts.Plan(Free: { [number]: number }, Within: number, Need: number, Room: number): { { Index: number, Count: number } }?
+function Parts.Plan(Free: { [number]: number }, Within: number, Need: number, Room: number): { Portion }?
 	local Order: { number } = {}
 	for Index = 0, Within - 1 do
 		table.insert(Order, Index)
 	end
 	table.sort(Order, function(Left: number, Right: number): boolean
-		return (Free[Left] or 0) > (Free[Right] or 0)
+		return SeenFree(Free, Left) > SeenFree(Free, Right)
 	end)
-	local Plan: { { Index: number, Count: number } } = {}
+	local Plan: { Portion } = {}
 	local Left = Need
 	for _, Index in Order do
-		local Taking = math.min(Free[Index] or 0, Left)
-		if Left > 0 and #Plan < Room and Taking > 0 then
-			table.insert(Plan, { Index = Index, Count = Taking })
-			Left -= Taking
+		local Taking = math.min(SeenFree(Free, Index), Left)
+		if Left == 0 or #Plan == Room or Taking == 0 then
+			break
 		end
+		table.insert(Plan, { Index = Index, Count = Taking })
+		Left -= Taking
 	end
-	return if Left == 0 then Plan else nil
+	if Left > 0 then
+		return nil
+	end
+	return Plan
 end
 
 return Parts

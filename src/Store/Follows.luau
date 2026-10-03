@@ -4,8 +4,6 @@
 --[=[
 	Follows: Object. The keys one store follows through their copies, and who listens to each.
 
-	Spec: extras 4 and 5.2 to 5.3.
-
 	A store keeps what it holds of the last Limits.SHOWN_MAX keys it followed or peeked at with a
 	MaxAge. One follower machine runs for a key while anything follows it. A new listener hears the
 	last state shown at once. Stale hears a followed key each time a write of this server lands on it

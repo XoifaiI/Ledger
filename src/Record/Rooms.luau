@@ -4,14 +4,13 @@
 --[=[
 	Rooms: Logic. The widths of the record's rooms, and the two steps that keep them in bounds.
 
-	Spec: record 2.4; record 4, steps 7 and 8.
-
 	Age drops what has outlived its window, and never this writer's entry. It raises the horizon over
-	each writer entry and timed name it drops, and the cut horizon over each cut name. An untimed
-	name leaves at its window and raises nothing. Evict frees such names first, oldest first, for an
-	untimed op that meets a full room before Age has run. Fit drops the least stamp
-	from the timed room until it fits, and raises the horizon each time. Items held ahead and this
-	request's own names go last. Fit also trims the cut names to the build's count, oldest first.
+	each writer entry and timed name it drops, and the cut horizon over each cut name. An untimed name
+	leaves at its window and raises nothing. Evict frees such names first, oldest first, for an untimed
+	op that meets a full room before Age has run. A name ages by its kind's window, and a leg fate or a
+	decision by that of Book.TX_KIND, the kind it is stored under. Fit drops the least stamp from the
+	timed room until it fits, and raises the horizon each time. Items held ahead and this request's own
+	names go last. Fit also trims the cut names to the build's count, oldest first.
 
 	Return type: The Rooms module.
 	Example usage:
@@ -76,14 +75,15 @@ function Rooms.Count(Record: Book): (number, number)
 	return Marked, Pinned
 end
 
-local function Window(Build: Build, Kind: number): number
+local function Window(Build: Build, Item: Book.Named): number
+	local Kind = if Item.Role == Book.Role.Op then Item.Kind else Book.TX_KIND
 	return Build.Window[Kind] or Build.Minted
 end
 
 function Rooms.Evict(Record: Book, Build: Build, Now: number, Epoch: number, Need: number): number
 	local Aged: { string } = {}
 	for Name, Item in Record.Untimed do
-		if Now - Item.Stamp >= Window(Build, Item.Kind) then
+		if Now - Item.Stamp >= Window(Build, Item) then
 			table.insert(Aged, Name)
 		end
 	end
@@ -113,7 +113,7 @@ function Rooms.Age(Record: Book, Build: Build, Now: number, Writer: number): boo
 		end
 	end
 	for Name, Item in Record.Timed do
-		if Now - Item.Stamp >= Window(Build, Item.Kind) then
+		if Now - Item.Stamp >= Window(Build, Item) then
 			Record.Timed[Name] = nil
 			Horizon = math.max(Horizon, Item.Stamp)
 			Dropped = true
@@ -127,7 +127,7 @@ function Rooms.Age(Record: Book, Build: Build, Now: number, Writer: number): boo
 		end
 	end
 	for Name, Item in Record.Untimed do
-		if Now - Item.Stamp >= Window(Build, Item.Kind) then
+		if Now - Item.Stamp >= Window(Build, Item) then
 			Record.Untimed[Name] = nil
 			Dropped = true
 		end

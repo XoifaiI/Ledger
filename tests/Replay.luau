@@ -5,7 +5,8 @@
 	Replay: Runs a machine to its end by answering each ask as it is made, at the time given.
 
 	A Send runs Step with the build given on the key held in Keys, and keeps what it wrote. A Read
-	gets the key, a Wait gets done, a Count counts 1, and a Run runs the other machine the same way.
+	gets the key, a Remove takes it off, a Wait gets done, a Count counts 1, and a Run runs the other
+	machine the same way.
 	Run gives back the machine's answer, how many sends landed and how many were made. A machine that
 	makes more than STEPS_MAX asks fails its case, so a loop cannot hang the run.
 
@@ -47,6 +48,9 @@ local function Run<Context, Answer>(Of: Machine.Machine<Context, Answer>, Contex
 			Heard = Asks.Done(Now, (Run(Ask.Machine, Ask.Context, Keys, Build, Now)))
 		elseif Ask.Kind == "Count" then
 			Heard = Asks.Got(1, Now)
+		elseif Ask.Kind == "Remove" then
+			Keys[Ask.Ref.Key] = nil
+			Heard = Asks.Done(Now)
 		else
 			Heard = Asks.Done(Now)
 		end

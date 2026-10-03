@@ -5,13 +5,12 @@
 	Requests: Logic. What a server asks one key to do in one UpdateAsync, and every request a
 	machine builds.
 
-	Spec: record 3.2 and 4; transaction 3.2 to 3.5; cuts 3.1 and 3.4.
-
 	A request carries the ops of one writer, or the writer NONE and no ops. A request of NONE carries
-	ends, a transaction step, a cut, a probe, a fresh read, a seal stamp or a tidy. An op, a Tent and
-	a Commit carry Id, the incarnation they were judged for, nil for any, or Create, the id of a key
-	they may make. An end path write carries only ends, drops and orphans. No floor, overdue item or
-	full room on its key holds it back, so ending old work never waits on other work (record 4).
+	ends, a transaction step, a cut, a probe, a fresh read, a seal stamp, a tidy, or a proof that
+	the key is gone. An op, a Tent and a Commit carry Id, the incarnation they were judged for, nil
+	for any, or Create, the id of a key they may make. An end path write carries only ends, drops
+	and orphans. No floor, overdue item or full room on its key holds it back, so ending old work
+	never waits on other work (record 4).
 
 	Return type: The Requests module with the Form and Outcome sets, and the request types.
 	Example usage:
@@ -136,6 +135,7 @@ export type Request = {
 	read Fence: Fence?,
 	read Cut: Cut?,
 	read Stamp: Stamp?,
+	read ProveGone: boolean?,
 	read Tidy: boolean?,
 }
 
@@ -187,8 +187,12 @@ function Requests.Tidy(): Request
 	return { Writer = NONE, Ack = 0, MustExist = true, Ops = {}, Tidy = true }
 end
 
+function Requests.ProveGone(): Request
+	return { Writer = NONE, Ack = 0, MustExist = true, Ops = {}, ProveGone = true }
+end
+
 function Requests.IsEndPath(Request: Request): boolean
-	return Request.Ops[1] == nil and not (Request.Tent or Request.Commit or Request.Fresh or Request.Probe or Request.Cut or Request.Stamp)
+	return Request.Ops[1] == nil and not (Request.Tent or Request.Commit or Request.Fresh or Request.Probe or Request.Cut or Request.Stamp or Request.ProveGone)
 end
 
 return Requests

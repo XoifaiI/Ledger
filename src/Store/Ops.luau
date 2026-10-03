@@ -4,8 +4,6 @@
 --[=[
 	Ops: Logic. The op a game's call asks for.
 
-	Spec: record 5.1.
-
 	A body is what a reducer sees: the op's fields and its Kind. An op with no Once is minted. With
 	Once and OnceAt, the unix time the name was first sent, it is timed, and with Once alone it is
 	untimed. A kind is stored as a number, the hash of its name. A print is 16 bits of the hash of a

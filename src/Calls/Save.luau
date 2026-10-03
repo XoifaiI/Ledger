@@ -4,8 +4,6 @@
 --[=[
 	Save: Machine. Sends one key's queue until it is empty.
 
-	Spec: record 3.2 and 6. Model: Rec.tla, Send and Hear.
-
 	The machine answers Empty for an empty queue, and Spent for a spent one, whose owner renews its
 	number and runs it again. Each fate a reply gives goes to its op's Tell, and a landing goes to
 	Landed. A reply that lands or settles an op sends again at once. A reply that says an item blocks

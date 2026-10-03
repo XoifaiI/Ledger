@@ -4,8 +4,6 @@
 --[=[
 	Sessions: Object. The sessions one store has open, and the loads still running.
 
-	Spec: record 5.2 and 6.
-
 	A load reads the player's key, with a fresh read when the shown table has forgotten the key. A
 	key that holds nothing opens on the store's default, unless the store's keys must exist. A second
 	Load of a player whose load is still running gets the same future. A player whose load fails is

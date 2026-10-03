@@ -4,8 +4,6 @@
 --[=[
 	Blockers: Logic. What a writer learns of a mark in its way, and what it sends to end it.
 
-	Spec: transaction 4.2 and 5.1.
-
 	A note lists the items in the way. Pick takes the one the server's number falls on in name order,
 	so helpers on different servers spread. A read of the mark's decider decides a commit, with the
 	attempt that committed, or an abort. It says gone when the decider holds no value, and nothing
@@ -92,7 +90,7 @@ function Blockers.Read(Value: unknown, Found: Blocker): Decision?
 	end
 	local Held = Record:Held(Found.Name)
 	if Held and Held.Role == Role.Decision then
-		local Attempt = Held.Attempt or 0
+		local Attempt = Held.Attempt
 		if Held.Fate == Fate.Took then
 			return { Outcome = Outcome.Commit, Attempt = Attempt, Gone = false, Value = Held.Value }
 		elseif Held.Fate ~= Fate.Fenced or Held.Final or Attempt >= Item.Attempt then

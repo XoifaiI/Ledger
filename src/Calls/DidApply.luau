@@ -4,8 +4,6 @@
 --[=[
 	DidApply: Machine. Says whether a game's name took effect on a key.
 
-	Spec: record 5.3. Model: Rec.tla, ReadHear for a didapply.
-
 	Reading reads the key once. It answers true when the key holds the name as took or as a pinned
 	use, and Unresolved otherwise. It is the only form for an untimed name, which never answers
 	false. Probing sends a probe that decides nothing. A held name answers true when it took and

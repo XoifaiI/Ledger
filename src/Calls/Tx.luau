@@ -4,12 +4,10 @@
 --[=[
 	Tx: Machine. Runs one transaction for the server that coordinates it.
 
-	Spec: transaction 3.1, 3.5 to 3.7. Model: Tx.tla, Steps for a tx call.
-
 	Retry, for a game name, reads the decider first: a decision that took under the call's
 	fingerprint answers true, and one under another answers Spent. A Tent goes to every leg key but
 	the decider, all at once, and the Commit goes only when each reported its mark. When the Tents
-	disagree, the first word of TENTS they said decides, in the order transaction 3.6 gives. A fence
+	disagree, the first word of TENTS they said decides. A fence
 	that is not final goes again under the next attempt, up to ATTEMPTS. The call answers once, and
 	the machine runs on to resolve. A commit resolves every leg key. A refusal resolves abort
 	wherever a mark of the call may have landed. Any reply the rows do not name fences the decider

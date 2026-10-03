@@ -5,8 +5,6 @@
 --[=[
 	Writer: Plumbing. Writes Ledger's bookkeeping into a buffer as alphabet text.
 
-	Spec: record 2.1.
-
 	A varint is 5 bit digits, lowest first, and a digit from the second half of the alphabet ends it.
 	Signed zigzags, and a size from 2^52 on goes through the wide form, which reaches 2^80 with a high
 	limb below WIDE_HIGH. A fixed width value can be rewritten in place by Patch, which is how a
