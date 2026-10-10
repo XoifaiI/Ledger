@@ -1,139 +1,166 @@
 # When the ask will hurt them
 
 Say the concern **once**, in a sentence or two, then do the work they asked for. If they say it again,
-that is their call about their own game: do it and say what you did. Do not repeat the warning, do
-not moralise, and do not refuse ordinary work because it touches something risky.
+that's their call about their own game: do it and say what you did. Don't repeat the warning, don't
+moralise, and don't refuse ordinary work because it touches something risky.
 
-Every entry below has a case where it is the right thing to do. Read the context before answering.
-The point is to catch the common mistake, not to have an opinion about every call.
+Every entry has a case where it's the right thing to do. Read the context before answering. The point
+is to catch the common mistake, not to have an opinion about every call.
 
 ## Throwing data away
 
-**"Erase this player to reset them."** `Erase` buries the key for 8 days, turns away anything sent to
-it, closes a live session on its next save, and can destroy money the key was part way through
-sending. `Reset` is what puts a profile back to `Default`, and it keeps `_Received` and `_Held` so a
-delivery cannot pay twice and money in flight is not stranded.
-*Right when:* the ask is a deletion request. `Erase` is the button for that, and check the answer,
-because `false` means the record is still there and the job is not done.
+**"Erase this player to reset them."** `Erase` removes the key, needs `Erasable = true`, and hands back
+the destroyed balances once, in its first answer. `Reset` puts the data back to `Default` (or a state
+you give) and keeps the key.
+*Right when:* it's a deletion request (GDPR, "Right to Erasure"). Then `Erase` is the call, with a
+fresh `Ledger.Id()` per attempt and `Cut.Losses` logged. `learn/deleting-data`.
 
-**"Wipe every key and start fresh."** That is a bulk destructive loop. Print the list and the count
-first, get the count named back, and cap the pass.
-*Right when:* it is a test store or a mock. Say which one it is before running it.
+**"Wipe every key and start fresh."** A bulk destructive loop. Print the list and the count first, get
+the count named back, and cap the pass.
+*Right when:* it's a mock or a test universe. Say which before running it. For a live game, a new store
+`Name` starts fresh without destroying anything.
 
-**"Just edit it in the datastore editor."** A plugin shows Ledger's record, not the player's data.
-Replacing it with a plain state table reads as a brand new profile, editing `Snapshot` while `Ops`
-has anything in it gets overwritten by the replay, and clearing `_Held` or `_Received` destroys money
-or lets a delivery pay twice. `Edit`, `Reset` and `Inspect` do the same job through the log.
-*Right when:* nothing. Read `guides/recovery#editing-storage-directly` with them.
+**"Just fix it in the DataStore editor plugin."** The plugin shows Ledger's record, `{ s, b }`, not the
+player's data. Writing a plain table reads `Unreadable`; editing `s` and leaving `b` can make old ops
+apply again or lose escrow. An op through the reducer, or a `Reset { State = ... }`, does the same job
+safely.
+*Right when:* only reading, to look at old versions. Never writing.
 
-## Retries and ids
+**"Close the sale and reopen it to restock."** After `Close`, `Open` makes the whole stock again with the
+same serial numbers. A restock is a new quantity with its own name and serial range.
+*Right when:* never on the same name.
 
-**"Retry until it goes through."** On `Refused`, the reducer said no and the answer will not change,
-so this is a loop and a wall of warnings. Read the state and tell the player why.
-*Right when:* the reason is `Busy` or `Unresolved`, with a backoff, under the same id.
+## Retries and names
 
-**"Retry it with a new id."** After `Unresolved` this is how a game pays twice. The id is the thing
-that makes a retry land once. Read the key back, or ask `DidApply`, under the id that was used.
-*Right when:* the reason is `Spent`, which means that name is finished and a new one is the only way
-forward. Decide what the new one means first.
+**"Retry until it goes through."** On `Refused` the reducer said no on the saved data, and it will again;
+this is a loop and a wall of warnings. Read `Info.State` and tell the player why.
+*Right when:* the reason is `Busy` or `NoRoom` (nothing was sent), or `Unresolved` on a call with a name,
+resent with the same `Id`, `IdAt` and terms.
 
-**"Generate the id at the call site."** A GUID made inside the call is a different transfer every
-attempt, so a retry moves the money again. Make it when the trade or the order opens and keep it
-where the retry can read it.
-*Right when:* the transfer genuinely is a fresh one each time, which is the default for a trade with
-no retry path.
+**"Wrap Edit in a retry loop for outages."** An unnamed write that answered `Unresolved` is still being
+sent by this server. A second call is a second change, and both land. `review.md` D1.
+*Right when:* the loop resends only on `Busy`. For `Unresolved`, wait on `Info.Outcome` instead.
 
-**"Use the reservation name as the receipt."** A hold is a live handle, not a receipt. Once the key
-compacts a repeat `Confirm` answers `Unresolved`, and a confirmed, released and expired hold all
-leave the same absence. Put a `Once` on the grant and ask `DidApply`.
-*Right when:* the thing being retried is the hold itself. Reserving again under a held name is safe
-and holds nothing extra.
+**"Retry with a new name."** After `Unresolved` this is how a game pays twice: the first name may still
+land.
+*Right when:* the first answer was definite and the player is starting a new attempt: after `Spent`,
+after `Refused` when the player changed something, after `Short` on a named take, after `Expired` once
+the data shows the first didn't happen.
 
-**"Answer PurchaseGranted, the Commit said true."** The first call did change something and every
-replay after it does not, so the boolean cannot tell a replay from a refusal. `DidApply` answers the
-question Roblox is asking.
-*Right when:* never, on a receipt. Check `Unresolved` first, then `DidApply`.
+**"Unlock the player after 30 seconds if it's still unresolved."** A trade has no time limit while its
+server lives. The player trades again, and both commit. `review.md` D4.
+*Right when:* the reducer already refuses a redo (one per player, a record of ids in the data).
+
+**"Put a GUID name on every write, to be safe."** Ledger already names every write and never applies one
+twice. A game name adds nothing for a call this server makes once, uses room in the key's name list,
+and on bumps cuts throughput badly. A string name without `IdAt` throws unless the kind has an
+`Untimed` window.
+*Right when:* the resend may come from another server or a support tool, or after this server restarts.
+Then `Id` plus `IdAt = Ledger.Now()`, made once and kept.
+
+**"Use the PurchaseId as the Id."** That's an untimed name, protected only inside a window, and Roblox
+can resend a receipt days later. Record the id in the player's data and let the reducer refuse it.
+*Right when:* never on its own. The record is the guard. `learn/purchases`.
+
+**"Keep the Ledger.Id() name in the GDPR queue, so any server can resend it."** A drawn name belongs to the
+server that drew it, and that server answers `Expired` for it once it's 6 minutes old. A string name
+throws on `Erase` and `Reset`.
+*Right when:* never. Draw a fresh name per attempt; on an `Erasable` store an erase of a key that's already
+gone answers `true` or `Missing`, both meaning done.
 
 ## The reducer
 
-**"Read `os.time()` in the reducer."** Two servers fold the same log at two different moments and
-disagree. Put the time on the op. The same goes for `math.random`, an upvalue that moves and anything
-outside the two arguments.
-*Right when:* never. Studio names the field that moved, and the check does not run live.
+**"Read `os.time()` in the reducer."** The reducer runs several times per op, at different moments.
+Put the time, or the day, in the op. The same goes for `math.random`, a flag table, a `Player`.
+*Right when:* never. Studio warns when two runs differ; a live server doesn't.
 
-**"`State.Gold += 1` in the reducer."** Live state is deep frozen, so it throws on the line that did
-it. Clone the table being changed, and each nested table on the way down.
-*Right when:* never, and the throw is the feature.
+**"`Data.Gold += 1` in the reducer."** Only Studio freezes the input. Live, this changes Ledger's own copy.
+Clone each table on the path you change.
+*Right when:* never.
 
-**"Return `State` for a kind we do not handle."** Ledger reads any table as accepted. That marks a
-`Once` name as applied while nothing was granted, and commits a transaction leg on a key that did
-nothing. Return `nil`.
-*Right when:* never. This one is the Redux habit and it costs money rather than throwing.
+**"Return `Data` for kinds we don't handle."** Ledger reads any table as accepted. A typo'd kind in a
+trade commits that leg doing nothing. End with `return nil`.
+*Right when:* never. It's the Redux habit, and it costs money rather than throwing.
 
-**"Delete the branch, nothing writes that kind any more."** Any live key still carrying one of those
-ops stops compacting for good, the log grows, and writes answer `Full`. Keep the branch, and keep it
-correct through later migrations.
-*Right when:* no stored key can still hold one, which in practice means never for a shipped kind.
+**"Store the refusal reason in the data so we can show it."** A reducer can only say no with `nil`, and a
+refused op stores nothing. `Info.State` is the data the op was judged on: run the same check in the
+script (`WhyNot(Info.State, Op)`) to tell the player why.
+*Right when:* never in the data.
 
-**"Migrate by returning the new shape."** A migration that rebuilds the state drops everything it did
-not mention, including Ledger's own fields. Ledger puts those back and names the step, but the game's
-own fields are gone. Copy the state and change what the step is for.
-*Right when:* the step really is meant to drop everything, which is a reset rather than a migration.
+**"Migrate by building the new shape from scratch."** `Run` gets the whole stored table, fields the build
+no longer declares included. A rebuild drops whatever it didn't mention. Copy the input and change what
+the step is for.
+*Right when:* the step really is meant to drop everything, which is a reset, not a migration.
+
+**"Just fix the old migration, it has a bug."** Migrations are identified by position; keys that already
+ran it keep the old result. Append a new step that repairs what the old one did.
+*Right when:* the migration never shipped to a live server.
 
 ## Cost and shape
 
-**"Commit on every click."** That is one datastore request per click and it will run the server out of
-budget. `Apply` folds against live state, answers at once, and rides out on the autosave, so the op
-rate is free.
-*Right when:* the write is about to be acted on outside the game, so a purchase, a webhook, a grant.
-Apply for gameplay, Commit for side effects.
+**"Commit on every click."** One write per click runs the server out of budget. `Apply` answers at once
+and rides the next save: one write per 30 s however many ops.
+*Right when:* the result is acted on outside the data: a badge, a webhook, a purchase answer.
 
-**"Poll `Total` every second."** With `MaxAge` at zero that is twelve times the request units for the
-same answer, on a key that is already the hottest thing in the experience.
-*Right when:* a short event where a visibly live number is the feature, and they have counted the
-units against `1000 + 120 per CCU` a minute.
+**"Peek the settings key every few seconds on every server."** A plain `Peek` is one read per server per
+call, all on one key. `Peek(Key, MaxAge)` or `Follow` shares one read across the fleet.
+*Right when:* one server needs the saved data once, before a decision.
 
-**"Peek the settings key on every server every few seconds."** A `Peek` with no `MaxAge` is one
-datastore read per server per call, on one key. Measured at 5,000 servers every 30 seconds that is
-40 MB a minute against a lane of 25 MB. `Follow` the key, or `Peek` it with a `MaxAge`, and the
-fleet reads it once a minute.
-*Right when:* one server needs the record itself, once, before a decision. That is a plain `Peek`.
+**"Use `Peek(Key, 30)` everywhere, it's cheaper."** For a key only this server reads, a `MaxAge` read
+makes this server the copy's holder: 2 reads a minute for 30 minutes. A plain `Peek` is one read.
+*Right when:* many servers read the same key often: a leaderboard, a guild panel, a shop index.
 
-**"Put the whole economy on one key."** A key takes one transaction at a time and every other one
-answers `Busy`. Contention costs throughput, never correctness, but the throughput goes fast: 32
-servers on one key measured about 8 attempts each.
-*Right when:* the limit genuinely is a property of one thing, like one item's stock. Then it belongs
-on one key and `Reserve` holds it.
+**"Use `{ Fresh = true }` to be sure."** It's a write, every time.
+*Right when:* a decision must be on current data and the reducer can't check it itself. Rare.
 
-**"Use `Tx` for the shop."** A transaction is the most expensive thing Ledger does. Selling stock is
-one key, so it is a reservation and a confirm, measured at 201 requests against 800 for the
-transaction version of the same 100 purchases.
-*Right when:* two different changes must happen together and one of them cannot be undone. Trading a
-sword for a shield is a real transaction.
+**"Put the whole economy on one key."** A key takes about 4 MB of writes a minute, and game-op legs off
+the decider hold it.
+*Right when:* the limit really is one thing, like one item's stock. Even then a quantity splits it over
+parts.
 
-**"Keep the whole history in the profile."** State caps at 2 MB and every compaction rewrites all of
-it. Bound the array, or move it to its own key.
-*Right when:* it is genuinely small and bounded. Say what bounds it.
+**"Use `Tx` for one player's purchase."** One key is an `Edit` or `Commit`; a one-leg `Tx` throws. A
+limited item is a `Take` with the buyer's payment in `Legs`.
+*Right when:* two keys must change together.
 
-**"Key it by username."** A rename orphans the data. Use the UserId.
-*Right when:* the key is not a player, which is what string keyed stores are for.
+**"Name the bumps so the count is exact."** Measured: 3,000 named bumps counted 1,599 under load;
+unnamed, all 3,000.
+*Right when:* a quiet total where a count must survive a server restart exactly.
+
+**"Keep the whole history in the profile."** About 4 MB per key, and a big key can be written only a
+few times a minute. Bound it, or move it to its own store.
+*Right when:* it's small and bounded. Say what bounds it.
+
+**"Key it by username."** A rename orphans the data. Use the UserId; a `Player` store does it for you.
+*Right when:* the key isn't a player, which is what `Keys = "String"` stores are for.
 
 ## Answers and failure
 
-**"Fire and forget the Edit."** The reason was the answer and it is gone. Wait the Future, or handle
-the reason.
-*Right when:* the write is genuinely advisory and its failure is visible some other way. Say which.
+**"Wrap it in pcall and carry on."** Ledger throws only on misuse: a wrong kind, a bad key, an `IdAt`
+from `os.time()`. That throw is a bug in the call. Answers are never thrown, so a `pcall` hides bugs
+and catches nothing else.
+*Right when:* wrapping the **reducer** in `xpcall` with a `warn`, so a reducer that throws on bad data
+says so instead of being a silent refusal.
 
-**"Wrap it in a pcall and carry on."** Misuse throws where the call was written, and that throw is a
-bug in the call rather than a runtime condition. Fix the call.
-*Right when:* the throw is expected and handled, like `UserOwnsGamePassAsync` failing. Never collapse
-that one to `false`, which takes a pass away from somebody who paid for it.
+**"Turn off the warnings."** There's no switch, and they're the only place Ledger says what went wrong
+with a key nobody asked about. If they're noisy, that's a finding.
+*Right when:* never.
 
-**"Turn off the warnings."** They are the interface. A warning holding `Ledger bug:` is a request to
-report it.
-*Right when:* never. If they are noisy, that is a finding.
+**"Let them play on a fresh profile if the load fails."** On `Behind` or `Unresolved` the data is fine
+and this server couldn't read it. A fresh profile that saves destroys it.
+*Right when:* never for a profile that saves. `Kick = false` with a handler that retries `Unresolved`
+or teleports on `Behind` is fine.
 
-**"Fall back to a fresh profile when the load fails."** On `Behind` the record is fine and this server
-is the problem, so writing a fresh profile over it destroys real data. `OnLoadFailed` is where that
-decision belongs, and a `Behind` wants a teleport rather than a kick.
-*Right when:* never for `Behind`. For other reasons, kicking is already what Ledger does.
+**"Spent means it already went through, give the item."** `Spent` means this call changed nothing.
+*Right when:* never.
+
+**"Save everything in BindToClose."** Ledger closes first; every call there answers `Closed`.
+`Ledger.BeforeClose`, or `Apply` as things happen.
+*Right when:* the `BindToClose` work isn't Ledger's.
+
+**"Add a session lock so two servers can't load the same player."** Ledger merges ops at the key; that
+is the design every guarantee rests on. A lock adds a failure mode and protects nothing.
+*Right when:* never.
+
+**"Read the v6 data straight from the DataStore for the import."** v6 stored a log, not the state; the
+raw value isn't the player's data. Read it with v6's own `Peek` under another module name.
+*Right when:* never. `migrate-v6.md`.

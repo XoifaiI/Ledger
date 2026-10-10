@@ -1,194 +1,171 @@
 # Checking a claim
 
-Ledger ships its whole source, so almost anything can be settled in under a minute. Do that rather
-than remembering, and do it before saying a number out loud.
+When the library source is on disk, almost anything can be settled in a minute. Do that rather than
+remembering, and do it before saying a number out loud.
 
-**The documentation is not always right.** 
-If a page and the source disagree, the source wins. Say which one was wrong rather than quietly
-following one.
+**The documentation is not always right.** Fixes have landed in the source after the docs described the
+old behaviour. If a page and the source disagree, the source wins. Say which one was wrong rather than
+quietly following one.
+
+## Where the source is
+
+| Install | Path |
+|---|---|
+| Wally | `Packages/_Index/xoifaii_ledger@<version>/ledger/` (the `Packages/Ledger` file only points there) |
+| npm (roblox-ts) | `node_modules/@xoifail/ledger/` |
+| Rojo, from the repo | `src/` |
+| `.rbxm` model | none on disk; read it in Studio, or use the bundle |
+
+Paths below are relative to that folder.
 
 ## Where each answer lives
 
-Paths are inside the package, the same tree a `require` reaches.
-
-| the question | the file |
+| The question | The file |
 |---|---|
-| how long is any window, and why is it that long | `Core/Constants/Windows.luau` |
-| every byte cap | `Core/Constants/Sizes.luau` |
-| the ten reasons | `Core/Constants/Reasons.luau` |
-| every public method and its exact signature | `Core/Api.luau` |
-| what a record holds | `Core/Shapes.luau` |
-| how a name is remembered and pruned | `Core/Applied.luau` |
-| the rules an append runs, in order | `Record/Rules.luau` |
-| when a key compacts, and what blocks it | `Record/Compact.luau` |
-| migrations, the floor, and the underscore fields | `Record/Schema.luau` |
-| the three transfer legs | `Layers/Escrow.luau` |
-| the transaction protocol | `Protocol/Tx/` |
-| what a session admits and why | `Session/Admit.luau` |
-| the public writes and their argument checks | `Store/Api/Ops.luau` |
-| the operator calls | `Store/Api/Admin.luau` |
-| the real datastore limits Ledger models | `Core/Constants/Datastore.luau` |
-| the MemoryStore limits | `Core/Constants/MemoryStore.luau` |
+| every public function on `Ledger` | `init.luau` (the `return` at the foot) |
+| every method on a store, session, quantity and key pager, with exact types | `Types.luau` |
+| the 15 reasons | `Constants/Reasons.luau` |
+| name rooms, the state cap, the epoch, answer bounds, queue sizes, mark caps | `Constants/Record.luau` |
+| every setting's default and allowed range | `Constants/Settable.luau` |
+| settle age, touch bound, orphan age | `Constants/Transaction.luau` |
+| copies, `Follow` ticks, totals' shards | `Constants/Extras.luau` |
+| quantities: holds, walk tries | `Constants/Hot.luau` |
+| `Reset`/`Erase` bounds, when `Close` removes parts | `Constants/Cuts.luau` |
+| every throw's message, and what makes each call throw | `Api/Validate/Args.luau`, `Setup.luau`, `Cross.luau`, `Keys.luau`, `Legs.luau`, `Quantity.luau` |
+| which `Info` fields each answer fills | `Api/Answers.luau` |
+| which leg decides a `Tx` | `Tx/Call/Terms.luau` (`ChooseDecider`) |
+| what Studio checks in the reducer, frozen inputs, undeclared fields | `Judging/Guards.luau`, `Shell/Setup.luau` |
+| the `Mock` option and its errors | `Shell/Services.luau` |
+| the close, `BeforeClose`, the 25 s deadline | `Shell/Runner.luau`, `Sessions/Closing.luau` |
+| `Unreadable` and its warnings | `Reading/Unreadable.luau` |
+| a refused Roblox request (403, 101 to 106) | `Shell/Refusals.luau` |
+| when a read ends a dead server's trade work | `Tx/Work/Touch.luau` |
+| store calls, session calls, quantity calls | `Api/Store.luau`, `Api/Sessions.luau`, `Api/Session.luau`, `Api/Quantity.luau` |
 
-Every file opens with a header saying what it is and what is subtle about it. Read the header first.
-The header is the only prose in the file.
-
-`Core/Constants/Windows.luau` is worth knowing for another reason: each window carries an assert
-saying how it must relate to the others, in a sentence. Those asserts are the best short explanation
-of why the horizons are the sizes they are.
+Every file opens with a header comment saying what it is and what's subtle about it. Read the header
+first; it is the only prose in the file.
 
 ## Checking a number
 
 ```
-grep -n "PRUNE\|REDRIVE\|TOMB\|BOOK" src/Core/Constants/Windows.luau
+grep -n "TimedRoom\|UntimedRoom\|StateCap\|OpBound\|MarkCap" Constants/Record.luau
+grep -n "SaveInterval\|IdleReadInterval\|CutWindow\|OrphanAge\|HoldMax" -A3 Constants/Settable.luau
 ```
 
-Read the value and the assert next to it. Do not convert it in your head and quote the result without
-saying which constant it came from.
-
-## When nothing here answers it
-
-Most questions are not in this skill and are not in the documentation either, because they are about
-this game's reducer meeting this library. Do not guess at those, and do not answer them from the
-shape of the API. Work down this ladder and stop at the first rung that settles it.
-
-1. **Read the source.** The table above says which file. Most questions die here.
-2. **Run it on the mock.** Below. This is the rung that answers "what does it actually do".
-3. **Ask the developer to run it.** When you cannot execute Luau yourself, hand them a snippet that
-   prints the answer and ask for the output. Make it paste and run, with no edits needed.
-4. **Say you do not know.** Name what you tried, what the answer depends on, and the one experiment
-   that would settle it. A named unknown is useful. A confident guess about somebody's economy is
-   not.
-
-Never skip from 1 to 4. The mock ships with the library, so rung 2 is always available to somebody,
-and an unrun experiment is not an unknown.
-
-## Checking a behaviour
-
-Run it. Ten lines against the mock, with the game's own reducer:
-
-```luau
-local Store = Ledger.New({
-	Name = "Probe",
-	Default = { Stock = 0 },
-	Reducer = Reducer,
-	Mock = { Players = 8, Throttled = false },
-})
-
-local Ok, Why = Store:Edit("thing", "Restock", { Amount = 500 }):Wait()
-print(Ok, Why, Store:Peek("thing"):Wait().Stock)
-
-Store:Destroy()
-```
-
-For something that might throw rather than answer, wrap the call in a `pcall` and print both, because
-Ledger throws on misuse at the call site and answers a reason for everything else. That difference is
-itself worth checking when it is not obvious which one a mistake will be.
-
-### What to print
-
-The state is the folded answer. The record is what is actually on the key, and most surprises live
-there rather than in the state.
-
-```luau
-print(Store:Peek(Key):Wait())        -- what the player has
-print(Store:Inspect(Key):Wait())     -- the snapshot, the ops, the seen ids, the version
-print(Session.LogSize, Session.LogBytes)
-print(Store:Holds(Key, "Stock"):Wait())
-print(Store:History(Key, 5):Wait())
-```
-
-Ledger's own warnings are instrumentation too. They name the key and the amount, so capture them
-rather than summarising them.
-
-### Rules for a probe that proves something
-
-- **Use the game's own `Default`, `Reducer` and `Migrations`.** A probe against a different reducer
-  proves nothing about theirs.
-- **Pick values where each answer reads differently.** Spend 500 then add 500 balances whether or not
-  the op applied twice. Use 1, 10, 100 and 1000, never 100 and 100.
-- **Check the probe actually did the thing.** A green run where the fault never fired, or the branch
-  was never reached, is not evidence. Print the count.
-- **`Store:Destroy()` at the end**, or the next probe cannot claim the same store name.
-- **`Throttled = false`** while testing logic, and `Mock = { Players = 30 }` when the question is
-  about the request budget.
-
-### Time
-
-A store takes no scheduler, so a probe cannot move the clock through the public surface. Anything
-gated on a real window, a 15 minute hold, an 8 day tomb, a 30 day name, cannot be reached by waiting
-in a script.
-
-Two honest options. Shrink the question until it fits: ask what happens at the boundary rather than
-across it, or drive the state directly with `Edit` to where the window would have put it. Or reach
-past the public surface for a probe only, never for game code:
-
-```luau
-local Tree = game:GetService("ServerStorage").Ledger   -- the folder, not the required module
-local Clock = require(Tree.Util.Clock)
-local Virtual = require(Tree.Schedulers.Virtual)
-
-local Turn = Virtual.New()
-Clock.Use(Turn)                      -- before any store is built
--- build stores here, then Turn.Advance(seconds) and Turn.Run()
-```
-
-That is internal, it is not part of the public entries, and it must be called before any store
-exists. Say so when you use it, and never leave it in a game.
-
-## Asking the developer to run it
-
-When you cannot execute Luau, the snippet you hand over has to be paste and run. One Script in
-`ServerScriptService`, no edits, and it prints the one thing in question:
-
-```luau
-local Ledger = require(game:GetService("ServerStorage").Ledger)
-
-local Store = Ledger.New({
-	Name = "Probe",
-	Default = { Gold = 100 },
-	Reducer = YourReducer,
-	Mock = { Players = 8, Throttled = false },
-})
-
-local Ok, Why = Store:Edit(1, "SpendGold", { Amount = 30 }):Wait()
-print("answer", Ok, Why)
-print("record", Store:Inspect(1):Wait())
-
-Store:Destroy()
-```
-
-Say what you expect to see and what each outcome would mean, before they run it. Then they can tell
-you which happened in one line, and a disagreement with your expectation is the finding.
-
-## Saying you do not know
-
-Do it plainly and early. Name the rung you got to, what the answer turns on, and the experiment that
-would settle it. "I read `Store/Api/Ops.luau` and it does not say, and I cannot run it here, so run
-this and tell me what it prints" is a good answer. An invented number is not.
+Read the value and the line beside it. Say which constant a number came from; don't convert it in your
+head and quote the result as if you'd read it.
 
 ## Checking the surface
 
-The set of methods is closed. To be sure a method exists before recommending it:
+The set of methods is closed. To be sure one exists before recommending it:
 
 ```
-grep -oE "^\s+[A-Za-z]+: \(self: any" src/Core/Api.luau | grep -oE "[A-Za-z]+" | grep -v "self\|any" | sort -u
+grep -oE "^	[A-Z][A-Za-z]+: \(" Types.luau | grep -oE "[A-Z][A-Za-z]+" | sort -u
 ```
 
-That prints every method on a store and on a session, and nothing else. Checked on 2026-09-08 it
-prints 36 names. Anything not in there does not exist, however plausible it sounds.
+That prints every method on a store, a session, a quantity and a key pager, and nothing else. On 7.0.0
+it prints 40 names. The module itself has `New`, `Now`, `Id`, `Tx`, `CloseAll`, `BeforeClose` and
+`Reason`, and nothing more: there is no `Ledger.Version`, `Ledger.Credit`, `Ledger.Debit`, `Transfer`,
+`Reserve` or `Once`. Anything not printed doesn't exist, however plausible it sounds.
 
-## Checking what touches what
+## When nothing here answers it
 
+Most questions aren't in this skill or in the documentation, because they're about this game's reducer
+meeting this library. Don't guess, and don't answer from the shape of the API. Work down this ladder and
+stop at the first rung that settles it.
+
+1. **Read the source.** The table above says which file. Most questions end here.
+2. **Run it on the mock.** Below. This is the rung that answers "what does it actually do".
+3. **Ask the developer to run it.** When you can't execute Luau, hand them a paste-and-run script that
+   prints the answer, and ask for the output.
+4. **Say you don't know.** Name what you tried, what the answer turns on, and the one experiment that
+   would settle it.
+
+Never skip from 1 to 4. An unrun experiment is not an unknown.
+
+## Checking a behaviour
+
+Run it. A few lines on the mock, with the game's own reducer:
+
+```luau
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Ledger = require(ReplicatedStorage.Packages.Ledger)
+local Mock = require(ReplicatedStorage.Packages.Mock)
+
+local Store = Ledger.New({
+	Name = "Probe",
+	Keys = "String",
+	Default = { Stock = 0 },
+	Reducer = Reducer,
+	MustExist = false,
+	Erasable = false,
+	Mock = Mock.New({ Players = 8, Throttled = false }),
+})
+
+print(Store:Edit("thing", { Kind = "Restock", Amount = 500 }))
+print(Store:Peek("thing"))
 ```
-grep -rn "self:Watch\|:WatchHeld\|Sweep:Add" src
-grep -rn "self.Tallies\|self.Leases\|self.Bookings\|self.Copier" src
+
+For something that might throw rather than answer, wrap the call in `pcall` and print both, because
+Ledger throws on misuse and answers a reason for everything else. Which of the two a mistake gives is
+itself worth checking when it isn't obvious.
+
+### What to print
+
+All three values of every answer, never just the boolean. `Info` holds the state an op was judged on,
+the key that decided a trade, and the `Outcome` of an `Unresolved` call.
+
+```luau
+print(Store:Peek(Key))
+print(Store:Inspect(Key))
+print(Store:Pending(Key))
+print(Store:Losses(Key))
 ```
 
-The first is every place a key is handed to the recovery sweep. The second is every place MemoryStore
-is touched. `tiers.md` is built from those two greps and can be rebuilt from them.
+Ledger's warnings are instrumentation too. Capture them; don't summarise them.
+
+### Rules for a probe that proves something
+
+- **Use the game's own `Default`, `Reducer`, `Balances`, `Migrations` and `Quantities`.** A probe
+  against a different reducer proves nothing about theirs.
+- **Pick values where each outcome reads differently.** Spend 30 from 100, then add 7. Never 100 and
+  100.
+- **Check the probe reached the case.** A green run where the branch never fired is not evidence.
+- **A probe runs in its own script or place.** The mock is per server, every store runs on it, and it
+  must be given before Ledger's first request. A probe that shares a server with stores that already
+  made a request throws.
+- **`Throttled = false`** while testing logic. Leave it on, with `Players` set, when the question is
+  about the request budget.
+
+### What a probe can't reach
+
+The mock has no scheduler: a probe runs in real time. A 180 s name window or a 10 s settle age can be
+waited out in a probe; a 62-minute part removal, a 7-day loss record or a day's `OrphanAge` can't be.
+Ask what happens at the boundary rather than across it, set the window to its least value where the
+setting allows (`Windows` 136 s, `CutWindow` 318 s, `OrphanAge` 3,600 s), or say the probe can't reach
+it.
+
+A single server can't show two servers. Two stores with the same `Name` can't be opened on one server,
+so "what does another server see" is a question for the source, or for a test universe with two
+servers.
+
+## Asking the developer to run it
+
+When you can't execute Luau, the script you hand over must be paste-and-run: one Script in
+`ServerScriptService` of an empty place, no edits needed, printing the one thing in question. Use the
+mock, never their live stores.
+
+Say what you expect to see and what each outcome would mean, **before** they run it. Then they can tell
+you which happened in one line, and a disagreement with your expectation is the finding.
+
+## Saying you don't know
+
+Do it plainly and early. Name the rung you got to, what the answer turns on, and the experiment that
+would settle it. "I read `Api/Validate/Args.luau` and it doesn't say, and I can't run Luau here, so run
+this and tell me what it prints" is a good answer. An invented number is not.
 
 ## Saying what you did
 
-State which of these you did. "Checked `Windows.luau`" and "ran it on the mock" are different levels
-of evidence from "I believe", and the developer deserves to know which one they got.
+State which of these you did. "Checked `Constants/Record.luau`" and "ran it on the mock" are different
+levels of evidence from "I believe", and the developer deserves to know which one they got.

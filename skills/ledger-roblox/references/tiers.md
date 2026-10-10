@@ -1,108 +1,136 @@
-# What each call actually touches
+# What each call touches, and what it costs
 
-The table in `SKILL.md` is the short form. This is the same thing with the path behind each row, so
-it can be checked rather than believed. Paths are inside the library's own `src`, which ships with
-the package.
+The table in `SKILL.md` is the short form. This is the same with costs and the path behind each row, so
+it can be checked rather than believed. Paths are inside the library's `src`. Costs are Roblox requests
+with no contention and no faults, measured on 7.0.0: `read` is a `GetAsync`, `write` an `UpdateAsync`.
+The server's budget is 60 + 40 per player of each kind a minute; a key takes about 4 MB of writes and
+25 MB of reads a minute.
 
-## Reads that touch nothing else
+## Memory only
 
-`Inspect`, `History`, `PeekVersion`, `Read`, `Get`, `Expect`, `IsLoaded`, `WaitForLoaded`, `Stale`,
-`Session:Get`, `Session:Observe`, `Session:DidApply`, `LogSize`, `LogBytes`.
+`Session:Get`, `Session:Observe`, `Session:ObserveFates`, `Store:Get`, `Expect`, `IsLoaded`, `Read`,
+`Store:Stale`, `Store:Leg`, `Store:Quantity`, `Ledger.Now`, `Ledger.Id` (after the server's number is
+drawn).
 
-`Inspect` deep copies and freezes the record before handing it over, so nothing a caller does to the
-result can reach what the server folds from. `Session:DidApply` reads live state, which includes ops
-that are queued and not yet written, so it can answer `true` before the write is durable. `DidApply`
-on the **store** reads the record, which does not include them.
+Every value they hand back is a deep-frozen copy, on a live server too. Changing it throws.
+`Session:Get()` is the session's **view**: the last saved state this server saw, with the session's own
+queued `Apply`s laid on top. It is not the saved data.
 
-## Reads that enrol background work
+## `Apply`: free now, judged twice
 
-`Peek` and `Store:DidApply` both go through one private helper (`Store/Api/Read.luau`, `Followed`)
-that calls `Watch` and `WatchHeld` (`Store/Api/Write.luau`). Those add the key to the recovery sweep
-when the record has a parked transaction leg, or when the folded state has money in `_Held`.
+`Session:Apply` sends nothing. It judges the op on the view with the game's reducer and queues it. The
+next save (every `SaveInterval`, 30 s, while ops are queued, one write however many) judges it again on
+the saved data, and can turn it away. A `Flush`, `Commit`, `Release`, `Unload` or the close also carries
+the queue. `Sessions/Session.luau`, `Api/Session.luau`.
 
-The sweep runs every 60 seconds and calls `Repair`, which settles legs and redrives or refunds
-transfers. So a `Peek` on a key with a stranded transfer starts something that moves money a minute
-later. Nothing is wrong with that, it is how a crashed server gets cleaned up. It is worth knowing
-before saying "I only read it".
+The queue holds 4,096 ops or 1.5 MiB; past that `Apply` answers `Backlog`. A crash before a save loses
+the queue with no fate.
 
-`Inspect`, `History` and `PeekVersion` do not enrol anything. Use `Inspect` when the intent is to
-look without touching.
+## Reads, and why they aren't passive
 
-## Reads that write to MemoryStore
+| Call | Cost | Notes |
+|---|---|---|
+| `Store:Peek(Key)`, `Peek(Key, 0)` | 1 read | the saved state at some moment, never older than this server showed last |
+| `Store:Inspect(Key)` | 1 read | the record: state plus the supported parts of `Book` |
+| `Store:Losses(Key)` | 1 read | cut events and returned escrow, 7 days |
+| `Store:Pending(Key)` | 1 read | unfinished trade work, with ages |
+| `Store:DidApply(Key, Name)` | 1 read | `Probe = true` makes it **1 write** |
+| `Store:Load(Player)` | 1 read | then an idle session reads once per `IdleReadInterval` (120 s) |
+| `Session:Refresh()` | 1 read, or a `Flush` with ops queued | the view adopts the read only if it's newer |
+| `Store:Keys():Next()` | 1 list request per page of 50 | the list budget is 5 + 2 per player a minute |
 
-`Total` (`Store/Api/Ops.luau`) reads the cached sum, and when that sum is stale it writes a claim so
-one server refills it, reads the 16 shards, and writes the new sum back. Two of those are `Update`
-calls, which cost two request units each.
+Every read that finds unfinished trade work on a key notes it, and this server comes back to end that
+work: from 10 s on for a session's load or idle read, staggered up to about 30 minutes (`TouchBound`,
+1,878 s) otherwise. Ending it costs writes and applies decided legs, aborts undecided ones, and returns
+escrow. So a read can cause money to move, later, on this server. `Writing/Numbers.luau`
+(`LearnWorkAndGate`), `Tx/Work/Touch.luau`, `Constants/Transaction.luau`.
 
-`MaxAge` is what decides whether it calls at all. It defaults to one minute, and zero forces a read
-every time. A pot polled every five seconds with `MaxAge = 0` costs twelve times what the default
-costs, for the same answer.
+Beside an undecided mark from a server that died, `Peek` and `Inspect` answer `Unresolved` on every
+server until a touch ends it, up to about 30 minutes. `Load` doesn't wait that long: it acts on such a
+mark once it's 10 s old.
 
-`Peek` with a `MaxAge` and `Follow` (`Store/Api/Follow.luau`) read the copy of the key the fleet
-shares, one `Get` for one unit. When the copy is stale, after 60 to 75 seconds, one server claims
-the refill, reads the record and writes the copy back, five units and one request. The others
-answer the copy they hold. `Follow` does that on a timer, every 30 seconds while the key changes
-and every 4 minutes while it does not, and the timer stops with the last listener. A `MaxAge` of
-zero reads the record through the same claim. The refill reads the record the way `Peek` does, so
-it enrols the key in the sweep when it finds work.
+Reads answer `Unresolved` after 30 s (`OpBound`) when the DataStore doesn't answer.
 
-`Holds` is a single `Get` and writes nothing.
+## Reads through the shared copy
 
-## Writes to the record
+`Peek(Key, MaxAge)` and `Follow(Key)` read a copy of the key kept in MemoryStore, shared by every
+server. `Extras/Copies/`.
 
-`Apply` queues an op and writes nothing until the next save, so its answer is this server's opinion
-and not a settled fact. Everything else in this group writes when it answers: `Commit`, `CommitOp`,
-`Flush`, `Compact`, `Edit`, `EditOp`, `Bump`, `Confirm`, `Transfer`, `Tx`, `Resettle`,
-`RecoverTransfers`, `ClearDelivered`, `Unload`, `Session:Release`, and `Ledger.Sweep`. On a store
-built with `BumpEvery`, `Bump` queues like `Apply` and its Future answers once the window is written.
+| Case | Cost |
+|---|---|
+| this server showed the key within `MaxAge` | nothing |
+| a live copy exists | 1 MemoryStore request |
+| no copy yet | 2 reads + 2 MemoryStore requests, and **this server becomes the copy's holder** |
+| the holder | 2 reads a minute per key for 30 minutes after the last use |
+| `Follow` | 1 MemoryStore read per tick per server: 30 s, doubling to 240 s on a quiet key |
 
-Three of them are more than they look:
+So `MaxAge` saves requests only on a key many servers read often. On a key one server reads now and
+then, it costs more than a plain `Peek`.
 
-- **`Load`** reads, and settles what it finds. `Session.Load` calls `Tx.Settle` on a record with a
-  parked leg, and `Store.PickUp` starts a transfer recovery when the state has money in `_Held`. A
-  player joining can therefore complete a transaction another server abandoned.
-- **`Confirm`** writes the op through the ordinary write path and then drops the hold in MemoryStore.
-  The two are not atomic and are not meant to be. A retry is deduped by the op id, which derives from
-  the reservation name, until the key compacts. After that the record cannot tell whether the op took
-  or was turned away, and a repeat answers `Unresolved`. Once the key has forgotten the op, the log
-  plus the last 2048 absorbed ids, a repeat sells again. A confirm given a `Once` is refused for 30
-  days instead, and `DidApply` answers for the name.
-- **`Transfer`** is three ops across two keys. It can leave money in `_Held` on purpose, which is the
-  only safe place for it, and answers `Held` when it could not hand it over.
+A copy can be minutes old: a write shows on the holder within about 30 s, elsewhere at the next tick,
+and up to about 4.5 minutes on a quiet key. Right after this server's own write, a `MaxAge` read can
+still return the copy from before it. Once a server has heard `Behind` for a key, its `MaxAge` reads
+answer `Behind` and `Follow` emits `"Behind"`; a server that never read the key can serve the old copy
+once before it learns. A copy expires an hour after it was last written.
 
-## Writes to MemoryStore only
+`Peek(Key, { Fresh = true })` is the only current read, and it is **1 write** that changes nothing.
 
-`Reserve` and `Release` never touch the record. A hold is not in the fold, so `Peek` shows the field
-at its full value while a hold stands, and an `Edit` can spend units somebody holds. That is by
-design: the reducer is the gate at checkout, so a lost hold costs one refused checkout and never an
-oversell.
+## Writes
 
-`Tx` also leases each of its keys in MemoryStore before it drives, in a fixed order. The lease only
-decides who tries first. The marker still decides the transaction, and a server that cannot reach
-MemoryStore drives without one.
+| Call | Cost | Notes |
+|---|---|---|
+| `Store:Edit`, `Session:Commit` | 1 write; +1 read the first time this server meets an erasable key | `Edit` on a key a session here holds goes through that session's writer, with its queued ops |
+| `Session:Flush`, `Release`, `Store:Unload` | 1 write with ops queued, else nothing | `true` means the push was answered, not that ops saved |
+| `Ledger.Tx`, N keys | N writes before the answer, 2N-1 in all | a two-player trade: 2 to the answer, 3 in all |
+| `Quantity:Take`, `Hold`, `Confirm`, `Release` | 1 write; with one key in `Legs`, 2 to the answer and 3 in all | a failed try on a part adds a write on the part and two per leg key |
+| `Quantity:Deposit`, `Withdraw`, `Gather` | a two-leg `Tx` each (a minted `Deposit` is 1 write) | Open quantities, mostly |
+| `Store:Bump` | 1 write per shard per server batch | yields 0 to 60 s, up to 90 s when writes fail |
+| `Store:Total(Name, MaxAge)` | nothing inside `MaxAge`; else 1 MemoryStore request; shard reads when the summary is gone | a statistic, never part of an op |
+| `Store:Resettle` | 1 read + 1 write, +1 read and 1 write per undecided mark | ends the key's trade work now |
+| Server start | 1 write on `Ledger$N` | draws the server's number |
+
+An unnamed write that answers `Unresolved` stays in this server's writer, which sends it again about
+every 16 s for the server's life (`Writing/Writer.luau`, `Writing/Sending.luau`). A `Tx` that answers
+`Unresolved` is driven by its sender with no time bound while the sender lives (`Tx/Call/`). After a
+long outage (past about 180 s), if other writes to the key drop names stamped after the op's first send,
+the op can end without landing: a session op then gets the `Unknown` fate, and an unnamed `Edit` is
+dropped with no signal. For changes the game can't lose, keep a record in the data.
+
+A game-op leg of a `Tx` that isn't the decider takes an **exclusive mark** on its key, holding the key's
+game ops until the trade ends. A balance leg only escrows its amount, so credits and covered debits on
+the key go on beside it. A key holds at most 16 marks; the 17th leg answers `NoRoom`. The decider is
+the only game-op leg if there's exactly one, else the first Credit leg, else the last
+(`Tx/Call/Terms.luau`, `ChooseDecider`).
 
 ## The bottom rows
 
-- **`Reset`** appends an op that writes the default state back. It keeps `_Received` and `_Held`,
-  because dropping either would let an old delivery pay twice or strand money in flight. It cannot
-  free a key whose log holds an op this build refuses, because the reset is another op behind that
-  one.
-- **`Erase`** hands over what the key owes first, then buries it. The tombstone turns away anything
-  sent to the key for 8 days and a write does not clear it. A second `Erase` after that window calls
-  `RemoveAsync` and takes the record off. It also removes the key's holds and its shared copy from
-  MemoryStore.
-- **`Destroy`** saves every live session on that store, frees the name, and makes every later call
-  throw. It ends every follow on the store, and the sweep forgets the store's keys. **`CloseAll`**
-  does it for every store and stops the sweep.
+- **`Quantity:Open`** writes every part, every call, even when they exist: `Parts` writes. Once per
+  quantity, ever. After `Close` it makes the stock again; `Closed = true` in the declaration makes it
+  throw in this build. `Hot/Calls/Open.luau`.
+- **`Quantity:Close`** writes every part and removes those that are empty and more than 62 minutes past
+  the first `Open` (`SealAge`): `Parts` writes plus one `RemoveAsync` per removed part. Safe from many
+  servers and again later. A removed part reads `Missing`, the same as never opened.
+  `Hot/Calls/Close.luau`, `Constants/Cuts.luau`.
+- **`Reset`** ends the key's trade work first, then replaces the state with `Default` or a given `State`
+  (newest shape, at most 1 MiB, never migrated), and names every non-zero balance field it replaced in
+  the key's `Losses` for 7 days. 1 write, plus 2 per decider when marks stand. `Cuts/`.
+- **`Erase`** ends the key's trade work, seals the key, then removes it with `RemoveAsync`. The destroyed
+  balances come in `Cut.Losses` of the first answer only. About 200 s at worst. Roblox keeps the older
+  versions 30 days; Ledger doesn't remove them. `Cuts/`.
+- **`Reset` and `Erase` names** are `Ledger.Id()` names or none. A server answers `Expired` for its own
+  name once it's `CutWindow` (360 s) old, and sends nothing.
+- **`Store:Destroy`** releases every session on the store (up to 25 s), ends its observers, and the name
+  can't be opened again on this server. **`Ledger.CloseAll`** runs `BeforeClose` functions (5 s), then
+  saves every session on every store; it is bound to the platform's close already.
 
 ## Reading this against the source
 
-Every row above can be checked in one grep inside the library:
-
 ```
-grep -rn "self:Watch\|:WatchHeld\|Sweep:Add" src
-grep -rn "self.Tallies\|self.Leases\|self.Bookings\|self.Copier" src
+grep -n "SettleAge\|TouchBound" Constants/Transaction.luau
+grep -n "OpBound\|MarkCap\|QueueRoomOps" Constants/Record.luau
+grep -n "local function ChooseDecider" -A25 Tx/Call/Terms.luau
+grep -rn "WorkSeen\[" .
 ```
 
-The first prints every place a key is handed to the sweep. The second prints every place MemoryStore
-is touched. If either prints a line this file does not account for, this file is stale.
+The last prints every place a read records work for this server to end. If a row here disagrees with
+the source, this file is stale.

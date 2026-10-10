@@ -1,182 +1,267 @@
 # Triage
 
-Symptom first, because that is how a developer arrives. Each tree ends at a call to make or a page to
-read. Run the block at the foot before guessing, and read Ledger's own warnings, which say what
-happened and what to do about it.
+Symptom first, because that's how a developer arrives. Each tree ends at a call to make or a page to
+read. Run the diagnostic block before guessing, and read Ledger's own warnings, which say what
+happened and what to do.
 
-## First, read the warning
+If the developer hands you a real UserId and money is involved, go to `forensics.md` **first**. The
+block below reads the key, and a read can end trade work on it.
 
-Ledger warns in plain English on every path that gives up on something. The warning names the key and
-the amount. Ask for the output before theorising.
+## First, read the warnings
 
-One family matters more than the rest. A warning holding **`Ledger bug:`** says Ledger broke its own
-rule, not that the game did. Do not work around it. Go to `escalate.md`.
+Ledger warns in plain sentences, prefixed `Ledger:`, usually once per store, key or cause, so the first
+one is the one that matters and it may be far up the log. A warning about a key reads
+`Ledger: <Store>/global/<Key>: <what happened>`. Ask for the output before theorising.
+
+| The warning says | It means | Go to |
+|---|---|---|
+| "holds a value no Ledger build wrote" | the key was written by something else: raw DataStore calls, another library, a plugin | **Unreadable** below |
+| "holds a value this build's migrations fail on" | a migration's `Run` threw, yielded or returned `nil` for this key's shape | **Unreadable** below |
+| "holds a balance this build's arithmetic rejects" | a stored amount fails the field's `Arithmetic` | **Unreadable** below |
+| "names a key of the store X, which this server never opened" | trade work on this key can only be ended by a server with X open | **stuck Unresolved** below |
+| "the reducer gave a state holding X, which the store does not declare" | the reducer set an undeclared field; every such op is refused | `review.md` D11 |
+| "the state has passed N bytes" | the key is past 2 MiB, heading for `Full` at about 4 MB | **Full** below |
+| "answered Missing, since the quantity's parts do not exist" | `Take` before `Open`, or after `Close` removed the parts | **Limited items** below |
+| "the name X was used with other terms" | a name was reused for a different op; the second answers `Spent` | `review.md` D3 |
+| "a DataStore request failed with error 403" (or 101 to 106) | Studio API access is off, or a bad key, scope or value | **Busy everywhere** below |
+| "A reducer must give the same from the same state and op" (Studio) | two runs of the reducer on one op differed: it isn't pure | `review.md` D10 |
+| at `Ledger.New` in Studio, about the reducer and an unknown kind | the reducer didn't return `nil` for a kind it doesn't know | `review.md` D8 |
+| "CloseAll ended with N ops and transactions not heard" | the close ran out of time; those calls are `Unresolved`, those fates unknown | **Shutdown** below |
+| "this key was written before the store X was erasable" | an erase met a key from before `Erasable = true`; erasing is only once-only when no old build runs | `learn/deleting-data` |
+| "DidApply ... answered Unresolved for a name with a first send time" | pass `Probe = true` to get a definite `false` | `reference/store#support-calls` |
+
+An error that says **"this call is never made"** or **"this report is never heard"** is Ledger breaking
+its own rule, not the game. Don't work around it. Go to `escalate.md`.
 
 ## The diagnostic block
 
-Paste this, run it, and read the answer. It costs three requests.
+Paste this, run it once from a server that opens every store, and read the answer. It costs three reads.
 
 ```luau
-local Record = Store:Inspect(Key):Wait()
-local State, Why = Store:Peek(Key):Wait()
+local Record, RecordWhy = Store:Inspect(Key)
+local Pending, PendingWhy = Store:Pending(Key)
+local State, PeekWhy = Store:Peek(Key)
 
-print("reason  ", Why)
-print("ops     ", Record and #Record.Ops)
-print("version ", Record and Record.Version, "floor", Record and Record.Floor)
-print("erased  ", Record and Record.Erased)
-print("held    ", State and State._Held)
-print("parked  ", Record and (function()
-	for _, Op in Record.Ops do
-		if Op.Tx then return Op.Tx end
+print("peek    ", PeekWhy, State ~= nil)
+print("inspect ", RecordWhy)
+print("level   ", Record and Record.Book.Level, "floor", Record and Record.Book.Floor)
+print("format  ", Record and Record.Book.Format, "writes", Record and Record.Book.Writes)
+print("horizon ", Record and Record.Book.Horizon, "now", Ledger.Now())
+print("marks   ", Record and #Record.Book.Work)
+print("pending ", PendingWhy, Pending and #Pending)
+if Pending then
+	for _, Item in Pending do
+		print("  ", Item.Kind, "age", Item.Age, "attempt", Item.Attempt, "decided here", Item.IsDecided)
 	end
-	return nil
-end)())
+end
 ```
 
-`ops` climbing and never falling is a compaction problem. `erased` set is a tombstone. `parked`
-holding a transaction id is a stuck leg. `held` holding entries is money in flight.
+How to read it:
 
-## A write answered true and the value did not change
+- `peek nil, Missing`: nothing is saved. A new player, an erased key, or the wrong key.
+- `marks` above 0: escrow is set aside for unfinished trades. That gold is not lost.
+- `pending` items older than about 10 s: a sender probably died. They end at the next touch, or
+  `Resettle` ends them now.
+- `level` below this build's migration count: no write from this build has landed since the update.
+- `floor` above this build's last breaking migration: this build answers `Behind` on the key.
+- `format` not 0: another Ledger release wrote the key.
+- `horizon` later than `now - 180`: the key's name room filled and dropped names early; resends of
+  those names answer `Expired`.
 
-1. **Was it `Apply`?** `Apply` answers from live state on this server and writes on the next save. If
-   another server wrote in between, the fold can refuse it when it lands. Nothing is lost and every
-   server agrees afterwards, but the player saw a number that was never true. Render from state, not
-   from the return value. `concepts/apply-and-commit#when-the-answer-changes-under-you`.
-2. **Is the reader a different server?** A session holds its own copy and picks up outside writes on
-   its next fold, which is every two minutes when it is idle. `Store:Stale()` names the keys this
-   server changed so a session can be flushed at once.
-3. **Did the reducer return the state unchanged?** Ledger reads any table as accepted. A Redux style
-   `return State` for an unknown kind is an accepted op that changes nothing, and it will mark a
-   `Once` name as applied. `concepts/reducer#nil-means-refused-not-unhandled`.
+## A write answered `true` and the value didn't change
 
-## A write answered false and the developer expected true
+1. **Was it `Apply`?** `Apply` answers from the session's view and is saved later, where it's judged
+   again. A trade or another server's write in between can turn it away, and the view drops it. The
+   only signal is a `Turned` fate on `ObserveFates`. `learn/players`.
+2. **Is the reader looking at a session view?** A `Tx`, a `Take` or another server's `Edit` reaches a
+   session at its next save, its idle read (every 120 s), or `Session:Refresh()`. The saved data is
+   right; the view is behind.
+3. **Is the reader on another server?** Same as 2, from the other side. `learn/shared-data` shows how
+   to nudge a session elsewhere with `MessagingService` and `Refresh`.
+4. **Did the reducer return the input?** A fall-through `return Data` accepts any kind and changes
+   nothing. `review.md` D8.
+5. **Was it a `MaxAge` read?** `Peek(Key, MaxAge)` can return the shared copy from before this server's
+   own write. Read plainly to check.
 
-Read the reason before anything else. `concepts/reasons` says what each one means and
-`concepts/handling-failure` says what to do.
+## A write answered `false` and the developer expected `true`
 
-The two that get misread: `Spent` is not success, nothing moved and a transfer went back to the
-sender. `Unresolved` is not a refusal, and treating it as one is how a game pays twice.
+Read the reason before anything else. `learn/answers` says what each means, and the call's page in
+`reference/` says what to do.
 
-## Money is missing
+The four that get misread:
 
-1. **Look in `_Held` on the sender.** A transfer that took the money and could not deliver leaves it
-   there on purpose. It is out of the balance so it cannot be spent twice, and it has not arrived.
-2. **Wait, or force it.** The sweep finishes or refunds it on its own. `Store:RecoverTransfers(Key)`
-   does it now. A refund is not immediate by design: money can only go back once redelivery has
-   stopped being possible, which is 8 days.
-3. **Check the receiver was not erased.** A tombstoned key turns deliveries away for 8 days and the
-   transfer answers `Held`.
-4. **Check nobody erased the sender.** `Erase` hands over what it can and names in a warning what it
-   could not. That warning is the record of money that is gone.
-5. **If the totals do not add up at all**, that is conservation broken, which is Ledger's own
-   invariant. Go to `escalate.md`.
+- `Unresolved` isn't failure. The change may land; Ledger is still sending it.
+- `Spent` isn't success. This call changed nothing.
+- `Expired` says nothing about earlier sends. After an `Unresolved` the first may have landed.
+- `Refused` is the reducer's `nil` on the **saved** data, which can differ from what the view showed.
+  `Info.State` is the data it was judged on.
 
-## A key answers Busy and stays there
+## Gold doubled, or a reward paid twice
 
-`Busy` means a transaction leg is parked on the key.
+In order of how often it's the cause:
 
-1. `Store:Resettle(Key)` settles it now. `true` means nothing is left unfinished.
-2. Still `Busy` means the marker has not decided yet. A transaction is treated as dead after about a
-   minute, and another server aborts it on the original's behalf.
-3. A `Tx` retried under a name whose last marker is being taken off answers `Busy` until the reaper
-   has removed it. Retry the same name with a backoff.
-4. The sweep gives up on a key after five goes and warns, naming the key and telling the operator to
-   call `Resettle`. That warning is not a failure, it is the sweep handing the job back.
-5. `Tx` does not retry `Busy` for the game, on purpose. A contended key is the last place to send
-   more traffic. The backoff belongs to the game. `guides/transactions#stuck-legs`.
+1. **An unnamed write sent again after `Unresolved`**, by a loop or by the player pressing again.
+   `review.md` D1.
+2. **A name or `IdAt` made fresh per attempt.** D3.
+3. **A lock that let the move be redone while the first was still in flight.** Look for two moves of
+   the same kind minutes apart, the first around an outage. D4.
+4. **A `Future` timeout read as "no", then refunded or redone.** D5.
+5. **`Expired` read as "didn't happen".** D7.
+6. **A purchase guarded by an untimed name, or a receipt list trimmed too short.** D12.
+7. **A support fix paid by hand while the original was still `Unresolved`.** The writer landed the
+   original later.
+8. **Old servers in a rollout** still running the bug the new build fixed.
 
-## Writes answer Full and nothing fixes it
+## Gold vanished
 
-Two different things wear this reason.
+1. **In escrow.** `Inspect(Key).Book.Work` shows marks with amounts. A trade hasn't ended. It ends at
+   the next touch of any key in it; `Resettle` ends it now. Not lost.
+2. **Handed back.** `Losses(Key).Returns` lists escrow returned from abandoned trades.
+3. **Destroyed by a cut.** `Losses(Key).Events` lists every balance field a `Reset` or `Erase`
+   replaced. Only balance fields: items are not named.
+4. **An `Apply` turned away at save.** The player saw it, then it left the view. Fates.
+5. **An `Apply` lost in a crash.** Queued ops die with the server if no save landed. `Apply` is
+   hopeful; `Commit` for what must not be lost.
+6. **A trade leg.** The player was in a `Tx` they forgot, or that a market or auction sent.
+7. **A migration** that rebuilt the state and dropped a field. Check `Book.Level` against the list.
 
-**The state hit 2 MB.** Ops that shrink it are still allowed, so a cleanup works.
+If the totals across the keys involved don't add up even counting escrow and losses, that's Ledger's
+conservation broken. `escalate.md`.
 
-**The log cannot compact.** This is the one that does not heal. Compaction absorbs the run of ops at
-the front that this build can apply. An op at the front that the reducer refuses stops the walk for
-good, the log grows, and writes answer `Full`.
+## A purchase was granted twice, or never
 
-It happens when a kind was deleted from the reducer while live keys still carried ops of that kind.
-The fix is to put the branch back, and keep it, because a branch is not dead code while any log still
-holds one of its ops. `Reset` does not help, because the reset is another op behind the one that
-blocks. Only a build that folds the op, or `Erase`, clears it.
-`guides/migrations#changing-the-reducer`.
+Compare the game's handler against `learn/purchases` line by line. What breaks it:
 
-## Saves stopped, or writes answer Backlog
+- An untimed `Id` on the grant instead of a record in the data: protected only inside its window. D12.
+- Answering from `Ok` alone: a resend refused as a duplicate answers `NotProcessedYet` for ever, and
+  Roblox keeps resending a purchase that was granted. Check `Info.State` for the id.
+- `Apply` on the grant path: a crash in the next 30 s loses a grant Roblox was told happened.
+- The receipt list trimmed short: a resend after N newer purchases grants again.
 
-`Backlog` means ops are piling up because saves are not going through, so 4096 queued or 1.5 MB of
-unsaved bytes. In practice the datastore is down or the server is out of request budget.
+## A key answers `Unresolved` and stays that way
 
-Look for the autosave warning naming the budget, and check what else in the game is spending
-requests. Ledger skips an autosave rather than spending the last of the budget, and says so.
-This is a signal to stop writing and look, not to retry harder.
+1. **A dead sender's trade work.** `Peek` and `Inspect` beside an undecided mark from a crashed server
+   answer `Unresolved` for up to about 30 minutes, on every server, until a touch ends it.
+   `Store:Resettle(Key)` ends it now. `Pending` shows the items and their ages.
+2. **A store not opened on this server.** The work names a store this server never opened; only a
+   server with it open can end it, and this server's reads of the key stay `Unresolved` for its life.
+   Ledger warns, naming the store. Open every store on every server (`review.md` D16).
+3. **Another Ledger release wrote the key.** `Book.Format` isn't 0, or every older-release server
+   answers `Unresolved` or `Unreadable` on keys a newer release touched. Ledger has no compatibility
+   across releases: every place on one release, full shutdown.
+4. **A balance field removed or its arithmetic changed** while an older build held escrow on it. This
+   build can't settle that escrow, so writes to the key stay `Unresolved` until an older server does.
+   `review.md` D23.
+5. **A DataStore outage.** Everything is `Unresolved` everywhere for a while. Don't resend unnamed
+   writes; wait.
 
-## A player loaded a fresh profile
+## `Busy`
 
-1. **Check for `Behind` first.** A newer build wrote the record and this server cannot read it. The
-   data is fine. Writing a fresh profile over the top is how it gets destroyed. It clears when the
-   deploy finishes. `guides/migrations#rolling-deploys`.
-2. **Check the key.** A player store keys on the UserId. A game that switched to a username or a
-   composed key is reading a key nobody ever wrote, which folds to `Default` correctly.
-3. **Check for a tombstone.** An erased key folds from `Default` for the 8 days its tombstone lasts.
-4. **Check whether a migration dropped the field.** A migration that rebuilds the state from scratch
-   drops what it did not mention, and reconcile puts back only what `Default` still declares.
+- **`Apply` answers `Busy`**: a trade's mark on the key decides whether this op is allowed. Try again in
+  a moment.
+- **`Ledger.Id()` answers `Busy`** at a server's start during an outage: no server number yet. Ask again;
+  it answers within 5 s per call.
+- **Writes answer `Busy` everywhere, reads `Unresolved`**: Studio without API access, or a bad
+  request. The 403 warning says which.
+- **A bump answers `Busy`**: its shard write couldn't carry it (named bumps fill fast). Send again; use
+  unnamed bumps.
+- **4,096 unanswered writes on one key**: the key's writer is backed up. The key is too hot; spread it.
 
-## A total reads wrong or stale
+`Busy` always means nothing was sent: the same call again is safe.
 
-1. `Total` answers a cached sum for 60 to 75 seconds across the fleet, or 90 if the server refilling
-   it dies, and this server's own bumps show at once. That is not a bug, it is the trade that took a
-   polled pot from 192 reads a minute per server to one MemoryStore unit.
-2. `MaxAge` controls it. Zero reads every time.
-3. It answers what was added, never what the keys hold, so the `Default` never counts toward it.
-4. One unreadable shard makes the whole call answer nothing with a reason, rather than a number that
-   is quietly short.
+## `Behind` or `Unreadable` after an update
 
-## A followed key does not update on another server
+**`Behind`**: a newer build wrote a breaking migration to this key, and this server is older. The data
+is fine. This server must stop writing the key; the player belongs on a new server
+(`TeleportService` to a fresh server, or a rejoin once old servers close). Never save a fresh profile
+over it. A load that answers `Behind` already runs `OnLoadFailed` and kicks.
 
-1. **How long has it been?** A write shows on the writer at once. It reaches another server after
-   the shared copy is refilled, 60 to 75 seconds, and that server ticks. The tick is every 30
-   seconds while the key changes and every 4 minutes while it does not. Five minutes is not a bug.
-2. **Nudge it.** Send the key over `MessagingService` from `Store:Stale()` and have the receiver call
-   `Peek(Key, 0)` after a random wait of a few seconds. One server reads the record and the copy is
-   fresh for the rest. `guides/entity-stores#following-a-key`.
-3. **Read the warning.** A state over 32 KB, or one holding a buffer, gets no copy, and every server
-   reads the record on its own tick. A store with no MemoryStore does the same. Ledger says so once a
-   window either way, naming the key.
-4. **Check for `Behind`.** A newer build wrote the copy. It clears when the deploy finishes.
-5. **Is the store string keyed?** `Follow` and `Peek` with a `MaxAge` throw on a player store.
+During a rollout this hits players who join an old server after a new one wrote their key, and an
+old server's last saves for a player who moved to a new server can be turned away `Behind` (fate
+`Turned`, `Why = "Behind"`). A full shutdown avoids both. `learn/changing-data`.
 
-## Reserve answers Unresolved
+**`Unreadable`**: the key holds something this build can't read. The warning names the cause: a value no
+Ledger build wrote (raw DataStore writes, a plugin, another library), a migration that fails on this
+key's shape, or a balance the arithmetic rejects. Fix the build (a migration that handles the shape) or
+repair the value; a retry gives the same answer. A failed migration doesn't store anything, so a fixed
+build reads the key fine. But a `Refused` already stored under a call's name stays that name's answer.
 
-`Reserve` is the one feature that needs MemoryStore. Without it the answer is `Unresolved` and
-nothing is held. In Studio that means API access is off.
+## Players are kicked on join
 
-Checkout still works. The reducer is the gate, so the stock is still correct, and the cost of a lost
-hold is one refused checkout rather than an oversell.
+`OnLoadFailed` runs, then the kick unless `Kick = false`. The reason says why:
 
-## A purchase was granted twice, or never granted
+- `Unresolved`: the read failed or took over 30 s. An outage. Retrying a few times from `OnLoadFailed`
+  with `Kick = false` is fine.
+- `Behind`: an old server; send them to a new one. Don't retry here.
+- `Unreadable`: see above.
+- `Missing`: a `MustExist = true` store with no key. Usually the wrong setting for a player store.
+- `Busy`: the read landed but there was no server number yet. Retry.
 
-Go to `concepts/once#processreceipt` and compare the game's handler against it line by line. The
-three that break it:
+`Load` returns `nil, nil` when the player left or the server is closing; that's not a failure.
 
-- Answering from the `Commit` result rather than `DidApply`. A replay answers `Refused`, which is
-  indistinguishable from the reducer refusing, and `DidApply` is the question Roblox is asking.
-- Not checking `Unresolved` before `DidApply`, so a fold that a stuck leg can still flip gets read as
-  settled.
-- Asking `DidApply` on a different store from the one the name was written to, which always answers
-  false, so the receipt never finishes.
+## A session shows old data
 
-`Store:DidApply` answers nothing when it could not read. Compare against `true`, not truthiness.
+A session's view updates at its own saves, at its idle read (every `IdleReadInterval`, 120 s), and on
+`Session:Refresh()`. Changes from a `Tx`, a `Take`, a `Store:Edit` from another server, or a support
+tool wait for one of those. `Refresh` after anything that changed the player outside the session.
+`Store:Stale()` emits keys this server wrote that its view is behind on.
+
+## `Full`, `Invalid`, `Backlog`
+
+- **`Full`**: the state would pass about 4 MB. Ops that shrink it still work, so a cleanup op fixes it.
+  The cause is a list with no bound. `review.md` D21.
+- **`Invalid`**: the op can't be stored: a function, an Instance, `NaN`, an array with gaps, a table
+  with number and string keys mixed. Or a quantity's part holds another declaration than this build's:
+  someone changed `Parts`, `Stock` or `Serials` on a live quantity.
+- **`Backlog`**: `Apply` only. 4,096 ops or 1.5 MiB are queued unsaved: saves aren't landing, or the
+  game applies hundreds of ops a second. `Flush`, and batch the ops.
+
+## Limited items
+
+- **Never opened**: `Take` answers `Missing` and Ledger warns once. `Open()` once, from an admin command
+  or the first `Missing` while the sale is on.
+- **Opened again after the sale**: a second batch sold with the same serials. `Close` removed the
+  parts, `Missing` came back, and the game opened it. `review.md` D17. The units already sold can't be
+  unsold by Ledger; the fix is a guard and, for the extras, the game's own call.
+- **`Short` while units remain**: an unnamed take tries at most 3 parts. Use named takes. A named take's
+  `Short` uses up the name: a retry needs a new name.
+- **Sold count looks low after `Close`**: `Total().Sold` loses parts `Close` removed on a server that
+  never saw them. Count sold as `Stock - Free - Held`, and log `Total()` before the first `Close`.
+- **Serial numbers left behind after a trade**: the game's trade op moves the item and not the serial.
+  `review.md` D27 shows how a stale view causes it too.
+
+## A total reads wrong, stale or low
+
+1. A `MaxAge` read answers a cached sum. Zero reads every time and costs more.
+2. A total counts bumps that took effect, not what the keys hold. A bump lost at shutdown or never sent
+   after an op is a count lost. Totals are statistics.
+3. Named bumps undercount badly under load. `review.md` D19.
+4. `Shards` was changed: the total restarted under a new identity.
+
+## A `Follow` or `MaxAge` read doesn't update on another server
+
+1. **How long?** A write shows on the copy's holder within about 30 s, and on other servers at their
+   next tick: 30 s, doubling to 240 s on a quiet key. Four minutes isn't a bug.
+2. **`"Behind"`** is the only non-state value `Follow` emits. Filter it.
+3. **Failed reads and absent keys emit nothing.** A key that was never saved never emits.
+4. **For a decision, don't use it**: `review.md` D20.
+
+## Shutdown lost data
+
+1. Data held in Lua tables until the end of a round, never applied. `Ledger.BeforeClose`, or `Apply` as
+   it happens.
+2. Saves in the game's own `BindToClose`: Ledger is already closed, every call answers `Closed`.
+3. The close ran out of time (25 s): the warning counts what wasn't heard. Those `Unresolved` calls may
+   still have landed; their fates are unknown.
 
 ## The reducer behaves differently in Studio
 
-Studio refolds the log after every commit and compares it against live state. A mismatch names the
-field that moved and means the reducer is not deterministic. That check does not run live, so the
-same break is silent in production. Fix what it names.
-
-The usual causes are `os.time()`, `math.random()`, an upvalue that moves, and reading something
-outside the two arguments.
+Studio freezes the reducer's inputs, runs it three times per call, and warns when the runs differ or
+when it doesn't refuse an unknown kind. None of that happens live, so the same reducer is silently
+wrong there. Fix what Studio names: a change to the input (D9), something impure (D10), a fall-through
+(D8).
 
 ## Nothing here fits
 
-Reproduce it on the mock in ten lines before theorising further, and read `working.md` before
+Reproduce it on the mock in a few lines before theorising further, and read `working.md` before
 touching live data to test a hypothesis.

@@ -1,7 +1,7 @@
 {
 	"name": "@xoifail/ledger",
-	"version": "6.2.0",
-	"description": "Lock-free event-sourced player data for Roblox. State is a fold over validated ops, no session locks.",
+	"version": "7.0.0",
+	"description": "Safe player data for Roblox: every change saved once, every answer says what happened.",
 	"main": "src/init.luau",
 	"types": "index.d.ts",
 	"files": [
@@ -19,12 +19,11 @@
 		"access": "public"
 	},
 	"scripts": {
-		"check": "tsc --noEmit -p tsconfig.json",
-		"bundle": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File bundle.ps1"
+		"check": "tsc --noEmit -p tsconfig.json"
 	},
 	"devDependencies": {
 		"@rbxts/compiler-types": "^3.0.0-types.0",
-		"@rbxts/types": "^1.0.947",
+		"@rbxts/types": "^1.0.957",
 		"typescript": "^7.0.2"
 	}
 }

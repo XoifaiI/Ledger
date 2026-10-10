@@ -1,63 +1,79 @@
-# When it is Ledger's own bug
+# When it's Ledger's own bug
 
-Most surprises are the game's. A few are not, and the ones that are not tend to be the expensive
-kind, so they are worth reporting rather than working around.
+Most surprises are the game's. A few aren't, and those tend to be the expensive kind, so they're worth
+reporting rather than working around.
 
-## What says it is Ledger's
+## What says it's Ledger's
 
-**A warning holding `Ledger bug:`.** That line exists for exactly one purpose: Ledger noticed it had
-broken its own rule. It asks to be reported. Do not silence it, do not work around it, and do not
-tell the developer it is normal.
+**An error saying "this call is never made" or "this report is never heard".** Ledger's modules assert
+their own rules with those words. Seeing one means Ledger broke an internal rule, not that the game
+misused it. Don't wrap it in a `pcall`, don't work around it, and don't tell the developer it's normal.
 
-**Money that does not add up.** Sum every balance plus everything in `_Held` across the keys
-involved, before and after. Ledger's first invariant is that money is never made and never destroyed.
-If that sum moved, and no `Erase` warning named what it destroyed, that is Ledger's.
+**Money that doesn't add up.** Ledger promises that a balance field's total is conserved: a trade moves
+amounts, it never makes or destroys them. Sum every balance plus the escrow in `Inspect(Key).Book.Work`
+across the keys involved, before and after. If the sum moved and no `Reset` or `Erase` named the
+difference in `Losses`, that is Ledger's.
 
-**An operation that answered `true` and is not in the final state.** A settled `true` from `Commit`,
-`Edit`, `Transfer` or `Tx` means it is in the log and every server will agree from there on. If a
-later read disagrees, and no other write explains it, that is Ledger's.
+**A durable `true` that isn't in the data.** `Commit`, `Edit`, `Tx` and `Take` answer `true` only once the
+change is saved, and it stays until a later `Reset` or `Erase`. If a later plain `Peek` disagrees and no
+other write explains it (check the history), that is Ledger's. `Apply`'s `true` is not this: it is
+judged again at the save.
 
-**A key that answers `Behind` when every server is on the same build.** That means somebody is
-running an old build, or the floor on the record is wrong.
+**A change applied twice under one name.** A named op that carries its first send time (`Id` with `IdAt`,
+or a `Ledger.Id()` name) applies at most once for all time, across retries, restarts, erases and resets.
+Two landings of one such name are Ledger's. Two landings of **two** names (an unnamed resend, a new
+`IdAt`, a redo) are the game's.
 
-**A refusal with no reason, or a reason that is not one of the ten.** The set is closed.
+**A plain `Peek` or a session view going back** to older data than this server already showed for the
+same key, without an erase in between. (A `MaxAge` read right after this server's own write can return
+the copy from before it; that is known and not this.)
+
+**A call that never answers.** Every call answers exactly once: reads by 30 s, writes by their bound, and
+everything by the close. A call that hangs past those is Ledger's. `Outcome:Wait()` with no timeout is
+not a call; it waits for the change.
+
+**A reason not in `Ledger.Reason`**, or an answer whose shape differs from the call's page.
+
+**`Behind` when every server of every place runs the same build**, or `Unreadable` on a key only this
+build ever wrote.
 
 ## What is almost never Ledger's
 
-A refusal the reducer made. A number that lagged on another server. A `Busy` on a contended key. A
-hold that was lost while MemoryStore was down. A total that is a minute old. A write that answered
-`Unresolved` during a datastore outage. Each of those is documented behaviour, and the page that
-documents it is the answer.
+A refusal the reducer made. A session view that lags another server's write. `Unresolved` during a
+DataStore outage. `Busy` on a hot key. A `MaxAge` read that's a few minutes old. A total that's behind. A
+`Short` while units remain on other parts. `Behind` during a rollout. A key stuck `Unresolved` beside a
+dead server's trade for up to 30 minutes. A store not opened on this server. Each of those is documented
+behaviour, and the page that documents it is the answer.
 
-Read the page before reporting. Most candidates do not survive a careful read of the page that covers
-them, and saying "I thought this was a bug and it is documented here" is more useful to the developer
-than a report that gets closed.
+Read the page first. Most candidates don't survive a careful read of the page that covers them, and "I
+thought this was a bug and it's documented here" is more useful to the developer than a report that gets
+closed.
 
 ## The evidence to collect
 
-A report without these is a report nobody can act on.
+A report without these is one nobody can act on.
 
-1. **The exact warning line**, copied, not paraphrased. Ledger's warnings name the key and the
-   amount.
-2. **`Store:Inspect(Key)` output** for every key involved, taken as close to the event as possible.
-   The snapshot, the op count, the version, the floor, and whether any op carries a `Tx` field.
-3. **The reducer**, or the branch that handles the kinds involved.
-4. **The version**, from `wally.toml`.
-5. **A repro on the mock**, if one can be found. Ten lines beats a paragraph, and the mock keeps the
-   real caps and the real refusals.
-6. **What was expected and what happened**, in one sentence each.
+1. **The exact error or warning**, copied, not paraphrased.
+2. **The capture** from `forensics.md` for every key involved: `Inspect`, `Pending`, `Losses`, taken as
+   close to the event as possible, with the time.
+3. **The version history** of those keys around the event, if money is involved.
+4. **The reducer**, or the branches for the kinds involved, and the store's config.
+5. **The Ledger version**, from `wally.toml` or `package.json`, and whether every place runs it.
+6. **A repro on the mock**, if one can be found. A short script beats a paragraph.
+7. **What was expected and what happened**, one sentence each.
 
-If the repro will not reduce, say what was tried. A repro that needs two servers or a rolling deploy
-is worth reporting without one, and say that is why.
+If the repro won't reduce, say what was tried. One that needs two servers, an outage or a rollout is
+worth reporting without a repro; say that's why.
 
 ## Where it goes
 
-The library repo, at `https://github.com/XoifaiI/Ledger`.
+The library's repository, `https://github.com/XoifaiI/Ledger`, as an issue. Don't put a player's
+UserId or data in a public issue; describe the shape.
 
 ## While waiting
 
-Do not paper over it. A workaround that makes the symptom quiet and leaves the cause is worse than
-the symptom, because the next person believes the behaviour is intended.
+Don't paper over it. A workaround that quiets the symptom and leaves the cause is worse than the
+symptom, because the next person believes the behaviour is intended.
 
-If the game has to keep running, prefer the change that is easiest to take back out, name it in the
-code as temporary, and say in the report that it is in place.
+If the game has to keep running, prefer the change easiest to take back out, mark it in the code as
+temporary with the issue link, and say in the report that it's in place.
