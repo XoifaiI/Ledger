@@ -20,7 +20,7 @@ local MaxAttempts = 3
 local RetryRounds = 3
 
 local OwedRecordsVerified = 8
-local OpMax = 512
+local OpMax = Record.PostCap
 local GameOpMarksMost = 3
 local LegLeast = 2
 

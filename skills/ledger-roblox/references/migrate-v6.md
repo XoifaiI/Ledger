@@ -114,7 +114,7 @@ The edge cases that matter:
 - **`ReceiptIdsFrom` is the game's to write.** v6 keeps `Once` names in `_Received` in its own layout,
   tagged and kept 30 days; read v6's `Core/Applied.luau` for it rather than guessing. Only names given
   as `Once = PurchaseId` are receipts.
-- **A big inventory can ride in the op.** The 512-byte limit on terms is for `Tx` and `Take` legs only.
+- **A big inventory can ride in the op.** The 4,096-byte limit on terms is for `Tx` and `Take` legs only.
 - **v6 shapes v7 refuses.** Arrays with gaps, mixed keys, `NaN`, number-keyed sets: the `Commit` answers
   `Invalid`. Convert in the import code, and count how many players hit it.
 - **v6's machinery runs while the v6 package is loaded.** Opening the old store starts v6's sweep and

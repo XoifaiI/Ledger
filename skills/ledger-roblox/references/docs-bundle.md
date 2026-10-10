@@ -70,7 +70,7 @@ Only numbers that change what you do are here. A call that breaks a limit with a
 | -------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | One key's data             | About 4 MB (4,160,526 bytes). A warning shows past 2 MiB.                              | Past the cap, a write answers `Full`. Keep an active key well under 1 MB. |
 | One key's writes           | About 4 MB of writes a minute.                                                         | A big key cannot be written often. Spread hot data over several keys.     |
-| One op in a `Tx` or `Take` | 512 bytes of terms.                                                                    | Keep ops small.                                                           |
+| One op in a `Tx` or `Take` | 4,096 bytes of terms, as JSON.                                                         | Keep ops small.                                                           |
 | Data                       | Plain tables only, up to 64 deep. No cycles, `NaN`, or arrays with gaps or mixed keys. |                                                                           |
 | Numbers                    | Whole numbers below 2^53 unless you give an `Arithmetic`.                              |                                                                           |
 | `Reset` with a `State`     | At most 1 MiB.                                                                         |                                                                           |
