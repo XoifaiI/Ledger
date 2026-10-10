@@ -8,32 +8,49 @@
 ## What is this?
 
 A datastore library for Roblox with no session locks. You never write state. You write down
-the change you want, a function you own decides whether it is valid, and state is what falls
-out of replaying those changes.
+the change you want, a function you own decides whether it is valid, and Ledger saves each
+change exactly once.
 
 ```luau
-local Store = Ledger.New({
+type PlayerData = {
+	Gold: number,
+	Items: { [string]: number },
+}
+
+type PlayerOps = {
+	SpendGold: { Amount: number },
+}
+
+local PlayerStore = Ledger.New<<PlayerData, PlayerOps>>({
 	Name = "PlayerData",
+	Keys = "Player",
 	Default = { Gold = 100, Items = {} },
-	Reducer = function(State, Op)
+	MustExist = false,
+	Erasable = true,
+	Reducer = function(Data, Op)
 		if Op.Kind == "SpendGold" then
-			if Op.Amount > State.Gold then
-				return nil -- refused, on every server, forever
+			if Op.Amount > Data.Gold then
+				return nil -- refused, on every server
 			end
-			local Next = table.clone(State)
-			Next.Gold -= Op.Amount
-			return Next
+			local New = table.clone(Data)
+			New.Gold -= Op.Amount
+			return New
 		end
 		return nil
 	end,
 })
 
-Store:Load(Player)
-Store:Expect(Player):Apply("SpendGold", { Amount = 25 })
+local Session = PlayerStore:Load(Player)
+if Session then
+	local Ok, Why = Session:Commit({ Kind = "SpendGold", Amount = 25 })
+	if not Ok then
+		warn("Couldn't spend gold:", Why)
+	end
+end
 ```
 
-Two servers spend the same 100 gold, both writes land, the fold accepts one and refuses the
-other. Every server agrees, every time.
+Two servers spend the same 100 gold at once: the reducer accepts one and refuses the other.
+Every server agrees, every time, and every call says what happened.
 
 A session lock serializes writers. A validating fold makes the invalid state unreachable,
 which is a stronger guarantee that also costs nothing when a server crashes: no lease to wait
@@ -45,12 +62,12 @@ server. Changes are ops with names, and a reducer validates them.
 - **Lock free** | every server, same result, no locks
 - **Cross server** | write to any player, even offline
 - **Entity stores** |  clans, listings, world records
-- **Transfers** | escrowed, deduped, self-healing
-- **Transactions** | all keys move or none do
+- **Transactions** | up to 29 players or keys, all move or none do
+- **Balances** | gold keeps moving while a trade is in progress
+- **Limited items** | sold from every server, never oversold
+- **Global counters** | every server adds, reading is free
 - **Migrations** | old servers can't corrupt new data
-- **Recovery** | 30 days of history, auto cleanup
 - **Idempotent** | a write retried applies one time
-- **`Once`** | receipts and webhooks land exactly once
 - **Typed ops** | name them once, every write is checked
 - **Loud misuse** | bad code throws, immediately
 
@@ -70,7 +87,7 @@ Ledger = "xoifaii/ledger@7.0.0"
 ```
 npm install @xoifail/ledger
 ```
-[Using Ledger from TypeScript](https://xoifaii.github.io/LedgerDocs/docs/guides/typescript).
+The same types work for TypeScript: see [Types](https://xoifaii.github.io/LedgerDocs/docs/reference/types).
 
 ## License
 
