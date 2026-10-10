@@ -98,6 +98,7 @@ export type KeyKind = keyof<typeof(KeyKind)>
 
 local SequenceMax = 32767
 local FirstSequence = 1
+local LegOpRan = 0
 local MigrationsMax = 2 ^ 20
 local HorizonCacheKeys = 4096
 local SentNamesKept = 4096
@@ -259,6 +260,7 @@ return table.freeze({
 	CounterKeyCount = CounterKeyCount,
 	SequenceMax = SequenceMax,
 	FirstSequence = FirstSequence,
+	LegOpRan = LegOpRan,
 	KeyKind = table.freeze(KeyKind),
 	MigrationsMax = MigrationsMax,
 	HorizonCacheKeys = HorizonCacheKeys,

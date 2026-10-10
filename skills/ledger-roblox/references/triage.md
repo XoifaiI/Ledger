@@ -154,6 +154,9 @@ Compare the game's handler against `learn/purchases` line by line. What breaks i
    `review.md` D23.
 5. **A DataStore outage.** Everything is `Unresolved` everywhere for a while. Don't resend unnamed
    writes; wait.
+6. **An `Edit` on a key a trade still holds.** It waits for the trade to finish and answers
+   `Unresolved` after 30 s, not `Busy`, when the trade's server went down. Ledger keeps sending it;
+   don't resend an unnamed one. `Pending(Key)` shows the trade work.
 
 ## `Busy`
 
@@ -165,6 +168,8 @@ Compare the game's handler against `learn/purchases` line by line. What breaks i
   request. The 403 warning says which.
 - **A bump answers `Busy`**: its shard write couldn't carry it (named bumps fill fast). Send again; use
   unnamed bumps.
+- **A named `Edit` resent after `Unresolved` answers `Busy`**: Ledger is still sending the first one
+  and won't send one name twice at once. Expected for a moment; send it again shortly.
 - **4,096 unanswered writes on one key**: the key's writer is backed up. The key is too hot; spread it.
 
 `Busy` always means nothing was sent: the same call again is safe.

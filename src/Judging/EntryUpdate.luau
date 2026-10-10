@@ -3,8 +3,8 @@
 
 --[=[
 	EntryUpdate: the writer's entry of a run (record sheet 9, S.5). The numbers a run decided go into the
-	closure's Ran, and the writer's entry takes the run: its highest sequence, newest stamp and fates above
-	Acknowledged. No writer id changes no entry.
+	closure's Ran; a decided Tent or Commit, which has no number, goes in at LegOpRan. The writer's entry takes
+	the run: its highest sequence, newest stamp and fates above Acknowledged. No writer id changes no entry.
 
 	Return type: A plain table with MarkRan and UpdateEntry.
 	Example usage:
@@ -12,6 +12,7 @@
 --]=]
 
 local JudgingRun = require("./Run")
+local Record = require("../Constants/Record")
 local Lookup = require("../Stored/Lookup")
 local OpForms = require("./OpForms")
 local Timed = require("../Stored/Items/Timed")
@@ -28,6 +29,8 @@ local function MarkRan(Run: Run)
 	for _, Op in Run.Decided do
 		if HasSequence(Op.Form) then
 			Run.Closure.Ran[SequenceOf(Op.Form)] = true
+		elseif Op.Form.Kind ~= "Cut" then
+			Run.Closure.Ran[Record.LegOpRan] = true
 		end
 	end
 end

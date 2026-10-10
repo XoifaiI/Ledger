@@ -5,7 +5,7 @@
 	Requests: a Tx call's requests, each with no writer (TX-NONE), their names, and what answers teach the call
 	(transaction sheets 4, 9 to 11, 15.1). An Unreadable report is an error, leaving the call clean unless caused by
 	Amounts; a stored Balance is never sent again. Only an Err may clear by sending again. A newer Ledger's key reports
-	Behind.
+	Behind. MayHaveRun marks a key where a send of the call's op erred or a run decided it (closure Ran at LegOpRan).
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -24,6 +24,7 @@ local JudgingShapes = require("../../Judging/Shapes")
 local KindSetup = require("../../Judging/KindSetup")
 local Names = require("../../Encoding/Names")
 local Numbers = require("../../Writing/Numbers")
+local Record = require("../../Constants/Record")
 local Rides = require("../Rides")
 local Sending = require("../../Writing/Sending")
 local Shapes = require("../../Shapes")
@@ -89,6 +90,22 @@ local function TagFor(Server: ServerState, Call: Call, Key: StoreKey): Incarnati
 	local Tag = Incarnations.IncarnationOf(Server, Cache.StoreOf(Server, Key).Setup, Key)
 	Call.Tags[Text] = Tag
 	return Tag
+end
+
+local function RetagOnMissing(Call: Call, Key: StoreKey, Report: Report): boolean
+	if Report.Kind ~= "Missing" or Report.Seal ~= nil or (Report.Identity == nil and not Report.IsLegacy) then
+		return false
+	end
+	local Text = Names.KeyText(Key)
+	if Call.MayHaveRun[Text] then
+		return false
+	end
+	local Held = Call.Tags[Text]
+	if Held == nil or Held.Kind ~= "Absent" then
+		return false
+	end
+	Call.Tags[Text] = Incarnations.TagOfValue(Report.Identity)
+	return true
 end
 
 local function LegAt(Call: Call, Key: StoreKey): TxLeg
@@ -240,6 +257,7 @@ local function LearnFromAnswer(State: State, Call: Call, Key: StoreKey, Result: 
 	local Text = Names.KeyText(Key)
 	Call.Out[Text] = nil
 	if Result.Kind == "Err" then
+		Call.MayHaveRun[Text] = true
 		MarkErred(Call, Text)
 		Call.LastFailures[Text] = "Err"
 		return nil
@@ -247,6 +265,9 @@ local function LearnFromAnswer(State: State, Call: Call, Key: StoreKey, Result: 
 	local Note = Result.Note
 	if Note.Closure.Wrote then
 		Call.IsUnclean = true
+	end
+	if Note.Closure.Ran[Record.LegOpRan] then
+		Call.MayHaveRun[Text] = true
 	end
 	local Server = State.Server
 	local Own = OwnReportOf(Note)
@@ -299,6 +320,7 @@ return {
 	ClassifyLeg = ClassifyLeg,
 	Issue = Issue,
 	TagFor = TagFor,
+	RetagOnMissing = RetagOnMissing,
 	TentRequest = TentRequest,
 	SendTent = SendTent,
 	CommitRequest = CommitRequest,

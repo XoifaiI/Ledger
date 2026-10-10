@@ -92,6 +92,7 @@ A key remembers the names of recent ops, so a resend does nothing twice.
 | ------------------------------------------------------ | ------------------------------------------------------------------- |
 | `Ledger.Id()`                                          | `Busy` after 5 s with no server number.                             |
 | A read (`Peek`, `Inspect`, `Losses`, `Resettle`)       | `Unresolved` after 30 s. `Pending` too, on a hung read.             |
+| `Edit`                                                 | `Unresolved` after 30 s once sent. Ledger keeps sending it.         |
 | `Bump`                                                 | 0 to 60 s, up to 90 s if saves fail. Call it in `task.spawn`.       |
 | `Erase`                                                | About 200 s at worst.                                               |
 | `Peek` of a key where a crashed server left trade work | Up to about 30 minutes `Unresolved`. Call `Resettle` to end it now. |
@@ -110,15 +111,15 @@ A key remembers the names of recent ops, so a resend does nothing twice.
 
 ## Transactions and stock [#transactions-and-stock]
 
-|                        | Limit                                                                                                |
-| ---------------------- | ---------------------------------------------------------------------------------------------------- |
-| `Ledger.Tx` keys       | 2 or more, all different. Up to 29 with 16-character keys; fewer with long names.                    |
-| `Take` `Legs`          | One fewer than the `Tx` limit.                                                                       |
-| Quantity `Parts`       | 1 to 64.                                                                                             |
-| `Proceeds` fields      | Up to 4.                                                                                             |
-| Holds                  | Up to 900 s each (`HoldMax`), plus 60 s for clock differences between servers. 256 at once per part. |
-| `Close` removing parts | After 62 minutes from the first `Open`.                                                              |
-| Totals `Shards`        | 1 to 64, 16 by default. Do not change a live total's `Shards`.                                       |
+|                        | Limit                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Ledger.Tx` keys       | 2 or more, all different. The limit is in bytes, not a count: one key in the trade keeps a list of all the others, and that list has a size cap. About 29 keys fit with 16-character keys, 40 with 5-character keys, fewer with long keys or keys in other stores. Too many throws before anything is sent. |
+| `Take` `Legs`          | One fewer than the `Tx` limit.                                                                                                                                                                                                                                                                              |
+| Quantity `Parts`       | 1 to 64.                                                                                                                                                                                                                                                                                                    |
+| `Proceeds` fields      | Up to 4.                                                                                                                                                                                                                                                                                                    |
+| Holds                  | Up to 900 s each (`HoldMax`), plus 60 s for clock differences between servers. 256 at once per part.                                                                                                                                                                                                        |
+| `Close` removing parts | After 62 minutes from the first `Open`.                                                                                                                                                                                                                                                                     |
+| Totals `Shards`        | 1 to 64, 16 by default. Do not change a live total's `Shards`.                                                                                                                                                                                                                                              |
 
 ## Reads and watching [#reads-and-watching]
 
@@ -161,39 +162,37 @@ Next: [Releases](/docs/releases)
 
 Ledger 7 is rebuilt from scratch. It's cheaper, holds more, and every edge case we could find is tested.
 
-### Trades cost less than half [#trades-cost-less-than-half]
+### What a 100k CCU game gets [#what-a-100k-ccu-game-gets]
 
-| A trade between two players  | v6      | v7           |
-| ---------------------------- | ------- | ------------ |
-| DataStore requests           | 8       | **3**        |
-| MemoryStore requests         | 8       | **0**        |
-| Players or keys in one trade | up to 4 | **up to 29** |
+|                                               | v6          | v7                                           |
+| --------------------------------------------- | ----------- | -------------------------------------------- |
+| Trades a minute                               | 225,000     | **900,000**                                  |
+| Trades a day                                  | 324 million | **1.3 billion**                              |
+| Trades a day through one guild bank or shop   | 1,900       | **590,000**                                  |
+| Trades running on one key at once             | 1           | **16**                                       |
+| MemoryStore requests a minute spent on trades | 1.8 million | **0**                                        |
+| Players in one trade                          | 4           | **29**                                       |
+| Data per player                               | 2 MB        | **4 MB**                                     |
+| Limited item sales a minute, never oversold   | none        | **900,000**                                  |
+| Global counter adds a minute                  | none        | **unlimited, for 1.6% of your write budget** |
 
-You can run more than twice as many trades on the same DataStore budget, and they no longer use any MemoryStore. A v7 trade also answers after 2 of its 3 requests.
+A trade between two players costs 3 DataStore requests instead of 8, and no MemoryStore at all. It answers after 2 of the 3. The trade size limit is in bytes, so 29 players assumes 16-character keys; see [Limits](/docs/limits).
 
-### More room [#more-room]
+### What's new [#whats-new]
 
-* **4 MB per player instead of 2 MB.**
-* **No more `Full` from busy shared keys.** In v6 a guild bank or shop key could fill up after about 1,900 trades a day. That limit is gone.
-* **Busy keys stay usable.** In v6 a second trade on the same key got `Busy`. Now up to 16 can run on one key at once.
-
-### Limited items and global counters [#limited-items-and-global-counters]
-
-* **Quantities** sell a limited item from every server at once without overselling, with holds and checkout built in.
-* **Totals** count things across the whole game, like total gold spent, and reading them is free most of the time.
-
-### Clearer answers [#clearer-answers]
-
-* Every call answers straight away with `(Ok, Result, Info)`. No more `:Wait()`.
-* 15 answers, each with one meaning and one thing to do. See [Answers](/docs/learn/answers).
-* When a save can't be confirmed yet, `Info.Outcome` tells you later whether it went through.
-* `Reset` and `Erase` tell you exactly what they deleted.
-
-### Harder to get wrong [#harder-to-get-wrong]
-
-* With `--!strict`, your ops, reducer and calls are all type-checked.
-* `Erase` and `Reset` can't wipe a player by mistake when a request is retried.
-* Players' data saves on shutdown by itself. No `BindToClose` needed.
+* **Balances.** Number fields like gold or gems that you change with `Credit` and `Debit` ops, with `Min` and `Max` limits. They never hold up a trade.
+* **Quantities.** Limited items sold from every server at once, never oversold, with `Take`, `Hold`, `Confirm`, `Close`, `Deposit`, `Gather` and `Withdraw`.
+* **Totals.** Count things across the whole game, like total gold spent. Reading them is free most of the time.
+* **Answers straight away.** Every call answers `(Ok, Result, Info)` at once. No more `:Wait()`.
+* **Info.Outcome.** When a save answers `Unresolved`, this tells you later whether it went through.
+* **Six new answers.** `Unreadable`, `Expired`, `NoRoom`, `Missing`, `Short` and `SoldOut`, each with one meaning. See [Answers](/docs/learn/answers).
+* **Strict types.** Every op you send is checked against your `Ops` type before you press Play.
+* **Safer deletes.** `Reset` and `Erase` list the balances they wiped in `Cut.Losses`, and a retried call can never wipe twice.
+* **Support tools.** `Store:Keys`, `Store:Losses` and `Store:Pending` for looking into a player's data.
+* **Session:Refresh.** Show a player changes made by another server or a trade, straight away.
+* **Fresh reads.** `Peek(Key, { Fresh = true })` reads the newest saved data.
+* **Ledger.Now() and Ledger.BeforeClose().** A clock for named ops, and a hook that runs before shutdown saves.
+* **No `BindToClose`.** Ledger saves every player on shutdown by itself.
 
 ### Every change [#every-change]
 
@@ -3852,6 +3851,11 @@ An op kind that isn't in your `Ops` type doesn't throw. Your reducer gets it, re
 | `Busy` or `Closed`           | Nothing was sent.                                                                              | `Busy`: send the same call again later. `Closed`: stop.                                    |
 | `Behind` or `Unreadable`     | A newer build owns the key, or the key cannot be read.                                         | Stop writing it from this build.                                                           |
 | `Unresolved`                 | Not known yet. `Info.Outcome` is known later.                                                  | A named Edit: send it again, same name. An unnamed one is still being sent: do not resend. |
+
+Two things you may see:
+
+* **`Busy` right after you resend a named Edit.** After `Unresolved`, Ledger keeps sending the first one itself, and it won't send the same name twice at once. Expect `Busy` for a moment, then send it again. The name makes sure it only counts once.
+* **An Edit that waits.** If a trade is still being finished on the key, the Edit waits for it. When the server running that trade has gone down, finishing it takes longer, and the Edit answers `Unresolved` after 30 seconds rather than `Busy`. Ledger keeps sending it after that.
 
 An op kind your reducer doesn't handle is refused. Studio's type check catches a kind that isn't in `Ops` before you run the game.
 

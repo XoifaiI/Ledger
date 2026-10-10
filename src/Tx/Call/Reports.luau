@@ -5,7 +5,8 @@
 	Reports: what a Tx call's coordinator does with each report (transaction sheets 15.1 to 15.4, A7, A8). Past
 	RetryRounds errors the call answers Unresolved, still sending while an Err is among them, or Unreadable if every
 	failing key is unreadable. A Refused, Full, Behind or Missing no names its deciding leg; a Refused or Full no also
-	carries its State.
+	carries its State. A Tent or Commit that carried "absent" and meets a key another call made is sent again with
+	that key's id while no send of it there may have run (record 5.1), so concurrent calls into a new key all land.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -237,6 +238,9 @@ local function HearTent(State: State, Call: Call, Key: StoreKey, Result: Outcome
 		if Requests.IsResendDue(State.Server, Call, Key) then
 			return Requests.SendTent(State, Call, Key, Clock, Commands)
 		end
+	elseif Requests.RetagOnMissing(Call, Key, Report) then
+		Call.TentReports[Text] = nil
+		return Requests.SendTent(State, Call, Key, Clock, Commands)
 	else
 		Call.TentReports[Text] = Report
 		if Report.Kind == "Mine" then
@@ -305,6 +309,9 @@ local function AfterCommit(State: State, Call: Call, Result: Outcome, Clock: num
 	end
 	if Report.Kind == "Invalid" and not Call.CommitMayHaveWritten then
 		return EndNo(State, Call, Reasons.Invalid, Commands)
+	end
+	if Requests.RetagOnMissing(Call, Call.Decider, Report) then
+		return NextSteps.SendCommit(State, Call, Clock, Commands)
 	end
 	if Report.Kind == "Forgotten" or Report.Kind == "Missing" then
 		return NextSteps.FenceFinal(State, Call, Clock, Commands)
