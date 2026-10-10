@@ -5,7 +5,9 @@
 	Services: the DataStore, MemoryStore and JSON calls, one request in, one Result out, through ResultOf's one
 	pcall. A failed request keeps its error's leading code; a failed Get is throttled when this server's GetAsync
 	budget is below 1, other throttles failing plainly. A listing takes 50 keys a page, deleted ones left out.
-	Server-only services are got at first use.
+	Server-only services are got at first use. A mock, given through a store's Mock option, stands in for both
+	services for the whole server, since Ledger's own stores cannot be split from the game's: one mock per
+	server, and only before the first request, so a store opened on the real services never continues on it.
 
 	Return type: A plain table with one function per call, and the Result, KeysResult and Transform types.
 	Example usage:
@@ -45,6 +47,14 @@ local ExcludeDeleted = true
 local DataStores: { [string]: { [string]: DataStore } } = {}
 local Maps: { [string]: MemoryStoreHashMap } = {}
 
+local ChosenMock: unknown? = nil
+local IsRequested = false
+
+local MockAfterRequest = "Ledger.New: Mock must be given before Ledger's first request on the real services, "
+	.. "since a server cannot move its stores from one to the other"
+local AnotherMock = "Ledger.New: Mock must be the mock the first store on this server gave, since Ledger's own "
+	.. "stores share one set of services with the game's, got another one"
+
 local function NewUncachedGet(): DataStoreGetOptions
 	local Options = Instance.new("DataStoreGetOptions")
 	Options.UseCache = false
@@ -68,7 +78,21 @@ local function UncachedGet(): DataStoreGetOptions
 end
 
 local function GetDataStoreService(): DataStoreService
+	IsRequested = true
+	local Mock = ChosenMock
+	if Mock ~= nil then
+		return Mock :: any
+	end
 	return game:GetService("DataStoreService")
+end
+
+local function GetMemoryStoreService(): MemoryStoreService
+	IsRequested = true
+	local Mock = ChosenMock
+	if Mock ~= nil then
+		return Mock :: any
+	end
+	return game:GetService("MemoryStoreService")
 end
 
 local function DataStoreOf(Store: string, Scope: string): DataStore
@@ -80,7 +104,7 @@ end
 
 local function MapOf(Name: string): MemoryStoreHashMap
 	return GetOrMake(Maps, Name, function(): MemoryStoreHashMap
-		return game:GetService("MemoryStoreService"):GetHashMap(Name)
+		return GetMemoryStoreService():GetHashMap(Name)
 	end)
 end
 
@@ -207,6 +231,21 @@ local function ReadKeys(Pages: DataStoreKeyPages): KeysResult
 	end))
 end
 
+local function UseMock(Mock: unknown): ()
+	local Chosen = ChosenMock
+	if Chosen ~= nil then
+		if not rawequal(Chosen, Mock) then
+			error(AnotherMock, 0)
+		end
+		return
+	end
+
+	if IsRequested then
+		error(MockAfterRequest, 0)
+	end
+	ChosenMock = Mock
+end
+
 local function JsonDecode(Text: string): Result
 	return ResultOf(function()
 		return HttpService:JSONDecode(Text)
@@ -225,4 +264,5 @@ return {
 	AdvanceKeys = AdvanceKeys,
 	ReadKeys = ReadKeys,
 	JsonDecode = JsonDecode,
+	UseMock = UseMock,
 }

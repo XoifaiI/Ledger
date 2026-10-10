@@ -214,9 +214,7 @@ export type Windows = {
 	},
 }
 
-export type TotalDeclaration = {
-	read Shards: number?,
-}
+export type TotalDeclaration = { read Shards: number? }
 
 export type QuantityDeclaration = {
 	read Parts: number,
@@ -249,6 +247,7 @@ export type TypedConfig<D, O> = {
 	read CutWindow: number?,
 	read Totals: { [string]: TotalDeclaration }?,
 	read Quantities: { [string]: QuantityDeclaration }?,
+	read Mock: unknown?,
 }
 
 export type Config<D> = TypedConfig<D, any>

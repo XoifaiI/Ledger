@@ -90,6 +90,7 @@ export type Settings = {
 	read Totals: { [string]: TotalDeclaration },
 	read Quantities: { [string]: QuantityDeclaration },
 	read ClosedQuantities: { [string]: boolean },
+	read Mock: unknown?,
 }
 
 local StoreScope = "global"

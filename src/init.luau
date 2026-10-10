@@ -29,6 +29,7 @@ local Platform = require("@self/Shell/Platform")
 local Quantity = require("@self/Api/Quantity")
 local Reasons = require("@self/Constants/Reasons")
 local Runner = require("@self/Shell/Runner")
+local Services = require("@self/Shell/Services")
 local Session = require("@self/Api/Session")
 local Setup = require("@self/Api/Validate/Setup")
 local ShellSetup = require("@self/Shell/Setup")
@@ -165,6 +166,9 @@ local function New<D, O>(Config: TypedConfig<D, O>): TypedStore<D, O>
 	local PartBuild = ShellSetup.PartBuildOf(Settings)
 	local Built = Limits.Build(Settings, PartBuild, IsStudio)
 	local StoreSetup = ShellSetup.SetupOf(Settings, PartBuild, Platform.Encoding, Built, IsStudio)
+	if Settings.Mock ~= nil then
+		Services.UseMock(Settings.Mock)
+	end
 	Runner.AddStore(StoreSetup, Settings.Keys == KeysModes.Player)
 	local Made = Store.New(Settings)
 	return (Made :: any) :: TypedStore<D, O>

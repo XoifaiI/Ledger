@@ -86,6 +86,7 @@ type OptionsGiven = {
 	CutWindow: number?,
 	Totals: Named?,
 	Quantities: Named?,
+	Mock: unknown?,
 }
 
 type MigrationGiven = PublicTypes.Migration
@@ -117,6 +118,7 @@ local ReservedStoreName = `a store name other than "{Record.CounterStore}", whic
 local DefaultTooBig = `a state of at most {Record.StateCap} bytes as canonical JSON`
 local KindsWanted = "an op kind name, or a list of names and { Kind, Min?, Max? } tables"
 local KindOnceWanted = "a kind named once in Balances, under one field and one of Credit or Debit"
+local MockWanted = "a service that Mock.New made"
 local ErasableWanted = "true or false, which says whether Store:Erase may end this store's keys "
 	.. "(true gives them the incarnation id an erase needs, false makes Erase throw)"
 
@@ -182,6 +184,13 @@ local function KindNames(Value: unknown): string?
 	return KindsWanted
 end
 
+local function MockService(Value: unknown): string?
+	if type(Value) == "table" then
+		return nil
+	end
+	return MockWanted
+end
+
 local function ErasableDeclared(Value: unknown): string?
 	if type(Value) == "boolean" then
 		return nil
@@ -211,6 +220,7 @@ local PlayerRules: { [string]: Rule } = {
 	CutWindow = Check.Optional(Settable.CutWindow.Rule),
 	Totals = Check.Optional(Plain(Check.Map(KeyName, AnyValue))),
 	Quantities = Check.Optional(Plain(Check.Map(KeyName, AnyValue))),
+	Mock = Check.Optional(MockService),
 }
 
 local EntityRules = table.clone(PlayerRules)
@@ -471,6 +481,7 @@ local function Settle(Options: unknown, Where: string): Settings
 		Totals = Totals,
 		Quantities = Quantities,
 		ClosedQuantities = ClosedQuantities,
+		Mock = Given.Mock,
 	})
 end
 
