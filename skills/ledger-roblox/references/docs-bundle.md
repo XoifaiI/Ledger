@@ -110,15 +110,15 @@ A key remembers the names of recent ops, so a resend does nothing twice.
 
 ## Transactions and stock [#transactions-and-stock]
 
-|                        | Limit                                                                             |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| `Ledger.Tx` keys       | 2 or more, all different. Up to 29 with 16-character keys; fewer with long names. |
-| `Take` `Legs`          | One fewer than the `Tx` limit.                                                    |
-| Quantity `Parts`       | 1 to 64.                                                                          |
-| `Proceeds` fields      | Up to 4.                                                                          |
-| Holds                  | Up to 900 s each (`HoldMax`). 256 at once per part.                               |
-| `Close` removing parts | After 62 minutes from the first `Open`.                                           |
-| Totals `Shards`        | 1 to 64, 16 by default. Do not change a live total's `Shards`.                    |
+|                        | Limit                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `Ledger.Tx` keys       | 2 or more, all different. Up to 29 with 16-character keys; fewer with long names.                    |
+| `Take` `Legs`          | One fewer than the `Tx` limit.                                                                       |
+| Quantity `Parts`       | 1 to 64.                                                                                             |
+| `Proceeds` fields      | Up to 4.                                                                                             |
+| Holds                  | Up to 900 s each (`HoldMax`), plus 60 s for clock differences between servers. 256 at once per part. |
+| `Close` removing parts | After 62 minutes from the first `Open`.                                                              |
+| Totals `Shards`        | 1 to 64, 16 by default. Do not change a live total's `Shards`.                                       |
 
 ## Reads and watching [#reads-and-watching]
 
@@ -3368,12 +3368,12 @@ For one player's gold, a reducer works just as well. Balances start to matter in
 
 Every store has to say these two:
 
-| Option      | `true`                                                                                    | `false`                                                                                    |
-| ----------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `MustExist` | The data must already exist. Loading or changing a key with no data fails with `Missing`. | Data that doesn't exist yet starts from `Default`, and is saved the first time it changes. |
-| `Erasable`  | You can delete a key's data for good with `Erase`, for example for a GDPR request.        | `Erase` isn't allowed.                                                                     |
+| Option      | `true`                                                                                                                                                                                                | `false`                                                                                    |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `MustExist` | Changing a key with no data fails with `Missing`. In a player store, the player's own session is the exception: `Load` starts a new player from `Default`, so only the player creates their own data. | Data that doesn't exist yet starts from `Default`, and is saved the first time it changes. |
+| `Erasable`  | You can delete a key's data for good with `Erase`, for example for a GDPR request.                                                                                                                    | `Erase` isn't allowed.                                                                     |
 
-For player data, use `MustExist = false` and `Erasable = true`. Pick `Erasable` before your game goes live: turning it on later takes extra care, covered in [Deleting data](/docs/learn/deleting-data).
+For player data, use `MustExist = false` and `Erasable = true`. Use `MustExist = true` on a player store if nothing else should create a player's data, so a gift or a trade sent to someone who has never played answers `Missing` instead. Pick `Erasable` before your game goes live: turning it on later takes extra care, covered in [Deleting data](/docs/learn/deleting-data).
 
 Next: [Players](/docs/learn/players)
 
@@ -3413,7 +3413,7 @@ Takes a config table and returns the store. `Data` is the shape of one key's dat
 | `Name`                                | The store's name. Never change it once players have data.                                                                                                                                                                                         |
 | `Keys`                                | `"Player"` for player data, `"String"` for keys you choose, like a guild id.                                                                                                                                                                      |
 | `Default`                             | What a new key starts with. Every field the data will ever have.                                                                                                                                                                                  |
-| `MustExist`                           | `true`: a key with no saved data answers `Missing`. `false`: it starts from `Default`.                                                                                                                                                            |
+| `MustExist`                           | `true`: changing a key with no saved data answers `Missing`, except that a player's own `Load` starts them from `Default`. `false`: a key with no data starts from `Default`.                                                                     |
 | `Erasable`                            | `true`: `Erase` works on this store.                                                                                                                                                                                                              |
 | `Reducer`                             | Your function that applies an op. See [Your data](/docs/learn/your-data).                                                                                                                                                                         |
 | `Balances`                            | Number fields Ledger changes for you. See below.                                                                                                                                                                                                  |
@@ -3683,6 +3683,8 @@ end
 
 `Hold` answers `true, Hold`, `SoldOut` or `Short`. `Confirm` takes the same `Price` and `Legs` as `Take`. If the hold ran out, `Confirm` uses a free unit; if there is none it answers `Short` with `ShortReason "Gone"`, never `SoldOut`. `Release(Hold)` answers `true`.
 
+A hold lasts 60 seconds longer than the `Duration` you ask for, because server clocks can differ by that much. Until then the unit stays held: a `Take` that needs it answers `Busy`, and `Confirm` still works. After that the unit is free again. So show the buyer the time you asked for, not the extra minute.
+
 ### Total and Close [#total-and-close]
 
 `Total(15)` answers `{ Sold, Free, Held }`. `Free` and `Held` are advice. After `Close`, count sold as `Stock - Free - Held`.
@@ -3691,13 +3693,31 @@ end
 
 ### Open quantities only [#open-quantities-only]
 
-| Call                                         | What it does                                                                                                                                                                |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Deposit(Count, Options?)`                   | Adds units. `Options` is `{ From?, Field?, Kind?, Part? }`; `From` pays for them from a key's balance field, one with a `Debit` kind in its store's `Balances`.             |
-| `Gather(Count, To, Field, Options?)`         | Moves units into a key's balance field, one with a `Credit` kind in its store's `Balances`. `To` is `{ Store, Key }`. `Options.Kind` picks the kind when there are several. |
-| `Withdraw(Count, Part, To, Field, Options?)` | Moves units or proceeds out of a part.                                                                                                                                      |
+| Call                                 | What it does                                                                                                                                                                |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Deposit(Count, Options?)`           | Adds units. `Options` is `{ From?, Field?, Kind?, Part? }`; `From` pays for them from a key's balance field, one with a `Debit` kind in its store's `Balances`.             |
+| `Gather(Count, To, Field, Options?)` | Moves units into a key's balance field, one with a `Credit` kind in its store's `Balances`. `To` is `{ Store, Key }`. `Options.Kind` picks the kind when there are several. |
 
 On a Final quantity, `Deposit` and `Gather` throw.
+
+### Withdraw [#withdraw]
+
+`Withdraw(Count, Part, To, Field, Options?)` moves units or proceeds out of part number `Part` (counting from 0). It works on both modes.
+
+| Argument | What it is                                                                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Field`  | `"u"` for units, or one of the quantity's `Proceeds` fields. Units are stored in a field called `u`, the same thing `Total` calls `Free`.           |
+| `To`     | Another part number, or `{ Store, Key }` to pay a key's balance field. `Options.Kind` picks the `Credit` kind on that field when there are several. |
+| `Count`  | How many units, or how much of the proceeds field.                                                                                                  |
+
+On a Final quantity you can only move units between parts, and only proceeds out to a key. A quantity with `Serials` can't move units between parts at all. Anything else throws.
+
+| Answer                         | Means                                                                                                                                                                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `true`                         | Moved.                                                                                                                                                                                                                                 |
+| `Refused`                      | The source part doesn't hold that much: no free units, or less in the proceeds field than you asked for. Also when you move units into a part that is sold out or closed: a sold-out part of a Final quantity never takes units again. |
+| `Missing`                      | A part or key isn't there. `Info.Key` names a missing key.                                                                                                                                                                             |
+| `Busy`, `Closed`, `Unresolved` | As for `Take`.                                                                                                                                                                                                                         |
 
 Next: [Observers and futures](/docs/reference/observers)
 
@@ -3941,7 +3961,7 @@ See [Support tools](/docs/guides/support-tools). `Pending` answers `Unresolved` 
 | `WaitForLoaded(Player)` | Waits for a load that has started.                                                                    |
 | `Read(Player)`          | The session's data, or `nil`.                                                                         |
 
-`Load` answers `nil, nil` if the player left. Otherwise the reason is `Unresolved`, `Missing`, `Behind`, `Busy` or `Unreadable`. Then `OnLoadFailed` runs, and the player is kicked unless `Kick = false`.
+`Load` answers `nil, nil` if the player left. Otherwise the reason is `Unresolved`, `Behind`, `Busy` or `Unreadable`. A player with no saved data is never a failure: `Load` starts them from `Default`, even with `MustExist = true`. Then `OnLoadFailed` runs, and the player is kicked unless `Kick = false`.
 
 ## Destroy [#destroy]
 

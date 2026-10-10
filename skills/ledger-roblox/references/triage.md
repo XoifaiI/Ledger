@@ -194,9 +194,10 @@ build reads the key fine. But a `Refused` already stored under a call's name sta
   with `Kick = false` is fine.
 - `Behind`: an old server; send them to a new one. Don't retry here.
 - `Unreadable`: see above.
-- `Missing`: a `MustExist = true` store with no key. Usually the wrong setting for a player store.
 - `Busy`: the read landed but there was no server number yet. Retry.
 
+`Load` never answers `Missing`: a player with no saved data starts from `Default`, even on a `MustExist = true` store,
+where only the player's own session may create their data (an `Edit` or a trade leg to them answers `Missing` instead).
 `Load` returns `nil, nil` when the player left or the server is closing; that's not a failure.
 
 ## A session shows old data
