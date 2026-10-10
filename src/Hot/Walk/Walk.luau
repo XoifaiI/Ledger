@@ -4,10 +4,12 @@
 --[=[
 	Walk: a Take or Hold's walk over a quantity's parts (sheet H3, H6). A named Take goes by hash order, fencing a
 	part the view shows passed, and remembers its name once its first step is accepted; other walks go by the view,
-	which answers SoldOut or Busy from memory. A Tx step waits for the one before to close.
+	which answers SoldOut or Busy from memory. A Tx step waits for the one before to close. A Take with legs reads its
+	first part before it sends anything unless the view shows it, and answers Missing, sending nothing, for a part
+	read absent within ViewAge: a step would mark the legs' keys for a part that does not exist.
 
 	Return type: A plain table with CanStart, StartTake, StartHold, NextPart, Advance, NoteRefused, NoteFenced,
-	NoteStepFenced, CanSendStep, SendStep, NoteTxStepHeard and TakeClosedTxStep.
+	NoteStepFenced, CanSendStep, SendStep, NoteTxStepHeard, TakeClosedTxStep, IsReadingPart and BeginAfterRead.
 	Example usage:
 		if Walk.CanStart(State, Call, Clock) then Walk.StartTake(State, Call, Arrived, Clock, Commands) end
 --]=]
@@ -165,6 +167,18 @@ local function CanSendStep(State: State, Walk: Walk, Position: number): boolean
 	return InFlight.CanWrite(State.Server, HotState.PartKeyOf(Walk.Call, Walk.Order[Position]))
 end
 
+local function Begin(State: State, Walking: Walk, Arrived: number, Clock: number, Commands: { Command }): boolean
+	if IsFencedAt(Walking, ViewOfCall(State, Walking.Call), FirstStep, Clock) then
+		Fence.SendFence(State, Walking, Clock, Commands)
+		return true
+	end
+	return SendStep(State, Walking, Arrived, Clock, Commands)
+end
+
+local function MustReadFirst(State: State, Call: WalkCall, First: number): boolean
+	return Call.Method == "Take" and Steps.HasLegs(Call) and not View.IsPresent(ViewOfCall(State, Call), First)
+end
+
 local function Launch(
 	State: State,
 	Call: WalkCall,
@@ -187,17 +201,36 @@ local function Launch(
 		TxStepId = nil,
 		HeardAt = nil,
 		Tidies = {},
+		ReadingSince = nil,
 	}
 	State.Hot.Walks[Call.CallId] = Walk
 	HotState.AddStepOwner(State.Hot, Call.CallId, { Kind = "Walk" })
 	if Name.Kind == "Drawn" then
 		Fence.ReadLackingParts(State, Call, Clock, Commands)
 	end
-	if IsFencedAt(Walk, ViewOfCall(State, Call), FirstStep, Clock) then
-		Fence.SendFence(State, Walk, Clock, Commands)
-		return true
+	if MustReadFirst(State, Call, Order[FirstStep]) then
+		Walk.ReadingSince = Clock
+		Fence.ReadPart(State, Call, Order[FirstStep], Clock, Commands)
+		return false
 	end
-	return SendStep(State, Walk, Arrived, Clock, Commands)
+	return Begin(State, Walk, Arrived, Clock, Commands)
+end
+
+local function IsReadingPart(Walking: Walk, Store: string, Scope: string, Name: string, Index: number): boolean
+	local Call = Walking.Call
+	return Walking.ReadingSince ~= nil
+		and Call.Store == Store
+		and Call.Scope == Scope
+		and Call.Quantity.Name == Name
+		and Walking.Order[FirstStep] == Index
+end
+
+local function BeginAfterRead(State: State, Walking: Walk, Clock: number, Commands: { Command })
+	Walking.ReadingSince = nil
+	local Call = Walking.Call
+	if Begin(State, Walking, Clock, Clock, Commands) and Call.Method == "Take" then
+		Steps.RememberGivenName(State.Server, Call, Walking.Order[FirstStep], Commands)
+	end
 end
 
 local function CanStart(State: State, Call: WalkCall, Clock: number): boolean
@@ -224,6 +257,9 @@ local function StartTake(State: State, Call: TakeCall, Arrived: number, Clock: n
 		return Replies.ReplyFailed(Commands, Call.CallId, Plan.Reason)
 	end
 	local FirstPart = Plan.Order[FirstStep]
+	if Steps.HasLegs(Call) and View.IsAbsentNow(ViewOfCall(State, Call), FirstPart, Clock) then
+		return Replies.ReplyFailed(Commands, Call.CallId, Reasons.Missing)
+	end
 	local Name, Stamp = Steps.NameAndStampOf(State.Server, Call, FirstPart, Clock)
 	if Launch(State, Call, Name, Stamp, Plan.Order, Arrived, Clock, Commands) then
 		Steps.RememberGivenName(State.Server, Call, FirstPart, Commands)
@@ -251,4 +287,6 @@ return {
 	SendStep = SendStep,
 	NoteTxStepHeard = NoteTxStepHeard,
 	TakeClosedTxStep = TakeClosedTxStep,
+	IsReadingPart = IsReadingPart,
+	BeginAfterRead = BeginAfterRead,
 }

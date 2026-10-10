@@ -28,6 +28,7 @@ local Numbers = require("../Writing/Numbers")
 local OpenCalls = require("./Calls/Open")
 local PartBuild = require("./Part/Build")
 local PartRead = require("./Walk/Read")
+local Reasons = require("../Constants/Reasons")
 local Record = require("../Constants/Record")
 local Reports = require("./Walk/Reports")
 local Sorted = require("../Sorted")
@@ -45,6 +46,12 @@ type Outcome = Events.Outcome
 type ReadOutcome = Events.ReadOutcome
 type HotWalk = HotState.Walk
 type Purpose = HotState.Purpose
+type PartReadPurpose = {
+	read Store: string,
+	read Scope: string,
+	read Quantity: { read Name: string },
+	read Index: number,
+}
 type ResultHandler = (State, Purpose, Outcome, number, { Command }) -> ()
 type CallHandler = (State, HotCall, number, number, { Command }) -> ()
 type CanStartHandler = (State, HotCall, number) -> boolean
@@ -119,7 +126,22 @@ local function MustWait(State: State, Call: HotCall, Clock: number): boolean
 	return not CanStart(State, Call, Clock)
 end
 
-local function OnRead(State: State, RequestId: number, Fetched: ReadOutcome, Clock: number): boolean
+local function AfterPartRead(State: State, Read: PartReadPurpose, IsRead: boolean, Clock: number, Commands: { Command })
+	for _, CallId in Sorted.SortedIds(State.Hot.Walks) do
+		local Walking = State.Hot.Walks[CallId]
+		if Walk.IsReadingPart(Walking, Read.Store, Read.Scope, Read.Quantity.Name, Read.Index) then
+			Reports.AfterPartRead(State, Walking, IsRead, Clock, Commands)
+		end
+	end
+end
+
+local function OnRead(
+	State: State,
+	RequestId: number,
+	Fetched: ReadOutcome,
+	Clock: number,
+	Commands: { Command }
+): boolean
 	local Purposes = State.Hot.Purposes
 	local Purpose = Purposes[RequestId]
 	if Purpose == nil or Purpose.Kind ~= "PartRead" then
@@ -133,6 +155,7 @@ local function OnRead(State: State, RequestId: number, Fetched: ReadOutcome, Clo
 		Known.ReadOut[Index] = nil
 	end
 	local Read = PartRead.LearnPart(State, Purpose.Store, Purpose.Scope, Purpose.Quantity, Index, Fetched, Clock)
+	AfterPartRead(State, Purpose, Read ~= nil, Clock, Commands)
 	if Read == nil or Read.Kind ~= "Kept" then
 		return true
 	end
@@ -212,9 +235,22 @@ local function WaitBoundOf(State: State, Walking: HotWalk): number?
 	return HeardAt + HotState.OpBoundOf(State.Server, Walking.Call.Store)
 end
 
+local function ReadBoundOf(State: State, Walking: HotWalk): number?
+	local Since = Walking.ReadingSince
+	if Since == nil then
+		return nil
+	end
+	return Since + HotState.OpBoundOf(State.Server, Walking.Call.Store)
+end
+
 local function OnClock(State: State, Clock: number, Commands: { Command })
 	for _, CallId in Sorted.SortedIds(State.Hot.Walks) do
 		local Walking = State.Hot.Walks[CallId]
+		local ReadAt = ReadBoundOf(State, Walking)
+		if ReadAt ~= nil and Clock >= ReadAt then
+			Reports.EndReading(State, Walking, Reasons.Busy, Clock, Commands)
+			continue
+		end
 		local WaitAt = WaitBoundOf(State, Walking)
 		if WaitAt ~= nil and Clock >= WaitAt then
 			Reports.EndUnresolved(State, Walking, Clock, Commands)
@@ -237,6 +273,7 @@ local function NextWake(State: State, Clock: number): number?
 	for _, Walking in State.Hot.Walks do
 		Soonest = Composed.EarliestAfter(Soonest, FenceBoundOf(State, Walking), Clock)
 		Soonest = Composed.EarliestAfter(Soonest, WaitBoundOf(State, Walking), Clock)
+		Soonest = Composed.EarliestAfter(Soonest, ReadBoundOf(State, Walking), Clock)
 		if Walking.Fence ~= nil then
 			Soonest = Composed.EarliestAfter(Soonest, Walking.Fence.RetryAt, Clock)
 		end
@@ -259,7 +296,12 @@ end
 local function AnswerOpenCalls(State: State, Clock: number, Commands: { Command })
 	Delivery.DrainStepOut(State, Clock, Commands)
 	for _, CallId in Sorted.SortedIds(State.Hot.Walks) do
-		Reports.EndUnresolved(State, State.Hot.Walks[CallId], Clock, Commands)
+		local Walking = State.Hot.Walks[CallId]
+		if Walking.ReadingSince ~= nil then
+			Reports.EndReading(State, Walking, Reasons.Closed, Clock, Commands)
+		else
+			Reports.EndUnresolved(State, Walking, Clock, Commands)
+		end
 	end
 	WalkOutcomes.EndOwed(State, Commands)
 	OpenCalls.EndUnresolved(State, Commands)

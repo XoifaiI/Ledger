@@ -365,7 +365,8 @@ local function Refresh(State: State, Call: KeyCall, Clock: number, Commands: { C
 	if Writer ~= nil and not Session.IsQuiet(Writer) then
 		return PushQueued(State, Call, Open, Writer, Clock)
 	end
-	Adoption.Refresh(State.Server, State.Sessions, Open, Call.CallId, Clock, Commands)
+	local IsAfterEnds = TxState.HasResolveOut(State.Tx, Call.Key)
+	Adoption.Refresh(State.Server, State.Sessions, Open, Call.CallId, Clock, IsAfterEnds, Commands)
 end
 
 return {

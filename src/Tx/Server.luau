@@ -13,6 +13,7 @@
 		if not Server.OnRead(State, RequestId, Fetched, Clock, Commands) then ... end
 --]=]
 
+local Adoption = require("../Sessions/Adoption")
 local AfterAnswer = require("./Call/AfterAnswer")
 local Cache = require("../Reading/Cache")
 local Composed = require("../Composed")
@@ -252,6 +253,9 @@ local function OnResult(State: State, RequestId: number, Result: Outcome, Clock:
 		local Answered = Tx.Calls[Purpose.CallId]
 		if Answered ~= nil then
 			AfterAnswer.AfterResolves(State, Answered, Purpose.Key, Result, Clock, Commands)
+		end
+		if not TxState.HasResolveOut(Tx, Purpose.Key) then
+			Adoption.ReadAfterEnds(State.Server, State.Sessions, Purpose.Key, Clock, Commands)
 		end
 		return true
 	end

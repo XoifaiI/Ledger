@@ -4,7 +4,8 @@
 --[=[
 	View: a quantity's parts as this server knows them (sheet H3, H6, H9). An entry merges by the larger q; sealed
 	and closed, once known, stay. NoteNo seals, closes, or notes a refusal apart. The view orders a walk's parts,
-	answers SoldOut and Busy from memory, sums parts for Total, and enters a missing part as q 0.
+	answers SoldOut and Busy from memory, sums parts for Total, and enters a missing part as q 0. AbsentAt keeps when a
+	read found a part absent, until a real entry beats it.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -176,11 +177,15 @@ local function Merge(View: QuantityView, Index: number, Entry: ViewEntry): ()
 	local Known = View.Parts[Index]
 	if Known == nil then
 		View.Parts[Index] = Entry
+		if Entry.Q > 0 then
+			View.AbsentAt[Index] = nil
+		end
 		return
 	end
 	if Entry.Q <= Known.Q then
 		return
 	end
+	View.AbsentAt[Index] = nil
 	View.Parts[Index] = {
 		Q = Entry.Q,
 		Free = Entry.Free,
@@ -189,6 +194,23 @@ local function Merge(View: QuantityView, Index: number, Entry: ViewEntry): ()
 		IsSealed = Entry.IsSealed or Known.IsSealed,
 		IsClosed = Entry.IsClosed or Known.IsClosed,
 	}
+end
+
+local function NoteAbsent(View: QuantityView, Index: number, Clock: number): ()
+	local Known = View.Parts[Index]
+	if Known == nil or Known.Q == 0 then
+		View.AbsentAt[Index] = Clock
+	end
+end
+
+local function IsPresent(View: QuantityView, Index: number): boolean
+	local Known = View.Parts[Index]
+	return Known ~= nil and Known.Q > 0
+end
+
+local function IsAbsentNow(View: QuantityView, Index: number, Clock: number): boolean
+	local At = View.AbsentAt[Index]
+	return At ~= nil and Clock - At <= ViewAge and not IsPresent(View, Index)
 end
 
 local function Lacking(View: QuantityView, Parts: number): { number }
@@ -272,6 +294,9 @@ return {
 	Lacking = Lacking,
 	QuantityOf = QuantityOf,
 	NoteLanded = NoteLanded,
+	NoteAbsent = NoteAbsent,
+	IsPresent = IsPresent,
+	IsAbsentNow = IsAbsentNow,
 	EntryKnown = EntryKnown,
 	NoteNo = NoteNo,
 }

@@ -8,7 +8,10 @@
 	Its view is Stored, the stored state it last showed, with the queued hopeful ops on top; it keeps the key's
 	incarnation. Apply sends nothing. An op unnumbered at SequenceMax gets a Queued handle. IsBehind never clears.
 
-	Return type: A plain table of functions, and the Session, PendingRefresh, SessionState, Releasing, Shutdown,
+	A pending Refresh may wait for this server's ends on the key, or for a read already out, before a read answers it.
+
+	Return type: A plain table of functions, and the Session, PendingRefresh, RefreshWait, SessionState, Releasing,
+	Shutdown,
 	ApplyCall, ReleaseCall and Basis types.
 	Example usage:
 		local Sessions = Session.NewState()
@@ -57,7 +60,9 @@ type ServerState = Shapes.ServerState
 
 type Fields = { [unknown]: unknown }
 
-export type PendingRefresh = { read CallId: number, read Text: string, read Deadline: number }
+export type RefreshWait = "Ends" | "Read"
+
+export type PendingRefresh = { read CallId: number, read Text: string, read Deadline: number, Wait: RefreshWait? }
 
 export type Session = {
 	Key: StoreKey,
@@ -151,16 +156,30 @@ local function IsQuiet(Writer: WriterState?): boolean
 	return #Writer.Waiting == 0
 end
 
-local function AnswerRefreshes(Sessions: SessionState, Text: string, Given: Answer, Commands: { Command })
+local function AnswerRefreshesOf(
+	Sessions: SessionState,
+	Text: string,
+	Given: Answer,
+	IsEvery: boolean,
+	Commands: { Command }
+)
 	local Kept: { PendingRefresh } = {}
 	for _, Pending in Sessions.Refreshing do
-		if Pending.Text == Text then
+		if Pending.Text == Text and (IsEvery or Pending.Wait == nil) then
 			Replies.Reply(Commands, Pending.CallId, Given)
 		else
 			table.insert(Kept, Pending)
 		end
 	end
 	Sessions.Refreshing = Kept
+end
+
+local function AnswerRefreshes(Sessions: SessionState, Text: string, Given: Answer, Commands: { Command })
+	AnswerRefreshesOf(Sessions, Text, Given, false, Commands)
+end
+
+local function AnswerEveryRefresh(Sessions: SessionState, Text: string, Given: Answer, Commands: { Command })
+	AnswerRefreshesOf(Sessions, Text, Given, true, Commands)
 end
 
 local function AnswerRefreshesDue(Sessions: SessionState, Clock: number, Commands: { Command })
@@ -361,6 +380,7 @@ return {
 	QueuedOnStored = QueuedOnStored,
 	IsQuiet = IsQuiet,
 	AnswerRefreshes = AnswerRefreshes,
+	AnswerEveryRefresh = AnswerEveryRefresh,
 	AnswerRefreshesDue = AnswerRefreshesDue,
 	FillEntry = FillEntry,
 	Load = Load,

@@ -102,7 +102,7 @@ local function Release(
 	end
 	Session.FillEntry(State, Open)
 	Sessions.Open[Text] = nil
-	Session.AnswerRefreshes(Sessions, Text, ClosedAnswer, Commands)
+	Session.AnswerEveryRefresh(Sessions, Text, ClosedAnswer, Commands)
 	local Writer = Writers.WriterFor(State, Call.Key)
 	if Writer == nil or Session.IsQuiet(Writer) then
 		return Replies.Reply(Commands, Call.CallId, Replies.DoneAnswer)
@@ -171,7 +171,7 @@ local function CloseAll(
 	for _, Text in Sorted.SortedTexts(Sessions.Open) do
 		Session.FillEntry(State, Sessions.Open[Text])
 		Sessions.Open[Text] = nil
-		Session.AnswerRefreshes(Sessions, Text, ClosedAnswer, Commands)
+		Session.AnswerEveryRefresh(Sessions, Text, ClosedAnswer, Commands)
 	end
 	WakeAt(Commands, Deadline)
 end

@@ -165,11 +165,11 @@ Ledger 7 is rebuilt from scratch. It's cheaper, holds more, and every edge case 
 
 | A trade between two players  | v6      | v7           |
 | ---------------------------- | ------- | ------------ |
-| DataStore requests           | 8       | **2**        |
+| DataStore requests           | 8       | **3**        |
 | MemoryStore requests         | 8       | **0**        |
 | Players or keys in one trade | up to 4 | **up to 29** |
 
-You can run about 4 times as many trades on the same DataStore budget, and they no longer use any MemoryStore.
+You can run more than twice as many trades on the same DataStore budget, and they no longer use any MemoryStore. A v7 trade also answers after 2 of its 3 requests.
 
 ### More room [#more-room]
 
@@ -215,10 +215,10 @@ You can run about 4 times as many trades on the same DataStore budget, and they 
 ~ Reset and Erase answer a Cut
 ~ Ledger.Tx, Bump, Total, Follow, Stale and Peek with MaxAge keep their names, with new answers
 ~ Ledger.New<<Data, Ops>> type-checks every op you send against your Ops type
+~ TypeScript typings for roblox-ts, rebuilt for v7: @xoifail/ledger 7.0.0
 - Held, and calls that return a Future
 - Transfer, Reserve and Once. Use Ledger.Tx, quantities and named ops
 - EditOp, CommitOp, Session:Compact, Ledger.Sweep, History, PeekVersion
-- TypeScript typings
 
 ! Data written by v6 may read Unreadable or Behind. Use new store names for v7
 ! Erase and Reset take only a Ledger.Id() name, or none. A string Id throws
@@ -653,7 +653,7 @@ end
 
 `Keys` lists every key in the store, a page at a time. `Next` gives a page, then `nil` after the last one. Keys come in no set order, and one made while you're going through might be missed.
 
-This reads every player's data once. Each server only gets about 60 DataStore reads a minute, plus 10 per player in it, and your game needs those too. One read a second leaves plenty to spare, but it takes a while on a big game: about a day per 80,000 players. Run it on one server, not every server.
+This reads every player's data once. Each server only gets about 60 DataStore reads a minute, plus 40 per player in it, and your game needs those too. One read a second leaves plenty to spare, but it takes a while on a big game: about a day per 80,000 players. Run it on one server, not every server.
 
 Next: [Ledger reference](/docs/reference/ledger)
 
@@ -2930,7 +2930,7 @@ print("Reducer tests passed")
 
 Ledger can run on the [Mock](https://github.com/XoifaiI/mock) package instead of the real DataStores and MemoryStore. It keeps everything in memory, with the same limits as the real services, so nothing your tests do touches your players' data.
 
-Install it with Wally (`Mock = "xoifaii/mock@1.0.0"`), or put `Mock.rbxm` in your game. Then give a store the mock:
+Install it with Wally (`Mock = "xoifaii/mock@1.0.1"`), or put `Mock.rbxm` in your game. Then give a store the mock:
 
 ```luau
 local Mock = require(ReplicatedStorage.Packages.Mock)
@@ -3102,7 +3102,7 @@ end
 
 `PlayerStore:Leg(UserId, Op)` describes one player's side of the trade. `Ledger.Tx` takes the list and applies every side, or none.
 
-A two-player trade costs 2 DataStore requests.
+A two-player trade costs 2 DataStore requests before it answers, and 3 in all.
 
 ## Players in this server [#players-in-this-server]
 
@@ -3420,9 +3420,21 @@ Takes a config table and returns the store. `Data` is the shape of one key's dat
 | `Migrations`                          | Changes to the data's shape. See [Changing your data](/docs/learn/changing-data).                                                                                                                                                                 |
 | `Totals`                              | Counters. See [Global counters](/docs/learn/global-counters).                                                                                                                                                                                     |
 | `Quantities`                          | Limited stock. See [Limited items](/docs/learn/limited-items).                                                                                                                                                                                    |
-| `Schema`                              | A function that checks every state the reducer returns. Answer `false` and a message to refuse it.                                                                                                                                                |
+| `Schema`                              | A function that checks every state the reducer returns. Return `true, nil` to keep it, or `false` and a message to refuse it.                                                                                                                     |
 | `OnLoadFailed`, `Kick`, `KickMessage` | What happens when a player's data won't load. Player stores only. See [Players](/docs/learn/players).                                                                                                                                             |
 | `Mock`                                | A mock DataStore and MemoryStore to run on instead of the real ones, from the [Mock](https://github.com/XoifaiI/mock) package. One mock per server. See [Shutdown and testing](/docs/learn/shutdown-and-testing#testing-without-real-datastores). |
+
+If you write a `Schema`, give it a return type and always return both values, or Studio's type check will complain:
+
+```luau
+Schema = function(Data): (boolean, string?)
+	if Data.Gold < 0 then
+		return false, "Gold went below zero"
+	end
+
+	return true, nil
+end,
+```
 
 The defaults below are right for almost every game. Change them only if you know you need to.
 
@@ -3647,6 +3659,8 @@ Do not change `Parts`, `Mode`, `Stock`, `Serials` or `Proceeds` of a live quanti
 
 On `true`, `Result` is `{ Part, Value }`. `Value` is the serial number, or `nil` without `Serials`.
 
+If you build the options in a separate function, give them the type `Ledger.TakeOptions`, or build each leg with `Store:Leg`. Otherwise Studio's type check can't tell which op goes with which store, and complains.
+
 | Answer              | Means                                                                                          | Do                                                                                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `true`              | Sold.                                                                                          | Done.                                                                                                         |
@@ -3791,7 +3805,9 @@ local State, Why = Bank:Peek(Key, 30) -- up to 30 s old is fine
 
 A store holds one name and every key under it. A key is a string, or a `Player` or UserId in a player store. Most calls work on any store. The player calls (`Load` and friends) work on player stores only, and throw on a string store.
 
-A bad call throws before anything is sent: an unknown op kind, a bad key, a wrong option name, or a call made from inside a reducer. Answers are never thrown. See [Answers](/docs/learn/answers).
+A bad call throws before anything is sent: a bad key, a wrong option name, or a call made from inside a reducer. Answers are never thrown. See [Answers](/docs/learn/answers).
+
+An op kind that isn't in your `Ops` type doesn't throw. Your reducer gets it, returns `nil`, and the call answers `Refused`. With `--!strict`, Studio's type check catches it before you run the game.
 
 ## Changing data [#changing-data]
 
@@ -3830,16 +3846,16 @@ end
 
 `Options` for both is `{ Id }` with a `Ledger.Id()` name, or nothing. A string `Id` throws, and so does `IdAt` beside it. `Reset` also takes `State`, a complete state in the newest shape. Make the name just before the call: a server answers `Expired` for its own name once it is 6 minutes old.
 
-| Answer                         | Means                                                                                              | Do                                                      |
-| ------------------------------ | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `true`, `Cut`                  | Done. `Cut.Losses` lists the balances that were erased.                                            | Log `Cut.Losses` now. This is the only time you get it. |
-| `true`, no `Losses`            | A repeat of the same name, already done. Also the answer for `Erase` of a key that does not exist. | Done.                                                   |
-| `Missing`                      | Nothing to reset or erase.                                                                         | Done: the key is gone.                                  |
-| `Expired`                      | The name is too old. Nothing was sent.                                                             | Make a new name.                                        |
-| `Spent`                        | The name was used for something else.                                                              | Make a new name.                                        |
-| `Busy` or `Closed`             | Nothing was sent.                                                                                  | Send again with the same name.                          |
-| `Unresolved`                   | Not known yet.                                                                                     | Send again with the same name, soon.                    |
-| `Behind`, `Unreadable`, `Full` | A newer build owns the key, it cannot be read, or the given `State` is too big.                    | See [Answers](/docs/learn/answers).                     |
+| Answer                         | Means                                                                                                                        | Do                                                                                                                              |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `true`, `Cut`                  | Done. `Cut.Losses` lists the balances that were erased, newest last.                                                         | Log `Cut.Losses` now. After an `Erase` this is the only time you get it. After a `Reset`, `Store:Losses` keeps them for 7 days. |
+| `true`, no `Losses`            | A repeat of the same name, already done. Also what `Erase` with a `Ledger.Id()` name answers for a key that was never saved. | Done.                                                                                                                           |
+| `Missing`                      | Nothing to reset or erase. `Erase` with no name answers this for a key that was never saved.                                 | Done: the key is gone.                                                                                                          |
+| `Expired`                      | The name is too old. Nothing was sent.                                                                                       | Make a new name.                                                                                                                |
+| `Spent`                        | The name was used for something else.                                                                                        | Make a new name.                                                                                                                |
+| `Busy` or `Closed`             | Nothing was sent.                                                                                                            | Send again with the same name.                                                                                                  |
+| `Unresolved`                   | Not known yet.                                                                                                               | Send again with the same name, soon.                                                                                            |
+| `Behind`, `Unreadable`, `Full` | A newer build owns the key, it cannot be read, or the given `State` is too big.                                              | See [Answers](/docs/learn/answers).                                                                                             |
 
 An `Erase` on a store with `Erasable = false` throws. See [Deleting data](/docs/learn/deleting-data).
 
@@ -3875,13 +3891,13 @@ The total must be declared in `Totals`. `Amount` is a whole number and may be ne
 | `Peek(Key, 30)`               | A recent copy that all servers share. Cheaper for a key many servers read often. See [Reading data](/docs/learn/reading-data). |
 | `Peek(Key, { Fresh = true })` | The newest saved data. Costs a write, so use it rarely.                                                                        |
 
-| Answer                              | Means                                                 | Do                                                                                                                                                   |
-| ----------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| the data                            | The key's data at some moment.                        | Use it.                                                                                                                                              |
-| `nil, Missing`                      | Never saved, or erased. It does not give the Default. | Use your own default.                                                                                                                                |
-| `nil, Behind`                       | A newer build owns the key.                           | Stop using this key. A plain `Peek` and `{ Fresh = true }` answer this. `Peek(Key, MaxAge)` can keep answering the old copy for up to about an hour. |
-| `nil, Unresolved`                   | The read failed or took over 30 s.                    | Show "loading", try later.                                                                                                                           |
-| `nil, Busy`, `Closed`, `Unreadable` | See [Answers](/docs/learn/answers).                   |                                                                                                                                                      |
+| Answer                              | Means                                                 | Do                                                                                                                                                                                                                            |
+| ----------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the data                            | The key's data at some moment.                        | Use it.                                                                                                                                                                                                                       |
+| `nil, Missing`                      | Never saved, or erased. It does not give the Default. | Use your own default.                                                                                                                                                                                                         |
+| `nil, Behind`                       | A newer build owns the key.                           | Stop using this key. A plain `Peek` and `{ Fresh = true }` answer this. `Peek(Key, MaxAge)` answers it too once the server has heard it, but a server that hasn't read the key since the update can answer the old copy once. |
+| `nil, Unresolved`                   | The read failed or took over 30 s.                    | Show "loading", try later.                                                                                                                                                                                                    |
+| `nil, Busy`, `Closed`, `Unreadable` | See [Answers](/docs/learn/answers).                   |                                                                                                                                                                                                                               |
 
 `nil` never means empty. See [Reading data](/docs/learn/reading-data).
 
@@ -3957,7 +3973,7 @@ local function GoldOp(Amount: number): Ledger.OpOf<Ops, "AddGold">
 end
 ```
 
-All types are `Ledger.<Name>`, for example `Ledger.Info<Data>`. Luau checks them in strict mode with the new type solver. There are no TypeScript typings.
+All types are `Ledger.<Name>`, for example `Ledger.Info<Data>`. Luau checks them in strict mode with the new type solver. For roblox-ts, the npm package `@xoifail/ledger` has the same types.
 
 ## The ones you will use [#the-ones-you-will-use]
 

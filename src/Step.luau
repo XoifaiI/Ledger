@@ -201,7 +201,7 @@ local function OnRead(
 	if ExtrasServer.OnRead(State, RequestId, Fetched, Fraction, Clock, Commands) then
 		return EndCloseAfterWork(State, Clock, Commands)
 	end
-	if HotServer.OnRead(State, RequestId, Fetched, Clock) then
+	if HotServer.OnRead(State, RequestId, Fetched, Clock, Commands) then
 		return EndCloseAfterWork(State, Clock, Commands)
 	end
 	local Out = State.Reads[RequestId]

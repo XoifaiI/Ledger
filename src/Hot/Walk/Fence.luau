@@ -4,9 +4,9 @@
 --[=[
 	Fence: the requests a walk sends besides its steps (hot keys sheet H5 P6, P7, H9). A fence on a part is an end
 	only request, Fence(x.p, 1, final), kept on the walk; a resend keeps the first send time. A read is one Get of a
-	part the view lacks, joined while younger than B_op.
+	part, joined while younger than B_op.
 
-	Return type: A plain table with SendFence, ResendFence and ReadLackingParts.
+	Return type: A plain table with SendFence, ResendFence, ReadPart and ReadLackingParts.
 	Example usage:
 		Fence.SendFence(State, Walking, Clock, Commands)
 --]=]
@@ -78,32 +78,38 @@ local function ResendFence(State: State, Walking: HotWalk, Clock: number, Comman
 	Fence.RetryAt = nil
 end
 
-local function ReadLackingParts(State: State, Call: ReadingCall, Clock: number, Commands: { Command })
+local function ReadPart(State: State, Call: ReadingCall, Index: number, Clock: number, Commands: { Command })
 	local Known = HotState.ViewOf(State.Hot, Call.Store, Call.Scope, Call.Quantity)
 	local Bound = Cache.StoreNamed(State.Server, Call.Store).Setup.Limits.OpBound
+	local Out = Known.ReadOut[Index]
+	if Out ~= nil and Clock < Out.SentAt + Bound then
+		return
+	end
+	local Purpose: HotPurpose = {
+		Kind = "PartRead",
+		Store = Call.Store,
+		Scope = Call.Scope,
+		Quantity = Call.Quantity,
+		Index = Index,
+		CallId = Call.CallId,
+		Fraction = Call.Fraction,
+	}
+	local RequestId = HotState.NewRequest(State.Server, State.Hot, Purpose)
+	Known.ReadOut[Index] = { RequestId = RequestId, SentAt = Clock }
+	local Get: Command = { Kind = "Get", RequestId = RequestId, Target = HotState.PartKeyOf(Call, Index) }
+	table.insert(Commands, Get)
+end
+
+local function ReadLackingParts(State: State, Call: ReadingCall, Clock: number, Commands: { Command })
+	local Known = HotState.ViewOf(State.Hot, Call.Store, Call.Scope, Call.Quantity)
 	for _, Index in View.Lacking(Known, Call.Quantity.Parts) do
-		local Out = Known.ReadOut[Index]
-		if Out ~= nil and Clock < Out.SentAt + Bound then
-			continue
-		end
-		local Purpose: HotPurpose = {
-			Kind = "PartRead",
-			Store = Call.Store,
-			Scope = Call.Scope,
-			Quantity = Call.Quantity,
-			Index = Index,
-			CallId = Call.CallId,
-			Fraction = Call.Fraction,
-		}
-		local RequestId = HotState.NewRequest(State.Server, State.Hot, Purpose)
-		Known.ReadOut[Index] = { RequestId = RequestId, SentAt = Clock }
-		local Get: Command = { Kind = "Get", RequestId = RequestId, Target = HotState.PartKeyOf(Call, Index) }
-		table.insert(Commands, Get)
+		ReadPart(State, Call, Index, Clock, Commands)
 	end
 end
 
 return {
 	SendFence = SendFence,
 	ResendFence = ResendFence,
+	ReadPart = ReadPart,
 	ReadLackingParts = ReadLackingParts,
 }

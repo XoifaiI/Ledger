@@ -5,7 +5,8 @@
 	Reports: how a cut call hears each report (cuts sheets 8.2, 9). A call that may have written answers Unresolved, not
 	a no; one resent under its handed-back name has not, and never redraws. A seal naming this server its sealer is
 	removed or watched however heard, and a seal a write landed is new, so an earlier removal of its name and rt does
-	not cover it. Answered calls drop after ErrorsBeforeUnresolved rounds without progress; the touch heals the key.
+	not cover it. Answered calls drop after ErrorsBeforeUnresolved rounds without progress; the touch heals the key. A
+	Reset that took answers the loss records its write left on the key, as an Erase answers its seal's.
 
 	Return type: A plain table with HearCut, AfterStamp and TimeOut.
 	Example usage:
@@ -29,6 +30,8 @@ local SealItems = require("../../Stored/Items/Seal")
 local Sending = require("../../Writing/Sending")
 local Stamps = require("../Seals/Stamps")
 local TxState = require("../../Tx/State")
+local Losses = require("../../Stored/Items/Losses")
+local Value = require("../../Stored/Value")
 local Work = require("../../Stored/Items/Work")
 
 type Command = Events.Command
@@ -41,6 +44,8 @@ type Report = JudgingShapes.Report
 type Gate = SealItems.Gate
 type Seal = SealItems.Seal
 type Mark = Work.Mark
+type LossRecords = Losses.LossRecords
+type Value = Value.Value
 type State = Composed.State
 type CutCall = CutState.CutCall
 type Waiter = TxState.Waiter
@@ -164,6 +169,17 @@ end
 
 local function OnTook(State: State, Cutting: CutCall, _Report: Report, _Clock: number, Commands: { Command })
 	EndTrue(State, Cutting, Commands)
+end
+
+local function OnResetTook(State: State, Cutting: CutCall, Written: Value?, Commands: { Command })
+	if Written == nil or Written.Kind ~= "Kept" then
+		return EndTrue(State, Cutting, Commands)
+	end
+	local Kept = Written.Book
+	local Records: LossRecords = { Events = Kept.Losses.Events, Returns = Kept.Losses.Returns, Slots = Kept.Slots }
+	Call.KeepJudged(State, Cutting)
+	Call.AnswerNamed(Cutting, Records, Commands)
+	CutState.EndCall(State.Cuts, Cutting)
 end
 
 local function OnSealed(State: State, Cutting: CutCall, Report: SealedReport, Clock: number, Commands: { Command })
@@ -361,6 +377,9 @@ local function HearCut(State: State, Cutting: CutCall, Result: Outcome, Clock: n
 	Cutting.ErrorsInARow = 0
 	if Cutting.Role == "Helper" then
 		return HearHelper(State, Cutting, Report, Clock, Commands)
+	end
+	if Report.Kind == "Took" and Cutting.CutKind == "Reset" then
+		return OnResetTook(State, Cutting, Result.Note.WrittenValue, Commands)
 	end
 	local Handle = (Handlers :: { [string]: Handler })[Report.Kind]
 	if Handle == nil then

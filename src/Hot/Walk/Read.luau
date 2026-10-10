@@ -4,7 +4,7 @@
 --[=[
 	Read: what a read of a part teaches the quantity's view (hot keys sheet H9), for a walk's read and for Total's.
 	The cache learns the stored value, and the view merges its entry by q. A part the key lacks is a zero entry, which
-	every real write beats. A failed read teaches nothing.
+	every real write beats, and the view notes when it was read absent. A failed read teaches nothing.
 
 	Return type: A plain table with LearnPart.
 	Example usage:
@@ -40,9 +40,13 @@ local function LearnPart(
 	local Server = State.Server
 	local Key = PartBuild.PartKey(Store, Scope, Quantity, Index)
 	local Read = Numbers.LearnStored(Server, Key, Cache.StoreOf(Server, Key).Setup, Fetched, Clock)
+	local Known = HotState.ViewOf(State.Hot, Store, Scope, Quantity)
 	local Entry = View.EntryOfRead(Read)
 	if Entry ~= nil then
-		View.Merge(HotState.ViewOf(State.Hot, Store, Scope, Quantity), Index, Entry)
+		View.Merge(Known, Index, Entry)
+	end
+	if Read.Kind == "Nothing" then
+		View.NoteAbsent(Known, Index, Clock)
 	end
 	return Read
 end

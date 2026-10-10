@@ -4,7 +4,8 @@
 --[=[
 	State: a server's transaction state (transaction sheets 5, 7, 16, 17, 18 and 21): a Call, a PendingCall, a
 	Help, a Verify, an UncleanRead, a Resettle and a PendingRead (a Pending call's read, bound like a Resettle's but
-	not open work the close waits for), and Purposes, which finds a result's owner by its request id.
+	not open work the close waits for), and Purposes, which finds a result's owner by its request id. HasResolveOut
+	says whether a resolve of this server's is out on a key.
 
 	The code that owns a record changes it in place, and the fields that never change are read only.
 
@@ -365,6 +366,16 @@ local function AbortedUses(State: TxState): { AbortedUse }
 	return Aborted
 end
 
+local function HasResolveOut(State: TxState, Key: StoreKey): boolean
+	local Text = Names.KeyText(Key)
+	for _, Purpose in State.Purposes do
+		if Purpose.Kind == "Resolve" and Names.KeyText(Purpose.Key) == Text then
+			return true
+		end
+	end
+	return false
+end
+
 local function OpenCount(State: TxState): number
 	local Count = 0
 	for _, Open in State.Calls do
@@ -384,6 +395,7 @@ end
 return {
 	FirstAttempt = FirstAttempt,
 	OpenCount = OpenCount,
+	HasResolveOut = HasResolveOut,
 	AbortedUses = AbortedUses,
 	NewState = NewState,
 	NextId = NextId,

@@ -5,7 +5,9 @@
 	Adoption: what an open session does with a newer state or a turned-away op (record sheet 10 steps 3 and 4, and 13).
 
 	A newer state, with its incarnation, is taken only above the session's write count. Queued hopeful ops lie on the
-	stored state; a refused one stays queued, off the view. OnIdleRead says if it read a state.
+	stored state; a refused one stays queued, off the view. OnIdleRead says if it read a state. A Refresh made while
+	this server's own transaction end is out on the key waits for it to land, then reads; one that waits for a read
+	already out reads again after it, so the answer shows the end.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -38,6 +40,7 @@ type StoreKey = Names.StoreKey
 type Basis = Session.Basis
 type Session = Session.Session
 type SessionState = Session.SessionState
+type RefreshWait = Session.RefreshWait
 type Note = JudgingShapes.Note
 type Setup = Shapes.Setup
 type WriterState = Shapes.WriterState
@@ -187,12 +190,50 @@ local function Refresh(
 	Open: Session,
 	CallId: number,
 	Clock: number,
+	IsAfterEnds: boolean,
 	Commands: { Command }
 )
 	local Limits = Cache.StoreOf(State, Open.Key).Setup.Limits
-	table.insert(Sessions.Refreshing, { CallId = CallId, Text = Open.Text, Deadline = Clock + Limits.OpBound })
-	if Open.IdleOut == nil then
+	local Wait: RefreshWait? = if IsAfterEnds then "Ends" else nil
+	table.insert(
+		Sessions.Refreshing,
+		{ CallId = CallId, Text = Open.Text, Deadline = Clock + Limits.OpBound, Wait = Wait }
+	)
+	if Wait == nil and Open.IdleOut == nil then
 		StartRead(State, Sessions, Open, Clock, Commands)
+	end
+end
+
+local function ReadAgainFor(
+	State: ServerState,
+	Sessions: SessionState,
+	Open: Session,
+	Waited: RefreshWait,
+	Clock: number,
+	Commands: { Command }
+)
+	local IsWaiting = false
+	for _, Pending in Sessions.Refreshing do
+		if Pending.Text == Open.Text and Pending.Wait == Waited then
+			Pending.Wait = if Open.IdleOut == nil then nil else "Read"
+			IsWaiting = IsWaiting or Pending.Wait == nil
+		end
+	end
+	if IsWaiting then
+		StartRead(State, Sessions, Open, Clock, Commands)
+	end
+end
+
+local function ReadAfterEnds(
+	State: ServerState,
+	Sessions: SessionState,
+	Key: StoreKey,
+	Clock: number,
+	Commands: { Command }
+)
+	local Open = Sessions.Open[Names.KeyText(Key)]
+	if Open ~= nil then
+		ReadAgainFor(State, Sessions, Open, "Ends", Clock, Commands)
 	end
 end
 
@@ -273,6 +314,7 @@ local function OnIdleRead(
 	Open.IdleOut = nil
 	local Given, IsRead = TakeRead(State, Sessions, Open, Fetched, Clock, Commands)
 	Session.AnswerRefreshes(Sessions, Open.Text, Given, Commands)
+	ReadAgainFor(State, Sessions, Open, "Read", Clock, Commands)
 	return IsRead
 end
 
@@ -283,5 +325,6 @@ return {
 	IsIdleReadDue = IsIdleReadDue,
 	IdleRead = IdleRead,
 	Refresh = Refresh,
+	ReadAfterEnds = ReadAfterEnds,
 	OnIdleRead = OnIdleRead,
 }

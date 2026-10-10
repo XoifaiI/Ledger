@@ -2,9 +2,10 @@
 --!optimize 2
 
 --[=[
-	Pacing: a shard's or part's send gap and read interval (extras sheet E3, E10). A new writer first waits a random
-	fraction of GapMost. A landing scales the gap by the write rate over the target rate, at least by half. An
-	interval doubles after a round with a throttled read, else halves after one with a good read.
+	Pacing: a shard's or part's send gap and read interval (extras sheet E3, E10). A new shard writer first waits a
+	random fraction of GapMost; a part's writer sends at once from GapLeast, since a take waits on its answer. A
+	landing scales the gap by the write rate over the target rate, at least by half. An interval doubles after a
+	round with a throttled read, else halves after one with a good read.
 
 	Return type: A plain table of functions and the RoundOutcomes, and the Paced, Landing and RoundOutcome types.
 	Example usage:
@@ -42,6 +43,16 @@ local RoundOutcomes = {
 export type RoundOutcome = keyof<typeof(RoundOutcomes)>
 
 local function NewPaced(IsShard: boolean, Clock: number, Fraction: number, Limits: GapLimits): Paced
+	if not IsShard then
+		return {
+			Gap = Limits.GapLeast,
+			LastSend = nil,
+			FirstSendAt = Clock,
+			Previous = nil,
+			Last = nil,
+			IsShard = IsShard,
+		}
+	end
 	return {
 		Gap = Limits.GapMost,
 		LastSend = nil,

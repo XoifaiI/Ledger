@@ -271,6 +271,25 @@ local function EndUnresolved(State: State, Walking: HotWalk, Clock: number, Comm
 	EndWalk(State, Walking, UnresolvedAnswer, Clock, Commands)
 end
 
+local function EndReading(State: State, Walking: HotWalk, Reason: Reason, Clock: number, Commands: { Command })
+	EndWalk(State, Walking, FailedAnswer(Reason), Clock, Commands)
+end
+
+local function AfterPartRead(State: State, Walking: HotWalk, IsRead: boolean, Clock: number, Commands: { Command })
+	if not IsRead then
+		return EndReading(State, Walking, Reasons.Busy, Clock, Commands)
+	end
+	local Call = Walking.Call
+	local Known = HotState.ViewOf(State.Hot, Call.Store, Call.Scope, Call.Quantity)
+	if View.IsAbsentNow(Known, Walking.Order[1], Clock) then
+		return EndReading(State, Walking, Reasons.Missing, Clock, Commands)
+	end
+	if Closing.IsPastDeadline(State.Sessions, Clock) then
+		return EndReading(State, Walking, Reasons.Closed, Clock, Commands)
+	end
+	Walk.BeginAfterRead(State, Walking, Clock, Commands)
+end
+
 local function EndAtFenceBound(State: State, Walking: HotWalk, Clock: number, Commands: { Command })
 	local Sent = Walking.Fence
 	if Sent ~= nil and Sent.RetryAt == nil then
@@ -370,5 +389,7 @@ return {
 	ResumeWalks = ResumeWalks,
 	OnFenceResult = OnFenceResult,
 	EndUnresolved = EndUnresolved,
+	EndReading = EndReading,
+	AfterPartRead = AfterPartRead,
 	EndAtFenceBound = EndAtFenceBound,
 }

@@ -61,6 +61,7 @@ export type QuantityView = {
 	Parts: { [number]: ViewEntry },
 	Refusals: { [number]: Refusal },
 	ReadOut: { [number]: OutRead },
+	AbsentAt: { [number]: number },
 }
 
 export type PartTry = PartReason | "Fenced"
@@ -84,6 +85,7 @@ export type Walk = {
 	TxStepId: number?,
 	HeardAt: number?,
 	Tidies: { StoreKey },
+	ReadingSince: number?,
 }
 
 export type OpenPart =
@@ -160,7 +162,7 @@ export type HotState = {
 local NoShownState = "State: this call is never made. A part that answers is reported with the part's state."
 
 local function NewView(): QuantityView
-	return { Parts = {}, Refusals = {}, ReadOut = {} }
+	return { Parts = {}, Refusals = {}, ReadOut = {}, AbsentAt = {} }
 end
 
 local function NewState(): HotState
