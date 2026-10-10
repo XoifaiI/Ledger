@@ -1,0 +1,24 @@
+# The models behind the bounds in this folder. Each is a witness, not a design. The design notes say which
+# bound each line backs. Env.tla here is a copy of ../env/Env.tla, so this folder runs on its own.
+
+# T06, T07: every dedupe rule a key of a few values can run. A pass means every design breaks some
+# history. A violation means a design survives, and TLC prints it.
+OnceAll.cfg Once expect=pass timeout=600 why=with 3 values and 2 names every design either applies a name twice or refuses a first arrival, when lateness is unbounded
+OnceThree.cfg Once expect=pass timeout=600 why=the same with 2 values and 3 names over histories of 4 arrivals
+OnceFlags.cfg Once expect=pass timeout=900 why=the same with 2 values and 2 names when each op also says whether it is a retry
+OnceOnTime.cfg Once expect=violate:SomeHistoryBreaks timeout=600 why=control: with lateness 0 a design of 3 values gives exactly once, so unbounded lateness is what forces the memory
+OnceNewest.cfg Once expect=violate:SomeHistoryBreaks timeout=600 why=control: a design that may refuse a first arrival older than a name that already arrived survives with 3 values, which is the horizon of design rule 8
+OnceRetriesRefused.cfg Once expect=violate:SomeHistoryBreaks timeout=600 why=control: a design that may refuse every retry survives with no memory at all
+
+# T03, T04: what a server can say about a write after an error. Every config sets RunAfterAnswer on,
+# as Env asks of a safety check, except AfterErrorUnranBefore, which names that assumption.
+AfterErrorNone.cfg AfterError expect=violate:TrueNo timeout=300 why=a definite no after the request left, with nothing more sent, is false when the write landed or lands later (D10 D13)
+AfterErrorNoneBefore.cfg AfterError expect=pass timeout=300 why=the same no is true when an error can only mean no effect, so D10 and D13 are the cause
+AfterErrorNoneBeforeCommit.cfg AfterError expect=violate:TrueNo timeout=300 why=control: the same no is false with LoseCommit on and 2 faults, since a rerun after the landing cancels and FailBefore then answers an error for a write that landed (D10)
+AfterErrorUnran.cfg AfterError expect=violate:TrueNo timeout=300 why=a no read from tf = none after an error is false once a transform may run after its call answered (D13)
+AfterErrorUnranBefore.cfg AfterError expect=pass timeout=300 why=the same no is true under the assumption that a transform never runs after its call answered, so a design that reads tf = none names it
+AfterErrorRead.cfg AfterError expect=violate:TrueNo timeout=300 why=a current GetAsync cannot fence: the write that ran lands after the read (D13 D14)
+AfterErrorProbe.cfg AfterError expect=violate:TrueNo timeout=300 why=an UpdateAsync that cancels cannot fence either, since it writes no version
+AfterErrorUnheard.cfg AfterError expect=violate:TrueNo timeout=300 why=a fence whose answer is an error proves nothing, since it may have failed before it took effect
+AfterErrorFence.cfg AfterError expect=pass timeout=600 why=a fence heard to land, or to cancel over x or a fence, makes the no true under every datastore fault, crashes and a transform that runs after its answer, with outside reverts off (D28)
+AfterErrorFenceRevert.cfg AfterError expect=violate:TrueNo timeout=600 why=control: an outside revert takes x off the key before the fence reads it, so the fenced no is false and the fence rests on D28

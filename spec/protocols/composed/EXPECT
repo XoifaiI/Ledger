@@ -1,0 +1,14 @@
+# Comp.tla: the composed model on one key (design goal 5, step 5). Configs by hand.
+Comp.cfg MCComp expect=pass timeout=600 why=S1 with S2's namings, S15, S8, S10 for legs and hopeful ops, S5 for cuts and the gate, with every protocol on one key
+CompBig.cfg MCComp expect=pass timeout=1800 why=the same with two hopeful ops and three one key edits
+ProbeNoCutBesideMarks.cfg MCComp expect=violate:NoCutBesideMarks timeout=600 why=probe: a cut takes effect in a behaviour where a use commits
+ProbeNoCutAfterMigration.cfg MCComp expect=violate:NoCutAfterMigration timeout=600 why=probe: a cut takes effect on a key at a newer level
+ProbeNoTurned.cfg MCComp expect=violate:NoTurned timeout=600 why=probe: rule 7 turns a hopeful op away
+CompCtlCutMarks.cfg MCComp expect=violate:NoLateLeg timeout=600 why=control: cuts 3.1 rule 8, a cut over a standing mark lets its leg land on the reset state (S10)
+CompCtlKeep.cfg MCComp expect=violate:CutOnce timeout=600 why=control: cuts 3.1 rule 1, a retry cuts twice (S5)
+CompCtlCutLevel.cfg MCComp expect=violate:NamedExact timeout=600 why=control: cuts 3.1 rule 4, a cut from a build without the key's level destroys a money field it cannot name (S9 through S2)
+CompCtlViewCut.cfg MCComp expect=violate:NoStaleView timeout=600 why=control: record 4 rule 7, a hopeful op of an older view lands after a cut (S10)
+CompCtlFloor.cfg MCComp expect=violate:OwnMeaning timeout=600 why=control: record 4 step 5, an old build writes in the old unit after a breaking migration (S15)
+CompCtlMigBlock.cfg MCComp expect=violate:OwnMeaning timeout=600 why=control: record 4 step 9, a migration beside a mark reinterprets the pending leg (S15)
+CompCtlOrderRule.cfg MCComp expect=violate:NonNeg timeout=600 why=control: transaction 4.1, a debit judged on the state alone beside an escrow debit (S8)
+CompCtlGate.cfg MCComp expect=violate:NoTentBesideGate timeout=600 why=control: cuts 3.3, a Tent lands beside a cut's gate

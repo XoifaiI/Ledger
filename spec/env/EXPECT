@@ -1,0 +1,170 @@
+# Env and its controls. Each failing toy is paired with a passing run of the same toy with its one
+# switch off, so the switch is shown to be the cause. The configs state each model. A bound of
+# MaxTime + 1 puts no bound on lag or delay.
+
+# Env's own invariants with every action driven, and the types Apalache checks.
+controls/ProbeStore.cfg controls/Probe expect=pass timeout=900 why=every datastore and server action with FailBefore, LoseAnswer, LoseCommit, LateLand, StaleGet, StaleRun, RunAfterAnswer, crashes of one server and of all, a GetAsync in steps, a transform that writes back what it read, and retries that share a closure keeps EnvHolds
+controls/ProbeKeys.cfg controls/Probe expect=pass timeout=900 why=listing by one server of two with and without excludeDeleted, each page a call in steps and the keys a page passes over, cuts of one server and of all, and notes with FailBefore, StaleGet and StaleList keep EnvHolds
+controls/ProbeStamps.cfg controls/Probe expect=pass timeout=600 why=stamps, the stamp a GetAsync reads, the missing stamp of a removal, reverts and notes with FailBefore and StaleGet keep EnvHolds, with 3 calls and 1 fault
+controls/ProbeStampsReverts.cfg controls/Probe expect=pass timeout=300 why=the same with 2 calls and 2 faults, so two reverts, or a revert and a failed call, fall in one behaviour. 3 calls with 2 faults reach 5 versions and did not finish in 600 seconds
+controls/ProbeMemory.cfg controls/Probe expect=pass timeout=900 why=every MemoryStore call in steps with expiries 0 and 1, an expiry of 2 past MaxExpiry 1 that answers an error, a transform that throws, with every MemoryStore fault, MsEvict with LifeAfterCalm 1, MsStale, LoseCommit, RunAfterAnswer, a run after the write applied that writes again, crashes, Shutdowns, clock jumps and clock steps, and Heal moving a clock into SkewAfterCalm, keeps EnvHolds
+controls/ProbeBounds.cfg controls/Probe expect=pass timeout=900 why=LagAfterCalm and DelayAfterCalm at 1 tick with StaleGet, StaleRun, MsStale and LoseCommit, a MemoryStore run after the write applied that cancels among them, keep EnvHolds, EnvDelay among them, which covers the answer and the read of a GetAsync
+controls/ProbeBoundsList.cfg controls/Probe expect=pass timeout=900 why=the same bounds with StaleList and listings with excludeDeleted and without, each page a call in steps, keep EnvHolds
+controls/ProbeBudget.cfg controls/Probe expect=pass timeout=600 why=request budgets under Budgets, spent by UpdateAsync, GetAsync, RemoveAsync and listing pages, refilled by ticks, lifted by Heal to a floor of 1, dropped by other code and fresh on a restart, with FailBefore and crashes, keep EnvHolds, EnvBudgets among them (D22 D23)
+controls/Probe.tla ProbeApalache expect=pass tool=apalache timeout=4200 args=--cinit=ConstInit --init=Init --next=Next --inv=EnvHolds --length=4 why=Apalache types Env with a record value and finds EnvHolds for 4 steps with every switch on, LoseCommit, Shutdowns, MsEvict and Budgets among them, an expiry past MaxExpiry, and SkewAfterCalm below MaxSkew
+
+# The datastore. Each toy fails on one switch.
+controls/GetDedupeStale.cfg controls/GetDedupe expect=violate:AtMostOnce timeout=300 why=dedupe decided on a GetAsync applies twice after a stale read that costs no fault (D8 D9)
+controls/GetDedupeFresh.cfg controls/GetDedupe expect=pass timeout=300 why=the same toy holds with StaleGet off
+controls/CancelProbeStale.cfg controls/CancelProbe expect=violate:TrueNo timeout=300 why=a definite no taken from what a cancelled transform saw is false after a stale read (D7)
+controls/CancelProbeFresh.cfg controls/CancelProbe expect=pass timeout=300 why=the same toy holds with StaleRun off
+controls/FoldReadStale.cfg controls/FoldRead expect=violate:NeverBack timeout=300 why=a view that takes what a writing run read after an error goes back, since only a landing checks that read (D7 A8)
+controls/FoldReadFresh.cfg controls/FoldRead expect=pass timeout=300 why=the same toy holds with StaleRun off
+controls/NewIdRetryLost.cfg controls/NewIdRetry expect=violate:OneDeposit timeout=300 why=a failed call retried under a new id applies twice when the answer was lost (D10)
+controls/NewIdRetryBefore.cfg controls/NewIdRetry expect=pass timeout=300 why=the same toy holds when every error means no effect
+controls/CrashLateLand.cfg controls/CrashLate expect=violate:TrueNo timeout=300 why=a crashed server's write lands after recovery said no (D13 D14 S2)
+controls/CrashLateNone.cfg controls/CrashLate expect=pass timeout=300 why=the same toy holds with LateLand off
+controls/ErrLateLand.cfg controls/CrashLate expect=violate:TrueNo timeout=300 why=a write lands after its server heard an error and a fresh read said no, with no crash (D13 D14)
+controls/ErrLateNone.cfg controls/CrashLate expect=pass timeout=300 why=the same toy holds with LateLand off, although errors still come
+controls/VersionFenceRerun.cfg controls/VersionFence expect=violate:TrueNo timeout=300 why=a transform runs again after its error, on the version a fence with no mark wrote, and lands after the no (D13 D14 T03)
+controls/VersionFenceOnce.cfg controls/VersionFence expect=pass timeout=300 why=the same toy holds with RunAfterAnswer off, which is the assumption under D13
+controls/VersionFenceMark.cfg controls/VersionFence expect=pass timeout=300 why=the same toy holds with RunAfterAnswer on when the fence leaves a mark every later run checks
+controls/DoubleLandCommit.cfg controls/DoubleLand expect=violate:NoLandOnDouble timeout=300 why=a later write lands on top of a call that landed twice under LoseCommit, so a cap on versions no longer takes that landing away (D10)
+controls/DoubleLandRerun.cfg controls/DoubleLand expect=violate:NoLandOnDouble timeout=300 why=the same after a lost answer and a run after the error that lands again at no more fault (D10 D13)
+controls/DoubleLandOnce.cfg controls/DoubleLand expect=pass timeout=300 why=the same toy holds with LoseCommit and RunAfterAnswer off, where a call lands once
+controls/DoubleLandCappedCommit.cfg controls/DoubleLand expect=violate:EnvVersLeft timeout=300 why=with MaxVers set to MaxReqs, as in an earlier Env, the second landing under LoseCommit takes the last version, the later write runs and never lands, and EnvVersLeft reports the cut (D10)
+controls/DoubleLandCappedRerun.cfg controls/DoubleLand expect=violate:EnvVersLeft timeout=300 why=the same cut after a lost answer and a run after the error that lands again at no more fault, reported by EnvVersLeft (D10 D13)
+controls/CapRunRerun.cfg controls/CapRun expect=violate:TrueFull timeout=300 why=a Full read from a cancel after an error is false when the engine runs the transform again after its write landed (D10 D12 D13, Full after a reserve landed)
+controls/CapRunOnce.cfg controls/CapRun expect=pass timeout=300 why=the same toy holds with RunAfterAnswer off, where the last run before the error is the last run
+controls/CapRunLateOff.cfg controls/CapRun expect=violate:TrueFull timeout=300 why=the same Full is false with LateLand off, since the run after the error cancels and writes nothing, so RunAfterAnswer needs no late landing to act (D10 D12 D13)
+controls/CapRunCommit.cfg controls/CapRun expect=violate:TrueFull timeout=300 why=a Full read from a nil with no error is false when the engine did not learn that its write landed and ran the transform again (D10 D13, Full after a reserve landed)
+controls/EraseBlind.cfg controls/EraseRace expect=violate:TwoKept timeout=300 why=a RemoveAsync lands after a later write and removes it at no fault, the late removal race (D18 T18)
+controls/EraseCond.cfg controls/EraseRace expect=violate:EnvNoZWrite timeout=300 why=a conditional erase that writes z breaks the rule that z means no value, since on Roblox that write lands a version and removes nothing (D6)
+controls/ZWriteZero.cfg controls/ZWrite expect=violate:EnvNoZWrite timeout=300 why=a counter whose z is 0 writes z when it takes back 1, where an earlier Env answered nil and kept 1 while Roblox lands 0 (D6 D17)
+controls/ZWriteApart.cfg controls/ZWrite expect=pass timeout=300 why=the same counter with a z that no run computes lands its write of 0 and keeps EnvHolds
+controls/EraseTomb.cfg controls/EraseRace expect=violate:NeverErased timeout=300 why=the same erase with a tombstone value takes effect, so NeverErased can fail in this toy
+controls/EraseTombKept.cfg controls/EraseRace expect=pass timeout=300 why=the tombstone lands only on the version it read, so it never removes a later write (D2 D14)
+controls/SharedNoteLate.cfg controls/SharedNote expect=violate:Agrees timeout=300 why=a retry that shares the closure of an earlier try reads a note a late run of that try left after its own write landed (D3 D13)
+controls/SharedNoteOwn.cfg controls/SharedNote expect=pass timeout=300 why=the same toy holds when each try has a closure of its own
+controls/SharedNoteOnce.cfg controls/SharedNote expect=pass timeout=300 why=the same toy holds with a shared closure when RunAfterAnswer is off
+controls/ReadFailBefore.cfg controls/ReadFail expect=violate:TrueNo timeout=300 why=a GetAsync that fails is taken for an empty key (D11)
+controls/ReadFailNone.cfg controls/ReadFail expect=pass timeout=300 why=the same toy holds with FailBefore off
+controls/GiveUpSplit.cfg controls/GiveUp expect=violate:NeverGivesUp timeout=300 why=one DsSplit fault gives a run of errors that reaches the path that gives up after 3 tries (S3 D23)
+controls/GiveUpOutage.cfg controls/GiveUp expect=violate:NeverGivesUp timeout=300 why=one DsOutage fault does the same for every server (D11)
+controls/GiveUpPerCall.cfg controls/GiveUp expect=pass timeout=300 why=with an error costing one fault each and MaxFaults 1 the path is out of reach
+controls/GiveUpSplitLate.cfg controls/GiveUp expect=violate:TrueNo timeout=300 why=an error to a cut server hides a write that lands after the server gave up, at no more cost than the cut (D11 D13)
+controls/GiveUpSplitLost.cfg controls/GiveUp expect=violate:TrueNo timeout=300 why=an error to a cut server hides a write that landed, at no more cost than the cut (D10 D11)
+controls/GiveUpSplitSure.cfg controls/GiveUp expect=pass timeout=300 why=the same no holds with LateLand and LoseAnswer off, where an error to a cut server means no effect
+controls/ListMissStale.cfg controls/ListMiss expect=violate:TrueGone timeout=300 why=a listing that ends without a key written before it began is taken for a key nobody wrote (D20)
+controls/ListMissWhole.cfg controls/ListMiss expect=pass timeout=300 why=the same toy holds with StaleList off
+controls/ListMissRemoved.cfg controls/ListMiss expect=violate:TrueGone timeout=300 why=a listing with excludeDeleted leaves a removed key out with StaleList off, so it cannot find removed keys (D20)
+controls/ListMissKept.cfg controls/ListMiss expect=pass timeout=300 why=the same removed key stays listed without excludeDeleted
+controls/ListPassRemoved.cfg controls/ListPass expect=violate:FoundAll timeout=300 why=a page read while a key is removed passes over that key, and the listing ends without it after it is written again, so one pass does not find every key that holds a value at its end (D20)
+controls/ListPassKept.cfg controls/ListPass expect=pass timeout=300 why=the same listing returns a key written again that was never removed
+controls/StampOrderAny.cfg controls/StampOrder expect=violate:NewestKept timeout=300 why=two writes ordered by UpdatedTime come out in the wrong order (D17 C3)
+controls/StampOrderNone.cfg controls/StampOrder expect=pass timeout=300 why=the same toy holds with KeyInfo off, where every stamp is 0, one choice among those KeyInfo allows, so KeyInfo off narrows Env and a design that reads a stamp is checked with it on
+controls/CopyStampOrder.cfg controls/CopyStamp expect=violate:OwnKept timeout=300 why=a copy ordered by the stamp its own write's answer carries keeps a state older than that write (D17)
+controls/CopyStampOwn.cfg controls/CopyStamp expect=pass timeout=300 why=the same toy holds when the copy takes the state its own write made
+controls/StickyCarry.cfg controls/Sticky expect=violate:TrueMade timeout=300 why=a transform that keeps its flag across runs tells its server it created a key another server created (D3)
+controls/StickyReset.cfg controls/Sticky expect=pass timeout=300 why=the same toy holds when each run resets the flag
+
+# Request budgets. A server reads its budget and decides Busy there (D22 D23, design rule 4).
+controls/BudgetPath.cfg controls/Budget expect=violate:NeverBusy timeout=300 why=with Budgets on a budget may read low, so a design that answers Busy from its budget takes that path (D22)
+controls/BudgetConst.cfg controls/Budget expect=pass timeout=300 why=with Budgets off every budget reads MaxBudget for ever, so no check with it off runs a path a low budget chooses
+controls/BudgetNoFloor.cfg controls/Budget expect=violate:NoBusyCalm timeout=300 why=with BudgetAfterCalm 0 a budget may read 0 for ever after calm, so Busy from budget goes on once calm and no liveness bound can rest on the budget
+controls/BudgetFloor.cfg controls/Budget expect=pass timeout=300 why=with BudgetAfterCalm 1, the Need of each try, Heal and each tick refill every budget and no Busy comes once calm, which rests on the load premise
+
+# Clocks.
+controls/ClockOrderSkew.cfg controls/ClockOrder expect=violate:NewestKept timeout=300 why=ordering by two servers' clocks keeps the older event under skew (C1)
+controls/ClockOrderNoSkew.cfg controls/ClockOrder expect=pass timeout=300 why=the same toy holds with no skew
+controls/OwnClockJumps.cfg controls/OwnClock expect=violate:OwnOrder timeout=300 why=one server's clock steps back between two of its own stamps, for a fault (C2)
+controls/OwnClockStep.cfg controls/OwnClock expect=violate:OwnOrder timeout=300 why=the same clock steps back at no fault under ClockSteps (C2)
+controls/OwnClockSteady.cfg controls/OwnClock expect=pass timeout=300 why=the same toy holds with ClockJumps and ClockSteps off
+controls/ClockOrderCalm.cfg controls/ClockOrder expect=pass timeout=300 why=with both events once calm the order holds under SkewAfterCalm 0 although MaxSkew is 1, since Heal moves every clock into SkewAfterCalm (C1)
+controls/IdOrder.cfg controls/ClockOrder expect=pass timeout=300 why=not a design: stamping each event with its call id, which Env's rule forbids, keeps the newest event under MaxSkew 1 where ClockOrderSkew fails, so the rule that a call id is a handle is what keeps a global order out (D17)
+controls/ClockOrderCalmSkew.cfg controls/ClockOrder expect=violate:NewestKept timeout=300 why=the same order fails under SkewAfterCalm 1, since clocks may stay off after calm (C1)
+
+# Servers.
+controls/JobNameServer.cfg controls/JobName expect=violate:WaitsOld timeout=300 why=a restarted server named by s takes the lease of its last life at once, where on Roblox the new process has a new JobId and reads it as held (S1)
+controls/JobNameLife.cfg controls/JobName expect=pass timeout=300 why=the same toy holds when the lease names the life, Job(s)
+controls/JobPeek.cfg controls/JobName expect=violate:WaitsOld timeout=300 why=not a design: a new life that reads the parts of a life name, which Env's rule forbids, takes the lease of its dead life at once, where a server on Roblox reads an opaque job id and must wait (S1)
+controls/AllDownShutdown.cfg controls/AllDown expect=violate:SomeRemembers timeout=300 why=one Shutdowns fault crashes every server at once and loses the memory of both (S1 S3)
+controls/AllDownOne.cfg controls/AllDown expect=pass timeout=300 why=with Crashes alone one fault loses one server's memory and the other keeps it
+
+# MemoryStore.
+controls/MsDedupeVanish.cfg controls/MsDedupe expect=violate:AtMostOnce timeout=300 why=dedupe kept in MemoryStore applies twice after the item vanishes (M7)
+controls/MsDedupeStale.cfg controls/MsDedupe expect=violate:AtMostOnce timeout=300 why=dedupe kept in MemoryStore applies twice after a read sees the key before the item was written, at no fault (M12)
+controls/MsDedupeKept.cfg controls/MsDedupe expect=pass timeout=300 why=the same toy holds when no item vanishes and every read is fresh, with the item's time to live at MaxExpiry, the boundary M4 allows
+controls/MsDedupeEvict.cfg controls/MsDedupe expect=violate:AtMostOnce timeout=300 why=with the first read after calm and no faults, MsEvict takes the item at no fault and the op applies twice, as when a lease is evicted while its holder works (M7)
+controls/MsDedupeVanishCalm.cfg controls/MsDedupe expect=pass timeout=300 why=the same toy holds with MsVanish alone, a fault, since no fault happens once calm, so a check with MsEvict off lets every item live its full expiry after calm (M7)
+controls/MsDedupeEvictLife.cfg controls/MsDedupe expect=pass timeout=300 why=the same toy with MsEvict holds under LifeAfterCalm 1 when no tick passes, so the bound is what keeps the item
+controls/MsDedupeEvictLate.cfg controls/MsDedupe expect=violate:AtMostOnce timeout=300 why=under LifeAfterCalm 1 with 2 ticks the item lives 1 tick once calm and is then evicted, so the bound holds an item for its stated life and no longer (M7)
+controls/MsDedupeLongTtl.cfg controls/MsDedupe expect=violate:AtMostOnce timeout=300 why=an item whose time to live is past MaxExpiry answers an error at no fault and is never written, so the op applies twice with no fault (M4)
+controls/MsCapCommit.cfg controls/MsCap expect=violate:TrueFull timeout=300 why=a Full read from a MemoryStore nil with no error is false when the engine did not learn that its reserve applied and ran the transform again (D10 M6, Full after a reserve landed)
+controls/MsCapRerun.cfg controls/MsCap expect=violate:TrueFull timeout=300 why=a Full read from a cancel after a MemoryStore error is false when the transform runs again after its reserve applied (M6 M11 D13, Full after a reserve landed)
+controls/MsCapOnce.cfg controls/MsCap expect=pass timeout=300 why=the same toy holds with LoseCommit and RunAfterAnswer off and every other MemoryStore fault, crashes and Shutdowns on
+controls/MsCapMaybe.cfg controls/MsCap expect=pass timeout=300 why=the same toy holds with RunAfterAnswer on and MsMaybe off: a run may follow an error, but without MsMaybe an error means the reserve never applied, so the Full is true
+controls/MsStickyCarry.cfg controls/MsSticky expect=violate:TrueMine timeout=300 why=a MemoryStore transform that keeps its flag across runs tells its server it took a lease another server took (M10)
+controls/MsStickyReset.cfg controls/MsSticky expect=pass timeout=300 why=the same toy holds when each run resets the flag
+controls/MsThrowFree.cfg controls/MsThrow expect=violate:NeverErr timeout=300 why=a MemoryStore transform that throws gives its server an error at no fault (M10)
+controls/MsThrowNone.cfg controls/MsThrow expect=pass timeout=300 why=the same calls never error when the transform cancels
+controls/MsThrowCommit.cfg controls/MsThrow expect=violate:ErrMeansNone timeout=300 why=under LoseCommit a run after the applying throws, and the call answers an error while its item stays (M6 M10)
+controls/MsThrowCommitCancel.cfg controls/MsThrow expect=pass timeout=300 why=the same run cancels without the throw, and the call answers nil
+controls/MsLateCrash.cfg controls/MsLate expect=violate:TrueNo timeout=300 why=a MemoryStore write in flight when its server crashed applies after the next life read no item, at the cost of the crash alone (S2 M11)
+controls/MsLateCut.cfg controls/MsLate expect=violate:TrueNo timeout=300 why=an error to a server cut off from MemoryStore hides a write that applies later, at the cost of the cut alone (M6 M9 M11)
+controls/MsLateNone.cfg controls/MsLate expect=pass timeout=300 why=the same toy holds with crashes and cuts on and MsMaybe off
+controls/HoldTtlTwo.cfg controls/HoldTtl expect=violate:HoldKept timeout=300 why=a hold whose item a second call must push out outlives its item when that call fails (M4 M10)
+controls/HoldTtlOne.cfg controls/HoldTtl expect=pass timeout=300 why=the same hold stays covered when one call carries the expiry
+controls/WipeOutage.cfg controls/WipeAll expect=violate:SomeKept timeout=300 why=one outage loses every item at once, for one fault (M5 M8)
+controls/WipeVanish.cfg controls/WipeAll expect=pass timeout=300 why=with vanishes alone one fault loses one item, and the other stays
+controls/LeaseSure.cfg controls/Lease expect=pass timeout=600 why=a lease counted from before its call and released only by its own round holds exclusion with exact clocks, and ends Ttl after its answer, with MsFail, MsStale and RunAfterAnswer on and MsMaybe off
+controls/LeaseSureLate.cfg controls/Lease expect=pass timeout=600 why=the same lease holds exclusion with MsMaybe on
+controls/LeaseSureStep.cfg controls/Lease expect=pass timeout=900 why=the same lease timed with a margin of 2 * MaxSkew holds exclusion when both clocks step within MaxSkew at no fault, and ends Ttl after its answer (C1 C2)
+controls/LeaseMargin.cfg controls/Lease expect=violate:Exclusive timeout=900 why=a margin of 1 below 2 * MaxSkew is not enough, since a duration on one stepping clock may be 2 * MaxSkew ticks long in true time (C2)
+controls/LeaseStep.cfg controls/Lease expect=violate:Exclusive timeout=300 why=a lease timed on its holder's clock with no margin outlives its item when that clock steps back, at no fault (C2)
+controls/LeaseLateTtl.cfg controls/Lease expect=violate:EndsAfterAnswer timeout=600 why=a take that answered an error applies later and lives its time to live from then (M4 M11)
+controls/LeaseBlindRelease.cfg controls/Lease expect=violate:Exclusive timeout=600 why=a plain RemoveAsync sent while the lease stood applies after it ran out and another server took it, with no fault (M11)
+controls/LeaseFromAnswer.cfg controls/Lease expect=violate:Exclusive timeout=600 why=a lease counted from its answer outlives its item, since ticks pass between the write applying and the answer (M10)
+controls/EvidenceFail.cfg controls/Evidence expect=violate:TrueBusy timeout=300 why=a failed MemoryStore read taken as a held lease answers a false Busy (M6)
+controls/EvidenceOutage.cfg controls/Evidence expect=violate:TrueBusy timeout=300 why=the same after an outage for every server (M8)
+controls/EvidenceSplit.cfg controls/Evidence expect=violate:TrueBusy timeout=300 why=the same after one server loses MemoryStore (M9)
+controls/EvidenceOff.cfg controls/Evidence expect=violate:TrueBusy timeout=300 why=the same with MemoryStore down for the whole behaviour (M8)
+controls/EvidenceUp.cfg controls/Evidence expect=pass timeout=300 why=the same toy holds with every MemoryStore fault off, with a writer that takes and removes the lease
+controls/EvidencePositiveStale.cfg controls/Evidence expect=violate:TrueBusy timeout=300 why=a lease read as positive evidence still answers a false Busy when a stale read shows a lease its holder removed (M12)
+controls/EvidenceExpire.cfg controls/Evidence expect=violate:TrueBusy timeout=300 why=the same when a stale read shows a lease as it was before it expired, at no fault (M12)
+controls/EvidenceNoExpire.cfg controls/Evidence expect=pass timeout=300 why=the same toy holds when the kept lease outlives the model, so the expiry is the cause
+controls/EvidencePositive.cfg controls/Evidence expect=pass timeout=300 why=with MsStale off TrueBusy cannot fail here, since an ok read saw the item as it reads now and an error answers free, so no other MemoryStore fault adds a path to a false Busy
+
+# The correct toy holds with every datastore fault on, and fails with each fix taken out or with outside writes.
+controls/CondWriteAll.cfg controls/CondWrite expect=pass timeout=900 why=a conditional write that keeps its op id in the value holds at most once and true answers, with StaleRun, RunAfterAnswer and LoseCommit on
+controls/CondWriteNoDedupe.cfg controls/CondWrite expect=violate:AtMostOnce timeout=600 why=with the id check taken out of the transform the op applies twice
+controls/CondWriteRefused.cfg controls/CondWrite expect=violate:TrueYes timeout=600 why=a nil from a transform that cancelled for another reason, taken for a yes, is false
+controls/CondWriteRefusedRead.cfg controls/CondWrite expect=pass timeout=900 why=the same holds when the server reads what the cancel saw
+controls/CondWriteRevert.cfg controls/CondWrite expect=violate:AtMostOnce timeout=600 why=an outside revert makes the key forget the id, and a retry applies the op again (D28)
+controls/CondWriteRevertYes.cfg controls/CondWrite expect=violate:TrueYes timeout=600 why=an outside revert makes an earlier yes false (D28)
+
+# Liveness and the bounds for it.
+controls/RetryLiveRetries.cfg controls/RetryLive expect=pass timeout=600 why=Lands holds under EnvFair when the server retries under the same id, with no bound on lag or delay
+controls/RetryLiveNoRetry.cfg controls/RetryLive expect=temporal timeout=600 why=Lands fails when the server gives up after one error that came before any effect
+controls/LateFairRerun.cfg controls/LateFair expect=temporal timeout=600 why=EnvFair gives no fairness to a run after an answer, so a server that waits for its transform to run after an error may wait for ever (D13)
+controls/LateFairOnce.cfg controls/LateFair expect=pass timeout=600 why=the same server goes on with RunAfterAnswer off, where an error comes only after a run
+controls/PollLiveStale.cfg controls/PollLive expect=temporal timeout=600 why=with no bound on lag a GetAsync may lag for ever once faults stop, so a poll never sees the write (D8)
+controls/PollLiveFresh.cfg controls/PollLive expect=pass timeout=600 why=the same poll sees the write under LagAfterCalm 0
+controls/LagReadLong.cfg controls/LagRead expect=violate:SeesOwn timeout=300 why=a design that trusts a read 1 tick after its write fails under a lag bound of 2 ticks (D8)
+controls/LagReadShort.cfg controls/LagRead expect=pass timeout=300 why=the same design holds under a lag bound of 1 tick
+controls/DelayLiveNone.cfg controls/DelayLive expect=violate:InTime timeout=300 why=weak fairness bounds nothing in ticks, so a call may wait any number of ticks before its transform runs
+controls/DelayLiveUnheard.cfg controls/DelayLive expect=violate:HeardInTime timeout=300 why=with no bound on delay a server may wait any number of ticks for the answer to a call
+controls/DelayLiveBound.cfg controls/DelayLive expect=pass timeout=300 why=under DelayAfterCalm 1 and Hold each call lands and is heard within 1 tick, and a chain of two within 2, and EnvTimeMoves shows time did not stop
+controls/DelayLiveNoHold.cfg controls/DelayLive expect=violate:ChainInTime timeout=300 why=without Hold ticks pass between an answer and the server's next send, so a chain of calls has no bound in ticks
+controls/DelayLiveRead.cfg controls/DelayLive expect=violate:ReadFree timeout=300 why=a GetAsync is a call in steps and takes ticks of its own, so a chain with a read does not finish in the ticks of its writes (D8 D23)
+controls/DelayLiveReadBound.cfg controls/DelayLive expect=pass timeout=300 why=the same chain finishes when the read counts one DelayAfterCalm of its own
+controls/DelayLiveStuckBlind.cfg controls/DelayLive expect=pass timeout=300 why=a Hold that names the server's state stays TRUE when MaxReqs disables the second send, time stops, and ChainInTime passes although the chain never finishes
+controls/DelayLiveStuck.cfg controls/DelayLive expect=temporal timeout=300 why=the same model fails EnvTimeMoves, so a bounded liveness pass counts only beside a pass of EnvTimeMoves
+controls/DelayLiveStuckEnabled.cfg controls/DelayLive expect=violate:ChainInTime timeout=300 why=a Hold written as ENABLED of the second send turns FALSE when MaxReqs disables it, time moves, and ChainInTime reports the unfinished chain
+controls/DelayLiveBoundEnabled.cfg controls/DelayLive expect=pass timeout=300 why=the same Hold written as ENABLED keeps the chain of two within 2 ticks when a call is left for it, and EnvTimeMoves holds
+controls/DelayLiveDeafBlind.cfg controls/DelayLive expect=pass timeout=300 why=a server with no step that hears its second answer leaves that call overdue, time stops, and ChainInTime passes although the chain never finishes
+controls/DelayLiveDeaf.cfg controls/DelayLive expect=temporal timeout=300 why=the same model fails EnvTimeMoves, so a call that stays overdue is reported and not a silent pass
+controls/MsDownBound.cfg controls/MsDown expect=pass timeout=300 why=with MemoryStore down for the whole behaviour, DelayAfterCalm 1 bounds when a server hears the error of a MemoryStore call, and EnvTimeMoves holds (M8)
+controls/MsDownNone.cfg controls/MsDown expect=violate:HeardInTime timeout=300 why=the same error comes any number of ticks late with no bound on delay
+controls/MsDownAtOnce.cfg controls/MsDown expect=violate:HeardAtOnce timeout=300 why=under DelayAfterCalm 1 and a lawful Hold a tick may pass before the error, so no design may count on an error that costs no time
+controls/MsDownHoldHear.cfg controls/MsDown expect=pass timeout=300 why=not a design: a Hold that names the step that hears the answer, which Env's rule forbids, makes the error come in 0 ticks with no bound on delay

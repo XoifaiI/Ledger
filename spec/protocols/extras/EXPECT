@@ -1,0 +1,33 @@
+# Tot.tla (totals) and Copy.tla (copies) of the chosen extras design.
+# Timeouts are what an EC2 box of 32 cpus needs with 8 workers.
+TotTwo.cfg Tot expect=pass timeout=3600 why=A9: a total is a sum of bumps that took, with every bump before some moment; S5 for bumps
+ProbeTotTwo.cfg Tot expect=violate:ScriptUnfinished timeout=3600 why=probe: TotTwo's pass is not a pass by an early stop
+TotName.cfg Tot expect=pass timeout=3600 why=S5 across servers for a game-named bump, and A9
+ProbeTotName.cfg Tot expect=violate:ScriptUnfinished timeout=3600 why=probe: TotName's pass is not a pass by an early stop
+TotOne.cfg Tot expect=pass timeout=3600 why=A9 with S = 1
+ProbeTotOne.cfg Tot expect=violate:ScriptUnfinished timeout=3600 why=probe: TotOne's pass is not a pass by an early stop
+TotCtlOwn.cfg Tot expect=violate:TotalExact timeout=3600 why=extras 13: B27 and B46, a bump counted twice or before it took (A9)
+TotCtlNameHash.cfg Tot expect=violate:AtMostOnce timeout=3600 why=extras 13: a game name reaches two shards, and applies on each (S5)
+CopyTwo.cfg Copy expect=pass timeout=3600 why=A7: a shown state is one the key held; A8: a server's shows never go back
+ProbeCopyTwo.cfg Copy expect=violate:ShownLate timeout=3600 why=probe: CopyTwo's pass is not a pass by an early stop
+QuickTotTwo.cfg Tot expect=pass timeout=1800 why=quick check of TotTwo's logic, not a safety result
+QuickTotName.cfg Tot expect=pass timeout=1800 why=quick check of TotName's logic, not a safety result
+QuickTotOne.cfg Tot expect=pass timeout=1800 why=quick check of TotOne's logic, not a safety result
+QuickCopyTwo.cfg Copy expect=pass timeout=1800 why=quick check of CopyTwo's logic, not a safety result
+# CopyAbs: copies at the level of landings; hand-written configs.
+CopyAbs.cfg MCCopyAbs expect=pass timeout=1800 why=A7 A8 for copies over every interleaving of refreshes, stale reads and ticks
+ProbeCopyAbs.cfg MCCopyAbs expect=violate:ShownLast timeout=600 why=probe: the follower shows the last state
+CopyAbsCtlPartQ.cfg MCCopyAbs expect=violate:ReadWasHeld timeout=600 why=extras 13: a follower that shows parts without checking each part's q shows pieces of two versions (A7)
+CopyAbsCtlOrder.cfg MCCopyAbs expect=violate:NeverBack timeout=600 why=extras 13: a copy ordered by the holder's clock, as UpdatedTime, goes back (A8, M14)
+# CopyBuilds: copies with holders on two builds (extras 5.1, 5.3); hand-written configs.
+CopyBuildsFixPartLevel.cfg MCCopyBuilds expect=pass timeout=1800 why=A7 across builds: a follower joins parts only when each carries the header's q and level
+ProbeCopyBuilds.cfg MCCopyBuilds expect=violate:ShownLast timeout=600 why=probe: under the chosen rules (FixPartLevel, FixLevelTakes) the follower still shows the last state
+CopyBuildsProse.cfg MCCopyBuilds expect=violate:ReadWasHeld timeout=600 why=extras 13: parts with no level; a follower joins pieces of two levels (A7)
+CopyBuildsFixLevelWins.cfg MCCopyBuilds expect=violate:ReadWasHeld timeout=600 why=extras 13: a higher level winning on the header alone does not keep A7
+CopyBuildsFixTakes.cfg MCCopyBuilds expect=pass timeout=1800 why=A7 A8 across builds when the pusher's level wins the header on an equal q
+CopyBuildsCtlTakesPart.cfg MCCopyBuilds expect=violate:ReadWasHeld timeout=600 why=extras 13: the chosen header rule with parts that carry no level; a follower joins pieces of two levels (A7)
+# CopyBuildsLive: CopyBuilds with a deploy after which one holder survives, for liveness (ShowsLast); hand-written configs.
+LiveTakesY.cfg MCCopyBuildsLive expect=pass timeout=600 why=the follower shows the last q when the new build's holder survives (the chosen fixes)
+LiveTakesX.cfg MCCopyBuildsLive expect=pass timeout=600 why=the follower shows the last q when the old build's holder survives (the chosen fixes)
+LivePartLevelY.cfg MCCopyBuildsLive expect=temporal timeout=600 why=extras 13: without FixLevelTakes the header keeps the old level and the follower never shows the last q (W1)
+LiveBothX.cfg MCCopyBuildsLive expect=temporal timeout=600 why=extras 13: a higher level winning the header is not live after a rollback

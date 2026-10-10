@@ -1,0 +1,39 @@
+# Hot.tla, part H1 of the chosen hot keys design (the split quantity).
+# Timeouts are what an EC2 box of 32 cpus needs with 8 workers.
+HotWalk.cfg Hot expect=pass timeout=3600 why=2.4: at most one part serves a take; S1 on units; SoldOut and Short true
+ProbeHotWalk.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotWalk's pass is not a pass by an early stop
+HotHold.cfg Hot expect=pass timeout=3600 why=2.3, 2.6: the seal waits for the hold; SoldOut true; a hold ends once; Release true
+ProbeHotHold.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotHold's pass is not a pass by an early stop
+HotConfirm.cfg Hot expect=pass timeout=3600 why=2.6: a hold ends once, by confirm, release or expiry; S1 on units
+ProbeHotConfirm.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotConfirm's pass is not a pass by an early stop
+HotCtlWalkStop.cfg Hot expect=violate:OnePart timeout=3600 why=hot keys 11: a unit sold twice (2.4)
+HotCtlMissing.cfg Hot expect=violate:OnePart timeout=3600 why=hot keys 11: a unit sold twice once the part is opened (design rule 31)
+HotCtlSealHold.cfg Hot expect=violate:SoldOutTrue timeout=3600 why=hot keys 11: SoldOut while a hold's units may come back (2.3)
+HotCtlExpiry.cfg Hot expect=violate:Units timeout=3600 why=hot keys 11: a unit returned after its sale (2.3)
+HotCtlRelease.cfg Hot expect=violate:ReleaseTrue timeout=3600 why=hot keys 11: a hold left standing after Release answered true (2.3)
+HotSerial.cfg Hot expect=pass timeout=3600 why=2.7: no serial sold twice; S1 on units
+ProbeHotSerial.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotSerial's pass is not a pass by an early stop
+HotSerialCtlExpiry.cfg Hot expect=violate:SerialOnce timeout=3600 why=hot keys 11: a confirmed hold's serial comes back and is sold again (2.7)
+HotCredit.cfg Hot expect=pass timeout=3600 why=2.3, 2.5: a final quantity takes no Deposit, so SoldOut stays true
+ProbeHotCredit.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotCredit's pass is not a pass by an early stop
+HotCreditClose.cfg Hot expect=pass timeout=3600 why=2.3, 2.5: a closed part refuses a credit, so Close removes no unit
+ProbeHotCreditClose.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotCreditClose's pass is not a pass by an early stop
+HotCtlCreditSealed.cfg Hot expect=violate:Units timeout=3600 why=hot keys 11: units destroyed by the removal of a part a credit refilled (2.3, S1)
+HotCreditEarly.cfg Hot expect=pass timeout=3600 why=2.2, 2.5: a final quantity's Deposit throws, so its units never pass the stock
+ProbeHotCreditEarly.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotCreditEarly's pass is not a pass by an early stop
+HotCtlCreditFinal.cfg Hot expect=violate:UnitsWithinStock timeout=3600 why=hot keys 11: money made into units of a final quantity (2.2, W11)
+HotClose.cfg Hot expect=pass timeout=3600 why=design rule 31: Close removes only an empty part, only once t_open is SealAge old; no part made twice
+ProbeHotClose.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotClose's pass is not a pass by an early stop
+HotCtlCloseEmpty.cfg Hot expect=violate:Units timeout=3600 why=hot keys 11: units destroyed (S1)
+HotCtlRemoveAge.cfg Hot expect=violate:MadeOnce timeout=3600 why=hot keys 11: a late open lands after the removal and makes the part again
+HotCloseLate.cfg Hot expect=pass timeout=3600 why=design rule 31: the removal waits SealAge, so no late open or take makes the part again
+HotCtlOpenOnly.cfg Hot expect=violate:MadeOnce timeout=3600 why=hot keys 11: a late take makes the removed part again
+QuickHotWalk.cfg Hot expect=pass timeout=1800 why=quick check of HotWalk's logic, not a safety result
+QuickHotHold.cfg Hot expect=pass timeout=1800 why=quick check of HotHold's logic, not a safety result
+QuickHotConfirm.cfg Hot expect=pass timeout=1800 why=quick check of HotConfirm's logic, not a safety result
+QuickHotSerial.cfg Hot expect=pass timeout=1800 why=quick check of HotSerial's logic, not a safety result
+QuickHotCredit.cfg Hot expect=pass timeout=1800 why=quick check of HotCredit's logic, not a safety result
+QuickHotCreditClose.cfg Hot expect=pass timeout=1800 why=quick check of HotCreditClose's logic, not a safety result
+QuickHotCreditEarly.cfg Hot expect=pass timeout=1800 why=quick check of HotCreditEarly's logic, not a safety result
+QuickHotClose.cfg Hot expect=pass timeout=1800 why=quick check of HotClose's logic, not a safety result
+QuickHotCloseLate.cfg Hot expect=pass timeout=1800 why=quick check of HotCloseLate's logic, not a safety result
