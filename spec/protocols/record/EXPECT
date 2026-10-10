@@ -1,0 +1,54 @@
+# Rec.tla, parts R1 and R2 of the chosen record design.
+# Timeouts are what an EC2 box of 32 cpus needs with 8 workers.
+RecMint.cfg Rec expect=pass timeout=3600 why=S5 S14 A2 A3 A5 for minted ops: entries, the horizon, the clean rule and restamps under every fault
+ProbeRecMint.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecMint's pass is not a pass by an early stop
+RecTimed.cfg Rec expect=pass timeout=3600 why=S5 S7 A3 for timed names: the stored fate, the horizon, Expired only when clean
+ProbeRecTimed.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecTimed's pass is not a pass by an early stop
+RecTerms.cfg Rec expect=pass timeout=3600 why=S7: the second answers Spent
+ProbeRecTerms.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecTerms's pass is not a pass by an early stop
+RecUntimed.cfg Rec expect=pass timeout=3600 why=S6: at most once within W; a full room answers NoRoom
+ProbeRecUntimed.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecUntimed's pass is not a pass by an early stop
+RecMixed.cfg Rec expect=pass timeout=3600 why=S5 S6 S14 with every kind in one request
+ProbeRecMixed.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecMixed's pass is not a pass by an early stop
+RecCtlHorizonRaise.cfg Rec expect=violate:AtMostOnce timeout=3600 why=record 14: a forgotten entry or name applies again (S5)
+RecDropCtlHorizonRaise.cfg Rec expect=violate:AtMostOnce timeout=3600 why=record 14: the smallest case of RecCtlHorizonRaise
+RecEntryCtlEntryRule.cfg Rec expect=violate:AtMostOnce timeout=3600 why=record 14: cheapest's round 1 section 5, a lower lo after a drop (S5)
+RecEntry.cfg Rec expect=pass timeout=3600 why=S5: the entry rule closes round 1's double effect
+RecCtlCleanRule.cfg Rec expect=violate:NoMeansNever timeout=3600 why=record 14: A3 under LoseCommit
+RecCtlRestamp.cfg Rec expect=violate:AtMostOnce timeout=3600 why=record 14: S5 under LoseCommit
+RecCut.cfg Rec expect=pass timeout=3600 why=S10 S13: rule 7 and the session's turn of ops judged before the cut; a cut applies once
+ProbeRecCut.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecCut's pass is not a pass by an early stop
+RecShown.cfg Rec expect=pass timeout=3600 why=A7 A8: a read below the table's q is not shown, and a key with its bit set is shown from a landed write
+ProbeRecShown.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecShown's pass is not a pass by an early stop
+RecSession.cfg Rec expect=pass timeout=3600 why=A8 across a session and a read; S13 for the op
+ProbeRecSession.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecSession's pass is not a pass by an early stop
+RecProbe.cfg Rec expect=pass timeout=3600 why=A7: true only if it took; false only from a landed probe, for that moment
+ProbeRecProbe.cfg Rec expect=violate:ScriptUnfinished timeout=3600 why=probe: RecProbe's pass is not a pass by an early stop
+RecCtlViewCut.cfg Rec expect=violate:NoStaleView timeout=3600 why=record 4 rule 7 (S10)
+RecCtlTurnOk.cfg Rec expect=violate:NoMeansNever timeout=3600 why=record 6: an op that took is turned away (S13, A3)
+RecCutLost.cfg Rec expect=pass timeout=3600 why=S13: the turn after ok never turns away an op that took
+RecCtlShownTable.cfg Rec expect=violate:NeverBack timeout=3600 why=record 14: A8
+RecCtlProbeForFalse.cfg Rec expect=violate:DidApplyFalse timeout=3600 why=properties A7: false only from a landed probe
+RecCtlUntimedRoom.cfg Rec expect=violate:UntimedOnce timeout=3600 why=record 14: S6
+RecCtlPrefix.cfg Rec expect=violate:InOrder timeout=3600 why=record 14: S14
+QuickRecMint.cfg Rec expect=pass timeout=1800 why=quick check of RecMint's logic, not a safety result
+QuickRecTimed.cfg Rec expect=pass timeout=1800 why=quick check of RecTimed's logic, not a safety result
+QuickRecTerms.cfg Rec expect=pass timeout=1800 why=quick check of RecTerms's logic, not a safety result
+QuickRecUntimed.cfg Rec expect=pass timeout=1800 why=quick check of RecUntimed's logic, not a safety result
+QuickRecMixed.cfg Rec expect=pass timeout=1800 why=quick check of RecMixed's logic, not a safety result
+QuickRecEntry.cfg Rec expect=pass timeout=1800 why=quick check of RecEntry's logic, not a safety result
+QuickRecCut.cfg Rec expect=pass timeout=1800 why=quick check of RecCut's logic, not a safety result
+QuickRecShown.cfg Rec expect=pass timeout=1800 why=quick check of RecShown's logic, not a safety result
+QuickRecSession.cfg Rec expect=pass timeout=1800 why=quick check of RecSession's logic, not a safety result
+QuickRecProbe.cfg Rec expect=pass timeout=1800 why=quick check of RecProbe's logic, not a safety result
+QuickRecCutLost.cfg Rec expect=pass timeout=1800 why=quick check of RecCutLost's logic, not a safety result
+# RecAbs: the record's dedupe at the level of landings, for S5 from record 9's I1 and I2.
+RecAbs.cfg RecAbs expect=pass timeout=1800 why=S5 and IndInv on every reachable state (two writers of two ops, a name)
+RecAbsCtlRaise.cfg RecAbs expect=violate:AtMostOnce timeout=600 why=control: record 4 steps 7 and 8, a drop that does not raise h
+RecAbsCtlEntry.cfg RecAbs expect=violate:AtMostOnce timeout=600 why=control: record 4 step 5, cheapest's round 1 entry
+ApaRecAbs.tla recabs-init-ConstInit expect=pass timeout=1800 tool=apalache args=--cinit=ConstInit --init=Init --next=Next --inv=IndInv --length=0 why=initiation: Init implies IndInv
+ApaRecAbs.tla recabs-ind-ConstInit expect=pass timeout=3600 tool=apalache args=--cinit=ConstInit --init=IndInit --next=Next --inv=IndInv --length=1 why=consecution: I1 and I2 are inductive, so S5 holds in every state (two writers of two ops, two names)
+ApaRecAbs.tla recabs-ind-ConstBig expect=pass timeout=14400 tool=apalache args=--cinit=ConstBig --init=IndInit --next=Next --inv=IndInv --length=1 why=consecution on three writers of three ops
+ApaRecAbs.tla recabs-ind-CtlRaise expect=violate:IndInv timeout=1800 tool=apalache args=--cinit=CtlRaise --init=IndInit --next=Next --inv=IndInv --length=1 why=control: the induction needs the horizon raise
+ApaRecAbs.tla recabs-ind-CtlEntry expect=violate:IndInv timeout=1800 tool=apalache args=--cinit=CtlEntry --init=IndInit --next=Next --inv=IndInv --length=1 why=control: the induction needs the entry rule
+RecAbsProofs.tla - expect=proved timeout=3600 tool=tlapm why=TLAPS: IndInv (I1, I2 and the facts they rest on) is inductive for any writers, ops, names and stamps, so S5 AtMostOnce holds

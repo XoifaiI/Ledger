@@ -1,0 +1,163 @@
+# Tx.tla, phases A and B: the chosen transaction design. Timeouts are what an EC2 box of 32 cpus needs with 8 workers.
+Smoke.cfg Tx expect=pass timeout=600 why=the protocol runs end to end
+ProbeSmoke.cfg Tx expect=violate:ScriptUnfinished timeout=600 why=probe: Smoke's pass is not a pass by an early stop
+Main.cfg Tx expect=pass timeout=3600 why=S1 S4 S5 A2 A3 A5 C3 with every datastore fault, one at a time
+ProbeMain.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Main's pass is not a pass by an early stop
+Cross.cfg Tx expect=pass timeout=3600 why=the same properties when two uses cross
+ProbeCross.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Cross's pass is not a pass by an early stop
+Edit.cfg Tx expect=pass timeout=3600 why=S8 as NonNeg: a game op beside an escrow mark is judged under every way the mark ends
+ProbeEdit.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Edit's pass is not a pass by an early stop
+FindOwnEvidence.cfg Tx expect=violate:Conservation timeout=3600 why=finding 6: one server's Commit answers missing clean and it resolves abort by own evidence while the other server's Commit of the same attempt lands
+Retry.cfg Tx expect=pass timeout=3600 why=S5 and A2 across two servers sending one name
+ProbeRetry.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Retry's pass is not a pass by an early stop
+FindResolveTerms.cfg Tx expect=violate:MarkEndsDecided timeout=3600 why=finding 2: a Resolve of abort from the misused use ends the other use's live mark, which then commits
+Terms.cfg Tx expect=pass timeout=3600 why=S7 and S4 when a name is misused: a Resolve ends only a mark of its own terms
+ProbeTerms.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Terms's pass is not a pass by an early stop
+Three.cfg Tx expect=pass timeout=3600 why=S1 S4 with two parallel Tents
+ProbeThree.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Three's pass is not a pass by an early stop
+Excl.cfg Tx expect=pass timeout=3600 why=S4 S8 with an exclusive mark and its post diff
+ProbeExcl.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Excl's pass is not a pass by an early stop
+Owed.cfg Tx expect=pass timeout=3600 why=S4 with verification and drops at OwedCap
+ProbeOwed.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Owed's pass is not a pass by an early stop
+Stuck.cfg Tx expect=pass timeout=3600 why=S4 with a touch ending another server's marks and pinned record (5.1)
+ProbeStuck.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Stuck's pass is not a pass by an early stop
+Forget.cfg Tx expect=pass timeout=3600 why=S5 across a forgotten name: the retry never applies again
+ProbeForget.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Forget's pass is not a pass by an early stop
+Clean.cfg Tx expect=pass timeout=3600 why=A3 and A5 for a name forgotten after a run of its own call wrote
+ProbeClean.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Clean's pass is not a pass by an early stop
+EraseSeed.cfg Tx expect=pass timeout=3600 why=phase B: an erase names what it destroyed (S2 for design rule 29) and nothing lands after its seal
+ProbeEraseSeed.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: EraseSeed's pass is not a pass by an early stop
+EraseLeg.cfg Tx expect=pass timeout=3600 why=phase B: the gate, the fences and the seal keep S1 S2 S4 when an erase meets a mark
+ProbeEraseLeg.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: EraseLeg's pass is not a pass by an early stop
+EraseDec.cfg Tx expect=pass timeout=3600 why=phase B: an erased decider's commits are gated, its pinned records drained (S4)
+ProbeEraseDec.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: EraseDec's pass is not a pass by an early stop
+Orphan.cfg Tx expect=pass timeout=3600 why=phase B: the orphan rule ends the mark with reads at most ReadLag stale (S4 under the bound)
+ProbeOrphan.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Orphan's pass is not a pass by an early stop
+Reset.cfg Tx expect=pass timeout=3600 why=cuts 3.1 to 3.3 at request level: the gate, the fences, S1 with the named loss, S4, and a cut once (S5)
+ProbeReset.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Reset's pass is not a pass by an early stop
+CtlResetMarks.cfg Tx expect=violate:NonNeg timeout=3600 why=cuts 14: the mark's leg takes effect on the state after the cut (S4, S10)
+CtlResetKeep.cfg Tx expect=violate:CutOnce timeout=3600 why=cuts 14: a retry cuts twice (S5, B43, B54)
+Reseal.cfg Tx expect=pass timeout=3600 why=phase B: a create replaces only a seal more than RemoveSend + RemoveLate + 2 Sigma old
+ProbeReseal.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: Reseal's pass is not a pass by an early stop
+FindSealTie.cfg Tx expect=violate:Conservation timeout=3600 why=finding 5: at that SealAge a create over the seal and the last lost removal land at one instant, and the removal destroys the new key
+CtlDrainPins.cfg Tx expect=violate:AllOrNone timeout=3600 why=cuts 14: the decision of a committed leg is lost with the key, and a touch presumes abort (S4)
+FindLateCommit.cfg Tx expect=violate:Conservation timeout=3600 args=-simulate -depth 120 why=transaction 5.1 point 4: a Commit judged inside W[tx] makes the decider after an orphan abort; the stated risk (Questions 20)
+CtlOrphanAge.cfg Tx expect=violate:AllOrNone timeout=3600 why=transaction 12: a touch aborts a mark before OrphanAge while the Commit makes its decider (S4)
+OrphanWrite.cfg Tx expect=pass timeout=3600 why=transaction 5.1 and L3: a blocked writer ends the orphaned mark, with reads at most ReadLag stale (S4)
+ProbeOrphanWrite.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: OrphanWrite's pass is not a pass by an early stop
+SeesTakeOrphanWrite.cfg Tx expect=violate:OrphanEditBlocked timeout=1800 why=probe: the writer's read ends the mark and the blocked edit takes
+CtlWriterOrphan.cfg Tx expect=pass timeout=1800 why=L3: without the rule the edit never takes; only a read touch ends the mark
+TouchFence.cfg Tx expect=pass timeout=3600 why=transaction 5.1: a touch's fence that reports missing ends nothing (S1, S4)
+ProbeTouchFence.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: TouchFence's pass is not a pass by an early stop
+CtlFenceNotEvidence.cfg Tx expect=violate:Conservation timeout=3600 args=-simulate -depth 120 why=Questions 19: a stale fence run ends the mark and the use then commits on c (S1)
+TouchPin.cfg Tx expect=pass timeout=3600 why=transaction 5.1 point 5: a pinned record leaves on a missing leg only once a ProveGone landed (S1, S4)
+ProbeTouchPin.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: TouchPin's pass is not a pass by an early stop
+CtlProveWrites.cfg Tx expect=violate:Conservation timeout=3600 args=-simulate -depth 120 why=Questions 21: a stale read of a leg key drops the record, its decision leaves T, and the mark is aborted (S1)
+PinErased.cfg Tx expect=pass timeout=3600 why=transaction 5.1 point 5: the pinned record of an erased leg key leaves, and S1 S4 hold
+ProbePinErased.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: PinErased's pass is not a pass by an early stop
+SeesPinGone.cfg Tx expect=violate:PinStays timeout=1800 why=probe: a ProveGone on the erased leg key lands and the record drops
+CtlPinProve.cfg Tx expect=pass timeout=1800 why=Questions 21: without the rule the record of an erased leg key never leaves
+PinLateCreate.cfg Tx expect=pass timeout=3600 why=transaction 5.1 point 5 beside a late create (design rule 32): S1 S4 hold
+ProbePinLateCreate.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: PinLateCreate's pass is not a pass by an early stop
+CutOrphan.cfg Tx expect=pass timeout=3600 why=cuts 3.2 and transaction 5.1: the cut ends the orphaned mark by a read, with reads at most ReadLag stale (S4)
+ProbeCutOrphan.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: CutOrphan's pass is not a pass by an early stop
+SeesCutOrphan.cfg Tx expect=violate:CutNoOrphan timeout=1800 why=probe: the cut's read of c ends the orphaned mark, with no other touch
+CtlCutOrphan.cfg Tx expect=pass timeout=1800 why=Questions 15: without the rule the orphaned mark never ends and the cut never lands
+SameServer.cfg Tx expect=pass timeout=3600 why=record 3.2 step 1 is for rates: S1 S4 S5 hold with a server's steps beside its writer (Questions 13)
+ProbeSameServer.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: SameServer's pass is not a pass by an early stop
+CtlCommitWindow.cfg Tx expect=violate:AllOrNone timeout=3600 why=transaction 12: a Commit makes the decider after an orphan abort ended one of its marks (S4)
+BoundReadLag.cfg Tx expect=violate:AllOrNone timeout=3600 why=transaction 5.1 and 12: without the ReadLag bound the orphan rule breaks S4; the bound is load bearing
+CtlSealAge.cfg Tx expect=violate:Conservation timeout=3600 why=cuts 14: a lost removal lands on the key a create made over a young seal (S1)
+BoundRemoveLate.cfg Tx expect=violate:Conservation timeout=3600 why=cuts 3.4 step 6: without the RemoveLate bound a late removal destroys the new key; the bound is load bearing
+FindLateCreate.cfg Tx expect=violate:LateCreateWarned timeout=3600 why=finding check: design rule 32 says the LateCreate warning never misses a late create that brings back an erased key
+FindLateCreateLean.cfg Tx expect=violate:LateCreateWarned timeout=3600 why=finding check: the same claim, with LoseCommit, RunAfterAnswer and LateLand only, so BFS reaches the depth
+FindLateCreateOnce.cfg Tx expect=violate:OnceAcrossErase timeout=3600 why=finding 3: an edit sent before an erase applies again on the key its rerun makes, unwarned
+FixCreateOnceLean.cfg Tx expect=pass timeout=3600 why=candidate fix of finding 3 keeps OnceAcrossErase in the lean model
+ProbeFixCreateOnceLean.cfg Tx expect=violate:ScriptUnfinished timeout=3600 why=probe: FixCreateOnceLean's pass is not a pass by an early stop
+SeesTrueFixCreateOnceLean.cfg Tx expect=violate:NoEditTrue timeout=3600 why=probe: the fix does not pass by refusing every edit
+FixCreateOnce.cfg Tx expect=pass timeout=14400 why=candidate fix of finding 3 keeps OnceAcrossErase and every property with every fault
+FindMissing.cfg Tx expect=violate:MissingSaysAbsent timeout=3600 why=finding: record 5.1 answers Missing from a clean cancel, and a cancel may read an old version (design rule 2)
+CtlCommitAfterAll.cfg Tx expect=violate:Conservation timeout=3600 why=design section 12: a Commit sent with one mark unheard breaks S1 and S4
+LeanCtlResolveAttempt.cfg Tx expect=violate:MarkEndsDecided timeout=3600 why=lean control of FixResolveAttempt
+LeanCtlCommitAfterAll.cfg Tx expect=violate:Conservation timeout=3600 why=lean control of FixCommitAfterAll
+LeanCtlDropVerified.cfg Tx expect=violate:MarkEndsDecided timeout=3600 why=lean control of FixDropVerified
+CtlResolveAttempt.cfg Tx expect=violate:MarkEndsDecided timeout=3600 why=design section 12: a Resolve of abort for a wounded attempt removes the next attempt's mark
+CtlDropVerified.cfg Tx expect=violate:MarkEndsDecided timeout=3600 why=design section 12: a pinned record dropped without a drop turns a committed leg into a presumed abort
+CtlRefuseWrites.cfg Tx expect=violate:RulesSaidNo timeout=3600 why=design section 12: Refused only from a landed write (A3 RulesSaidNo)
+CtlOrderRule.cfg Tx expect=violate:NonNeg timeout=3600 why=design section 12: the commute check off lets a debit and a leg both spend one gold (S8)
+CtlHorizonRaise.cfg Tx expect=violate:AtMostOnce timeout=3600 why=record 14: a drop that does not raise h lets a forgotten name apply again (S5)
+CtlCleanRule.cfg Tx expect=violate:NoMeansNever timeout=3600 why=record 14: a no from a cancel whatever wrote says (A3 under LoseCommit)
+CtlFenceFirst.cfg Tx expect=violate:MarkEndsDecided timeout=3600 why=S4 MarkEndsDecided: presumed abort only once the decider cannot commit
+QuickSmoke.cfg Tx expect=pass timeout=1800 why=quick check of Smoke's logic, not a safety result
+QuickMain.cfg Tx expect=pass timeout=1800 why=quick check of Main's logic, not a safety result
+QuickCross.cfg Tx expect=pass timeout=1800 why=quick check of Cross's logic, not a safety result
+QuickEdit.cfg Tx expect=pass timeout=1800 why=quick check of Edit's logic, not a safety result
+QuickRetry.cfg Tx expect=pass timeout=1800 why=quick check of Retry's logic, not a safety result
+QuickTerms.cfg Tx expect=pass timeout=1800 why=quick check of Terms's logic, not a safety result
+QuickThree.cfg Tx expect=pass timeout=1800 why=quick check of Three's logic, not a safety result
+QuickExcl.cfg Tx expect=pass timeout=1800 why=quick check of Excl's logic, not a safety result
+QuickOwed.cfg Tx expect=pass timeout=1800 why=quick check of Owed's logic, not a safety result
+QuickStuck.cfg Tx expect=pass timeout=1800 why=quick check of Stuck's logic, not a safety result
+QuickForget.cfg Tx expect=pass timeout=1800 why=quick check of Forget's logic, not a safety result
+QuickClean.cfg Tx expect=pass timeout=1800 why=quick check of Clean's logic, not a safety result
+QuickEraseSeed.cfg Tx expect=pass timeout=1800 why=quick check of EraseSeed's logic, not a safety result
+QuickEraseLeg.cfg Tx expect=pass timeout=1800 why=quick check of EraseLeg's logic, not a safety result
+QuickEraseDec.cfg Tx expect=pass timeout=1800 why=quick check of EraseDec's logic, not a safety result
+QuickOrphan.cfg Tx expect=pass timeout=1800 why=quick check of Orphan's logic, not a safety result
+QuickReset.cfg Tx expect=pass timeout=1800 why=quick check of Reset's logic, not a safety result
+QuickReseal.cfg Tx expect=pass timeout=1800 why=quick check of Reseal's logic, not a safety result
+QuickOrphanWrite.cfg Tx expect=pass timeout=1800 why=quick check of OrphanWrite's logic, not a safety result
+QuickTouchFence.cfg Tx expect=pass timeout=1800 why=quick check of TouchFence's logic, not a safety result
+QuickTouchPin.cfg Tx expect=pass timeout=1800 why=quick check of TouchPin's logic, not a safety result
+QuickPinErased.cfg Tx expect=pass timeout=1800 why=quick check of PinErased's logic, not a safety result
+QuickPinLateCreate.cfg Tx expect=pass timeout=1800 why=quick check of PinLateCreate's logic, not a safety result
+QuickCutOrphan.cfg Tx expect=pass timeout=1800 why=quick check of CutOrphan's logic, not a safety result
+QuickSameServer.cfg Tx expect=pass timeout=1800 why=quick check of SameServer's logic, not a safety result
+QuickFixCreateOnceLean.cfg Tx expect=pass timeout=1800 why=quick check of FixCreateOnceLean's logic, not a safety result
+QuickFixCreateOnce.cfg Tx expect=pass timeout=1800 why=quick check of FixCreateOnce's logic, not a safety result
+SimCtlResolveAttempt.cfg Tx expect=violate:MarkEndsDecided timeout=3600 args=-simulate -depth 120 why=design section 12: a Resolve of abort for a wounded attempt removes the next attempt's mark (random walks)
+SimCtlCommitAfterAll.cfg Tx expect=violate:Conservation timeout=3600 args=-simulate -depth 120 why=design section 12: a Commit sent with one mark unheard breaks S1 and S4 (random walks)
+SimCtlDropVerified.cfg Tx expect=violate:MarkEndsDecided timeout=3600 args=-simulate -depth 120 why=design section 12: a pinned record dropped without a drop turns a committed leg into a presumed abort (random walks)
+SimCtlHorizonRaise.cfg Tx expect=violate:AtMostOnce timeout=3600 args=-simulate -depth 120 why=record 14: a drop that does not raise h lets a forgotten name apply again (S5) (random walks)
+# TxAbs: the design at the level of landings, for the proofs of S1, S4 and S5 (design rule 13).
+TxAbs.cfg MCTxAbs expect=pass timeout=7200 why=TxAbs keeps S1 S4 S5 NonNeg and IndInv on every reachable state
+ApaTxAbs.tla abs-init-ConstInit expect=pass timeout=3600 tool=apalache args=--cinit=ConstInit --init=Init --next=Next --inv=IndInv --length=0 why=initiation: Init implies IndInv
+ApaTxAbs.tla abs-ind-ConstInit expect=pass timeout=14400 tool=apalache args=--cinit=ConstInit --init=IndInit --next=Next --inv=IndInv --length=1 why=consecution: IndInv is inductive, so S1 S4 S5 NonNeg hold in every state (two keys, three uses, two attempts)
+ApaTxAbs.tla abs-init-ConstBig expect=pass timeout=3600 tool=apalache args=--cinit=ConstBig --init=Init --next=Next --inv=IndInv --length=0 why=initiation on three keys, a three-leg use, three attempts
+ApaTxAbs.tla abs-ind-ConstBig expect=pass timeout=14400 tool=apalache args=--cinit=ConstBig --init=IndInit --next=Next --inv=IndInv --length=1 why=consecution on three keys, a three-leg use, three attempts
+ApaTxAbs.tla abs-ind-CtlAttempt expect=violate:IndInv timeout=3600 tool=apalache args=--cinit=CtlAttempt --init=IndInit --next=Next --inv=IndInv --length=1 why=control: a Tent of attempt a before attempt a-1 was fenced; the induction needs the guard
+AbsCtlAttempt.cfg MCTxAbs expect=violate:Conservation timeout=3600 why=control: a Tent of attempt a before attempt a-1 was fenced breaks a property
+ApaTxAbs.tla abs-ind-CtlPlaced expect=violate:IndInv timeout=3600 tool=apalache args=--cinit=CtlPlaced --init=IndInit --next=Next --inv=IndInv --length=1 why=control: a Commit before every Tent of its attempt reported mine; the induction needs the guard
+AbsCtlPlaced.cfg MCTxAbs expect=violate:Conservation timeout=3600 why=control: a Commit before every Tent of its attempt reported mine breaks a property
+ApaTxAbs.tla abs-ind-CtlLow expect=violate:IndInv timeout=3600 tool=apalache args=--cinit=CtlLow --init=IndInit --next=Next --inv=IndInv --length=1 why=control: a Commit whose debit on the decider is not covered; the induction needs the guard
+AbsCtlLow.cfg MCTxAbs expect=violate:NonNeg timeout=3600 why=control: a Commit whose debit on the decider is not covered breaks a property
+ApaTxAbs.tla abs-ind-CtlDrop expect=violate:IndInv timeout=3600 tool=apalache args=--cinit=CtlDrop --init=IndInit --next=Next --inv=IndInv --length=1 why=control: a drop before every leg key is resolved; the induction needs the guard
+AbsCtlDrop.cfg MCTxAbs expect=violate:Conservation timeout=3600 why=control: a drop before every leg key is resolved breaks a property
+ApaTxAbs.tla abs-ind-CtlFence expect=violate:IndInv timeout=3600 tool=apalache args=--cinit=CtlFence --init=IndInit --next=Next --inv=IndInv --length=1 why=control: a Commit over a fence of its attempt, or a final one; the induction needs the guard
+AbsCtlFence.cfg MCTxAbs expect=violate:Conservation timeout=3600 why=control: a Commit over a fence of its attempt, or a final one breaks a property
+ApaTxAbs.tla abs-ind-CtlGiveUp expect=violate:IndInv timeout=3600 tool=apalache args=--cinit=CtlGiveUp --init=IndInit --next=Next --inv=IndInv --length=1 why=control: a coordinator gives up an attempt that committed; the induction needs the guard
+AbsCtlGiveUp.cfg MCTxAbs expect=violate:Conservation timeout=3600 why=control: a coordinator gives up an attempt that committed breaks a property
+ApaTxAbs.tla abs-ind-CtlGone expect=violate:IndInv timeout=3600 tool=apalache args=--cinit=CtlGone --init=IndInit --next=Next --inv=IndInv --length=1 why=control: a Tent on a key that forgot the name; the induction needs the guard
+AbsCtlGone.cfg MCTxAbs expect=violate:Conservation timeout=3600 why=control: a Tent on a key that forgot the name breaks a property
+TxAbsProofs.tla - expect=proved timeout=7200 tool=tlapm why=TLAPS: Core is inductive for any keys, uses and attempts, so S4 AllOrNone and S5 AtMostOnce hold
+TxAbsSums.tla - expect=proved timeout=7200 tool=tlapm why=TLAPS: S1 Conservation and NonNeg for any keys, uses and attempts, from Core and the community sum lemmas
+# TxBuild: phase B3, mixed builds and migrations (S15, A3 BehindFloor).
+Build.cfg MCTxBuild expect=pass timeout=600 why=S15 OwnMeaning and NoForeignField, BehindFloor, with three builds, crossing transfers and edits
+ProbeBuildOld.cfg MCTxBuild expect=violate:NoOldWrite timeout=600 why=probe: an older build writes a key a newer build migrated (old servers keep saving after an additive migration)
+ProbeBuildMixed.cfg MCTxBuild expect=violate:NoMixedCommit timeout=600 why=probe: a use commits across keys at two levels
+BuildCtlFloor.cfg MCTxBuild expect=violate:OwnMeaning timeout=600 why=control: record 4 step 5, with no floor an old build writes in the old unit after a breaking migration
+BuildCtlMigBlock.cfg MCTxBuild expect=violate:OwnMeaning timeout=600 why=control: record 4 step 9, a migration beside a mark reinterprets the pending leg
+BuildCtlCarry.cfg MCTxBuild expect=violate:NoForeignField timeout=600 why=control: record 7, a build that writes its own view drops a field it does not declare
+ApaTxBuild.tla build-init expect=pass timeout=1800 tool=apalache args=--cinit=ConstInit --init=Init --next=Next --inv=IndInv --length=0 why=initiation: Init implies TxBuild's IndInv
+ApaTxBuild.tla build-ind expect=pass timeout=3600 tool=apalache args=--cinit=ConstInit --init=IndInit --next=Next --inv=IndInv --length=1 why=consecution: IndInv is inductive, so S15 holds in every state of the instance
+ApaTxBuild.tla build-ind-CtlFloor expect=violate:IndInv timeout=1800 tool=apalache args=--cinit=CtlFloor --init=IndInit --next=Next --inv=IndInv --length=1 why=control: the induction needs the floor
+ApaTxBuild.tla build-ind-CtlMigBlock expect=violate:IndInv timeout=1800 tool=apalache args=--cinit=CtlMigBlock --init=IndInit --next=Next --inv=IndInv --length=1 why=control: the induction needs migrations blocked by marks
+ApaTxBuild.tla build-ind-CtlCarry expect=violate:IndInv timeout=1800 tool=apalache args=--cinit=CtlCarry --init=IndInit --next=Next --inv=IndInv --length=1 why=control: the induction needs the carry
+# TxCut: a Reset beside the transaction design (cuts 3.1, 3.3, 5).
+Cut.cfg MCTxCut expect=pass timeout=600 why=S1 with S2's namings, S5 for cuts, S10, and no Tent beside a gate, with three cuts, a cut room of one, crossing transfers and credits
+ProbeCutGated.cfg MCTxCut expect=violate:NoGatedCut timeout=600 why=probe: a cut takes effect after its gate made it wait for marks
+ProbeCutCredit.cfg MCTxCut expect=violate:NoCutAfterCredit timeout=600 why=probe: a cut names money a credit made
+ProbeCutEvict.cfg MCTxCut expect=violate:NoEviction timeout=600 why=probe: a later cut drops an earlier one from K and raises hk
+CutCtlGate.cfg MCTxCut expect=violate:NoLateLeg timeout=600 why=control: cuts 4, a cut that lands over a standing mark lets its leg take effect on the state after the cut (S10)
+CutCtlKeep.cfg MCTxCut expect=violate:CutOnce timeout=600 why=control: cuts 14, a retry without the K check cuts twice (S5)
+CutCtlNameNow.cfg MCTxCut expect=violate:NamedExact timeout=600 why=control: cuts 14, namings from the read that placed the gate miss a credit that landed beside it (S2)
