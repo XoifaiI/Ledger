@@ -48,16 +48,15 @@ local OpenMode = Hot.Mode.Open
 
 local WindowSigmas = Transaction.WindowSigmasBelowOrphanAge
 
-local OpsKey = "Ops"
+local BalancesKey = "Balances"
 local ListGiver = "Balances"
 local DefaultKey = "Default"
 local MinKey = "Min"
 local MaxKey = "Max"
 local NegationKey = "Subtract(Zero, a)"
 local NegationWanted = "an amount that Encode turns into a string"
-local ListedCounted = "counting the fields Balances lists"
 local ProceedsFreeField = `a balance field other than "{FreeField}", which is the free units of a part`
-local ProceedsUndeclared = "a balance field that Balances lists or a balance kind in Ops declares"
+local ProceedsUndeclared = "a balance field that Balances lists"
 local ProceedsRepeated = "a balance field that Proceeds does not name earlier"
 local SharedName = "a name that no quantity in Quantities uses"
 
@@ -122,12 +121,11 @@ local function OneArithmetic(Settings: Settings, Kinds: Kinds, Where: string): (
 end
 
 local function FieldsWanted(Most: number): string
-	return `balance kinds on at most {Most} different fields, {ListedCounted}`
+	return `at most {Most} balance fields`
 end
 
 local function PartFieldWanted(Most: number): string
-	return `balance kinds on at most {Most} different fields when Quantities declares a quantity, as its parts add `
-		.. `the field "{FreeField}", {ListedCounted}`
+	return `at most {Most} balance fields when Quantities declares a quantity, as its parts add the field "{FreeField}"`
 end
 
 local function AtMostFields(Most: number, Wanted: string): Rule
@@ -148,7 +146,7 @@ local function FieldCount(Settings: Settings, Fields: FieldSet, Where: string): 
 	if next(Settings.Quantities) ~= nil then
 		Rule = AtMostFields(Record.MoneyMax - 1, PartFieldWanted(Record.MoneyMax - 1))
 	end
-	Check.Table({ [OpsKey] = Count }, { [OpsKey] = Rule }, Where)
+	Check.Table({ [BalancesKey] = Count }, { [BalancesKey] = Rule }, Where)
 end
 
 local function DefaultFields(Fields: FieldSet, Default: Fields, Where: string): ()
@@ -204,13 +202,20 @@ local function SubtractsFromZero(Settings: Settings, Kinds: Kinds, Where: string
 		local Arithmetic = Balances.ArithmeticOf(Kind)
 		CheckFieldNegations(Arithmetic, Balances.MaxOf(Kind), Kind.Field, Settings.Default, OpPath(Where, OpKind))
 	end
+	local Covered: { [string]: true } = {}
+	for _, Kind in Kinds do
+		Covered[Kind.Field] = true
+	end
 	for Field, Arithmetic in Settings.Balances do
+		if Covered[Field] then
+			continue
+		end
 		CheckFieldNegations(Arithmetic, Arithmetic.Max, Field, Settings.Default, BalancePath(Where, Field))
 	end
 end
 
 local function BoundPath(OpKind: string, Bound: string): string
-	return `{OpsKey}.{OpKind} {Bound}`
+	return `{BalancesKey} kind {OpKind} {Bound}`
 end
 
 local function WithField(Default: Fields, Field: string, Amount: unknown): Fields

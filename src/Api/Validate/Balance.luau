@@ -2,16 +2,15 @@
 --!optimize 2
 
 --[=[
-	Balance: a balance kind (from Ledger.Credit, Ledger.Debit or an Ops entry) and its arithmetic as Check rules, run
+	Balance: a balance kind (a Credit or Debit name under a Balances field) and its arithmetic as Check rules, run
 	marked as Stepping. Settle freezes the bounds and keeps one copy per game arithmetic, shared with the Balances
-	list; a kind with none takes its listed field's. Declare keeps the game's arithmetic, checking the bounds only
-	against one it is given.
+	list; a kind with none takes its listed field's.
 
-	Return type: A plain table with Declare, Settle, ListedArithmetic, IsAmountOf and IsCallAmountOf, and the Copies and
-	Listed types.
+	Return type: A plain table with Settle, ListedArithmetic, IsAmountOf and IsCallAmountOf, and the Copies and Listed
+	types.
 	Example usage:
-		local Kind = Balance.Declare("Debit", "Gold", { Min = 0 }, "Ledger.Debit")
-		local Settled = Balance.Settle(Kind, {}, {}, "Ledger.New Ops.SpendGold")
+		local Kind = { Field = "Gold", Direction = "Debit", Min = 0 }
+		local Settled = Balance.Settle(Kind, {}, { Gold = Arithmetic }, "Ledger.New Balances kind SpendGold")
 --]=]
 
 local Balances = require("../../Tx/Legs/Balances")
@@ -32,18 +31,11 @@ type KindGiven = {
 	Arithmetic: unknown,
 }
 
-type OptionsGiven = {
-	Min: unknown,
-	Max: unknown,
-	Arithmetic: unknown,
-}
-
 export type Copies = { [unknown]: Arithmetic }
 export type Listed = { [string]: Arithmetic }
 
 local AnyValue = Check.AnyValue
 local FrozenAmount = Rules.FrozenAmount
-local OrDefault = Rules.OrDefault
 local Validated = Rules.Validated
 
 local Directions = Balances.Direction
@@ -182,29 +174,7 @@ local function Settle(Value: unknown, Copies: Copies, Declared: Listed, Where: s
 	return table.freeze(Kind)
 end
 
-local function Declare(Direction: Direction, Field: unknown, Options: unknown, Where: string): Declaration
-	local Given = Validated(OrDefault(Options, Rules.NoFields), OptionRules, Where) :: OptionsGiven
-	local Shape = KindBeforeBounds(
-		{ Field = Field, Direction = Direction, Min = Given.Min, Max = Given.Max, Arithmetic = Given.Arithmetic },
-		{},
-		{},
-		Where
-	)
-	if Given.Arithmetic ~= nil then
-		CheckBounds(Shape, Where)
-	end
-	local Kind: Declaration = {
-		Field = Shape.Field,
-		Direction = Shape.Direction,
-		Min = Shape.Min,
-		Max = Shape.Max,
-		Arithmetic = Given.Arithmetic :: Arithmetic?,
-	}
-	return table.freeze(Kind)
-end
-
 return {
-	Declare = Declare,
 	Settle = Settle,
 	ListedArithmetic = ListedArithmetic,
 	IsAmountOf = IsAmountOf,

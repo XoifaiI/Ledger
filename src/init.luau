@@ -10,16 +10,14 @@
 	platform's or a CloseAll call's, a function to run first) and Reason, and the public types.
 	Example usage:
 		local Ledger = require(ReplicatedStorage.Ledger)
-		local Gold = Ledger.Credit("Gold", { Max = 1000000 })
 		local Vault = Ledger.New({
 			Name = "Vault", Keys = "String", MustExist = false, Erasable = false, Default = { Gold = 0 },
+			Balances = { Gold = { Credit = "Deposit", Debit = "Withdraw", Max = 1000000 } },
 		})
 --]=]
 
 local Answers = require("@self/Api/Answers")
 local Args = require("@self/Api/Validate/Args")
-local Balance = require("@self/Api/Validate/Balance")
-local Balances = require("@self/Tx/Legs/Balances")
 local Calls = require("@self/Shell/Calls")
 local Check = require("@self/Encoding/Check")
 local Cross = require("@self/Api/Validate/Cross")
@@ -54,9 +52,11 @@ export type Observer<T> = Types.Observer<T>
 export type Connection = Types.Connection
 export type Record<D = unknown> = Types.Record<D>
 export type Identity = Types.Identity
-export type BalanceKind = Types.BalanceKind
 export type LoadFailedHandler = Types.LoadFailedHandler
 export type Closed = Types.Closed
+export type HoldHandle = Types.HoldHandle
+export type QuantityTotal = Types.QuantityTotal
+export type Took = Types.Took
 export type ShortReason = Types.ShortReason
 export type Amount = Types.Amount
 export type Arithmetic<T = any> = Types.Arithmetic<T>
@@ -70,7 +70,8 @@ export type Overloads<O, Shape> = Types.Overloads<O, Shape>
 export type Reducer<S, O = any> = Types.Reducer<S, O>
 export type ResultSchema<D> = Types.ResultSchema<D>
 export type Migration = Types.Migration
-export type BalanceOptions<T = any> = Types.BalanceOptions<T>
+export type BalanceField<T = any> = Types.BalanceField<T>
+export type BalanceKindLimits<T = any> = Types.BalanceKindLimits<T>
 export type Windows = Types.Windows
 export type TotalDeclaration = Types.TotalDeclaration
 export type QuantityDeclaration = Types.QuantityDeclaration
@@ -121,7 +122,6 @@ type MethodsMatch =
 	| TypeFunctions.SameKeys<keyof<getmetatable<QuantityObject>>, keyof<Quantity & QuantityStatics>>
 	| TypeFunctions.SameKeys<keyof<getmetatable<KeyPagesObject>>, keyof<KeyPages<any> & KeyPagesStatics>>
 
-local Directions = Balances.Direction
 local KeysModes = ShellSetup.KeysMode
 
 local IsServer = Platform.IsServer()
@@ -132,8 +132,6 @@ local TxWhere = "Ledger.Tx"
 local IdWhere = "Ledger.Id"
 local CloseAllWhere = "Ledger.CloseAll"
 local BeforeCloseWhere = "Ledger.BeforeClose"
-local CreditWhere = "Ledger.Credit"
-local DebitWhere = "Ledger.Debit"
 local OpenedBefore = "a store name not opened on this server before, a destroyed store's included"
 
 local function ServerOnly(Name: string): string
@@ -218,18 +216,6 @@ local function BeforeClose(Fn: () -> ()): ()
 	Runner.AddBeforeClose(Fn)
 end
 
-local function Credit<T>(Field: string, Options: BalanceOptions<T>?): BalanceKind
-	OnServer("Credit")
-	Args.OutsideStep(CreditWhere)
-	return Balance.Declare(Directions.Credit, Field, Options, CreditWhere)
-end
-
-local function Debit<T>(Field: string, Options: BalanceOptions<T>?): BalanceKind
-	OnServer("Debit")
-	Args.OutsideStep(DebitWhere)
-	return Balance.Declare(Directions.Debit, Field, Options, DebitWhere)
-end
-
 if IsServer then
 	Runner.Start()
 end
@@ -241,7 +227,5 @@ return {
 	Tx = Tx,
 	CloseAll = CloseAll,
 	BeforeClose = BeforeClose,
-	Credit = Credit,
-	Debit = Debit,
 	Reason = Reasons,
 }

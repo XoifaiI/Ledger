@@ -14,7 +14,6 @@
 --]=]
 
 local Amounts = require("./Encoding/Amounts")
-local Balances = require("./Tx/Legs/Balances")
 local Book = require("./Stored/Book")
 local Fates = require("./Stored/Items/Fates")
 local Future = require("./Util/Future")
@@ -51,7 +50,6 @@ export type Future<T...> = Future.Future<T...>
 export type Observer<T> = Observer.Observer<T>
 export type Connection = Observer.Connection
 export type Identity = Frozen<Book.Identity>
-export type BalanceKind = Balances.Declaration
 export type LoadFailedHandler = ShellSetup.LoadFailedHandler
 export type ShortReason = Fates.ShortReason
 export type Amount = Frozen<Amounts.SignedAmount | Amounts.UnsignedAmount>
@@ -67,9 +65,9 @@ export type Arithmetic<T = any> = {
 	read Max: T?,
 }
 
-type HoldHandle = Frozen<HotShapes.HoldHandle>
-type QuantityTotal = Frozen<HotShapes.QuantityTotal>
-type Took = Frozen<HotShapes.Took>
+export type HoldHandle = Frozen<HotShapes.HoldHandle>
+export type QuantityTotal = Frozen<HotShapes.QuantityTotal>
+export type Took = Frozen<HotShapes.Took>
 
 type ReadArray<Item> = { read [number]: Item }
 type ReadMap = { read [unknown]: unknown }
@@ -195,7 +193,15 @@ export type Migration = {
 	read Fields: { string }?,
 }
 
-export type BalanceOptions<T = any> = {
+export type BalanceKindLimits<T = any> = {
+	read Kind: string,
+	read Min: TypeFunctions.NoInfer<T>?,
+	read Max: TypeFunctions.NoInfer<T>?,
+}
+
+export type BalanceField<T = any> = {
+	read Credit: (string | { string | BalanceKindLimits<T> })?,
+	read Debit: (string | { string | BalanceKindLimits<T> })?,
 	read Min: TypeFunctions.NoInfer<T>?,
 	read Max: TypeFunctions.NoInfer<T>?,
 	read Arithmetic: Arithmetic<T>?,
@@ -227,8 +233,7 @@ export type TypedConfig<D, O> = {
 	read Default: D,
 	read Reducer: ConfigReducer<D, O>?,
 	read Schema: ResultSchema<D>?,
-	read Ops: TypeFunctions.OpsListed<O, BalanceKind | true>,
-	read Balances: { [string]: Arithmetic | true }?,
+	read Balances: { [string]: BalanceField }?,
 	read Migrations: { Migration }?,
 	read MustExist: boolean,
 	read Erasable: boolean,

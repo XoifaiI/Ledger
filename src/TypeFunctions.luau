@@ -4,11 +4,10 @@
 --[=[
 	TypeFunctions: turns a game's op map into the types its ops are held against. OpUnion is the tagged union a reducer
 	narrows on; OpOf names one kind; both take the naming fields, not a fixed Id. Overloads makes one call per OpUnion
-	arm. OpsListed is the Ops a typed store must give. Frozen leaves only array and map slots writable. OpenAsAny types
-	an open op any. NoInfer blocks inference.
+	arm. Frozen leaves only array and map slots writable. OpenAsAny types an open op any. NoInfer blocks inference.
 
-	Return type: An empty table. The types are OpOf, ReadOnly, Frozen, OpenAsAny, OpUnion, Overloads, OpsListed,
-	NoInfer, NumberKeys and SameKeys.
+	Return type: An empty table. The types are OpOf, ReadOnly, Frozen, OpenAsAny, OpUnion, Overloads, NoInfer,
+	NumberKeys and SameKeys.
 	Example usage:
 		local TypeFunctions = require("./TypeFunctions")
 		type Ops = TypeFunctions.OpUnion<{ Buy: { Item: string } }, { read Id: string? }>
@@ -136,20 +135,6 @@ export type function Overloads(Union: type, Shape: type): type
 		return Calls[1]
 	end
 	return types.intersectionof(table.unpack(Calls))
-end
-
-export type function OpsListed(Map: type, Value: type): type
-	if not Map:is("table") then
-		return types.optional(Value)
-	end
-
-	local Listed = types.newtable()
-	local Any = false
-	for Kind in Map:properties() do
-		Listed:setreadproperty(Kind, Value)
-		Any = true
-	end
-	return if Any then Listed else types.optional(Value)
 end
 
 export type function NoInfer(Given: type): type

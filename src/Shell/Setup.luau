@@ -64,7 +64,7 @@ export type SettledMigration = {
 	read Fields: { string },
 }
 
-export type Ops = { [string]: Declaration | true }
+export type Ops = { [string]: Declaration }
 
 export type Settings = {
 	read Name: string,
@@ -239,20 +239,13 @@ local function DeclaredOf(Settings: Settings): { [string]: boolean }
 end
 
 local function BalanceOpsOf(Settings: Settings): { [string]: Declaration }
-	local Kinds: { [string]: Declaration } = {}
-	for OpKind, Kind in Settings.Ops do
-		if Kind == true then
-			continue
-		end
-		Kinds[OpKind] = Kind
-	end
-	return table.freeze(Kinds)
+	return Settings.Ops
 end
 
 local function FieldArithmeticsOf(Settings: Settings): { [string]: Arithmetic }
 	local Fields: { [string]: Arithmetic } = table.clone(Settings.Balances)
 	for _, Kind in Settings.Ops do
-		if Kind == true or Fields[Kind.Field] ~= nil then
+		if Fields[Kind.Field] ~= nil then
 			continue
 		end
 		Fields[Kind.Field] = Balances.ArithmeticOf(Kind)

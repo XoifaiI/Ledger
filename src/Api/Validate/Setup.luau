@@ -4,8 +4,9 @@
 --[=[
 	Setup: Ledger.New's options as Check rules, settled into Shell/Setup's Settings; balance kinds are Balance's.
 	Each other table is read raw before kinds run the game's arithmetic; the default state is frozen.
-	No op kind takes a name Ledger keeps. A Balances field keeps its arithmetic with no kind on it: never remove
-	one. OnLoadFailed never replaces the kick.
+	Balances names each balance field's credit and debit kinds, by name (the field's bounds) or as { Kind, Min?, Max? }
+	(its own); every other kind is the reducer's and is never listed. A field keeps its arithmetic with no kind on it:
+	never remove one. OnLoadFailed never replaces the kick.
 
 	Return type: A plain table with Settle.
 	Example usage:
@@ -21,7 +22,6 @@ local Guards = require("../../Judging/Guards")
 local Hot = require("../../Constants/Hot")
 local HotShapes = require("../../Hot/Shapes")
 local Json = require("../../Encoding/Json")
-local OwnOpKinds = require("../../Constants/OwnOpKinds")
 local PublicTypes = require("../../Types")
 local Record = require("../../Constants/Record")
 local Rules = require("./Rules")
@@ -39,6 +39,30 @@ type Settings = ShellSetup.Settings
 type Named = { [string]: unknown }
 type Tree = { [unknown]: unknown }
 type Ops = ShellSetup.Ops
+type Direction = Balances.Direction
+
+type Settling = {
+	Listed: Balance.Listed,
+	Ops: Ops,
+	Seen: { [string]: true },
+	Copies: Balance.Copies,
+}
+
+type KindGiven = {
+	Kind: string,
+	Min: unknown,
+	Max: unknown,
+}
+
+type KindItem = string | KindGiven
+
+type FieldGiven = {
+	Credit: (string | { KindItem })?,
+	Debit: (string | { KindItem })?,
+	Min: unknown,
+	Max: unknown,
+	Arithmetic: unknown,
+}
 
 type OptionsGiven = {
 	Name: string,
@@ -46,7 +70,6 @@ type OptionsGiven = {
 	Default: unknown,
 	Reducer: Guards.Reducer<unknown, unknown, unknown>?,
 	Schema: ShellSetup.ResultSchema<unknown>?,
-	Ops: Named?,
 	Balances: Named?,
 	Migrations: { unknown }?,
 	MustExist: boolean,
@@ -74,6 +97,7 @@ local AnyValue = Check.AnyValue
 local BalancePath = Rules.BalancePath
 local Copied = Rules.Copied
 local NoFields = Rules.NoFields
+local OpKindName = Rules.OpKindName
 local OpPath = Rules.OpPath
 local OrDefault = Rules.OrDefault
 local Plain = Rules.Plain
@@ -89,15 +113,12 @@ local KeyKinds = Record.KeyKind
 local WholeMost = Record.VarintLimit - 1
 
 local DefaultWhere = "Default"
-local CheckAccepted = "Setup: a Check rule accepted a value of another type. The rule must reject it"
 local ReservedStoreName = `a store name other than "{Record.CounterStore}", which Ledger keeps for its server counter`
 local DefaultTooBig = `a state of at most {Record.StateCap} bytes as canonical JSON`
-local PlainOrKindWanted = "true, or a balance kind from Ledger.Credit or Ledger.Debit"
+local KindsWanted = "an op kind name, or a list of names and { Kind, Min?, Max? } tables"
+local KindOnceWanted = "a kind named once in Balances, under one field and one of Credit or Debit"
 local ErasableWanted = "true or false, which says whether Store:Erase may end this store's keys "
 	.. "(true gives them the incarnation id an erase needs, false makes Erase throw)"
-local ListedWanted = "true for default numbers, or an arithmetic table"
-local OwnOpKindWanted = `a name other than one Ledger keeps for its own ops ({table.concat(OwnOpKinds.Names, ", ")}, `
-	.. `or one starting {table.concat(OwnOpKinds.Prefixes, " or ")})`
 
 local function MigrationPath(Where: string, Index: number): string
 	return `{Where} Migrations[{Index}]`
@@ -115,23 +136,6 @@ local NoItems: { unknown } = {}
 table.freeze(NoItems)
 local NoNames: { string } = {}
 table.freeze(NoNames)
-
-local function OpKindName(Value: unknown): string?
-	local Problem = NonEmptyText(Value)
-	if Problem ~= nil then
-		return Problem
-	end
-	assert(type(Value) == "string", CheckAccepted)
-	if table.find(OwnOpKinds.Names, Value) ~= nil then
-		return OwnOpKindWanted
-	end
-	for _, Prefix in OwnOpKinds.Prefixes do
-		if string.sub(Value, 1, #Prefix) == Prefix then
-			return OwnOpKindWanted
-		end
-	end
-	return nil
-end
 
 local StoreNameBytes = Check.Text(1, Record.StoreNameBytesMost)
 local StringKeys = Plain(Check.Map(NonEmptyText, AnyValue))
@@ -159,11 +163,23 @@ local function DefaultState(Value: unknown): string?
 	return nil
 end
 
-local function PlainOrKind(Value: unknown): string?
-	if Value == true or type(Value) == "table" then
+local function KindItemShape(Value: unknown): string?
+	if type(Value) == "table" then
 		return nil
 	end
-	return PlainOrKindWanted
+	return OpKindName(Value)
+end
+
+local KindList = Plain(Check.List(KindItemShape))
+
+local function KindNames(Value: unknown): string?
+	if type(Value) == "string" then
+		return OpKindName(Value)
+	end
+	if type(Value) == "table" then
+		return KindList(Value)
+	end
+	return KindsWanted
 end
 
 local function ErasableDeclared(Value: unknown): string?
@@ -173,21 +189,13 @@ local function ErasableDeclared(Value: unknown): string?
 	return ErasableWanted
 end
 
-local function PlainOrArithmetic(Value: unknown): string?
-	if Value == true or type(Value) == "table" then
-		return nil
-	end
-	return ListedWanted
-end
-
 local PlayerRules: { [string]: Rule } = {
 	Name = StoreName,
 	Keys = Check.OneOf(KeysModes.Player, KeysModes.String),
 	Default = DefaultState,
 	Reducer = Check.Optional(Check.Function),
 	Schema = Check.Optional(Check.Function),
-	Ops = Check.Optional(Plain(Check.Map(OpKindName, PlainOrKind))),
-	Balances = Check.Optional(Plain(Check.Map(NonEmptyText, PlainOrArithmetic))),
+	Balances = Check.Optional(Plain(Check.Map(NonEmptyText, AnyValue))),
 	Migrations = Check.Optional(Plain(Check.ListAtMost(AnyValue, Record.MigrationsMax))),
 	MustExist = Check.Boolean,
 	Erasable = ErasableDeclared,
@@ -209,6 +217,20 @@ local EntityRules = table.clone(PlayerRules)
 EntityRules.OnLoadFailed = nil
 EntityRules.Kick = nil
 EntityRules.KickMessage = nil
+
+local KindRules: { [string]: Rule } = {
+	Kind = OpKindName,
+	Min = AnyValue,
+	Max = AnyValue,
+}
+
+local FieldRules: { [string]: Rule } = {
+	Credit = Check.Optional(KindNames),
+	Debit = Check.Optional(KindNames),
+	Min = AnyValue,
+	Max = AnyValue,
+	Arithmetic = AnyValue,
+}
 
 local AdditiveMigrationRules: { [string]: Rule } = {
 	Run = Check.Function,
@@ -250,24 +272,71 @@ local function FrozenCopy<Item>(List: { Item }): { Item }
 	return Copy
 end
 
-local function ListedBalancesOf(Given: Named?, Copies: Balance.Copies, Where: string): Balance.Listed
-	local Settled: Balance.Listed = {}
-	for Field, Value in OrDefault(Given, NoFields) do
-		Settled[Field] = Balance.ListedArithmetic(Value, Copies, BalancePath(Where, Field))
+local function KindListOf(Value: (string | { KindItem })?): { KindItem }
+	if Value == nil then
+		return NoItems :: { KindItem }
 	end
-	return table.freeze(Settled)
+	if type(Value) == "string" then
+		return { Value }
+	end
+	return Value
 end
 
-local function OpsOf(Given: Named, Listed: Balance.Listed, Copies: Balance.Copies, Where: string): Ops
-	local Settled: Ops = {}
-	for OpKind, Kind in Given do
-		if Kind == true then
-			Settled[OpKind] = true
-		else
-			Settled[OpKind] = Balance.Settle(Kind, Copies, Listed, OpPath(Where, OpKind))
-		end
+local function KindOf(Item: KindItem, Given: FieldGiven, Where: string): KindGiven
+	if type(Item) == "string" then
+		return { Kind = Item, Min = Given.Min, Max = Given.Max }
 	end
-	return table.freeze(Settled)
+	local Own = Validated(Item, KindRules, Where) :: KindGiven
+	return {
+		Kind = Own.Kind,
+		Min = if Own.Min == nil then Given.Min else Own.Min,
+		Max = if Own.Max == nil then Given.Max else Own.Max,
+	}
+end
+
+local Repeated = Rules.Equals(false, KindOnceWanted)
+
+local function NamedOnce(Seen: { [string]: true }, OpKind: string, Where: string): ()
+	if Seen[OpKind] then
+		Check.Table({ Kind = OpKind }, { Kind = Repeated }, Where)
+	end
+	Seen[OpKind] = true
+end
+
+local function SettleKinds(Given: FieldGiven, Field: string, Direction: Direction, Settled: Settling, Where: string): ()
+	local Names = if Direction == Balances.Direction.Credit then Given.Credit else Given.Debit
+	for Index, Item in KindListOf(Names) do
+		local Own = KindOf(Item, Given, `{BalancePath(Where, Field)}.{Direction}[{Index}]`)
+		local Path = OpPath(Where, Own.Kind)
+		NamedOnce(Settled.Seen, Own.Kind, Path)
+		local Kind = {
+			Field = Field,
+			Direction = Direction,
+			Min = Own.Min,
+			Max = Own.Max,
+			Arithmetic = Given.Arithmetic,
+		}
+		Settled.Ops[Own.Kind] = Balance.Settle(Kind, Settled.Copies, Settled.Listed, Path)
+	end
+end
+
+local function BalancesOf(Given: Named?, Copies: Balance.Copies, Where: string): (Balance.Listed, Ops)
+	local Fields: { [string]: FieldGiven } = {}
+	local Listed: Balance.Listed = {}
+	for Field, Entry in OrDefault(Given, NoFields) do
+		local Path = BalancePath(Where, Field)
+		local Declared = Validated(Entry, FieldRules, Path) :: FieldGiven
+		Fields[Field] = Declared
+		Listed[Field] = Balance.ListedArithmetic(OrDefault(Declared.Arithmetic, true), Copies, Path)
+	end
+	table.freeze(Listed)
+
+	local Settled: Settling = { Listed = Listed, Ops = {}, Seen = {}, Copies = Copies }
+	for Field, Entry in Fields do
+		SettleKinds(Entry, Field, Balances.Direction.Credit, Settled, Where)
+		SettleKinds(Entry, Field, Balances.Direction.Debit, Settled, Where)
+	end
+	return Listed, table.freeze(Settled.Ops)
 end
 
 local function MigrationRulesOf(Given: Named): { [string]: Rule }
@@ -296,15 +365,14 @@ local function MigrationsOf(Given: { unknown }?, Where: string): { SettledMigrat
 	return table.freeze(Settled)
 end
 
-local function WindowsOf(Given: Named?, Kinds: Named, Where: string): { [string]: KindWindows }
+local function WindowsOf(Given: Named?, Where: string): { [string]: KindWindows }
 	local Declared = OrDefault(Given, NoFields)
-	local OfDeclaredKinds = Check.Map(Rules.DeclaredKind(Kinds), AnyValue)
-	Check.Table({ Windows = Declared }, { Windows = OfDeclaredKinds }, Where)
+	Check.Table({ Windows = Declared }, { Windows = Check.Map(OpKindName, AnyValue) }, Where)
 
 	local Settled: { [string]: KindWindows } = {}
-	for OpKind in Kinds do
+	for OpKind, Entry in Declared do
 		local Path = WindowPath(Where, OpKind)
-		local Window = Validated(OrDefault(Declared[OpKind], NoFields), WindowRules, Path) :: WindowGiven
+		local Window = Validated(Entry, WindowRules, Path) :: WindowGiven
 		local Timed = OrDefault(Window.Timed, Settable.TimedWindow.Default)
 		Settled[OpKind] = table.freeze({
 			Timed = Timed,
@@ -371,14 +439,12 @@ local function Settle(Options: unknown, Where: string): Settings
 	local Given = Copy :: OptionsGiven
 
 	local Default = Guards.DeepCopy(Given.Default :: Tree) :: Named
-	local Kinds = table.clone(OrDefault(Given.Ops, NoFields))
 	local Migrations = MigrationsOf(Given.Migrations, Where)
-	local Windows = WindowsOf(Given.Windows, Kinds, Where)
+	local Windows = WindowsOf(Given.Windows, Where)
 	local Totals = TotalsOf(Given.Totals, Where)
 	local Quantities, ClosedQuantities = QuantitiesOf(Given.Quantities, Where)
 	local Copies: Balance.Copies = {}
-	local Listed = ListedBalancesOf(Given.Balances, Copies, Where)
-	local Ops = OpsOf(Kinds, Listed, Copies, Where)
+	local Listed, Ops = BalancesOf(Given.Balances, Copies, Where)
 	Guards.DeepFreeze(Default)
 
 	return table.freeze({

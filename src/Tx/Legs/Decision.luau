@@ -4,8 +4,8 @@
 --[=[
 	Decision: what a read of a decider shows of a mark's use, and the ends that follow (sheets 16, 18.3). Gone is
 	orphan evidence after OrphanAge. Absent or sealed is undecided before LatestCommitCreate (sheet 9 rule 0): the
-	widest window, never before W[tx], plus T_step's margin for skew, a read ReadLag stale, a Commit landing Delay
-	late.
+	widest window, counting the default one that unlisted kinds take, never before W[tx], plus T_step's margin for
+	skew, a read ReadLag stale, a Commit landing Delay late.
 
 	Return type: A plain table with FenceFor, ResolveFor, OrphanEnd, IsOrphanEvidence, DecisionShown,
 	AbsentDeciderSays and FenceSays, and the DeciderSays type.
@@ -16,6 +16,7 @@
 local Fates = require("../../Stored/Items/Fates")
 local JudgingShapes = require("../../Judging/Shapes")
 local Marks = require("./Marks")
+local Settable = require("../../Constants/Settable")
 local Shapes = require("../../Shapes")
 local TxShapes = require("../Shapes")
 local Value = require("../../Stored/Value")
@@ -95,8 +96,10 @@ local function IsOrphanEvidence(Says: DeciderSays, AskedAt: number, Stamp: numbe
 	return Says.Kind == "Gone" and AskedAt - Stamp >= OrphanAge
 end
 
+local DefaultWindow = Settable.TimedWindow.Default
+
 local function WidestWindow(Windows: { [string]: number }): number
-	local Widest = 0
+	local Widest = DefaultWindow
 	for _, Window in Windows do
 		Widest = math.max(Widest, Window)
 	end

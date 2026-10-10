@@ -7,7 +7,7 @@
 	Copied and Validated give a raw copy and FrozenAmount a deep frozen one, which the caller reads instead.
 
 	Return type: A plain table with NoMetatable, Plain, Copied, Validated, FrozenAmount, OrDefault, NoFields, Equals,
-	LeftOut, DeclaredKind, StorableWanted, StorableAs, CheckSchema, OpPath, OpWhere, BalancePath, WindowPath,
+	LeftOut, OpKindName, StorableWanted, StorableAs, CheckSchema, OpPath, OpWhere, BalancePath, WindowPath,
 	QuantityPath, WindowBoundOf and IsBelowWindowBound.
 	Example usage:
 		local Given = Rules.Validated(Entry, TotalRules, Where) :: TotalGiven
@@ -16,6 +16,7 @@
 
 local Check = require("../../Encoding/Check")
 local Guards = require("../../Judging/Guards")
+local OwnOpKinds = require("../../Constants/OwnOpKinds")
 local Record = require("../../Constants/Record")
 local ShellSetup = require("../../Shell/Setup")
 local Stepping = require("../../Shell/Stepping")
@@ -28,8 +29,10 @@ type Settings = ShellSetup.Settings
 type Named = { [string]: unknown }
 type Terms = { [unknown]: unknown }
 
+local CheckAcceptedNonText = "Rules: a Check text rule accepted a value that is not a string. The rule must reject it"
 local CheckAcceptedNonTable = "Rules: Check.Table accepted a value that is not a table. Check.Table must reject it"
-local DeclaredKindWanted = "an op kind declared in Ops"
+local OwnOpKindWanted = `a name other than one Ledger keeps for its own ops ({table.concat(OwnOpKinds.Names, ", ")}, `
+	.. `or one starting {table.concat(OwnOpKinds.Prefixes, " or ")})`
 local SchemaYielded = "a yield, and Schema must complete without yielding"
 local TableWanted = "a table"
 local PlainWanted = "a table with no metatable"
@@ -39,7 +42,7 @@ local NoFields: Named = {}
 table.freeze(NoFields)
 
 local function OpPath(Where: string, OpKind: string): string
-	return `{Where} Ops.{OpKind}`
+	return `{Where} Balances kind {OpKind}`
 end
 
 local function OpWhere(Where: string): string
@@ -106,13 +109,23 @@ local function IsBelowWindowBound(Window: number, Settings: Settings): boolean
 	return Window < WindowBoundOf(Settings)
 end
 
-local function DeclaredKind(Ops: { read [string]: unknown }): Rule
-	return function(Value: unknown): string?
-		if type(Value) == "string" and Ops[Value] ~= nil then
-			return nil
-		end
-		return DeclaredKindWanted
+local NonEmptyText = Check.TextAtLeast(1)
+
+local function OpKindName(Value: unknown): string?
+	local Problem = NonEmptyText(Value)
+	if Problem ~= nil then
+		return Problem
 	end
+	assert(type(Value) == "string", CheckAcceptedNonText)
+	if table.find(OwnOpKinds.Names, Value) ~= nil then
+		return OwnOpKindWanted
+	end
+	for _, Prefix in OwnOpKinds.Prefixes do
+		if string.sub(Value, 1, #Prefix) == Prefix then
+			return OwnOpKindWanted
+		end
+	end
+	return nil
 end
 
 local function OrDefault<Item>(Value: Item?, Default: Item): Item
@@ -194,7 +207,7 @@ return {
 	NoFields = NoFields,
 	Equals = Equals,
 	LeftOut = LeftOut,
-	DeclaredKind = DeclaredKind,
+	OpKindName = OpKindName,
 	StorableWanted = StorableWanted,
 	StorableAs = StorableAs,
 	CheckSchema = CheckSchema,

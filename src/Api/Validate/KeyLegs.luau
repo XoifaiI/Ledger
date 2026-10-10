@@ -40,7 +40,7 @@ local KeyRules: { [string]: Rule } = {
 }
 
 local function KindOnWanted(Store: string, Direction: Direction): string
-	return `a balance field on which the store "{Store}" declares a {Direction} kind in Ops`
+	return `a balance field for which the store "{Store}" names a {Direction} kind in Balances`
 end
 
 local function KindsOn(Settings: Settings, Field: string, Direction: Direction): { string }

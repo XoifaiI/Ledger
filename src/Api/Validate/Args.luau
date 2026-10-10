@@ -315,14 +315,14 @@ end
 local function Op(Settings: Settings, Value: unknown, Where: string): (string, Terms)
 	local Given = OpFields(Value, Where)
 	local OpKind = Given.Kind
-	Check.Table({ Kind = OpKind }, { Kind = Rules.DeclaredKind(Settings.Ops) }, OpWhere(Where))
+	Check.Table({ Kind = OpKind }, { Kind = Rules.OpKindName }, OpWhere(Where))
 	assert(type(OpKind) == "string", CheckAccepted)
 
 	Check.Table({ Op = Given }, { Op = StorableOp }, Where)
 	local Terms = Guards.DeepCopy(Given)
 
 	local Kind = Settings.Ops[OpKind]
-	if Kind ~= true then
+	if Kind ~= nil then
 		Guards.DeepFreeze(Terms)
 		local Arithmetic = Balances.ArithmeticOf(Kind)
 		Check.Table({ Amount = Terms.Amount }, { Amount = Balance.IsCallAmountOf(Arithmetic) }, OpWhere(Where))
@@ -331,7 +331,11 @@ local function Op(Settings: Settings, Value: unknown, Where: string): (string, T
 end
 
 local function UntimedWindow(Settings: Settings, OpKind: string, Name: GivenName?, Where: string): ()
-	if Name == nil or Name.Kind ~= "Game" or Settings.Windows[OpKind].IsUntimedSet then
+	if Name == nil or Name.Kind ~= "Game" then
+		return
+	end
+	local Window = Settings.Windows[OpKind]
+	if Window ~= nil and Window.IsUntimedSet then
 		return
 	end
 	CheckOne(InOptions.At, Name.Stamp, Present(UntimedWindowUnset(Settings.Name, OpKind)), Where)
