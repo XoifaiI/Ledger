@@ -111,15 +111,15 @@ A key remembers the names of recent ops, so a resend does nothing twice.
 
 ## Transactions and stock [#transactions-and-stock]
 
-|                        | Limit                                                                                                                                                                                                                                                                                                       |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Ledger.Tx` keys       | 2 or more, all different. The limit is in bytes, not a count: one key in the trade keeps a list of all the others, and that list has a size cap. About 29 keys fit with 16-character keys, 40 with 5-character keys, fewer with long keys or keys in other stores. Too many throws before anything is sent. |
-| `Take` `Legs`          | One fewer than the `Tx` limit.                                                                                                                                                                                                                                                                              |
-| Quantity `Parts`       | 1 to 64.                                                                                                                                                                                                                                                                                                    |
-| `Proceeds` fields      | Up to 4.                                                                                                                                                                                                                                                                                                    |
-| Holds                  | Up to 900 s each (`HoldMax`), plus 60 s for clock differences between servers. 256 at once per part.                                                                                                                                                                                                        |
-| `Close` removing parts | After 62 minutes from the first `Open`.                                                                                                                                                                                                                                                                     |
-| Totals `Shards`        | 1 to 64, 16 by default. Do not change a live total's `Shards`.                                                                                                                                                                                                                                              |
+|                        | Limit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Ledger.Tx` keys       | 2 or more, all different. The limit is in bytes, not a count: one key in the trade keeps a list of all the others, up to 512 bytes. In one store that's about 81 keys of 5 characters, 44 players (10-digit UserIds), 29 keys of 16 characters, or 10 of 50. A key in a different store from the deciding key also carries its store's name, so it takes more room: with 5-character keys, about 29 fit for a 2-character store name and 14 for a 21-character one. Too many throws before anything is sent. |
+| `Take` `Legs`          | One fewer than the `Tx` limit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Quantity `Parts`       | 1 to 64.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `Proceeds` fields      | Up to 4.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Holds                  | Up to 900 s each (`HoldMax`), plus 60 s for clock differences between servers. 256 at once per part.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `Close` removing parts | After 62 minutes from the first `Open`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Totals `Shards`        | 1 to 64, 16 by default. Do not change a live total's `Shards`.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## Reads and watching [#reads-and-watching]
 
@@ -134,20 +134,20 @@ A key remembers the names of recent ops, so a resend does nothing twice.
 
 How many Roblox DataStore requests a call makes, with no contention. `read` is a `GetAsync`, `write` an `UpdateAsync`.
 
-| Call                                   | Requests                                                             |
-| -------------------------------------- | -------------------------------------------------------------------- |
-| `Edit`, `Commit`                       | 1 write. The first `Edit` of an erasable key also reads once.        |
-| `Apply`                                | None. It rides the next save: 1 write per 30 s, however many ops.    |
-| `Load`                                 | 1 read. An idle session then reads once per 120 s.                   |
-| `Peek`, `Inspect`, `Losses`, `Pending` | 1 read.                                                              |
-| `Peek(Key, MaxAge)`                    | None inside `MaxAge`.                                                |
-| `Peek(Key, { Fresh = true })`          | 1 write.                                                             |
-| `Ledger.Tx`, N keys                    | N writes before the answer, 2N-1 in all.                             |
-| `Take`, `Hold`, `Confirm`              | 1 write, or with one key in `Legs` 2 before the answer and 3 in all. |
-| `Reset`, `Erase`                       | 1 write. `Erase` also removes the key.                               |
-| `Open`, `Close`                        | One write per part.                                                  |
-| `Bump`                                 | One write per shard per server batch.                                |
-| Server start                           | 1 write.                                                             |
+| Call                                   | Requests                                                                                                    |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `Edit`, `Commit`                       | 1 write. The first `Edit` of an erasable key also reads once.                                               |
+| `Apply`                                | None. It rides the next save: 1 write per 30 s, however many ops.                                           |
+| `Load`                                 | 1 read. An idle session then reads once per 120 s.                                                          |
+| `Peek`, `Inspect`, `Losses`, `Pending` | 1 read.                                                                                                     |
+| `Peek(Key, MaxAge)`                    | None inside `MaxAge`.                                                                                       |
+| `Peek(Key, { Fresh = true })`          | 1 write.                                                                                                    |
+| `Ledger.Tx`, N keys                    | N writes before the answer. Up to N-1 more tidy up after, riding on saves already being made when they can. |
+| `Take`, `Hold`, `Confirm`              | 1 write, or with one key in `Legs` 2 before the answer and 3 in all.                                        |
+| `Reset`, `Erase`                       | 1 write. `Erase` also removes the key.                                                                      |
+| `Open`, `Close`                        | One write per part.                                                                                         |
+| `Bump`                                 | One write per shard per server batch.                                                                       |
+| Server start                           | 1 write.                                                                                                    |
 
 Next: [Releases](/docs/releases)
 
@@ -171,12 +171,12 @@ Ledger 7 is rebuilt from scratch. It's cheaper, holds more, and every edge case 
 | Trades a day through one guild bank or shop   | 1,900       | **590,000**                                  |
 | Trades running on one key at once             | 1           | **16**                                       |
 | MemoryStore requests a minute spent on trades | 1.8 million | **0**                                        |
-| Players in one trade                          | 4           | **29**                                       |
+| Players in one trade                          | 4           | **44**                                       |
 | Data per player                               | 2 MB        | **4 MB**                                     |
 | Limited item sales a minute, never oversold   | none        | **900,000**                                  |
 | Global counter adds a minute                  | none        | **unlimited, for 1.6% of your write budget** |
 
-A trade between two players costs 3 DataStore requests instead of 8, and no MemoryStore at all. It answers after 2 of the 3. The trade size limit is in bytes, so 29 players assumes 16-character keys; see [Limits](/docs/limits).
+A trade between two players costs 2 DataStore requests instead of 8, and no MemoryStore at all. A third tidies up after the answer, riding on a save Ledger is already making when it can. The trade size limit is in bytes, so 44 players assumes 10-digit UserIds; see [Limits](/docs/limits).
 
 ### What's new [#whats-new]
 
@@ -3101,7 +3101,7 @@ end
 
 `PlayerStore:Leg(UserId, Op)` describes one player's side of the trade. `Ledger.Tx` takes the list and applies every side, or none.
 
-A two-player trade costs 2 DataStore requests before it answers, and 3 in all.
+A two-player trade costs 2 DataStore requests. A third tidies up after it answers, and costs nothing when it can ride on a save Ledger is already making for that player.
 
 ## Players in this server [#players-in-this-server]
 
@@ -3493,15 +3493,15 @@ local Ok, Why = Ledger.Tx(Legs, Options)
 
 Each player or key in the trade is one entry, `{ Store, Key, Op, MustExist? }`. `Store:Leg` builds one with the op type-checked. Use at least 2 entries, on different keys. The entries can be in different stores, such as a player store and a guild store. `Options` is `{ Id, IdAt }`, both or neither. `Id` is a string you make, never a `Ledger.Id()` name.
 
-| Answer              | Means                                                                                  | Do                                                                         |
-| ------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `true`              | Every change happened, once.                                                           | Done.                                                                      |
-| `Refused` or `Full` | A rule said no. Nothing changed. `Info.Key` names the key.                             | Tell the player. Do not resend.                                            |
-| `Spent`             | The name was used with other terms, or the transaction was cancelled. Nothing changed. | Use a new name.                                                            |
-| `Missing`           | A key that must exist is not there.                                                    | Check `Info.Key`.                                                          |
-| `Behind`            | A newer build owns a key.                                                              | Stop writing it from this build.                                           |
-| `Busy` or `NoRoom`  | Nothing was sent.                                                                      | Send the same name again later.                                            |
-| `Unresolved`        | Not known yet. All the changes or none will happen.                                    | Send the same name, `IdAt` and list again. `Info.Outcome` tells you later. |
+| Answer              | Means                                                                                  | Do                                                                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `true`              | Every change happened, once.                                                           | Done.                                                                                                                          |
+| `Refused` or `Full` | A rule said no. Nothing changed. `Info.Key` names the key.                             | Tell the player. Do not resend.                                                                                                |
+| `Spent`             | The name was used with other terms, or the transaction was cancelled. Nothing changed. | Use a new name.                                                                                                                |
+| `Missing`           | A key that must exist is not there. Nothing changed.                                   | Check `Info.Key`. With your own `Id`, this answers `Unresolved` instead, since another server could still send the same trade. |
+| `Behind`            | A newer build owns a key.                                                              | Stop writing it from this build.                                                                                               |
+| `Busy` or `NoRoom`  | Nothing was sent.                                                                      | Send the same name again later.                                                                                                |
+| `Unresolved`        | Not known yet. All the changes or none will happen.                                    | Send the same name, `IdAt` and list again. `Info.Outcome` tells you later.                                                     |
 
 More in [Answers](/docs/learn/answers) and [Trading](/docs/learn/trading).
 

@@ -7,6 +7,9 @@
 	failing key is unreadable. A Refused, Full, Behind or Missing no names its deciding leg; a Refused or Full no also
 	carries its State. A Tent or Commit that carried "absent" and meets a key another call made is sent again with
 	that key's id while no send of it there may have run (record 5.1), so concurrent calls into a new key all land.
+	A drawn name has one sender, so when its Commit met missing, no send of it erred or landed, and the fence finds
+	no decider either, no commit of it can land: the call answers Missing (a game name may be sent again from
+	another server, finding 6, and stays Unresolved).
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -313,6 +316,9 @@ local function AfterCommit(State: State, Call: Call, Result: Outcome, Clock: num
 	if Requests.RetagOnMissing(Call, Call.Decider, Report) then
 		return NextSteps.SendCommit(State, Call, Clock, Commands)
 	end
+	if Report.Kind == "Missing" then
+		Call.CommitMissed = true
+	end
 	if Report.Kind == "Forgotten" or Report.Kind == "Missing" then
 		return NextSteps.FenceFinal(State, Call, Clock, Commands)
 	end
@@ -335,7 +341,17 @@ local function AfterCommit(State: State, Call: Call, Result: Outcome, Clock: num
 	EndNo(State, Call, Reasons.Unresolved, Commands)
 end
 
+local function IsCommitNeverLanding(Call: Call): boolean
+	return Call.CommitMissed and Call.Name.Kind == "Drawn" and not Call.MayHaveRun[Names.KeyText(Call.Decider)]
+end
+
 local function AfterFenceMissing(State: State, Call: Call, Clock: number, Commands: { Command })
+	if IsCommitNeverLanding(Call) then
+		local Answer: GivenAnswer =
+			{ Kind = "Failed", Reason = Reasons.Missing, State = nil, Identity = nil, Key = Call.Decider }
+		TxCalls.Answer(Call, Answer, Commands)
+		return TxCalls.End(State, Call, Commands)
+	end
 	if Call.Rounds >= Requests.LimitsOf(State.Server, Call).RetryRounds then
 		return EndNo(State, Call, Reasons.Unresolved, Commands)
 	end

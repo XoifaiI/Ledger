@@ -5,7 +5,9 @@
 	Requests: a Tx call's requests, each with no writer (TX-NONE), their names, and what answers teach the call
 	(transaction sheets 4, 9 to 11, 15.1). An Unreadable report is an error, leaving the call clean unless caused by
 	Amounts; a stored Balance is never sent again. Only an Err may clear by sending again. A newer Ledger's key reports
-	Behind. MayHaveRun marks a key where a send of the call's op erred or a run decided it (closure Ran at LegOpRan).
+	Behind. MayHaveRun marks a key where a send of the call's op erred or its last run decided the op. A run the
+	platform threw away after a conflict, which a closure's Wrote and Ran still count, doesn't mark it: under
+	LoseCommit the next run reads the version its own write made and reports the op, never another key's id.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -24,7 +26,6 @@ local JudgingShapes = require("../../Judging/Shapes")
 local KindSetup = require("../../Judging/KindSetup")
 local Names = require("../../Encoding/Names")
 local Numbers = require("../../Writing/Numbers")
-local Record = require("../../Constants/Record")
 local Rides = require("../Rides")
 local Sending = require("../../Writing/Sending")
 local Shapes = require("../../Shapes")
@@ -266,11 +267,11 @@ local function LearnFromAnswer(State: State, Call: Call, Key: StoreKey, Result: 
 	if Note.Closure.Wrote then
 		Call.IsUnclean = true
 	end
-	if Note.Closure.Ran[Record.LegOpRan] then
-		Call.MayHaveRun[Text] = true
-	end
 	local Server = State.Server
 	local Own = OwnReportOf(Note)
+	if Own.Kind == "Mine" or Own.Kind == "Committed" then
+		Call.MayHaveRun[Text] = true
+	end
 	if Own.Kind == "Unreadable" then
 		Unreadable.WarnOfReport(Server, Key, Own, Commands)
 		if Own.Cause ~= "Newer" then

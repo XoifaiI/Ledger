@@ -81,7 +81,7 @@ once before it learns. A copy expires an hour after it was last written.
 |---|---|---|
 | `Store:Edit`, `Session:Commit` | 1 write; +1 read the first time this server meets an erasable key | `Edit` on a key a session here holds goes through that session's writer, with its queued ops |
 | `Session:Flush`, `Release`, `Store:Unload` | 1 write with ops queued, else nothing | `true` means the push was answered, not that ops saved |
-| `Ledger.Tx`, N keys | N writes before the answer, 2N-1 in all | a two-player trade: 2 to the answer, 3 in all |
+| `Ledger.Tx`, N keys | N writes before the answer, 2N-1 at most | a two-player trade: 2; the third tidies up after and rides on a save already being made when it can |
 | `Quantity:Take`, `Hold`, `Confirm`, `Release` | 1 write; with one key in `Legs`, 2 to the answer and 3 in all | a failed try on a part adds a write on the part and two per leg key |
 | `Quantity:Deposit`, `Withdraw`, `Gather` | a two-leg `Tx` each (a minted `Deposit` is 1 write) | Open quantities, mostly |
 | `Store:Bump` | 1 write per shard per server batch | yields 0 to 60 s, up to 90 s when writes fail |

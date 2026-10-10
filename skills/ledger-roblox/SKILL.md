@@ -81,7 +81,7 @@ always true in Ledger.
 | `Store:DidApply` | 1 read; `Probe = true` is **1 write** | yes | a support question, not the way to learn an outcome |
 | `Load`, `Session:Refresh` | 1 read | **yes**: `Load` acts on a dead sender's mark once it is 10 s old | |
 | `Commit`, `Edit`, `Flush`, `Release`, `Unload` | 1 write | yes | `Edit` on a key a session here holds goes through that session's writer |
-| `Ledger.Tx` (N keys), `Take`/`Confirm` with legs | N writes to the answer, 2N-1 in all | yes | game-op legs off the decider **hold their key** until the trade ends |
+| `Ledger.Tx` (N keys), `Take`/`Confirm` with legs | N writes to the answer, 2N-1 at most (the tidy-ups ride on saves when they can) | yes | game-op legs off the decider **hold their key** until the trade ends |
 | `Bump` | 1 write per shard per server batch | no | **yields 0 to 60 s**, ~90 s when writes fail |
 | `Resettle` | 1 read + 1 write, more per mark | **that is its job** | ends unfinished trade work now; returns escrow; a fence costs a live sender one attempt |
 | `Quantity:Open` | 1 write **per part, every call** | | **never after `Close`** |
