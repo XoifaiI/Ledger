@@ -233,8 +233,9 @@ local function LearnStored(
 		Showables.Forget(State, Key)
 		Entry.IsBehind = nil
 		Entry.Gate = nil
-		if Stored ~= nil and Seal.IsLeftOver(Stored.Seal, Clock, Setup.Limits.SealAge) then
-			SeeSeal(State, Key, Stored.Seal)
+		local Found: Value? = Stored
+		if Found ~= nil and Found.Kind == "Sealed" and Seal.IsLeftOver(Found.Seal, Clock, Setup.Limits.SealAge) then
+			SeeSeal(State, Key, Found.Seal)
 		end
 		return { Kind = "Nothing" }
 	end

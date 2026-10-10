@@ -31,9 +31,9 @@ export type Outcome = Future<boolean, Reason?>
 
 type Settle = (boolean, Reason?) -> ()
 
-type Opened =
-	{ read Kind: "Answer", read Method: string, read Done: (Answer) -> () }
-	| { read Kind: "WithOutcome", read Method: string, read Done: (Answer, Outcome?) -> () }
+type AnswerOpened = { read Kind: "Answer", read Method: string, read Done: (Answer) -> () }
+type OutcomeOpened = { read Kind: "WithOutcome", read Method: string, read Done: (Answer, Outcome?) -> () }
+type Opened = AnswerOpened | OutcomeOpened
 
 type Waiter = { read CallId: number, read Opened: Opened, read Answer: Answer, read Outcome: Outcome? }
 
@@ -65,13 +65,15 @@ end
 
 local function Open(CallId: number, Method: string): Future<Answer>
 	local Job: Future<Answer>, Done: (Answer) -> () = Future.Pending()
-	Pending[CallId] = { Kind = "Answer", Method = Method, Done = Done }
+	local Opening: AnswerOpened = { Kind = "Answer", Method = Method, Done = Done }
+	Pending[CallId] = Opening
 	return Job
 end
 
 local function OpenWithOutcome(CallId: number, Method: string): Future<Answer, Outcome?>
 	local Job: Future<Answer, Outcome?>, Done: (Answer, Outcome?) -> () = Future.Pending()
-	Pending[CallId] = { Kind = "WithOutcome", Method = Method, Done = Done }
+	local Opening: OutcomeOpened = { Kind = "WithOutcome", Method = Method, Done = Done }
+	Pending[CallId] = Opening
 	return Job
 end
 
