@@ -2,15 +2,12 @@
 --!optimize 2
 
 --[=[
+	Observer: Sends each value to each listener, which must not yield. From links the first subscriber before starting
+	its source, so values during the start find it, and stops it after the last leaves. A throwing start's subscriber
+	is dropped, then the next Subscribe restarts it; a throwing stop leaves it stopped. FromLatest gives late listeners
+	the last value, deferred.
 
-	Observer: Sends each value to each listener.
-
-	A listener runs the moment a value is pushed, so a listener must not yield. Map, Filter and
-	Changed each make a new stream from this one. Destroy marks every connection gone, and
-	disconnecting after that does nothing. From makes a stream that starts its source on the first
-	subscriber and tears it down after the last one leaves.
-
-	Return type: A table with New, which gives you a subject that you can push to, and From.
+	Return type: A table with New, which gives you a subject that you can push to, From and FromLatest.
 	Example usage:
 		local Observer = require("./Observer")
 		local Stream = Observer.New()
@@ -18,7 +15,7 @@
 		Stream:Push(1)
 --]=]
 
-local Clock = require("./Clock")
+local Threads = require("./Threads")
 
 local NoYield = require("./NoYield")
 
@@ -55,22 +52,56 @@ type Node<T> = {
 	Next: Node<T>?,
 }
 
+type Starting<T> = {
+	read Thread: thread,
+	read Node: Node<T>,
+	read Run: () -> (),
+}
+
+type Latest<T> = {
+	read Value: T,
+}
+
+type Options = {
+	read Detached: boolean?,
+	read Keeps: boolean?,
+}
+
 type Private<T> = {
 	Head: Node<T>?,
 	Tail: Node<T>?,
 	Activate: Activate<T>?,
 	Teardown: (() -> ())?,
+	IsStarted: boolean?,
+	Starting: Starting<T>?,
 	Detached: boolean?,
 	Said: number?,
+	Keeps: boolean?,
+	Latest: Latest<T>?,
+	Sent: number,
 }
 
 local SLOW = 10
+local NextCycle = 0
 
 local Observer = {}
 Observer.__index = Observer
 
 local function ToPrivate<T>(self: any): Private<T>
 	return self
+end
+
+local function Stop<T>(Private: Private<T>)
+	Private.Latest = nil
+	if not Private.IsStarted then
+		return
+	end
+	local Teardown = Private.Teardown
+	Private.IsStarted = false
+	Private.Teardown = nil
+	if Teardown ~= nil then
+		Teardown()
+	end
 end
 
 local function Unlink<T>(self: Node<T>)
@@ -95,10 +126,18 @@ local function Unlink<T>(self: Node<T>)
 		Owner.Tail = Previous
 	end
 
-	if Owner.Head == nil and Owner.Teardown then
-		Owner.Teardown()
-		Owner.Teardown = nil
+	if Owner.Head == nil then
+		Stop(Owner)
 	end
+end
+
+local function DropFailedStart<T>(Private: Private<T>)
+	local Starting = Private.Starting
+	if Starting == nil or Threads.HasFrame(Starting.Thread, Starting.Run) then
+		return
+	end
+	Private.Starting = nil
+	Unlink(Starting.Node)
 end
 
 local function Threw(Err: any)
@@ -107,69 +146,73 @@ end
 
 local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 	local Done = false
-	local Watch = Clock.Delay(SLOW, function()
-		local Now = Clock.Now()
+	local Watch = Threads.Delay(SLOW, function()
+		local Now = Threads.Now()
 		if Done or (self.Said ~= nil and Now - self.Said < SLOW) then
 			return
 		end
 
 		self.Said = Now
-		warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. a listener that never returns leaks a thread for every value pushed`)
+		warn(
+			`Ledger: an Observer listener has run for {SLOW} seconds without finishing. `
+				.. "A listener that never returns leaks a thread for every value pushed."
+		)
 	end)
 
 	local Ok, Err = pcall(Listener, Value)
 	Done = true
-	Clock.Cancel(Watch)
+	Threads.Cancel(Watch)
 
 	if not Ok then
 		Threw(Err)
 	end
 end
 
+local function Notify<T>(self: Private<T>, Node: Node<T>, Value: T)
+	if not Node.Connected then
+		return
+	end
+	if self.Detached then
+		Threads.Scheduler().Spawn(Carry, self, Node.Listener, Value)
+		return
+	end
+	local Ok, Err = NoYield.Try(Node.Listener, Value)
+	if not Ok then
+		Threw(Err)
+	end
+end
+
 local function Deliver<T>(self: Private<T>, Value: T)
+	DropFailedStart(self)
+	if self.Keeps then
+		self.Latest = { Value = Value }
+		self.Sent += 1
+	end
 	local Node = self.Head
 	local Last = self.Tail
-	local Detached = self.Detached
 
 	while Node ~= nil do
 		local Following = if Node == Last then nil else Node.Next
-
-		if Node.Connected then
-			if Detached then
-				Clock.Held().Spawn(Carry, self, Node.Listener, Value)
-			else
-				local Ok, Err = NoYield.Try(Node.Listener, Value)
-				if not Ok then
-					Threw(Err)
-				end
-			end
-		end
-
+		Notify(self, Node, Value)
 		Node = Following
 	end
 end
 
-local function Make<T>(Activate: Activate<T>?, Detached: boolean?): Observer<T>
-	local Body: Private<T> = { Activate = Activate, Detached = Detached }
-
-	return setmetatable(Body :: any, Observer) :: any
+local function Replay<T>(self: Private<T>, Node: Node<T>)
+	local Latest = self.Latest
+	if Latest == nil then
+		return
+	end
+	local SentBefore = self.Sent
+	Threads.Delay(NextCycle, function()
+		if self.Sent == SentBefore then
+			Notify(self, Node, Latest.Value)
+		end
+	end)
 end
 
-local function New<T>(Detached: boolean?): Subject<T>
-	return Make(nil, Detached) :: any
-end
-
-local function From<T>(Activate: (Emit: (T) -> ()) -> (() -> ())?, Detached: boolean?): Observer<T>
-	return Make(Activate, Detached)
-end
-
-function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connection
-	local Private = ToPrivate(self)
-
+local function Link<T>(Private: Private<T>, Listener: (T) -> ()): Node<T>
 	local Tail = Private.Tail
-	local WasEmpty = Tail == nil
-	assert(not WasEmpty or Private.Teardown == nil, "the stream is holding a teardown while nobody is listening")
-
 	local Node: Node<T> = {
 		Connected = true,
 		Disconnect = Unlink,
@@ -185,17 +228,63 @@ function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connecti
 		Private.Head = Node
 	end
 	Private.Tail = Node
+	return Node
+end
 
-	if WasEmpty and Private.Activate then
-		Private.Teardown = Private.Activate(function(Value: T)
-			Deliver(Private, Value)
-		end)
+local function Start<T>(Private: Private<T>, Node: Node<T>, Activate: Activate<T>)
+	local Starting: Starting<T> = {
+		Thread = coroutine.running(),
+		Node = Node,
+		Run = function()
+			Private.Teardown = Activate(function(Value: T)
+				Deliver(Private, Value)
+			end)
+		end,
+	}
+	Private.Starting = Starting
+	Starting.Run()
+	Private.Starting = nil
+	Private.IsStarted = true
+	if Private.Head == nil then
+		Stop(Private)
+	end
+end
+
+local function Make<T>(Activate: Activate<T>?, Options: Options): Observer<T>
+	local Body: Private<T> = { Activate = Activate, Detached = Options.Detached, Keeps = Options.Keeps, Sent = 0 }
+
+	return setmetatable(Body :: any, Observer) :: any
+end
+
+local function New<T>(Detached: boolean?): Subject<T>
+	return Make(nil, { Detached = Detached }) :: any
+end
+
+local function From<T>(Activate: (Emit: (T) -> ()) -> (() -> ())?, Detached: boolean?): Observer<T>
+	return Make(Activate, { Detached = Detached })
+end
+
+local function FromLatest<T>(Activate: (Emit: (T) -> ()) -> (() -> ())?): Observer<T>
+	return Make(Activate, { Keeps = true })
+end
+
+function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connection
+	local Private = ToPrivate(self)
+	DropFailedStart(Private)
+
+	local Node = Link(Private, Listener)
+	local Activate = Private.Activate
+	if Activate ~= nil and not Private.IsStarted and Private.Starting == nil then
+		Start(Private, Node, Activate)
+	else
+		Replay(Private, Node)
 	end
 
 	return Node :: any
 end
 
 function Observer.Use<T, U>(self: Observer<T>, Middleware: Middleware<T, U>): Observer<U>
+	local Source = ToPrivate(self)
 	return Make(function(Emit: (U) -> ())
 		local Connection = self:Subscribe(function(Value: T)
 			Middleware(Value, Emit)
@@ -204,7 +293,7 @@ function Observer.Use<T, U>(self: Observer<T>, Middleware: Middleware<T, U>): Ob
 		return function()
 			Connection:Disconnect()
 		end
-	end, ToPrivate(self).Detached)
+	end, { Detached = Source.Detached, Keeps = Source.Keeps })
 end
 
 function Observer.Map<T, U>(self: Observer<T>, Transform: (T) -> U): Observer<U>
@@ -242,10 +331,7 @@ end
 function Observer.Destroy<T>(self: Observer<T>)
 	local Private = ToPrivate(self)
 
-	if Private.Teardown then
-		Private.Teardown()
-		Private.Teardown = nil
-	end
+	Stop(Private)
 
 	local Node = Private.Head
 	while Node ~= nil do
@@ -266,4 +352,5 @@ table.freeze(Observer)
 return table.freeze({
 	New = New,
 	From = From,
+	FromLatest = FromLatest,
 })

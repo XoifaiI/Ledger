@@ -2,147 +2,246 @@
 --!optimize 2
 
 --[=[
+	Ledger: the module surface. On the server it starts the Runner at load; on a client, read through Platform (not a
+	test flag), it starts nothing: Reason works and every other function throws, naming itself. A store name opens
+	once per server life. New's typed view is the one cast, which MethodsMatch guards.
 
-	Ledger: Player data as a ledger, and not as a document.
-
-	State is a pure fold of an append only log of ops, and there are no session locks. This file is
-	the whole surface a game can reach. New builds a store, typed when it is given the op map. Id
-	mints a fresh op id. Sweep runs a recovery pass. CloseAll saves everything on the way down. A
-	store takes its datastore as a hook, or Mock puts it on a fake datastore that nothing outlives. It
-	takes no scheduler, since the process keeps one clock.
-
-	Return type: A table with Reason, New, Id, Sweep and CloseAll.
+	Return type: The Ledger table of functions (Now is the clock an IdAt counts in; BeforeClose gives the close, the
+	platform's or a CloseAll call's, a function to run first) and Reason, and the public types.
 	Example usage:
-		local Ledger = require(ServerStorage.Ledger)
-		local Shop = Ledger.New<<Profile, { Buy: { Item: string } }>>(Options)
+		local Ledger = require(ReplicatedStorage.Ledger)
+		local Gold = Ledger.Credit("Gold", { Max = 1000000 })
+		local Vault = Ledger.New({
+			Name = "Vault", Keys = "String", MustExist = false, Erasable = false, Default = { Gold = 0 },
+		})
 --]=]
 
-local RunService = game:GetService("RunService")
+local Answers = require("@self/Api/Answers")
+local Args = require("@self/Api/Validate/Args")
+local Balance = require("@self/Api/Validate/Balance")
+local Balances = require("@self/Tx/Legs/Balances")
+local Calls = require("@self/Shell/Calls")
+local Check = require("@self/Encoding/Check")
+local Cross = require("@self/Api/Validate/Cross")
+local Events = require("@self/Events")
+local KeyPages = require("@self/Api/KeyPages")
+local Limits = require("@self/Shell/Limits")
+local Legs = require("@self/Api/Validate/Legs")
+local Platform = require("@self/Shell/Platform")
+local Quantity = require("@self/Api/Quantity")
+local Reasons = require("@self/Constants/Reasons")
+local Runner = require("@self/Shell/Runner")
+local Session = require("@self/Api/Session")
+local Setup = require("@self/Api/Validate/Setup")
+local ShellSetup = require("@self/Shell/Setup")
+local Store = require("@self/Api/Store")
+local TypeFunctions = require("@self/TypeFunctions")
+local Types = require("@self/Types")
 
-assert(RunService:IsServer(), "Ledger runs on the server, only the server can reach a datastore")
+type Call = Events.Call
+type KeyPagesObject = KeyPages.KeyPages
+type QuantityObject = Quantity.Quantity
+type SessionObject = Session.Session
+type StoreObject = Store.Store
 
-local Future = require("@self/Util/Future")
-local Observer = require("@self/Util/Observer")
-local Shapes = require("@self/Core/Shapes")
-local Api = require("@self/Core/Api")
-local Reasons = require("@self/Core/Constants/Reasons")
-local TypeFunctions = require("@self/Core/TypeFunctions")
-local Ids = require("@self/Encode/Ids")
-local Tx = require("@self/Protocol/Tx")
-local Registry = require("@self/Store/Registry")
-local Store = require("@self/Store/Store")
-local Validate = require("@self/Store/Validate")
+export type Reason = Types.Reason
+export type KeyLike = Types.KeyLike
+export type KeysMode = Types.KeysMode
+export type OpMap = Types.OpMap
+export type Frozen<S> = Types.Frozen<S>
+export type Future<T...> = Types.Future<T...>
+export type Observer<T> = Types.Observer<T>
+export type Connection = Types.Connection
+export type Record<D = unknown> = Types.Record<D>
+export type Identity = Types.Identity
+export type BalanceKind = Types.BalanceKind
+export type LoadFailedHandler = Types.LoadFailedHandler
+export type Closed = Types.Closed
+export type ShortReason = Types.ShortReason
+export type Amount = Types.Amount
+export type Arithmetic<T = any> = Types.Arithmetic<T>
+export type LossRecords = Types.LossRecords
+export type PendingItems = Types.PendingItems
+export type Name = Types.Name
+export type Terms<O = any> = Types.Terms<O>
+export type Op<O = any> = Types.Op<O>
+export type OpOf<O, K> = Types.OpOf<O, K>
+export type Overloads<O, Shape> = Types.Overloads<O, Shape>
+export type Reducer<S, O = any> = Types.Reducer<S, O>
+export type ResultSchema<D> = Types.ResultSchema<D>
+export type Migration = Types.Migration
+export type BalanceOptions<T = any> = Types.BalanceOptions<T>
+export type Windows = Types.Windows
+export type TotalDeclaration = Types.TotalDeclaration
+export type QuantityDeclaration = Types.QuantityDeclaration
+export type TypedConfig<D, O> = Types.TypedConfig<D, O>
+export type Config<D> = Types.Config<D>
+export type OpId = Types.OpId
+export type Applied = Types.Applied
+export type Info<D = unknown> = Types.Info<D>
+export type DidApplyInfo = Types.DidApplyInfo
+export type Cut = Types.Cut
+export type EditOptions = Types.EditOptions
+export type CommitOptions = Types.CommitOptions
+export type BumpOptions = Types.BumpOptions
+export type PeekOptions = Types.PeekOptions
+export type DidApplyOptions = Types.DidApplyOptions
+export type ResetOptions<D> = Types.ResetOptions<D>
+export type EraseOptions = Types.EraseOptions
+export type TxOptions = Types.TxOptions
+export type TakeOptions = Types.TakeOptions
+export type GatherOptions = Types.GatherOptions
+export type ConfirmOptions = Types.ConfirmOptions
+export type DepositOptions = Types.DepositOptions
+export type WithdrawOptions = Types.WithdrawOptions
+export type KeyOfStore = Types.KeyOfStore
+export type TxLeg = Types.TxLeg
+export type LegOptions = Types.LegOptions
+export type Leg<S> = Types.Leg<S>
+export type TakeLeg = Types.TakeLeg
+export type Fate<O = any> = Types.Fate<O>
+export type InfoKey = Types.InfoKey
+export type SessionCommon<D, O = any> = Types.SessionCommon<D, O>
+export type TypedSession<D, O> = Types.TypedSession<D, O>
+export type Session<D> = Types.Session<D>
+export type Quantity = Types.Quantity
+export type KeyPages<K = string | number> = Types.KeyPages<K>
+export type StoreCommon<D> = Types.StoreCommon<D>
+export type TypedStore<D, O> = Types.TypedStore<D, O>
+export type Store<D> = Types.Store<D>
 
-export type Store<D> = Api.Store<D>
-export type TypedStore<D, O> = Api.TypedStore<D, O>
-export type Session<S> = Api.Live<S>
-export type TypedSession<S, O> = Api.TypedLive<S, O>
-export type Config<D> = Api.Config<D>
-export type TypedConfig<D, O> = Api.TypedConfig<D, O>
-export type OpMap = Api.OpMap
-export type TxLeg = Api.TxLeg
-export type HoldOptions = Api.HoldOptions
-export type Op<O = any> = TypeFunctions.OpUnion<O>
-export type OpOf<O, K> = TypeFunctions.OpOf<O, K>
-export type Reducer<S, O = any> = (State: S, Op: TypeFunctions.OpUnion<O>) -> (S | TypeFunctions.Frozen<S>)?
-export type Frozen<S> = TypeFunctions.Frozen<S>
-export type Record<D> = Shapes.Record<D>
-export type Future<T...> = Future.Future<T...>
-export type Observer<T> = Observer.Observer<T>
-export type KeyLike = Shapes.KeyLike
-export type KeysMode = Shapes.KeysMode
-export type Migration = Shapes.Migration
-export type HistoryEntry = Shapes.HistoryEntry
-export type Reason = Reasons.Reason
+type StoreStatics = { read __index: unknown, read New: unknown }
+type SessionStatics = { read __index: unknown }
+type QuantityStatics = { read __index: unknown, read New: unknown, read AskTotal: unknown }
+type KeyPagesStatics = { read __index: unknown, read New: unknown }
 
-export type Export = {
-	read Reason: typeof(Reasons),
+type MethodsMatch =
+	TypeFunctions.SameKeys<keyof<getmetatable<StoreObject>>, keyof<Store<any> & StoreStatics>>
+	| TypeFunctions.SameKeys<keyof<getmetatable<SessionObject>>, keyof<Session<any> & SessionStatics>>
+	| TypeFunctions.SameKeys<keyof<getmetatable<QuantityObject>>, keyof<Quantity & QuantityStatics>>
+	| TypeFunctions.SameKeys<keyof<getmetatable<KeyPagesObject>>, keyof<KeyPages<any> & KeyPagesStatics>>
 
-	read New: <D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>,
-	read Id: () -> string,
-	read Sweep: () -> (),
-	read CloseAll: () -> (),
-}
+local Directions = Balances.Direction
+local KeysModes = ShellSetup.KeysMode
 
-local SHUTDOWN_ATTEMPTS = 2
+local IsServer = Platform.IsServer()
 
-local function New<D, O>(Options: TypedConfig<D, O>): TypedStore<D, O>
-	Validate(Options :: any)
-	return Store.New(Options :: any) :: any
+local NewWhere = "Ledger.New"
+local NowWhere = "Ledger.Now"
+local TxWhere = "Ledger.Tx"
+local IdWhere = "Ledger.Id"
+local CloseAllWhere = "Ledger.CloseAll"
+local BeforeCloseWhere = "Ledger.BeforeClose"
+local CreditWhere = "Ledger.Credit"
+local DebitWhere = "Ledger.Debit"
+local OpenedBefore = "a store name not opened on this server before, a destroyed store's included"
+
+local function ServerOnly(Name: string): string
+	return `Ledger: {Name} runs on the server only.`
 end
 
-local function Sweeps(Visit: (Registry.Sweeper) -> ())
-	local Shared = Registry.Sweep()
-	local Seen: { [Registry.Sweeper]: boolean } = { [Shared] = true }
-	Visit(Shared)
-
-	for _, Held in Registry.Stores do
-		if Seen[Held.Sweep] then
-			continue
-		end
-		Seen[Held.Sweep] = true
-		Visit(Held.Sweep)
+local function OnServer(Name: string)
+	if not IsServer then
+		error(ServerOnly(Name), 0)
 	end
 end
 
-local function Sweep()
-	Sweeps(function(Held: Registry.Sweeper)
-		Held:Pass()
-	end)
-end
-
-local function Hurry()
-	for _, Held in Registry.Stores do
-		Held.Wrapper:SkipAllQueuesToLastEnqueued()
-		Held.Wrapper.Attempts = SHUTDOWN_ATTEMPTS
-		Held.TxWrapper:SkipAllQueuesToLastEnqueued()
-		Held.TxWrapper.Attempts = SHUTDOWN_ATTEMPTS
+local function NotOpened(Value: unknown): string?
+	if type(Value) == "string" and Runner.IsOpened(Value) then
+		return OpenedBefore
 	end
-	Tx.ShutdownHomes(SHUTDOWN_ATTEMPTS)
+	return nil
 end
 
-local function Release()
-	for _, Held in Registry.Stores do
-		Held:Unfollowed()
-		Held:Flushed()
-		for UserId, Entry in Held.Loaded do
-			Held.Loaded[UserId] = nil
-			Held.Latest[UserId] = nil
-			Held.Wrapper.Scheduler.Cancel(Entry.Ticker)
-			Held:Save(Entry.Active)
-		end
+local function New<D, O>(Config: TypedConfig<D, O>): TypedStore<D, O>
+	OnServer("New")
+	Args.OutsideStep(NewWhere)
+	local Settings = Setup.Settle(Config, NewWhere)
+	Cross.Check(Settings, NewWhere)
+	Check.Table({ Name = Settings.Name }, { Name = NotOpened }, NewWhere)
+	local IsStudio = Platform.IsStudio()
+	if IsStudio then
+		Cross.Probe(Settings)
 	end
+
+	local PartBuild = ShellSetup.PartBuildOf(Settings)
+	local Built = Limits.Build(Settings, PartBuild, IsStudio)
+	local StoreSetup = ShellSetup.SetupOf(Settings, PartBuild, Platform.Encoding, Built, IsStudio)
+	Runner.AddStore(StoreSetup, Settings.Keys == KeysModes.Player)
+	local Made = Store.New(Settings)
+	return (Made :: any) :: TypedStore<D, O>
 end
 
-local function Settle()
-	for _, Held in Registry.Stores do
-		local Jobs: { Future<boolean, Reason?> } = {}
-		for Job in Held.Saving do
-			table.insert(Jobs, Job)
-		end
-		for _, Job in Jobs do
-			Job:Wait()
-			Held.Saving[Job] = nil
-		end
-	end
+local function Now(): number
+	OnServer("Now")
+	Args.OutsideStep(NowWhere)
+	return Platform.Now()
 end
 
-local function CloseAll()
-	Registry.Shutting.Now = true
-	Sweeps(function(Held: Registry.Sweeper)
-		Held:Stop()
-	end)
-	Hurry()
-	Release()
-	Settle()
-	Registry.Shutting.Now = false
+local function Id(): (OpId?, Reason?)
+	OnServer("Id")
+	Args.OutsideStep(IdWhere)
+	Args.OutsideListener(IdWhere)
+	local IdCall: Call = { Kind = "Call", Method = "Id" :: "Id", CallId = Calls.NewCallId() }
+	return Answers.IdAnswer(Runner.CallNowForId(IdCall))
 end
 
-return table.freeze({
-	Reason = Reasons,
+local function Tx(TxLegs: { TxLeg }, Options: TxOptions?): (boolean, Reason?, Info?)
+	OnServer("Tx")
+	Args.OutsideStep(TxWhere)
+	local Checked = Legs.Check(TxLegs, Options, TxWhere)
+	Args.OutsideListener(TxWhere)
+	local Made: Call = {
+		Kind = "Call",
+		Method = "Tx" :: "Tx",
+		CallId = Calls.NewCallId(),
+		Legs = Checked.Legs,
+		Hot = nil,
+		Name = Checked.Name,
+	}
+	local Answered, Outcome = Runner.CallWithOutcome(Made):Wait()
+	local Ok, Why, Info = Answers.TxAnswer(Answered, Checked.KeysByStore)
+	return Ok, Why, Answers.WithOutcome(Info, Outcome)
+end
 
+local function CloseAll(): ()
+	OnServer("CloseAll")
+	Args.OutsideStep(CloseAllWhere)
+	Args.OutsideListener(CloseAllWhere)
+	Runner.CloseAll()
+end
+
+local function BeforeClose(Fn: () -> ()): ()
+	OnServer("BeforeClose")
+	Args.OutsideStep(BeforeCloseWhere)
+	Check.Table({ Fn = Fn }, { Fn = Check.Function }, BeforeCloseWhere)
+	Runner.AddBeforeClose(Fn)
+end
+
+local function Credit<T>(Field: string, Options: BalanceOptions<T>?): BalanceKind
+	OnServer("Credit")
+	Args.OutsideStep(CreditWhere)
+	return Balance.Declare(Directions.Credit, Field, Options, CreditWhere)
+end
+
+local function Debit<T>(Field: string, Options: BalanceOptions<T>?): BalanceKind
+	OnServer("Debit")
+	Args.OutsideStep(DebitWhere)
+	return Balance.Declare(Directions.Debit, Field, Options, DebitWhere)
+end
+
+if IsServer then
+	Runner.Start()
+end
+
+return {
 	New = New,
-	Id = Ids.Fresh,
-	Sweep = Sweep,
+	Now = Now,
+	Id = Id,
+	Tx = Tx,
 	CloseAll = CloseAll,
-}) :: Export
+	BeforeClose = BeforeClose,
+	Credit = Credit,
+	Debit = Debit,
+	Reason = Reasons,
+}
