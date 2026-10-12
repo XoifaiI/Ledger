@@ -157,7 +157,9 @@ Every answer now comes back straight away as `(Ok, Result, Info)`. Remove every 
 | `Store:Erase(Key)` twice, 8 days apart | `Store:Erase(Key, { Id = Ledger.Id() })` once, on an `Erasable` store |
 | `Ledger.Id()` returning text | `Ledger.Id()` returning an opaque name, or `nil, "Busy"`; for `Edit`, `Commit`, `Reset`, `Erase` only |
 | `Resettle`, `RecoverTransfers`, `ClearDelivered`, `Ledger.Sweep` | `Store:Resettle(Key)`; the rest happens on its own |
-| `History`, `PeekVersion`, `Compact`, `LogSize`, `LogBytes`, `Holds` | gone |
+| `History(Key, Limit?):Wait()` | `Store:Versions(Key)`, a pager: oldest first, `CreatedTime` in milliseconds where v6 gave `At` in seconds, `IsDeleted` for `Deleted` |
+| `PeekVersion(Key, Version):Wait()` | `Store:PeekVersion(Key, Version)`; it answers the state as saved, where v6 ran migrations on it |
+| `Compact`, `LogSize`, `LogBytes`, `Holds` | gone |
 | reading `_Held`, `_Received` in game code | gone. `Store:Pending`, `Store:Losses` and `Inspect(Key).Book.Work` for support |
 
 The meaning changes that bite hardest:

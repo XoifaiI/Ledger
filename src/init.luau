@@ -22,9 +22,9 @@ local Calls = require("@self/Shell/Calls")
 local Check = require("@self/Encoding/Check")
 local Cross = require("@self/Api/Validate/Cross")
 local Events = require("@self/Events")
-local KeyPages = require("@self/Api/KeyPages")
 local Limits = require("@self/Shell/Limits")
 local Legs = require("@self/Api/Validate/Legs")
+local Pager = require("@self/Api/Pager")
 local Platform = require("@self/Shell/Platform")
 local Quantity = require("@self/Api/Quantity")
 local Reasons = require("@self/Constants/Reasons")
@@ -38,7 +38,7 @@ local TypeFunctions = require("@self/TypeFunctions")
 local Types = require("@self/Types")
 
 type Call = Events.Call
-type KeyPagesObject = KeyPages.KeyPages
+type PagerObject = Pager.Pager<any, any>
 type QuantityObject = Quantity.Quantity
 type SessionObject = Session.Session
 type StoreObject = Store.Store
@@ -63,6 +63,7 @@ export type Amount = Types.Amount
 export type Arithmetic<T = any> = Types.Arithmetic<T>
 export type LossRecords = Types.LossRecords
 export type PendingItems = Types.PendingItems
+export type KeyVersion = Types.KeyVersion
 export type Name = Types.Name
 export type Terms<O = any> = Types.Terms<O>
 export type Op<O = any> = Types.Op<O>
@@ -108,6 +109,7 @@ export type TypedSession<D, O> = Types.TypedSession<D, O>
 export type Session<D> = Types.Session<D>
 export type Quantity = Types.Quantity
 export type KeyPages<K = string | number> = Types.KeyPages<K>
+export type VersionPages = Types.VersionPages
 export type StoreCommon<D> = Types.StoreCommon<D>
 export type TypedStore<D, O> = Types.TypedStore<D, O>
 export type Store<D> = Types.Store<D>
@@ -115,13 +117,14 @@ export type Store<D> = Types.Store<D>
 type StoreStatics = { read __index: unknown, read New: unknown }
 type SessionStatics = { read __index: unknown }
 type QuantityStatics = { read __index: unknown, read New: unknown, read AskTotal: unknown }
-type KeyPagesStatics = { read __index: unknown, read New: unknown }
+type PagerStatics = { read __index: unknown, read Keys: unknown, read Versions: unknown }
 
 type MethodsMatch =
 	TypeFunctions.SameKeys<keyof<getmetatable<StoreObject>>, keyof<Store<any> & StoreStatics>>
 	| TypeFunctions.SameKeys<keyof<getmetatable<SessionObject>>, keyof<Session<any> & SessionStatics>>
 	| TypeFunctions.SameKeys<keyof<getmetatable<QuantityObject>>, keyof<Quantity & QuantityStatics>>
-	| TypeFunctions.SameKeys<keyof<getmetatable<KeyPagesObject>>, keyof<KeyPages<any> & KeyPagesStatics>>
+	| TypeFunctions.SameKeys<keyof<getmetatable<PagerObject>>, keyof<KeyPages<any> & PagerStatics>>
+	| TypeFunctions.SameKeys<keyof<getmetatable<PagerObject>>, keyof<VersionPages & PagerStatics>>
 
 local KeysModes = ShellSetup.KeysMode
 

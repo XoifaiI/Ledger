@@ -2,10 +2,11 @@
 --!optimize 2
 
 --[=[
-	Store: Ledger.New's object, with its methods on any key and Sessions'. Each but Leg and Keys checks arguments,
-	sends one call and maps its answer through Answers. A MaxAge Peek answering Unresolved makes one plain Peek. Keys
-	pages game keys for one caller at a time; an erased key is not listed. Destroy ends the sessions, then every method
-	throws.
+	Store: Ledger.New's object, with its methods on any key and Sessions'. Each but Leg checks its arguments, and each
+	but Leg, Keys, Versions and PeekVersion then sends one call and maps its answer through Answers. A MaxAge Peek
+	answering Unresolved makes one plain Peek. Keys pages game keys and Versions a key's DataStore versions, for one
+	caller at a time; an erased key is not listed. PeekVersion reads one version once, outside the core, and decodes it
+	through OldVersion as a step. Destroy ends the sessions, then every method throws.
 
 	Return type: The Store class.
 	Example usage:
@@ -18,10 +19,11 @@ local Args = require("./Validate/Args")
 local Calls = require("../Shell/Calls")
 local Check = require("../Encoding/Check")
 local Events = require("../Events")
-local KeyPages = require("./KeyPages")
 local Keys = require("./Validate/Keys")
 local Names = require("../Encoding/Names")
 local Observer = require("../Util/Observer")
+local OldVersion = require("../Reading/OldVersion")
+local Pager = require("./Pager")
 local Platform = require("../Shell/Platform")
 local ProbeAdvice = require("./ProbeAdvice")
 local Quantity = require("./Quantity")
@@ -29,10 +31,12 @@ local QuantityArgs = require("./Validate/Quantity")
 local Reasons = require("../Constants/Reasons")
 local Rules = require("./Validate/Rules")
 local Runner = require("../Shell/Runner")
+local Services = require("../Shell/Services")
 local Session = require("./Session")
 local Sessions = require("./Sessions")
 local Shapes = require("../Shapes")
 local ShellSetup = require("../Shell/Setup")
+local Stepping = require("../Shell/Stepping")
 local Stores = require("./Validate/Stores")
 local Streams = require("../Shell/Streams")
 local Types = require("../Types")
@@ -45,6 +49,7 @@ type DidApplyOptions = Types.DidApplyOptions
 type EditOptions = Types.EditOptions
 type Info = Types.Info
 type KeyLike = Types.KeyLike
+type KeyVersion = Types.KeyVersion
 type LegOptions = Types.LegOptions
 type Observer<T> = Observer.Observer<T>
 type LossRecords = Types.LossRecords
@@ -74,6 +79,8 @@ local WeakKeys = { __mode = "k" }
 
 local FollowWhere = "Store:Follow"
 local LegWhere = "Store:Leg"
+
+local VersionRule = Check.TextAtLeast(1)
 
 local LegOptionRules: { [string]: Rule } = {
 	MustExist = Check.AnyValue,
@@ -215,12 +222,42 @@ function Store.Peek(self: Store, Key: KeyLike, Freshness: (number | PeekOptions)
 	return Answers.PeekAnswer(Answered)
 end
 
-function Store.Keys(self: Store): KeyPages.KeyPages
+function Store.Keys(self: Store, Prefix: string?): Pager.Pager<string, string | number>
 	local Where = "Store:Keys"
 	Args.OutsideStep(Where)
 	Stores.CheckLive(self, self.Settings.Name)
+	local Given = Keys.Prefix(self.Settings, Prefix, Where)
 	Args.OutsideListener(Where)
-	return KeyPages.New(self, self.Settings)
+	return Pager.Keys(self, self.Settings, Given)
+end
+
+function Store.Versions(self: Store, Key: KeyLike): Pager.Pager<KeyVersion, KeyVersion>
+	local Where = "Store:Versions"
+	Args.OutsideStep(Where)
+	Stores.CheckLive(self, self.Settings.Name)
+	local Target = Keys.Key(self.Settings, Key, Where)
+	Args.OutsideListener(Where)
+	return Pager.Versions(self, self.Settings, Target)
+end
+
+function Store.PeekVersion(self: Store, Key: KeyLike, Version: string): (unknown, Reason?)
+	local Where = "Store:PeekVersion"
+	Args.OutsideStep(Where)
+	local Settings = self.Settings
+	Stores.CheckLive(self, Settings.Name)
+	local Target = Keys.Key(Settings, Key, Where)
+	Check.Table({ Version = Version }, { Version = VersionRule }, Where)
+	Args.OutsideListener(Where)
+	if Runner.IsClosing() then
+		return nil, Reasons.Closed
+	end
+	local Fetched = Services.GetVersion(Target, Version)
+	if Fetched.Kind == "Err" then
+		return nil, Reasons.Unresolved
+	end
+	local Raw = if Fetched.Kind == "Ok" then Fetched.Value else nil
+	local Answered = Stepping.Run(OldVersion.AnswerOf, Runner.OpenedSetup(Settings.Name), Raw)
+	return Answers.ReadAnswer(Answered)
 end
 
 function Store.Inspect(self: Store, Key: KeyLike): (unknown, Reason?)

@@ -38,6 +38,8 @@ the queue with no fate.
 | `Store:Load(Player)` | 1 read | then an idle session reads once per `IdleReadInterval` (120 s) |
 | `Session:Refresh()` | 1 read, or a `Flush` with ops queued | the view adopts the read only if it's newer |
 | `Store:Keys():Next()` | 1 list request per page of 50 | the list budget is 5 + 2 per player a minute |
+| `Store:Versions(Key):Next()` | 1 list request per page of 1,024 | the list budget, plus read throughput on the key |
+| `Store:PeekVersion(Key, Version)` | 1 read | one try; `Unresolved` means call again |
 
 Every read that finds unfinished trade work on a key notes it, and this server comes back to end that
 work: from 10 s on for a session's load or idle read, staggered up to about 30 minutes (`TouchBound`,

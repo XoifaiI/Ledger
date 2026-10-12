@@ -30,8 +30,8 @@ end
 ## What it isn't for [#what-it-isnt-for]
 
 * **Client scripts.** Ledger runs on the server. Calling it from a client throws.
-* **Searching.** You can't search your data. `Store:Keys()` lists every key, a page at a time.
-* **History.** You can't read an older version of a player's data.
+* **Searching.** You can't search your data. `Store:Keys()` lists every key, or the keys that start with a prefix, a page at a time.
+* **History.** Ledger keeps no log of what changed. Roblox keeps a version of a player's data for each hour it was written, for 30 days: `Store:Versions(Key)` lists them and `Store:PeekVersion(Key, Version)` reads one.
 
 ## Where to start [#where-to-start]
 
@@ -111,15 +111,15 @@ A key remembers the names of recent ops, so a resend does nothing twice.
 
 ## Transactions and stock [#transactions-and-stock]
 
-|                        | Limit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Ledger.Tx` keys       | 2 or more, all different. The limit is in bytes, not a count: one key in the trade keeps a list of all the others, up to 512 bytes. In one store that's about 81 keys of 5 characters, 44 players (10-digit UserIds), 29 keys of 16 characters, or 10 of 50. A key in a different store from the deciding key also carries its store's name, so it takes more room: with 5-character keys, about 29 fit for a 2-character store name and 14 for a 21-character one. Too many throws before anything is sent. |
-| `Take` `Legs`          | One fewer than the `Tx` limit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Quantity `Parts`       | 1 to 64.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `Proceeds` fields      | Up to 4.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Holds                  | Up to 900 s each (`HoldMax`), plus 60 s for clock differences between servers. 256 at once per part.                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `Close` removing parts | After 62 minutes from the first `Open`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| Totals `Shards`        | 1 to 64, 16 by default. Do not change a live total's `Shards`.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+|                        | Limit                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Ledger.Tx` keys       | 2 or more, all different. The limit is in bytes, not a count: one key in the trade keeps a list of all the others, and that list has a size cap. About 29 keys fit with 16-character keys, 40 with 5-character keys, fewer with long keys or keys in other stores. Too many throws before anything is sent. |
+| `Take` `Legs`          | One fewer than the `Tx` limit.                                                                                                                                                                                                                                                                              |
+| Quantity `Parts`       | 1 to 64.                                                                                                                                                                                                                                                                                                    |
+| `Proceeds` fields      | Up to 4.                                                                                                                                                                                                                                                                                                    |
+| Holds                  | Up to 900 s each (`HoldMax`), plus 60 s for clock differences between servers. 256 at once per part.                                                                                                                                                                                                        |
+| `Close` removing parts | After 62 minutes from the first `Open`.                                                                                                                                                                                                                                                                     |
+| Totals `Shards`        | 1 to 64, 16 by default. Do not change a live total's `Shards`.                                                                                                                                                                                                                                              |
 
 ## Reads and watching [#reads-and-watching]
 
@@ -128,26 +128,29 @@ A key remembers the names of recent ops, so a resend does nothing twice.
 | `Peek` `MaxAge`              | 0 to 30 days. An answer can be up to about 4.5 minutes behind on a key nobody writes. |
 | `Follow`                     | Checks every 30 s, slowing to 240 s on a quiet key. Copies last 1 hour.               |
 | `Store:Keys()` page          | 50 keys. Pages are in no set order.                                                   |
+| `Store:Versions()` page      | 1,024 versions, oldest first. Roblox keeps one per hour of writes, for 30 days.       |
 | `Cut.Losses`, `Store:Losses` | Kept 7 days.                                                                          |
 
 ## Requests per call [#requests-per-call]
 
 How many Roblox DataStore requests a call makes, with no contention. `read` is a `GetAsync`, `write` an `UpdateAsync`.
 
-| Call                                   | Requests                                                                                                    |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `Edit`, `Commit`                       | 1 write. The first `Edit` of an erasable key also reads once.                                               |
-| `Apply`                                | None. It rides the next save: 1 write per 30 s, however many ops.                                           |
-| `Load`                                 | 1 read. An idle session then reads once per 120 s.                                                          |
-| `Peek`, `Inspect`, `Losses`, `Pending` | 1 read.                                                                                                     |
-| `Peek(Key, MaxAge)`                    | None inside `MaxAge`.                                                                                       |
-| `Peek(Key, { Fresh = true })`          | 1 write.                                                                                                    |
-| `Ledger.Tx`, N keys                    | N writes before the answer. Up to N-1 more tidy up after, riding on saves already being made when they can. |
-| `Take`, `Hold`, `Confirm`              | 1 write, or with one key in `Legs` 2 before the answer and 3 in all.                                        |
-| `Reset`, `Erase`                       | 1 write. `Erase` also removes the key.                                                                      |
-| `Open`, `Close`                        | One write per part.                                                                                         |
-| `Bump`                                 | One write per shard per server batch.                                                                       |
-| Server start                           | 1 write.                                                                                                    |
+| Call                                   | Requests                                                             |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| `Edit`, `Commit`                       | 1 write. The first `Edit` of an erasable key also reads once.        |
+| `Apply`                                | None. It rides the next save: 1 write per 30 s, however many ops.    |
+| `Load`                                 | 1 read. An idle session then reads once per 120 s.                   |
+| `Peek`, `Inspect`, `Losses`, `Pending` | 1 read.                                                              |
+| `Peek(Key, MaxAge)`                    | None inside `MaxAge`.                                                |
+| `Peek(Key, { Fresh = true })`          | 1 write.                                                             |
+| `Ledger.Tx`, N keys                    | N writes before the answer, 2N-1 in all.                             |
+| `Take`, `Hold`, `Confirm`              | 1 write, or with one key in `Legs` 2 before the answer and 3 in all. |
+| `Reset`, `Erase`                       | 1 write. `Erase` also removes the key.                               |
+| `Open`, `Close`                        | One write per part.                                                  |
+| `Bump`                                 | One write per shard per server batch.                                |
+| `Keys`, `Versions`                     | 1 list request per page.                                             |
+| `PeekVersion`                          | 1 read.                                                              |
+| Server start                           | 1 write.                                                             |
 
 Next: [Releases](/docs/releases)
 
@@ -157,6 +160,25 @@ Next: [Releases](/docs/releases)
 
 
 `+` is new in v7, `~` exists in v6 and works differently now, `-` is gone, `!` is something to know before you upgrade.
+
+## 7.0.2 [#702]
+
+```diff
++ Store:Keys(Prefix) lists only the keys that start with Prefix, on a string store
++ Store:Versions(Key) lists the versions Roblox kept of a key
++ Store:PeekVersion(Key, Version) reads one of those versions, as it was saved
+~ A request Roblox refuses before the store, like one from Studio without API access, answers Unresolved, not Busy, and Ledger no longer warns of it
+```
+
+`Versions` and `PeekVersion` bring back v6's `History` and `PeekVersion`. `PeekVersion` runs no migrations: you get the data exactly as that version saved it.
+
+## 7.0.1 [#701]
+
+```diff
++ One op in a Ledger.Tx or Quantity:Take leg can be up to 4,096 bytes of terms, up from 512
+```
+
+The 512 byte cap was left over from an early design that stored a leg's op in its key.
 
 ## 7.0.0 [#700]
 
@@ -171,12 +193,10 @@ Ledger 7 is rebuilt from scratch. It's cheaper, holds more, and every edge case 
 | Trades a day through one guild bank or shop   | 1,900       | **590,000**                                  |
 | Trades running on one key at once             | 1           | **16**                                       |
 | MemoryStore requests a minute spent on trades | 1.8 million | **0**                                        |
-| Players in one trade                          | 4           | **44**                                       |
+| Players in one trade                          | 4           | **29**                                       |
 | Data per player                               | 2 MB        | **4 MB**                                     |
 | Limited item sales a minute, never oversold   | none        | **900,000**                                  |
 | Global counter adds a minute                  | none        | **unlimited, for 1.6% of your write budget** |
-
-A trade between two players costs 2 DataStore requests instead of 8, and no MemoryStore at all. A third tidies up after the answer, riding on a save Ledger is already making when it can. The trade size limit is in bytes, so 44 players assumes 10-digit UserIds; see [Limits](/docs/limits).
 
 ### What's new [#whats-new]
 
@@ -231,6 +251,8 @@ A trade between two players costs 2 DataStore requests instead of 8, and no Memo
 Plan for a rewrite of the calls, not a version bump. Start with [Getting started](/docs/learn/getting-started), then [Answers](/docs/learn/answers) and [Common mistakes](/docs/learn/common-mistakes).
 
 v7 does not read v5 or v6 data. Open v7 stores under new names, and copy each player's old data in on their first join, as in [Changing your data](/docs/learn/changing-data#data-from-before-ledger).
+
+Or use the AI skill to help. Install it with `npx skills add XoifaiI/Ledger`.
 
 
 # Auctions and markets (https://xoifaii.github.io/docs/guides/auctions-and-markets)
@@ -587,6 +609,44 @@ local function ShowLosses(UserId: number)
 end
 ```
 
+## A player's data over time [#a-players-data-over-time]
+
+```luau
+local HttpService = game:GetService("HttpService")
+
+-- Prints each version of a player's data Roblox kept, over the last 30 days.
+local function DataOverTime(UserId: number)
+	local Pages = PlayerStore:Versions(UserId)
+
+	while true do
+		local Page, Why = Pages:Next()
+		if not Page then
+			if Why then
+				warn("Couldn't list them all:", Why)
+			end
+
+			return
+		end
+
+		for _, Version in Page do
+			local At = DateTime.fromUnixTimestampMillis(Version.CreatedTime):ToIsoDate()
+			local Data, ReadWhy = PlayerStore:PeekVersion(UserId, Version.Version)
+			if Data then
+				print(At, HttpService:JSONEncode(Data))
+			else
+				print(At, ReadWhy)
+			end
+
+			task.wait(SECONDS_BETWEEN_READS)
+		end
+	end
+end
+```
+
+Roblox keeps a version of the data for each hour it was written, for 30 days. `Versions` lists them, oldest first, and `PeekVersion` reads one exactly as it was saved, before any migration you added since. Ledger's own saves count too, so the versions show what the data was, not what the player did. An erased version answers `Missing`.
+
+Each `PeekVersion` is a DataStore read, so pace them as below. To put old data back, make it a fix like the one below. Never write a version back yourself.
+
 ## Fixing a player's data [#fixing-a-players-data]
 
 Make the fix an op like any other, and give each support ticket an id. The reducer remembers the last 100 tickets and refuses one it has seen, so a fix can't apply twice, even if you send it twice by accident:
@@ -651,6 +711,8 @@ end
 ```
 
 `Keys` lists every key in the store, a page at a time. `Next` gives a page, then `nil` after the last one. Keys come in no set order, and one made while you're going through might be missed.
+
+In a string store, `Keys(Prefix)` lists only the keys that start with `Prefix`, like `Guilds:Keys("guild:")`.
 
 This reads every player's data once. Each server only gets about 60 DataStore reads a minute, plus 40 per player in it, and your game needs those too. One read a second leaves plenty to spare, but it takes a while on a big game: about a day per 80,000 players. Run it on one server, not every server.
 
@@ -1616,7 +1678,7 @@ Next: [Shutdown and testing](/docs/learn/shutdown-and-testing)
 
 Pick one:
 
-* **Wally:** add `Ledger = "xoifaii/ledger@7.0.0"` to `[dependencies]` in your `wally.toml`.
+* **Wally:** add `Ledger = "xoifaii/ledger@7.0.2"` to `[dependencies]` in your `wally.toml`.
 * **Model file:** download `Ledger.rbxm` from the GitHub releases page and drop it into `ReplicatedStorage`.
 
 Ledger goes in `ReplicatedStorage` so your client scripts can use `Ledger.Reason` too. Everything else in Ledger only runs on the server.
@@ -2601,6 +2663,8 @@ The data is read-only. To change it, use `Edit`, as on [Shared data](/docs/learn
 
 For a player in a session somewhere, `Peek` gives what was last saved. That can be a little behind what the player sees, until their next save.
 
+Roblox keeps a 4-second cache of DataStore reads. Ledger always turns it off, so a plain `Peek`, a `Load` and every other read Ledger makes come from the DataStore itself, never from a copy up to 4 seconds old. You don't need to set anything.
+
 ## When `Peek` says no [#when-peek-says-no]
 
 `nil` never means "empty", so always look at the reason:
@@ -2929,7 +2993,7 @@ print("Reducer tests passed")
 
 Ledger can run on the [Mock](https://github.com/XoifaiI/mock) package instead of the real DataStores and MemoryStore. It keeps everything in memory, with the same limits as the real services, so nothing your tests do touches your players' data.
 
-Install it with Wally (`Mock = "xoifaii/mock@1.0.1"`), or put `Mock.rbxm` in your game. Then give a store the mock:
+Install it with Wally (`Mock = "xoifaii/mock@1.0.0"`), or put `Mock.rbxm` in your game. Then give a store the mock:
 
 ```luau
 local Mock = require(ReplicatedStorage.Packages.Mock)
@@ -3101,7 +3165,7 @@ end
 
 `PlayerStore:Leg(UserId, Op)` describes one player's side of the trade. `Ledger.Tx` takes the list and applies every side, or none.
 
-A two-player trade costs 2 DataStore requests. A third tidies up after it answers, and costs nothing when it can ride on a save Ledger is already making for that player.
+A two-player trade costs 2 DataStore requests before it answers.
 
 ## Players in this server [#players-in-this-server]
 
@@ -3132,6 +3196,63 @@ Everything else means the same as on [Answers](/docs/learn/answers), and nothing
 ## Not just players [#not-just-players]
 
 A leg can be any key in any store, so the same code moves gold from a player into a [guild bank](/docs/learn/shared-data), or between three players at once. Each key can only be in a trade once.
+
+## Items with their own data [#items-with-their-own-data]
+
+Some items are one of a kind like a serial number or past owners. Don't carry that data in the trade's ops. One op in a trade can be at most 4,096 bytes, and a list of past owners only grows.
+
+Give each item its own key instead, in a store of its own, and keep only the item's id in the player's data:
+
+```luau
+export type ItemData = {
+	Owner: number,
+	Wear: number,
+	Owners: { number },
+}
+
+type ItemOps = {
+	ChangeOwner: { From: number, To: number },
+}
+
+local ItemStore = Ledger.New<<ItemData, ItemOps>>({
+	Name = "Items",
+	Keys = "String",
+	Default = { Owner = 0, Wear = 0, Owners = {} },
+	MustExist = true,
+	Erasable = false,
+	Reducer = function(Data, Op)
+		if Op.Kind == "ChangeOwner" then
+			if Data.Owner ~= Op.From then
+				return nil -- not theirs to give
+			end
+
+			local Owners = table.clone(Data.Owners)
+			table.insert(Owners, Op.To)
+
+			local New = table.clone(Data)
+			New.Owner = Op.To
+			New.Owners = Owners
+			return New
+		end
+
+		return nil
+	end,
+})
+```
+
+Trading the item is then one trade with a leg for each player and one for the item. The players' ops carry only the id:
+
+```luau
+local Ok, Result = Ledger.Tx({
+	PlayerStore:Leg(SellerId, { Kind = "RemoveItem", ItemId = ItemId }),
+	PlayerStore:Leg(BuyerId, { Kind = "AddItem", ItemId = ItemId }),
+	ItemStore:Leg(ItemId, { Kind = "ChangeOwner", From = SellerId, To = BuyerId }),
+})
+```
+
+The item's own reducer adds to its history, so the history never travels in an op, however long it gets. To show an item, `Peek` it by its id.
+
+Each item adds one key to the trade, and how many keys fit depends on their length, so keep item ids short. See [Limits](/docs/limits).
 
 Next: [Shared data](/docs/learn/shared-data)
 
@@ -3363,6 +3484,44 @@ local NO_LIMIT = 2 ^ 53 - 1
 
 For one player's gold, a reducer works just as well. Balances start to matter in [trades](/docs/learn/trading): while a trade is in progress, it holds the player's data until it finishes, and their other changes wait. A gold op in a trade doesn't hold anything. It only sets the amount aside, so the player can keep earning and spending meanwhile. Shops, auctions and guild banks that many servers trade with at once rely on that, as in [Auctions and markets](/docs/guides/auctions-and-markets).
 
+## Checking the shape with `Schema` [#checking-the-shape-with-schema]
+
+A reducer can still return data in the wrong shape, like a negative count or a field set to a string. `Schema` is a last check on every state your reducer returns:
+
+```luau
+	Schema = function(Data): (boolean, string?)
+		for Item, Count in Data.Inventory do
+			if Count < 1 then
+				return false, `{Item} has a count of {Count}`
+			end
+		end
+
+		return true, nil
+	end,
+```
+
+Return `true, nil` to keep the state, or `false` and a message to refuse it. A refused state isn't saved, the call answers `Refused` as if the reducer had returned `nil`, and Ledger warns in the output with the store, the op kind and your message.
+
+You can use any validator that answers the same way. The [t](https://github.com/osyrisrblx/t) package does:
+
+```luau
+local IsPlayerData = t.strictInterface({
+	Gold = t.integer,
+	Inventory = t.map(t.string, t.integer),
+})
+
+	Schema = function(Data): (boolean, string?)
+		return IsPlayerData(Data)
+	end,
+```
+
+A few things to know:
+
+* **It only sees what the reducer returns.** Balance ops never reach the reducer, so `Schema` doesn't check them. Limit a balance with `Min` and `Max` instead.
+* **It doesn't check old saves.** What a [migration](/docs/learn/changing-data) returns, and data saved by an older version of your game, aren't checked.
+* **Same rules as the reducer.** No waiting, no Ledger calls, no randomness, and don't change the data it's given.
+* **It runs on every op.** Keep it quick: check what can go wrong, not every field on every change.
+
 ## `MustExist` and `Erasable` [#mustexist-and-erasable]
 
 Every store has to say these two:
@@ -3493,15 +3652,15 @@ local Ok, Why = Ledger.Tx(Legs, Options)
 
 Each player or key in the trade is one entry, `{ Store, Key, Op, MustExist? }`. `Store:Leg` builds one with the op type-checked. Use at least 2 entries, on different keys. The entries can be in different stores, such as a player store and a guild store. `Options` is `{ Id, IdAt }`, both or neither. `Id` is a string you make, never a `Ledger.Id()` name.
 
-| Answer              | Means                                                                                  | Do                                                                                                                             |
-| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `true`              | Every change happened, once.                                                           | Done.                                                                                                                          |
-| `Refused` or `Full` | A rule said no. Nothing changed. `Info.Key` names the key.                             | Tell the player. Do not resend.                                                                                                |
-| `Spent`             | The name was used with other terms, or the transaction was cancelled. Nothing changed. | Use a new name.                                                                                                                |
-| `Missing`           | A key that must exist is not there. Nothing changed.                                   | Check `Info.Key`. With your own `Id`, this answers `Unresolved` instead, since another server could still send the same trade. |
-| `Behind`            | A newer build owns a key.                                                              | Stop writing it from this build.                                                                                               |
-| `Busy` or `NoRoom`  | Nothing was sent.                                                                      | Send the same name again later.                                                                                                |
-| `Unresolved`        | Not known yet. All the changes or none will happen.                                    | Send the same name, `IdAt` and list again. `Info.Outcome` tells you later.                                                     |
+| Answer              | Means                                                                                  | Do                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `true`              | Every change happened, once.                                                           | Done.                                                                      |
+| `Refused` or `Full` | A rule said no. Nothing changed. `Info.Key` names the key.                             | Tell the player. Do not resend.                                            |
+| `Spent`             | The name was used with other terms, or the transaction was cancelled. Nothing changed. | Use a new name.                                                            |
+| `Missing`           | A key that must exist is not there.                                                    | Check `Info.Key`.                                                          |
+| `Behind`            | A newer build owns a key.                                                              | Stop writing it from this build.                                           |
+| `Busy` or `NoRoom`  | Nothing was sent.                                                                      | Send the same name again later.                                            |
+| `Unresolved`        | Not known yet. All the changes or none will happen.                                    | Send the same name, `IdAt` and list again. `Info.Outcome` tells you later. |
 
 More in [Answers](/docs/learn/answers) and [Trading](/docs/learn/trading).
 
@@ -3902,7 +4061,7 @@ The total must be declared in `Totals`. `Amount` is a whole number and may be ne
 | `Total(Name, MaxAge?)`  | A declared total.                                                 |
 | `Follow(Key)`           | An [observer](/docs/reference/observers) of the key's data.       |
 | `Stale()`               | An observer of keys this server wrote that its view is behind on. |
-| `Keys()`                | Pages of every key.                                               |
+| `Keys(Prefix?)`         | Pages of every key, or of the keys that start with `Prefix`.      |
 
 ### Peek [#peek]
 
@@ -3938,6 +4097,8 @@ local Page, Why = Pages:Next()
 
 `Next` answers a list of up to 50 keys. `nil, nil` means the last page was read. `nil, Unresolved` means the fetch failed; the next `Next` tries the same page. Pages come in no set order.
 
+Give a `Prefix` to list only the keys that start with it, such as `Guilds:Keys("guild:")`. It's for string stores; a player store throws.
+
 ## Support calls [#support-calls]
 
 | Call                            | What it does                                                  |
@@ -3946,8 +4107,44 @@ local Page, Why = Pages:Next()
 | `Losses(Key)`                   | The balances that a Reset or Erase erased, kept for 7 days.   |
 | `Pending(Key)`                  | Trade work that is not finished on a key.                     |
 | `Resettle(Key)`                 | Finishes that work now. Takes no options.                     |
+| `Versions(Key)`                 | Pages of the versions Roblox kept of the key.                 |
+| `PeekVersion(Key, Version)`     | The key's data as one of those versions saved it.             |
 
 See [Support tools](/docs/guides/support-tools). `Pending` answers `Unresolved` after 30 s on a hung read, as `Peek` does.
+
+### Versions [#versions]
+
+```luau
+local Pages = Bank:Versions(Key)
+local Page, Why = Pages:Next()
+```
+
+`Next` answers a list of up to 1,024 versions, oldest first, and the same `nil` answers as `Keys`.
+
+| Field         | What it is                                                                                                                                                                                      |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Version`     | Roblox's id for the version.                                                                                                                                                                    |
+| `CreatedTime` | When it was made, in milliseconds since 1970. Not a `Ledger.Now()` time.                                                                                                                        |
+| `IsDeleted`   | `true` for the tombstone Roblox keeps when Ledger removes an erased key, a while after the `Erase`. Before that, the newest version is the erase's seal, which `PeekVersion` answers `Missing`. |
+
+Roblox keeps one version for each hour the key was written, for 30 days. Ledger's own saves count too, so it isn't a list of your ops.
+
+### PeekVersion [#peekversion]
+
+```luau
+local State, Why = Bank:PeekVersion(Key, Version)
+```
+
+Reads one version: the key's data exactly as it was saved then. Migrations added since don't run on it, so it can be in an older shape than your `Default`. A trade still unfinished when the version was saved isn't in it. It never changes the key: to put old data back, send it as an op or a `Reset`.
+
+| Answer            | Means                                        |
+| ----------------- | -------------------------------------------- |
+| the data          | The key's data as that version saved it.     |
+| `nil, Missing`    | No such version, or the key was erased then. |
+| `nil, Behind`     | A newer version of Ledger saved it.          |
+| `nil, Unreadable` | Ledger didn't write it.                      |
+| `nil, Unresolved` | The read failed. Try again.                  |
+| `nil, Closed`     | The server is shutting down.                 |
 
 ## Quantities [#quantities]
 
@@ -4012,7 +4209,7 @@ All types are `Ledger.<Name>`, for example `Ledger.Info<Data>`. Luau checks them
 | `OpOf<O, "Kind">`                           | One kind of op. A wrong field is named in the error.                                                                       |
 | `Reducer<D, O>`                             | A reducer function.                                                                                                        |
 | `TypedStore<D, O>`, `TypedSession<D, O>`    | The store and session objects.                                                                                             |
-| `Quantity`, `KeyPages<K>`                   | The quantity and key-pager objects.                                                                                        |
+| `Quantity`, `KeyPages<K>`, `VersionPages`   | The quantity, key-pager and version-pager objects.                                                                         |
 | `Observer<T>`, `Connection`, `Future<T...>` | See [Observers](/docs/reference/observers).                                                                                |
 | `Cut`                                       | The answer of `Reset` and `Erase`: `{ Name, Losses? }`.                                                                    |
 | `Closed`                                    | The answer of `Quantity:Close`: `{ Removed, Left, Missing }`.                                                              |
@@ -4023,7 +4220,7 @@ All types are `Ledger.<Name>`, for example `Ledger.Info<Data>`. Luau checks them
 
 ## Everything else [#everything-else]
 
-`KeyLike`, `KeysMode`, `OpMap`, `Name`, `OpId`, `Applied`, `Terms<O>`, `Overloads<O, Shape>`, `Fate<O>`, `DidApplyInfo`, `InfoKey`, `Identity`, `Record<D>`, `LossRecords`, `PendingItems`, `ShortReason`, `LoadFailedHandler`, `ResultSchema<D>`, `Migration`, `BalanceField<T>`, `BalanceKindLimits<T>`, `Amount`, `Arithmetic<T>`, `Windows`, `TotalDeclaration`, `QuantityDeclaration`, `KeyOfStore`, `TxLeg`, `Leg<S>`, `TakeLeg`, `SessionCommon<D, O>`, `Session<D>`, `StoreCommon<D>`, `Store<D>`, `Config<D>`.
+`KeyLike`, `KeysMode`, `OpMap`, `Name`, `OpId`, `Applied`, `Terms<O>`, `Overloads<O, Shape>`, `Fate<O>`, `DidApplyInfo`, `InfoKey`, `Identity`, `Record<D>`, `LossRecords`, `PendingItems`, `KeyVersion`, `ShortReason`, `LoadFailedHandler`, `ResultSchema<D>`, `Migration`, `BalanceField<T>`, `BalanceKindLimits<T>`, `Amount`, `Arithmetic<T>`, `Windows`, `TotalDeclaration`, `QuantityDeclaration`, `KeyOfStore`, `TxLeg`, `Leg<S>`, `TakeLeg`, `SessionCommon<D, O>`, `Session<D>`, `StoreCommon<D>`, `Store<D>`, `Config<D>`.
 
 `Ledger.Took`, `Ledger.QuantityTotal` and `Ledger.HoldHandle` name the results of `Take`, `Quantity:Total` and `Hold`, so you can type a variable that keeps one (a checkout that holds a hold between two clicks, for example).
 

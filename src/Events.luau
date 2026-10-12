@@ -42,7 +42,7 @@ export type MemoryFetched = ReadAnswered | { read Kind: "Failed" }
 export type Outcome =
 	{ read Kind: "Ok", read Value: unknown, read Note: Note }
 	| { read Kind: "Nil", read Note: Note }
-	| { read Kind: "Err", read IsBeforeStore: boolean? }
+	| { read Kind: "Err" }
 
 export type MemoryOutcome = { read Kind: "Ok" } | { read Kind: "Nil" } | { read Kind: "Err" }
 

@@ -4,8 +4,7 @@
 --[=[
 	Requests: runs the DataStore commands Update, Count, Get and Remove, each in a thread, and feeds each event
 	back. An Update's transform runs Transform.Step at the landing clock, as Stepping, and passes its closure to a
-	rerun. A throwing transform is raised again and feeds nothing. An error Roblox raises before the store (Refusals)
-	feeds an Err that says so.
+	rerun. A throwing transform is raised again and feeds nothing.
 
 	Return type: A plain table with OnUpdate, OnCount, OnGet and OnRemove, and the Store type.
 	Example usage:
@@ -18,7 +17,6 @@ local JudgingShapes = require("../Judging/Shapes")
 local Names = require("../Encoding/Names")
 local Platform = require("./Platform")
 local Record = require("../Constants/Record")
-local Refusals = require("./Refusals")
 local Services = require("./Services")
 local Shapes = require("../Shapes")
 local ShellSetup = require("./Setup")
@@ -80,13 +78,9 @@ local function UserIdsOf(Store: Store, Target: StoreKey, Kind: KeyKind): { numbe
 	return { tonumber(Target.Key) :: number }
 end
 
-local function HearRefusal(Result: Result): boolean
-	return Result.Kind == "Err" and Refusals.Hear(Result.Code)
-end
-
 local function OutcomeOf(Result: Result, Note: Note?): Outcome
 	if Result.Kind == "Err" then
-		return { Kind = "Err", IsBeforeStore = HearRefusal(Result) }
+		return { Kind = "Err" }
 	end
 	if Note == nil then
 		return { Kind = "Err" }
@@ -150,7 +144,6 @@ local function OnCount(Command: CountCommand, Feed: Feed)
 		if IsRunning then
 			CoreFault(Command.Target, Command.Kind)
 		end
-		HearRefusal(Result)
 		if IsRefused then
 			Feed({ Kind = "CounterUnusable", RequestId = Command.RequestId })
 			return
@@ -163,7 +156,6 @@ end
 local function OnGet(Command: GetCommand, Feed: Feed)
 	Threads.Spawn(function()
 		local Result = Services.Get(Command.Target)
-		HearRefusal(Result)
 		Feed({
 			Kind = "Read",
 			RequestId = Command.RequestId,
@@ -176,7 +168,6 @@ end
 local function OnRemove(Command: RemoveCommand, Feed: Feed)
 	Threads.Spawn(function()
 		local Result = Services.Remove(Command.Target)
-		HearRefusal(Result)
 		Feed({ Kind = "Removed", RequestId = Command.RequestId, IsOk = Result.Kind ~= "Err" })
 	end)
 end

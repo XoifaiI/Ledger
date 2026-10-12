@@ -33,11 +33,10 @@ So: take the capture in **one quick pass**, all reads together, and write down w
 | `Edit`, `Commit`, `Tx` | writes | the state | the fix, last |
 | `Reset`, `Erase` | destroy | everything | **never** as a fix for a money bug |
 
-Raw DataStore reads of the key's **older versions** (`ListVersionsAsync`, `GetVersionAsync` on the
-store's DataStore, named the store's `Name`, scope `"global"`) are safe and change nothing. They are the
-only history there is: Ledger keeps none. The value is Ledger's record, `{ s = state, b = bookkeeping }`,
-so read `s` and nothing else, and never write a raw value back. Its format is Ledger's own and can
-change between releases.
+The key's **older versions** are safe to read and change nothing: `Store:Versions(Key)` lists them and
+`Store:PeekVersion(Key, Version)` reads one exactly as it was saved, with no migration run on it and
+without the trades unfinished then. They are the only history there is: Ledger keeps none. Never write a version back with
+DataStore calls; put old data back as a fix op.
 
 ## The capture
 
@@ -70,15 +69,21 @@ names an unopened store reads `Unresolved` on this server and the capture is emp
 Then the history, from the same Script, if the incident is older than a few minutes:
 
 ```luau
-local DataStoreService = game:GetService("DataStoreService")
-
-local Raw = DataStoreService:GetDataStore("PlayerData", "global")
-local Pages = Raw:ListVersionsAsync(tostring(Key), Enum.SortDirection.Descending)
-for _, Version in Pages:GetCurrentPage() do
-	local Value = Raw:GetVersionAsync(tostring(Key), Version.Version)
-	print(Version.CreatedTime, Version.IsDeleted, Value and HttpService:JSONEncode(Value.s))
+local Pages = Store:Versions(Key)
+while true do
+	local Page, Why = Pages:Next()
+	if not Page then
+		print("versions end", Why)
+		break
+	end
+	for _, Version in Page do
+		local State, StateWhy = Store:PeekVersion(Key, Version.Version)
+		print(Version.CreatedTime, Version.IsDeleted, StateWhy, State and HttpService:JSONEncode(State))
+	end
 end
 ```
+
+Versions come oldest first. `CreatedTime` is milliseconds since 1970, as Roblox gives it, not `Ledger.Now()`.
 
 Write three things beside the output: **when** it was captured, **whether the player was online
 anywhere**, and **what you have run since**. Your own calls become part of the history.

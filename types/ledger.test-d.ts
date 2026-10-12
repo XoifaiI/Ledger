@@ -91,6 +91,14 @@ export function Positives(player: Player): void {
 	const [page] = PlayerStore.Keys().Next();
 	print(page?.size());
 
+	const [versions] = PlayerStore.Versions(player.UserId).Next();
+	const first: Ledger.KeyVersion | undefined = versions?.[0];
+	print(first?.Version, first?.CreatedTime, first?.IsDeleted);
+	if (first) {
+		const [old, oldWhy] = PlayerStore.PeekVersion(player.UserId, first.Version);
+		print(old, oldWhy);
+	}
+
 	Ledger.BeforeClose(() => print("closing"));
 }
 
@@ -133,4 +141,13 @@ export function Negatives(player: Player): void {
 	Ledger.New<{ Gold: number }>({ Name: "Y", Keys: "Other", Default: { Gold: 0 }, MustExist: false, Erasable: false });
 
 	OpenStore.Edit("k", { Kind: "Anything", By: 2 });
+
+	const [guilds] = OpenStore.Keys("guild:").Next();
+	print(guilds?.size());
+
+	// @ts-expect-error a prefix is a string
+	OpenStore.Keys(5);
+
+	// @ts-expect-error a version has no Value
+	print(OpenStore.Versions("k").Next()[0]?.[0]?.Value);
 }

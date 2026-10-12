@@ -23,7 +23,6 @@ one is the one that matters and it may be far up the log. A warning about a key 
 | "the state has passed N bytes" | the key is past 2 MiB, heading for `Full` at about 4 MB | **Full** below |
 | "answered Missing, since the quantity's parts do not exist" | `Take` before `Open`, or after `Close` removed the parts | **Limited items** below |
 | "the name X was used with other terms" | a name was reused for a different op; the second answers `Spent` | `review.md` D3 |
-| "a DataStore request failed with error 403" (or 101 to 106) | Studio API access is off, or a bad key, scope or value | **Busy everywhere** below |
 | "A reducer must give the same from the same state and op" (Studio) | two runs of the reducer on one op differed: it isn't pure | `review.md` D10 |
 | at `Ledger.New` in Studio, about the reducer and an unknown kind | the reducer didn't return `nil` for a kind it doesn't know | `review.md` D8 |
 | "CloseAll ended with N ops and transactions not heard" | the close ran out of time; those calls are `Unresolved`, those fates unknown | **Shutdown** below |
@@ -154,6 +153,8 @@ Compare the game's handler against `learn/purchases` line by line. What breaks i
    `review.md` D23.
 5. **A DataStore outage.** Everything is `Unresolved` everywhere for a while. Don't resend unnamed
    writes; wait.
+   In Studio, everything `Unresolved` from the first call is usually API access turned off: turn on
+   **Game Settings → Security → Enable Studio Access to API Services**. Ledger doesn't read the error.
 6. **An `Edit` on a key a trade still holds.** It waits for the trade to finish and answers
    `Unresolved` after 30 s, not `Busy`, when the trade's server went down. Ledger keeps sending it;
    don't resend an unnamed one. `Pending(Key)` shows the trade work.
@@ -164,8 +165,6 @@ Compare the game's handler against `learn/purchases` line by line. What breaks i
   a moment.
 - **`Ledger.Id()` answers `Busy`** at a server's start during an outage: no server number yet. Ask again;
   it answers within 5 s per call.
-- **Writes answer `Busy` everywhere, reads `Unresolved`**: Studio without API access, or a bad
-  request. The 403 warning says which.
 - **A bump answers `Busy`**: its shard write couldn't carry it (named bumps fill fast). Send again; use
   unnamed bumps.
 - **A named `Edit` resent after `Unresolved` answers `Busy`**: Ledger is still sending the first one

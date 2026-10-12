@@ -160,21 +160,9 @@ local function KeepShowableOfWritten(State: State, Key: StoreKey, Written: Value
 	end
 end
 
-local function ApplyError(
-	State: State,
-	Writer: WriterState,
-	RequestId: number,
-	IsBeforeStore: boolean?,
-	Clock: number,
-	Commands: { Command }
-)
+local function ApplyError(State: State, Writer: WriterState, RequestId: number, Clock: number, Commands: { Command })
 	local Limits = Cache.StoreOf(State.Server, Writer.Key).Setup.Limits
-	local Sent = SentBy(Writer, RequestId)
-	if IsBeforeStore then
-		Sending.OnRefusedBeforeStore(State.Server, Writer, RequestId, Sent, Clock, Limits, Commands)
-	else
-		Sending.OnError(State.Server, Writer, Sent, Clock, Limits, Commands)
-	end
+	Sending.OnError(State.Server, Writer, SentBy(Writer, RequestId), Clock, Limits, Commands)
 	Sending.NoteFinalRetry(Writer, RequestId)
 	Sending.AfterAnswer(Writer, RequestId, Clock)
 end
@@ -306,7 +294,7 @@ local function Hear(
 		return Finished
 	end
 	if Result.Kind == "Err" then
-		ApplyError(State, Writer, RequestId, Result.IsBeforeStore, Clock, Commands)
+		ApplyError(State, Writer, RequestId, Clock, Commands)
 	else
 		local Note = Result.Note
 		local Turned = ApplyMoves(State, Writer, RequestId, Note, Clock, Commands)

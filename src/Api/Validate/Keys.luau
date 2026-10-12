@@ -4,9 +4,10 @@
 --[=[
 	Keys: the store's key mode applied to a call's key or player (A11). A player store's key is a Player or a whole
 	UserId, stored as decimal text; an entity store's is 1 to KeyBytesMost bytes of UTF-8 outside Ledger's total and
-	quantity prefixes. GameKeyOf reads a key back as the game gave it, ListedKeyOf a listed name, or nil.
+	quantity prefixes, as a listing's Prefix is, which a player store refuses. GameKeyOf reads a key back as the game
+	gave it, ListedKeyOf a listed name, or nil.
 
-	Return type: A plain table with Key, GameKeyOf, ListedKeyOf, PlayerStoreOnly and Player.
+	Return type: A plain table with Key, Prefix, GameKeyOf, ListedKeyOf, PlayerStoreOnly and Player.
 	Example usage:
 		local Key = Keys.Key(Settings, Player, "Store:Edit")
 --]=]
@@ -34,10 +35,12 @@ local PlayerWanted = "a Player"
 local UserIdWanted = `a Player, or a UserId: a whole number from -{UserIdMost} to {UserIdMost}`
 local EntityKeyWanted = `a string of 1 to {Record.KeyBytesMost} bytes of valid UTF-8 that does not start with `
 	.. `"{Record.ShardKeyPrefix}" or "{Record.PartKeyPrefix}", which Ledger keeps for totals and quantities`
+local NoPrefixWanted = `nil on a "{KeysModes.Player}" store, whose keys are UserIds`
 
 local UserIdRule = Check.Whole(-UserIdMost, UserIdMost)
 local EntityKeyText = Check.Text(1, Record.KeyBytesMost)
 local IsPlayerStore = Rules.Equals(KeysModes.Player, PlayerStoreWanted)
+local NoPrefix = Rules.LeftOut(NoPrefixWanted)
 
 local function IsPlayer(Value: unknown): boolean
 	return typeof(Value) == "Instance" and Value:IsA("Player")
@@ -95,6 +98,16 @@ local function Key(Settings: Settings, Value: unknown, Where: string): StoreKey
 	return StoreKeyOf(Settings, Value)
 end
 
+local function Prefix(Settings: Settings, Value: unknown, Where: string): string?
+	if Settings.Keys == KeysModes.Player then
+		Check.Table({ Prefix = Value }, { Prefix = NoPrefix }, Where)
+		return nil
+	end
+	Check.Table({ Prefix = Value }, { Prefix = Check.Optional(EntityKey) }, Where)
+	assert(Value == nil or type(Value) == "string", CheckAccepted)
+	return Value
+end
+
 local function GameKeyOf(Mode: KeysMode, Key: StoreKey): string | number
 	if Mode ~= KeysModes.Player then
 		return Key.Key
@@ -137,6 +150,7 @@ end
 
 return {
 	Key = Key,
+	Prefix = Prefix,
 	GameKeyOf = GameKeyOf,
 	ListedKeyOf = ListedKeyOf,
 	PlayerStoreOnly = PlayerStoreOnly,

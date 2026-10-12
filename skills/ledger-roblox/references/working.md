@@ -48,7 +48,8 @@ where stopping and waiting is the right answer.
 - No destructive call inside a loop on a first pass. Print the list and the count, and let the human
   name the count back.
 - A key list from `Store:Keys()` or a scan is something to show, never something to act on. Its pages
-  come in no order and can miss keys made while listing.
+  come in no order and can miss keys made while listing. `Store:Versions(Key)` is the same: the versions
+  are hourly snapshots of every write to the key, Ledger's own bookkeeping included, not a log of ops.
 - A loop of reads is a budget question too: each server gets 60 + 40 per player reads a minute. A scan
   paces itself and queues `Busy` and `Unresolved` keys for a later round.
 - `CloseAll` and `Destroy` are shutdown, not cleanup. They end every live session.

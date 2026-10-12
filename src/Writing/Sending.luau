@@ -5,8 +5,7 @@
 	Sending: a writer's requests and answers (record sheets 7, 8, 10).
 
 	An op is clean once its requests answered. An undecided clean op takes its id sharer's tag. A tidy owed sends no
-	op. A final skips the retry gap until an err or mark. An op heard ahead waits to land (PaceAhead). A refusal before
-	the store sheds clean durable ops Busy, settling an owed Outcome.
+	op. A final skips the retry gap until an err or mark. An op heard ahead waits to land (PaceAhead).
 
 	Return type: A plain table of functions, and the OpMove type.
 	Example usage:
@@ -24,7 +23,6 @@ local JudgingShapes = require("../Judging/Shapes")
 local Names = require("../Encoding/Names")
 local Numbers = require("./Numbers")
 local OpForms = require("../Judging/OpForms")
-local OpOutcomes = require("./OpOutcomes")
 local Pacing = require("./Pacing")
 local Reasons = require("../Constants/Reasons")
 local Rides = require("../Tx/Rides")
@@ -291,34 +289,6 @@ local function OnError(
 	RetryAfterError(Writer, Clock, Limits)
 end
 
-local function OnRefusedBeforeStore(
-	State: ServerState,
-	Writer: WriterState,
-	RequestId: number,
-	Sent: { SentOp },
-	Clock: number,
-	Limits: Limits,
-	Commands: { Command }
-)
-	local Elsewhere = SequencesCarriedElsewhere(Writer, RequestId)
-	for _, Carried in Sent do
-		local Sequence = OpForms.SequenceOf(Carried.Form)
-		local Found = Writers.FindOp(Writer.Queue, Sequence)
-		if Found == nil or Found.IsHeard then
-			continue
-		end
-		if Found.IsClean and not Elsewhere[Sequence] and OpForms.IsDurable(Found.Form) then
-			Writers.NoteNotTook(Writer, Found)
-			Writers.MarkHeard(Writer, Found)
-			Answering.AnswerCallFailed(State, Commands, Found, Reasons.Busy)
-			OpOutcomes.Stop(State, Commands, Writer.Key, Found)
-		elseif not Found.IsClean or Elsewhere[Sequence] then
-			CountError(State, Writer, Found, Limits, Commands)
-		end
-	end
-	RetryAfterError(Writer, Clock, Limits)
-end
-
 local function NoteFinalRetry(Writer: WriterState, RequestId: number)
 	local Final = Writer.Final
 	if Final ~= nil and Final.RequestId == RequestId then
@@ -465,7 +435,6 @@ return {
 	SendFinal = SendFinal,
 	RetryGap = RetryGap,
 	OnError = OnError,
-	OnRefusedBeforeStore = OnRefusedBeforeStore,
 	NoteFinalRetry = NoteFinalRetry,
 	OnAnswer = OnAnswer,
 	AheadLandsAt = AheadLandsAt,

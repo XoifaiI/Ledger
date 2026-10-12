@@ -38,7 +38,7 @@ Paths below are relative to that folder.
 | the `Mock` option and its errors | `Shell/Services.luau` |
 | the close, `BeforeClose`, the 25 s deadline | `Shell/Runner.luau`, `Sessions/Closing.luau` |
 | `Unreadable` and its warnings | `Reading/Unreadable.luau` |
-| a refused Roblox request (403, 101 to 106) | `Shell/Refusals.luau` |
+| a failed Roblox request (every error is one failure, never read) | `Shell/Services.luau` |
 | when a read ends a dead server's trade work | `Tx/Work/Touch.luau` |
 | store calls, session calls, quantity calls | `Api/Store.luau`, `Api/Sessions.luau`, `Api/Session.luau`, `Api/Quantity.luau` |
 

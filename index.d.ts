@@ -425,6 +425,16 @@ declare namespace Ledger {
 		Next(): LuaTuple<[ReadonlyArray<K> | undefined, Reason | undefined]>;
 	}
 
+	interface KeyVersion {
+		readonly Version: string;
+		readonly CreatedTime: number;
+		readonly IsDeleted: boolean;
+	}
+
+	interface VersionPages {
+		Next(): LuaTuple<[ReadonlyArray<KeyVersion> | undefined, Reason | undefined]>;
+	}
+
 	interface SessionCommon<D, O = never> {
 		Get(): Frozen<D>;
 		Observe(): Observer<Frozen<D>>;
@@ -459,7 +469,9 @@ declare namespace Ledger {
 		Bump(total: string, amount: number, options?: BumpOptions): LuaTuple<[boolean, Reason | undefined, Info | undefined]>;
 		Total(name: string, maxAge?: number): LuaTuple<[number | undefined, Reason | undefined]>;
 		Quantity(name: string): Quantity;
-		Keys(): KeyPages;
+		Keys(prefix?: string): KeyPages;
+		Versions(key: KeyLike): VersionPages;
+		PeekVersion(key: KeyLike, version: string): LuaTuple<[unknown, Reason | undefined]>;
 		Unload(player: Player): void;
 		IsLoaded(player: Player): boolean;
 		Read(player: Player): Frozen<D> | undefined;

@@ -20,24 +20,19 @@ local Future = require("./Util/Future")
 local Guards = require("./Judging/Guards")
 local Hot = require("./Constants/Hot")
 local HotShapes = require("./Hot/Shapes")
-local Losses = require("./Stored/Items/Losses")
 local Names = require("./Encoding/Names")
 local Observer = require("./Util/Observer")
-local Operators = require("./Tx/Work/Operators")
-local Post = require("./Stored/Post")
 local Reasons = require("./Constants/Reasons")
-local Seal = require("./Stored/Items/Seal")
+local RecordTypes = require("./RecordTypes")
+local Services = require("./Shell/Services")
 local ShellSetup = require("./Shell/Setup")
-local Timed = require("./Stored/Items/Timed")
 local TypeFunctions = require("./TypeFunctions")
-local Work = require("./Stored/Items/Work")
 local WritingAnswers = require("./Writing/Answers")
 
 type Emitted = WritingAnswers.Emitted
 type MigrationRun = Guards.MigrationRun
 type Mode = Hot.Mode
 type Ops = ShellSetup.Ops
-type PathStep = Post.PathStep
 type Serials = HotShapes.Serials
 type StoreKey = Names.StoreKey
 
@@ -68,111 +63,17 @@ export type Arithmetic<T = any> = {
 export type HoldHandle = Frozen<HotShapes.HoldHandle>
 export type QuantityTotal = Frozen<HotShapes.QuantityTotal>
 export type Took = Frozen<HotShapes.Took>
+export type Record<D = unknown> = RecordTypes.Record<D>
+export type LossRecords = RecordTypes.LossRecords
+export type PendingItems = RecordTypes.PendingItems
+export type KeyVersion = Services.KeyVersion
 
 type ReadArray<Item> = { read [number]: Item }
-type ReadMap = { read [unknown]: unknown }
-type FieldAmount = Frozen<Losses.FieldAmount>
-type CoreName = Frozen<Names.Name>
-type KeyReference = Frozen<Names.KeyReference>
-
-type LossEvent = {
-	read Cause: Timed.CutKind,
-	read Name: CoreName,
-	read Stamp: number,
-	read Fields: ReadArray<FieldAmount>,
-	read Fingerprint: number?,
-}
-
-type LossReturn = {
-	read Cause: Losses.ReturnCause,
-	read Name: CoreName,
-	read Stamp: number,
-	read OtherKey: KeyReference,
-	read Escrow: FieldAmount?,
-	read Fingerprint: number?,
-}
-
-type LossSlot = {
-	read Period: number,
-	read Count: number,
-	read Sums: ReadArray<FieldAmount>,
-}
-
-export type LossRecords = {
-	read Events: ReadArray<LossEvent>,
-	read Returns: ReadArray<LossReturn>,
-	read Slots: ReadArray<LossSlot>,
-}
 
 export type Closed = {
 	read Removed: ReadArray<number>,
 	read Left: ReadArray<number>,
 	read Missing: ReadArray<number>,
-}
-
-type PendingItem = Frozen<Operators.PendingMark> | {
-	read Kind: "Pinned",
-	read Name: CoreName,
-	read Stamp: number,
-	read Age: number,
-	read Attempt: number,
-	read IsDecided: boolean,
-	read Legs: ReadArray<Frozen<StoreKey>>,
-}
-
-export type PendingItems = ReadArray<PendingItem>
-
-type BookMark = Frozen<Work.EscrowMark> | {
-	read Kind: "Exclusive",
-	read IsClean: boolean,
-	read Opening: Frozen<Work.MarkOpening>,
-	read Decider: KeyReference,
-	read Slot: ReadArray<PathStep>?,
-} | {
-	read Kind: "Pinned",
-	read IsClean: boolean,
-	read Opening: Frozen<Work.MarkOpening>,
-	read OtherLegs: ReadArray<KeyReference>,
-	read DeciderValue: number?,
-}
-
-type BookTimed = Frozen<Timed.NamedEntry> | {
-	read Kind: "Writer",
-	read WriterId: number,
-	read Highest: number,
-	read Newest: number,
-	read Fates: ReadArray<Frozen<Timed.WriterFate>>,
-}
-
-type RecordBook = {
-	read Format: number,
-	read Level: number,
-	read Floor: number,
-	read Writes: number,
-	read Cuts: number,
-	read Identity: Identity?,
-	read Gate: Frozen<Seal.Gate>?,
-	read Epoch: number,
-	read Horizon: number,
-	read CutHorizon: number,
-	read Timed: ReadArray<BookTimed>,
-	read CutNames: ReadArray<Frozen<Timed.CutName>>,
-	read Untimed: ReadArray<Frozen<Timed.NamedEntry>>,
-	read Work: ReadArray<BookMark>,
-	read Losses: { read Events: ReadArray<LossEvent>, read Returns: ReadArray<LossReturn> },
-	read Slots: ReadArray<LossSlot>,
-}
-
-type PostEntry =
-	{ read Kind: "Set", read Path: ReadArray<PathStep>, read Value: unknown }
-	| { read Kind: "Removed", read Path: ReadArray<PathStep> }
-
-export type Record<D = unknown> = {
-	read Kind: "Kept",
-	read State: Frozen<D> & ReadMap,
-	read Book: RecordBook,
-	read Post: ReadArray<PostEntry>?,
-	read Given: ReadMap?,
 }
 
 export type Name = string | OpId
@@ -449,6 +350,10 @@ export type KeyPages<K = string | number> = {
 	Next: (self: KeyPages<K>) -> ({ K }?, Reason?),
 }
 
+export type VersionPages = {
+	Next: (self: VersionPages) -> ({ KeyVersion }?, Reason?),
+}
+
 export type StoreCommon<D> = {
 	Peek: (
 		self: StoreCommon<D>,
@@ -467,7 +372,9 @@ export type StoreCommon<D> = {
 	Bump: (self: StoreCommon<D>, Total: string, Amount: number, Options: BumpOptions?) -> (boolean, Reason?, Info?),
 	Total: (self: StoreCommon<D>, Name: string, MaxAge: number?) -> (number?, Reason?),
 	Quantity: (self: StoreCommon<D>, Name: string) -> Quantity,
-	Keys: (self: StoreCommon<D>) -> KeyPages<string | number>,
+	Keys: (self: StoreCommon<D>, Prefix: string?) -> KeyPages<string | number>,
+	Versions: (self: StoreCommon<D>, Key: KeyLike) -> VersionPages,
+	PeekVersion: (self: StoreCommon<D>, Key: KeyLike, Version: string) -> (unknown, Reason?),
 	Unload: (self: StoreCommon<D>, Player: Player) -> (),
 	IsLoaded: (self: StoreCommon<D>, Player: Player) -> boolean,
 	Read: (self: StoreCommon<D>, Player: Player) -> Frozen<D>?,
