@@ -20,7 +20,9 @@
 \* as 2.3 has it: take (refusals written with their reason), fence, hold,
 \* confirm (the hold if it stands, else a take of its units, else gone),
 \* release (always writes), credit (a sealed or closed part refuses),
-\* close. A take or confirm issues serials from ret first, then xs. In
+\* close. A take or confirm issues one run of serials, from ret first,
+\* then xs, and refuses free when neither has a run of k; a hold takes its
+\* run from xs first, then ret. In
 \* final mode a write that leaves u = 0 and no hold seals the part;
 \* nothing clears it. OpenMode makes the quantity open: no seal, and
 \* credits make units. In final mode a credit call (Deposit) throws at the
@@ -52,7 +54,9 @@
 \*   a part not made owing its share and a removed one its sold units.
 \*   MadeOnce: no part is made twice. OnePart: at most one sub name of a
 \*   call takes effect. SubOnce: a sub name takes effect once (S5).
-\*   SerialOnce: no serial is sold twice. SoldOutTrue: after SoldOut no
+\*   SerialOnce: no serial is sold twice. SerialRun: the serials one op
+\*   sold are one run, so its first serial and count name them.
+\*   SoldOutTrue: after SoldOut no
 \*   part holds a free or held unit and the name took nowhere.
 \*   HoldEndsOnce. ReleaseTrue: Release true only when no hold under its
 \*   id stands after it. UnitsWithinStock: in final mode the free, held
@@ -79,7 +83,8 @@ CONSTANTS
     FixOpenOnly,     \* only open makes a part (design rule 31); else any op on no key makes it
     FixCloseEmpty,   \* Close removes only a part whose close note showed it empty (2.5)
     FixRemoveAge,    \* Close removes a part only once t_open is SealAge old (2.5)
-    FixCreditFinal   \* in final mode a credit call (Deposit) throws at the call and sends nothing (2.3, 2.5)
+    FixCreditFinal,  \* in final mode a credit call (Deposit) throws at the call and sends nothing (2.3, 2.5)
+    FixSerialRun     \* a take's serials are one run (2.7); else any k serials, returned first
 
 VARIABLES
     wk,        \* wk[s]: the call server s works: [i, x, j, r, tries, st, ph]
@@ -120,14 +125,35 @@ RECURSIVE HeldSum(_)
 HeldSum(H) == IF H = {} THEN 0 ELSE LET e == CHOOSE y \in H : TRUE IN e.k + HeldSum(H \ {e})
 Min(S) == CHOOSE x \in S : \A y \in S : x <= y
 
-\* Draw k serials: from ret first, smallest first, then from xs (2.7). None outside serial mode.
+\* The control's draw of k serials: from ret first, smallest first, then from xs, a run or not.
 RECURSIVE Draw(_, _)
 Draw(R, k) ==
-    IF k = 0 \/ ~SerialMode THEN [R |-> R, S |-> {}]
+    IF k = 0 THEN [R |-> R, S |-> {}]
     ELSE LET one == IF R.ret # {} THEN [R |-> [R EXCEPT !.ret = @ \ {Min(R.ret)}], s |-> Min(R.ret)]
                     ELSE [R |-> [R EXCEPT !.xs = @ + 1], s |-> R.xs]
              rest == Draw(one.R, k - 1)
          IN [R |-> rest.R, S |-> rest.S \cup {one.s}]
+
+\* One run of k serials (2.3, 2.7): the returned run of at least k with the least first serial, or the
+\* next k from xs while the part's range e lasts. ok is FALSE when neither has one.
+EndOf(k) == LoOf(k) + StockOf(k)
+RunAt(f, k) == f..(f + k - 1)
+NoRun(R) == [ok |-> FALSE, R |-> R, S |-> {}]
+FromRet(R, k) ==
+    LET firsts == {f \in R.ret : RunAt(f, k) \subseteq R.ret}
+    IN IF firsts = {} THEN NoRun(R)
+       ELSE [ok |-> TRUE, R |-> [R EXCEPT !.ret = @ \ RunAt(Min(firsts), k)], S |-> RunAt(Min(firsts), k)]
+FromXs(R, k, e) ==
+    IF R.xs + k > e THEN NoRun(R) ELSE [ok |-> TRUE, R |-> [R EXCEPT !.xs = @ + k], S |-> RunAt(R.xs, k)]
+\* A take's serials, and a confirm's whose hold is gone: ret first, so returned runs leave the hold room.
+TakeRun(R, k, e) ==
+    IF ~SerialMode THEN [ok |-> TRUE, R |-> R, S |-> {}]
+    ELSE IF ~FixSerialRun THEN [ok |-> TRUE, R |-> Draw(R, k).R, S |-> Draw(R, k).S]
+    ELSE IF FromRet(R, k).ok THEN FromRet(R, k) ELSE FromXs(R, k, e)
+\* A hold's serials: xs first.
+HoldRun(R, k, e) ==
+    IF ~SerialMode THEN [ok |-> TRUE, R |-> R, S |-> {}]
+    ELSE IF FromXs(R, k, e).ok THEN FromXs(R, k, e) ELSE FromRet(R, k)
 
 \* Expire every hold whose end the clock has passed by HoldSlack: its units back to u, its serials to
 \* ret (2.3). The control expires by the part's memory of holds placed, whether the hold stands or not.
@@ -159,7 +185,8 @@ Step(c, v) ==
         takeOK == ~R.closed /\ ~R.sealed /\ R.u >= a.k
         noWhy == IF R.closed THEN "closed" ELSE IF R.sealed THEN "sealed"
                  ELSE IF R.u + HeldSum(R.holds) >= a.k THEN "held" ELSE "free"
-        dr == Draw(R, a.k)
+        dr == TakeRun(R, a.k, EndOf(a.ky))
+        hr == HoldRun(R, a.k, EndOf(a.ky))
         sold(S) == {[e |-> "ser", s |-> x, n |-> nm] : x \in S}
         empty == R.u = 0 /\ R.holds = {} /\ R.ret = {}
     IN
@@ -171,18 +198,21 @@ Step(c, v) ==
     ELSE IF a.kd = "take" /\ a.st <= R.h THEN CancelNote(v, [a EXCEPT !.r = "forgotten"])
     ELSE CASE a.kd = "take" ->
               IF ~takeOK THEN say(R, noWhy)
+              \* Free units whose serials hold no run of k: the part has none to give this take.
+              ELSE IF ~dr.ok THEN say(R, "free")
               ELSE say([dr.R EXCEPT !.u = @ - a.k, !.sold = @ + a.k,
                                     !.fx = @ \cup {[e |-> "took", x |-> a.x, k |-> a.k]} \cup sold(dr.S)], "took")
          [] a.kd = "fence" -> say(R, "fenced")
          [] a.kd = "hold" ->
               IF ~takeOK THEN say(R, noWhy)
-              ELSE LET h == [id |-> a.id, k |-> a.k, end |-> clk + a.dur, sr |-> dr.S] IN
-                   say([dr.R EXCEPT !.u = @ - a.k, !.holds = @ \cup {h}, !.past = @ \cup {h}], "took")
+              ELSE IF ~hr.ok THEN say(R, "free")
+              ELSE LET h == [id |-> a.id, k |-> a.k, end |-> clk + a.dur, sr |-> hr.S] IN
+                   say([hr.R EXCEPT !.u = @ - a.k, !.holds = @ \cup {h}, !.past = @ \cup {h}], "took")
          [] a.kd = "confirm" ->
               IF hs # {}
               THEN say([R EXCEPT !.holds = @ \ hs, !.sold = @ + e1.k,
                                  !.fx = @ \cup {endIt("confirm")} \cup sold(e1.sr)], "took")
-              ELSE IF takeOK THEN say([dr.R EXCEPT !.u = @ - a.k, !.sold = @ + a.k, !.fx = @ \cup sold(dr.S)], "took")
+              ELSE IF takeOK /\ dr.ok THEN say([dr.R EXCEPT !.u = @ - a.k, !.sold = @ + a.k, !.fx = @ \cup sold(dr.S)], "took")
               ELSE say(R, "gone")
          [] a.kd = "release" ->
               IF hs # {}
@@ -230,6 +260,11 @@ Script ==
       \* Serial mode: a hold, a take beside it, the hold's confirm, and a release after it.
       [] Scenario = "Serial" -> << Open("A"), Hold("A", 1, 1, 0), Take("B", 2, 1), Confirm("B", 1, 1),
                                    Release("A", 1) >>
+      \* Serial mode: two holds with a take between them, both given back, then two takes of 2, so the
+      \* returned serials hold no run of 2 (S0 = 5).
+      [] Scenario = "SerialRun" -> << Open("A"), Hold("A", 1, 1, 0), After(Take("B", 2, 1), 2),
+                                      After(Hold("A", 2, 1, 0), 3), Release("A", 1), Release("A", 2),
+                                      After(Take("B", 4, 2), 6), Take("B", 6, 2) >>
       \* Both parts sold out, SoldOut, then a credit to the first part.
       [] Scenario = "Credit" -> << Open("A"), Take("A", 2, 2), Take("A", 1, 1), Take("B", 3, 1),
                                    After(Credit("B", 9, 0, 1), 4) >>
@@ -399,6 +434,9 @@ OnePart == \A a, b \in tk : a.x = b.x => a.k = b.k
 SubOnce == \A a, b \in tk : a.x = b.x /\ a.k = b.k => a = b
 \* 2.7: no serial sold twice.
 SerialOnce == \A a, b \in ss : a.s = b.s => a = b
+\* 2.7: the serials one op sold are one run, so its first serial v and its count name them.
+SerialRun == \A n \in {a.n : a \in ss} :
+    LET S == {a.s : a \in {b \in ss : b.n = n}} IN S = RunAt(Min(S), Cardinality(S))
 \* 2.5: SoldOut only when every part holds no free or held unit, and the name took nowhere.
 SoldOutTrue == \A a \in ans : a.r = "SoldOut" =>
     /\ \A k \in Parts : Cur2(k).ex => Cur2(k).u = 0 /\ Cur2(k).holds = {}

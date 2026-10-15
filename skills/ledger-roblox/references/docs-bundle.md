@@ -161,16 +161,24 @@ Next: [Releases](/docs/releases)
 
 `+` is new in v7, `~` exists in v6 and works differently now, `-` is gone, `!` is something to know before you upgrade.
 
+## 7.0.3 [#703]
+
+```diff
+! Taking more than one numbered item gets numbers in a row: Value, Value + 1, and so on
+! Taking more than one numbered item can answer Short with "Free" when the numbers left aren't in a row
+```
+
+Before, a take of more than one could get numbers that weren't in a row, while `Value` only gave the first. A game that counted up from `Value` could give out a number someone else already had. Taking one at a time was never affected.
+
+If you sell with `Hold` and `Confirm`, read [Hold and Confirm](/docs/reference/quantity#hold-and-confirm): calling `Confirm` twice with the same hold sells two, so the buyer's leg needs the purchase id.
+
 ## 7.0.2 [#702]
 
 ```diff
 + Store:Keys(Prefix) lists only the keys that start with Prefix, on a string store
 + Store:Versions(Key) lists the versions Roblox kept of a key
 + Store:PeekVersion(Key, Version) reads one of those versions, as it was saved
-~ A request Roblox refuses before the store, like one from Studio without API access, answers Unresolved, not Busy, and Ledger no longer warns of it
 ```
-
-`Versions` and `PeekVersion` bring back v6's `History` and `PeekVersion`. `PeekVersion` runs no migrations: you get the data exactly as that version saved it.
 
 ## 7.0.1 [#701]
 
@@ -1678,7 +1686,7 @@ Next: [Shutdown and testing](/docs/learn/shutdown-and-testing)
 
 Pick one:
 
-* **Wally:** add `Ledger = "xoifaii/ledger@7.0.2"` to `[dependencies]` in your `wally.toml`.
+* **Wally:** add `Ledger = "xoifaii/ledger@7.0.3"` to `[dependencies]` in your `wally.toml`.
 * **Model file:** download `Ledger.rbxm` from the GitHub releases page and drop it into `ReplicatedStorage`.
 
 Ledger goes in `ReplicatedStorage` so your client scripts can use `Ledger.Reason` too. Everything else in Ledger only runs on the server.
@@ -2199,6 +2207,8 @@ GoldenSword = { Parts = 2, Mode = "Final", Stock = 300, Serials = { First = 1, C
 ## Holding one during checkout [#holding-one-during-checkout]
 
 If the player has to confirm first, like a Robux purchase, you can hold a sword for a few minutes so nobody else gets it meanwhile. See `Hold`, `Confirm` and `Release` in the [reference](/docs/reference/quantity).
+
+Roblox can send the same receipt twice, and every `Confirm` sells a sword. Put the purchase id in the buyer's leg so the reducer can refuse a repeat. The [reference](/docs/reference/quantity#hold-and-confirm) shows how.
 
 Next: [Global counters](/docs/learn/global-counters)
 
@@ -3815,19 +3825,19 @@ Do not change `Parts`, `Mode`, `Stock`, `Serials` or `Proceeds` of a live quanti
 
 `Options` is `{ Price?, Id?, IdAt?, Legs? }`. Give `Id` and `IdAt` together: a named take is safe to resend. `Legs` are changes to other keys, such as the buyer's coins. The take and those changes happen together. `Price` adds to the quantity's proceeds and takes nothing from the buyer, so charge the buyer in `Legs`.
 
-On `true`, `Result` is `{ Part, Value }`. `Value` is the serial number, or `nil` without `Serials`.
+On `true`, `Result` is `{ Part, Value }`. `Value` is the serial number, or `nil` without `Serials`. Take more than one and you get numbers in a row: `Value`, `Value + 1`, and so on.
 
 If you build the options in a separate function, give them the type `Ledger.TakeOptions`, or build each leg with `Store:Leg`. Otherwise Studio's type check can't tell which op goes with which store, and complains.
 
-| Answer              | Means                                                                                          | Do                                                                                                            |
-| ------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `true`              | Sold.                                                                                          | Done.                                                                                                         |
-| `SoldOut`           | A Final quantity has none left, for good.                                                      | Stop selling it.                                                                                              |
-| `Short`             | Too few free units right now. `Info.ShortReason` is `"Free"`, `"Held"`, `"Holds"` or `"Gone"`. | Tell the player. A named take needs a new name to try again.                                                  |
-| `Missing`           | Not opened yet, closed and removed, or a key in `Legs` is missing.                             | `Open()` once if it was never opened.                                                                         |
-| `Refused` or `Full` | A rule said no. `Info.Key` names the key.                                                      | Tell the player.                                                                                              |
-| `Busy` or `Closed`  | Nothing was sent.                                                                              | `Busy`: send the same call again.                                                                             |
-| `Unresolved`        | Not known yet.                                                                                 | Unnamed: Ledger keeps sending it, so wait on `Info.Outcome`. Named: send again with the same `Id` and `IdAt`. |
+| Answer              | Means                                                                                                                                                                                             | Do                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `true`              | Sold.                                                                                                                                                                                             | Done.                                                                                                         |
+| `SoldOut`           | A Final quantity has none left, for good.                                                                                                                                                         | Stop selling it.                                                                                              |
+| `Short`             | Too few free units right now. `Info.ShortReason` is `"Free"`, `"Held"`, `"Holds"` or `"Gone"`. Taking more than one numbered item can also answer `"Free"` when the numbers left aren't in a row. | Tell the player. A named take needs a new name to try again.                                                  |
+| `Missing`           | Not opened yet, closed and removed, or a key in `Legs` is missing.                                                                                                                                | `Open()` once if it was never opened.                                                                         |
+| `Refused` or `Full` | A rule said no. `Info.Key` names the key.                                                                                                                                                         | Tell the player.                                                                                              |
+| `Busy` or `Closed`  | Nothing was sent.                                                                                                                                                                                 | `Busy`: send the same call again.                                                                             |
+| `Unresolved`        | Not known yet.                                                                                                                                                                                    | Unnamed: Ledger keeps sending it, so wait on `Info.Outcome`. Named: send again with the same `Id` and `IdAt`. |
 
 ### Hold and Confirm [#hold-and-confirm]
 
@@ -3840,6 +3850,21 @@ end
 ```
 
 `Hold` answers `true, Hold`, `SoldOut` or `Short`. `Confirm` takes the same `Price` and `Legs` as `Take`. If the hold ran out, `Confirm` uses a free unit; if there is none it answers `Short` with `ShortReason "Gone"`, never `SoldOut`. `Release(Hold)` answers `true`.
+
+Calling `Confirm` twice with the same hold sells two. The hold is used up by the first, so the second takes another unit. Roblox can send the same receipt twice, so put the purchase id in a leg on the buyer, and have the reducer refuse an id it has already seen, like on [Purchases](/docs/learn/purchases). Then a repeat is refused and nothing extra is sold.
+
+If `Confirm` answers `Refused`, `Peek` the player: if the id is in their data, the purchase already went through. If it answers `Unresolved`, tell Roblox it's not processed yet. The receipt comes again, and the id check makes that safe.
+
+```luau
+Sword:Confirm(Hold, {
+	Legs = { {
+		Store = PlayerStore,
+		Key = Receipt.PlayerId,
+		Op = { Kind = "GrantSword", PurchaseId = Receipt.PurchaseId },
+		Slot = { "Serials", "Sword" },
+	} },
+})
+```
 
 A hold lasts 60 seconds longer than the `Duration` you ask for, because server clocks can differ by that much. Until then the unit stays held: a `Take` that needs it answers `Busy`, and `Confirm` still works. After that the unit is free again. So show the buyer the time you asked for, not the extra minute.
 
@@ -4227,3 +4252,1337 @@ All types are `Ledger.<Name>`, for example `Ledger.Info<Data>`. Luau checks them
 An `OpId` is what `Ledger.Id()` gives. It is opaque: you cannot turn it into text or build one.
 
 Next: [Limits](/docs/limits)
+
+
+# Erasing and resetting (https://xoifaii.github.io/docs/blog/safe-datastores/erasing-and-resetting)
+
+
+
+Sometimes you need to wipe a key. A player asks for their data to be deleted, or you reset someone's data after an
+exploit. It sounds like the easiest thing in the whole system, just remove it. It's actually one of the hardest, because
+it has to work against everything else that might be writing to that key at the same time.
+
+## Just removing it [#just-removing-it]
+
+The obvious way is one call:
+
+```luau
+store:RemoveAsync(player.UserId)
+```
+
+That works if nothing else is going on. But think about everything from the last few pages:
+
+* A buy was sent a second ago, its reply got lost, and the retry's still coming.
+* Another server's halfway through a trade, holding one of this player's items.
+* A write from a server that hung lands a minute later.
+
+If any of those lands after the remove, the key comes straight back with their data in it. The wipe never really
+happened, and you've got no idea.
+
+## Late removes are worse [#late-removes-are-worse]
+
+It goes the other way too. `RemoveAsync` can error and still go through, the same as `UpdateAsync`, and it can land
+late. So this can happen:
+
+1. You remove a player's key, the call errors.
+2. The player joins again and starts playing, so the key gets made again.
+3. The first remove finally lands, and wipes their new data.
+
+And since a remove doesn't run a function, there's nothing it can check first. It just deletes whatever's there when it
+lands.
+
+## Seal it first [#seal-it-first]
+
+So instead of removing straight away, you replace the data with a seal. A seal holds none of the player's data, it just
+says this key's been wiped:
+
+```luau
+store:UpdateAsync(player.UserId, function(data)
+	if data and data.sealed then
+		return nil
+	end
+	return {
+		sealed = {
+			id = eraseId,
+			at = os.time(),
+		},
+	}
+end)
+```
+
+Every other write checks for the seal first and doesn't write if it's there:
+
+```luau
+local function buy(changeId, cost, item)
+	return function(data)
+		if data.sealed then
+			return nil
+		end
+		-- the usual buy from before
+	end
+end
+```
+
+So a retry, a late write, or a hung server's write that lands after the seal finds it and does nothing. The data stays
+wiped. Then once the seal's in place, you remove the key, and the only thing the remove can delete is the seal.
+
+## The late remove again [#the-late-remove-again]
+
+Removing the seal doesn't fix the late remove on its own. If the remove errors and lands later, after the key's been
+made again, it still wipes it.
+
+What fixes it is waiting. A seal can't be written over by a new key until it's old enough that any remove sent for it
+has either landed or never will. Roblox doesn't promise how late a request can land, but there's a point past which it
+doesn't happen. So a new key only replaces a seal once it's past that:
+
+```luau
+store:UpdateAsync(player.UserId, function(data)
+	if data and data.sealed then
+		if os.time() - data.sealed.at < sealAge then
+			return nil
+		end
+	end
+	return { money = 0, items = {}, done = {} }
+end)
+```
+
+And if the remove got lost completely, the seal doesn't just sit there forever. Whatever touches the key next sees an
+old seal and sends the remove again.
+
+## Trades on a key that's being wiped [#trades-on-a-key-thats-being-wiped]
+
+This is where it gets messy. If a player's halfway through a trade when their key gets wiped, the trade still needs to
+finish, one way or the other. If the trade had already been decided and the item's gone to someone else, wiping the
+held change would mean the buyer got an item that came from nowhere.
+
+So a wipe can't just throw held changes away. Before it seals, it finishes every trade on the key first, the same way a
+server that finds a held change does:
+
+```luau
+store:UpdateAsync(player.UserId, function(data)
+	if next(data.held) then
+		data.wiping = { id = eraseId, at = os.time() }
+		return data
+	end
+	return { sealed = { id = eraseId, at = os.time() } }
+end)
+```
+
+While `wiping` is on the key, no new trades can hold anything on it, so the list of held changes only gets shorter. Once
+every trade's been settled, the wipe seals the key and removes it. And if the server that started the wipe dies, any
+server that touches the key finishes the wipe itself, the same way it'd finish a trade.
+
+## Resetting [#resetting]
+
+A reset's the same idea, it just keeps the key. Instead of sealing it, it puts the player back to the default data. It
+still has to finish any trades on the key first, for the same reason, and it still has to remember its own id, so a
+reset that errors and gets sent again doesn't wipe them twice.
+
+## Saying what got wiped [#saying-what-got-wiped]
+
+If a wipe or a reset takes away money or items, it says exactly what it took and from which key. A reset keeps that in
+its own write, and a wipe hands it back in its answer, so there's a record of anything that went.
+
+Worst case is something that can't be put back at all, like a held change that's still waiting after 30 days because the
+other key's gone. Then it doesn't just quietly disappear either. It gets given back where it can, and if not, it warns
+with the amount, what it was, and which key it was on, so nothing goes missing without you hearing about it.
+
+
+# Every change gets an answer (https://xoifaii.github.io/docs/blog/safe-datastores/every-change-gets-an-answer)
+
+
+
+Now that every change has an id and only ever happens once, there's a different problem. The server that sent it still
+doesn't always know what happened.
+
+## Returning nil isn't an answer [#returning-nil-isnt-an-answer]
+
+Look at the buy from before. If the player's too poor it returns nil, and nothing gets written. If it's a retry of
+something that already went through, it also returns nil. From the caller's side those look exactly the same:
+
+```luau
+local ok, result = pcall(store.UpdateAsync, store, key, buy(changeId, 50, "sword"))
+
+if ok and result then
+	-- could be the buy, could be a retry that did nothing
+elseif ok then
+	-- too poor? already bought? no way to tell
+else
+	-- errored, might have gone through, might not
+end
+```
+
+So the game can't tell the player anything useful. Did they get the sword or not?
+
+## Remembering what happened [#remembering-what-happened]
+
+The fix is storing what happened along with the id. So instead of just remembering it was done, the key remembers how it
+ended:
+
+```luau
+local function buy(changeId, cost, item)
+	return function(data)
+		if data.done[changeId] then
+			return nil
+		end
+		if data.money < cost then
+			data.done[changeId] = { fate = "TooPoor", at = os.time() }
+			return data
+		end
+		data.money -= cost
+		data.items[item] = true
+		data.done[changeId] = { fate = "Bought", at = os.time() }
+		return data
+	end
+end
+```
+
+Might seem odd to write when the buy got refused, but that write's the whole point. Now the refusal is saved too, so if
+the reply gets lost and you send it again, the key can tell you it was refused the first time. Without it, a retry would
+just try again. If the player's had money added in between, the retry would go through, even though the first one
+already told them no.
+
+## Reading the answer back [#reading-the-answer-back]
+
+Now the update can hand back what happened, whether it's the first try or the fifth:
+
+```luau
+local fate
+local ok = pcall(store.UpdateAsync, store, key, function(data)
+	local seen = data.done[changeId]
+	if seen then
+		fate = seen.fate
+		return nil
+	end
+	local new = buy(changeId, 50, "sword")(data)
+	fate = new.done[changeId].fate
+	return new
+end)
+```
+
+If `ok` is true, `fate` is the real answer, "Bought" or "TooPoor", even if this was the third time you sent it.
+
+## When you really can't know [#when-you-really-cant-know]
+
+Only thing is sometimes you can't get an answer at all. If the server's shutting down, or Roblox is down for longer than
+you can wait, the change might have gone through and you just can't find out yet. In that case the answer is "don't
+know", not "failed".
+
+It sounds like a small thing, but it matters. If you tell the game it failed when it actually went through, the game
+might give the player their money back, and now they've got the sword and the money. Saying "don't know" means the game
+holds off, and the next time it loads that player's data it can see what really happened.
+
+So every change ends up with one of three kinds of answer: it happened, it got refused and why, or it can't be known
+right now. And because the key remembers, asking again always gives you the same answer.
+
+
+# Every change happens once (https://xoifaii.github.io/docs/blog/safe-datastores/every-change-happens-once)
+
+
+
+Sending changes instead of saving fixes the overwriting problem, but it brings up a new one. Every change is its own
+`UpdateAsync` now, and sometimes those fail.
+
+## When a write fails [#when-a-write-fails]
+
+Datastore calls fail more than you'd think. Roblox's servers get busy, you hit a rate limit, or the request times out.
+So the normal thing is to wrap it in a pcall and try again:
+
+```luau
+local function send(key, change)
+	for attempt = 1, 5 do
+		local ok = pcall(store.UpdateAsync, store, key, change)
+		if ok then
+			return true
+		end
+		task.wait(attempt * 2)
+	end
+	return false
+end
+
+send(player.UserId, buy(50, "sword"))
+```
+
+This looks fine, and most of the time it is.
+
+## Failing doesn't mean it didn't happen [#failing-doesnt-mean-it-didnt-happen]
+
+Thing is, an error from `UpdateAsync` doesn't always mean nothing got written. Sometimes the write goes through fine and
+it's only the reply that gets lost on the way back, like a 502 or a timeout. From the server's side both look exactly
+the same, you just get an error.
+
+So here's what happens with that loop above:
+
+1. The player buys a sword for 50.
+2. `UpdateAsync` runs `buy`, takes the 50 and adds the sword. The write goes through.
+3. The reply gets lost and the call errors.
+4. The loop retries, and `buy` runs again on the new data.
+5. The player's paid 100 and has two swords.
+
+And if you don't retry, you've got no idea if they bought it or not, so you can't tell the player either.
+
+## Did the function even run? [#did-the-function-even-run]
+
+One thing you can check is whether your function actually ran. `UpdateAsync` only calls it once it's got the key's data
+from Roblox, so if it never ran, nothing could've been written:
+
+```luau
+local ran = false
+local ok = pcall(store.UpdateAsync, store, key, function(data)
+	ran = true
+	return buy(50, "sword")(data)
+end)
+
+if not ok and not ran then
+	-- never reached the key, safe to try again
+end
+```
+
+That helps, but only one way. If it never ran you're safe to retry. If it did run and still errored, you're back to not
+knowing, and that's exactly the case that dupes.
+
+## Giving every change an id [#giving-every-change-an-id]
+
+The real fix is giving every change its own id, and having the key remember which ids it's already done:
+
+```luau
+local function buy(changeId, cost, item)
+	return function(data)
+		if data.done[changeId] then
+			return nil
+		end
+		if data.money < cost then
+			return nil
+		end
+		data.money -= cost
+		data.items[item] = true
+		data.done[changeId] = os.time()
+		return data
+	end
+end
+```
+
+The id gets made once, before the first attempt, and every retry sends the same one. So if step 2 above really did go
+through, the retry in step 4 finds the id already there and does nothing. The player pays 50 and gets one sword.
+
+Now retrying's always safe. You can send the same change as many times as you need and it only ever happens once, so
+there's nothing to guess about anymore.
+
+## Keeping the list small [#keeping-the-list-small]
+
+Only thing is `done` would grow forever, and keys have a size limit. But an id only matters while something might still
+retry it, and nothing retries a change from an hour ago. So you only keep the recent ones:
+
+```luau
+for id, at in data.done do
+	if os.time() - at > 600 then
+		data.done[id] = nil
+	end
+end
+```
+
+That runs inside the same update, so the list cleans itself up every time the key gets written, and it stays small no
+matter how many changes go through.
+
+## Knowing what happened [#knowing-what-happened]
+
+There's one more thing that list gives you. Since the key remembers every recent change, it can also remember what
+happened to it, whether it went through or got refused because they were too poor. So even when the call errors, you
+can send it again and find out what actually happened.
+
+That's the next part.
+
+
+# Forgetting safely (https://xoifaii.github.io/docs/blog/safe-datastores/forgetting-safely)
+
+
+
+The last two pages kept a list of every change the key's done, and trimmed anything older than 10 minutes so it doesn't
+grow forever. That works most of the time. But there's a gap in it, and it's the same kind of gap that causes most
+dupes.
+
+## The late retry [#the-late-retry]
+
+Say a server sends a buy, the reply gets lost, and then the server gets stuck. A long hitch, a request queued behind a
+rate limit, whatever. By the time it retries, it's been 15 minutes.
+
+1. The buy goes through at 12:00, and the key remembers its id.
+2. The reply gets lost.
+3. At 12:10 the key trims the id, since it's older than 10 minutes.
+4. At 12:15 the retry shows up, finds no id, and buys again.
+
+The player's paid twice. Making the window longer doesn't fix it, it just makes it rarer. There's always some retry
+that's later than the window.
+
+## Keeping more ids doesn't work either [#keeping-more-ids-doesnt-work-either]
+
+The obvious fix is to just keep the ids longer. But a busy key goes through a lot of changes. Something like a shop that
+every server buys from can get hundreds a minute, and every id stored is written again every time the key's written.
+Keep an hour of them and the list ends up bigger than the data it's protecting, and the key gets slower to write the
+bigger it gets.
+
+## Remembering when, not just what [#remembering-when-not-just-what]
+
+What fixes it is having every change carry the time it was first sent, and the key remember one time of its own:
+everything sent before this has either been done or never will be.
+
+```luau
+local function apply(data, change)
+	if change.sentAt < data.horizon then
+		return "TooOld"
+	end
+	local seen = data.done[change.id]
+	if seen then
+		return seen.fate
+	end
+	-- not seen and not too old, so this is the first time
+	return nil
+end
+```
+
+Now the key can forget ids whenever it needs to, as long as it moves `horizon` up past them first. A retry from before
+the horizon doesn't get applied again, it gets told it's too old to know. The change might have gone through or it might
+not, but it'll never go through twice.
+
+## Moving the horizon [#moving-the-horizon]
+
+So the key keeps a fixed number of recent ids, and when it needs room, it drops the oldest one and moves the horizon up
+to its time:
+
+```luau
+local function remember(data, change, fate)
+	if #data.order >= 64 then
+		local oldest = table.remove(data.order, 1)
+		data.horizon = math.max(data.horizon, data.done[oldest].sentAt)
+		data.done[oldest] = nil
+	end
+	data.done[change.id] = { fate = fate, sentAt = change.sentAt }
+	table.insert(data.order, change.id)
+end
+```
+
+The list never gets bigger than 64, however busy the key is. And nothing that's been forgotten can ever happen twice,
+because anything older than the horizon gets turned away.
+
+## Clocks being off [#clocks-being-off]
+
+One thing to watch with this is that `sentAt` comes from whichever server sent the change, and servers' clocks don't
+quite agree. If a server's clock is a bit behind, its brand new changes look older than they are, and one could land
+behind a horizon that a different server moved forward.
+
+That's never a dupe, the worst it can do is turn away a change that should've gone through. But it's still wrong, so
+the horizon has to leave room for clocks being off by a bit, and nothing that keeps data safe can depend on two servers'
+clocks agreeing. It can only ever decide whether something's too old to know about.
+
+## The trade-off [#the-trade-off]
+
+The cost is that a really late retry on a really busy key might get "too old" instead of "already done". That's the
+same kind of answer as before: the game doesn't know for sure, so it doesn't give anything back, and the next time it
+loads the data it can see what actually happened.
+
+That's a much better place to be. A late retry can only ever be told it's too late, it can't ever buy something twice.
+And the key stays the same size whether it gets ten changes a day or ten thousand a minute.
+
+
+# How it was checked (https://xoifaii.github.io/docs/blog/safe-datastores/how-it-was-checked)
+
+
+
+A lot of the bugs in this series only happen when things go wrong in a very specific order. A write errors after it went
+through, then a retry gets stuck, then another server touches the key, then the first write's retry lands. You can't
+test your way into finding those. There are too many orders, and the bad one might need a hundred things to line up.
+
+## TLA+ [#tla]
+
+So before any of Ledger's code was written, every part of it was written as a TLA+ spec first. TLA+ is a language for
+describing a system as states and the steps that move between them. You don't run it like a program. A model checker
+called TLC goes through every possible order of every step in a small version of the system, and tells you if any of
+them breaks a rule you've said must always hold.
+
+The model of Roblox itself was built first, and it's the nasty part. It includes everything the platform doesn't
+promise:
+
+* Writes that land and lose their reply.
+* Writes that land late, after the server that sent them is gone.
+* Transforms that run again after their call already answered.
+* Reads that give back old data.
+* Clocks that are off from each other.
+* Servers that crash between any two steps.
+* MemoryStore losing things whenever it feels like it.
+
+Then each part of Ledger was written against that, with rules like "an op never happens twice", "money's never made",
+and "every answer's true". TLC tried every order. One of the platform checks alone went through about 16 million
+states.
+
+## Making sure the checks can fail [#making-sure-the-checks-can-fail]
+
+A check that never fails might just not be looking. So every fix in the design has a second version of the model with
+that fix taken out, and TLC has to find the bug when it's gone. If taking a fix out doesn't break anything, the fix
+wasn't needed and it got removed.
+
+That's also how a lot of the old design disappeared: the op log, compaction, the reaper. Nothing needed them once the
+specs were right.
+
+## Some of the stranger bugs [#some-of-the-stranger-bugs]
+
+Most bugs are the kind you'd expect, but a few were strange.
+
+**A retry that could never work.** Back on the trades page, every trade carries a fingerprint of its terms, so a retry
+with the same id but different terms gets refused instead of treated as the same trade. To make that fingerprint, the
+old version turned the terms into text. But if one of the terms was a buffer, it got printed as its address in memory,
+something like `buffer: 0x7f3a...`. So when a trade errored and the game sent it again with exactly the same terms, the
+buffer had a new address, the text came out different, and the retry got refused as a different trade. A trade with a
+buffer in it could never be retried.
+
+**`1` and `"1"` were the same thing.** The same code printed `{[1] = "a"}` and `{["1"] = "a"}` as exactly the same
+text. One has the number 1 as a key and the other has the string "1", so they're different tables. But they got the
+same fingerprint, so a retry with different terms could be told "done" for terms that never happened.
+
+**Roblox swallows your errors.** If the function you give `UpdateAsync` throws an error, Roblox doesn't give you the
+error back. It just returns nothing, the same as if your function had returned nil on purpose. So if there's a bug in
+your update function, it doesn't look like a bug, it looks like "nothing to change". Ledger now sets a flag going into
+its function and checks it after the call, so a throw inside still shows up as an error.
+
+**A remove that deleted data from the future.** From the erase page: `RemoveAsync` can error and still land later. If
+the player rejoins and their key gets made again in between, the late remove lands on the new key and deletes it, and
+the player loses everything they did since rejoining. That's why erasing uses a seal first.
+
+**60 gold isn't enough for 50.** A buy with two steps held 50 gold on the first step, like the holds on the trades page.
+Then the second step checked if the player could afford 50, but it counted the 50 the first step had just held as
+already spent. So a player with 60 gold buying something for 50 got told they couldn't afford it. It was competing with
+itself.
+
+**Part 1 and part 12 were the same thing.** One bit of bookkeeping made a text key by sticking a part number and a time
+together, with nothing in between. So part `1` at time `23889600` and part `12` at time `3889600` both came out as
+`123889600`, and two different things got mixed up. The fix was one character, a `:` between them.
+
+None of those would have shown up in testing. They each needed a very specific order of things to go wrong, which is
+exactly what the specs and the reviews look for.
+
+
+# Making datastores that can't lose or dupe data (https://xoifaii.github.io/docs/blog/safe-datastores/introduction)
+
+
+
+Data loss and dupes are probably the most common bugs in any Roblox game that saves stuff. Most of the time it's not
+because someone wrote bad code, it's because datastores have a few edge cases that are really easy to miss. I've spent
+a while working through all of them, so this goes through what they are and how I deal with each one.
+
+## How most games save data [#how-most-games-save-data]
+
+Usually a game loads the player's data when they join, keeps it in a table while they play, and saves it when they
+leave:
+
+```luau
+Players.PlayerAdded:Connect(function(player)
+	local data = store:GetAsync(player.UserId) or { money = 0, items = {} }
+	cache[player] = data
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	store:SetAsync(player.UserId, cache[player])
+	cache[player] = nil
+end)
+```
+
+This works fine most of the time. The problem is when a player leaves one server and joins another before the save's
+finished. The new server loads the old data, and whatever they did on the last server is just gone.
+
+## Session locking [#session-locking]
+
+The usual fix for that is session locking. When a player joins, the server puts a lock on their key saying it owns it.
+While that lock's there, no other server can write to the key, and when the player leaves the server saves and takes
+the lock off.
+
+```luau
+local ok = store:UpdateAsync(player.UserId, function(data)
+	data = data or { money = 0, items = {} }
+	if data.lock and os.time() - data.lock.at < 1800 then
+		return nil
+	end
+	data.lock = { server = game.JobId, at = os.time() }
+	return data
+end)
+```
+
+It does stop the old data overwriting the new data, but it comes with its own problems:
+
+* If a player switches servers, the new server has to wait for the old one to save and drop the lock. So they either
+  sit there waiting, or the new server steals the lock and whatever the old one hadn't saved yet gets lost.
+* If a server crashes, it never drops the lock. The player can't load anywhere until the lock times out.
+* Only one server can ever touch a key, so you can't change a player's data from another server, or from outside the
+  game.
+
+## Sending changes instead of saving [#sending-changes-instead-of-saving]
+
+What i do instead is never save the whole table. Every change gets sent straight to the key as its own update:
+
+```luau
+local function buy(cost, item)
+	return function(data)
+		if data.money < cost then
+			return nil
+		end
+		data.money -= cost
+		data.items[item] = true
+		return data
+	end
+end
+
+store:UpdateAsync(player.UserId, buy(50, "sword"))
+```
+
+`UpdateAsync` always runs on the latest data, so two servers can change the same key without overwriting each other,
+and nothing needs locking. Returning nil means nothing gets written, so if they're too poor nothing happens.
+
+It's a pretty different way of thinking about it, but it's what everything else in this is built on.
+
+
+# Putting it together (https://xoifaii.github.io/docs/blog/safe-datastores/putting-it-together)
+
+
+
+So that's everything Ledger does on every write. Ids so changes only happen once, answers stored on the key, a horizon
+so ids can be forgotten, holds and a deciding key for trades, seals for wipes, shards and parts for busy keys, and a
+deadline for shutting down. And the last page went through what it takes to get all of that right at the same time.
+
+Here's what the examples from earlier look like when Ledger's doing all of it for you.
+
+## The buy [#the-buy]
+
+Remember the buy from the start, which grew a `done` list, a fate, a horizon and a list of recent ids by the end. In
+Ledger it goes back to being just the part you actually care about:
+
+```luau
+local PlayerStore = Ledger.New<<PlayerData, PlayerOps>>({
+	Name = "PlayerData",
+	Keys = "Player",
+	Default = { Gold = 0, Items = {} },
+	MustExist = false,
+	Erasable = true,
+	Reducer = function(Data, Op)
+		if Op.Kind == "Buy" then
+			if Data.Gold < Op.Price then
+				return nil
+			end
+			local Items = table.clone(Data.Items)
+			Items[Op.Item] = true
+			return { Gold = Data.Gold - Op.Price, Items = Items }
+		end
+		return nil
+	end,
+})
+```
+
+There's no `done` list in there, no ids and no horizon. Ledger keeps all of that on the key next to your data, and your
+reducer only ever sees the data.
+
+Sending a buy looks like this:
+
+```luau
+local Session = PlayerStore:Load(Player)
+local Ok, Result = Session:Apply({ Kind = "Buy", Price = 50, Item = "Sword" })
+```
+
+It gets an id without you asking, it can't dupe if a write errors, and `Ok` and `Result` are the answer from the
+answers page: it went through, it got refused and why, or it can't be known yet.
+
+## The trade [#the-trade]
+
+The trades page needed holds on every key, a deciding key, reads that can't be trusted until a write backs them up, late
+writes being turned away, and whoever touched the key next cleaning up. In Ledger it's one call:
+
+```luau
+local Ok, Result, Info = Ledger.Tx({
+	PlayerStore:Leg(SellerId, { Kind = "SellItem", Item = Item, Price = Price }),
+	PlayerStore:Leg(BuyerId, { Kind = "BuyItem", Item = Item, Price = Price }),
+})
+```
+
+The first leg gets held and the last one decides it in its own write, so a two-player trade is 2 requests. If a server
+dies halfway, the next server to touch either player finishes it off. You never write that part.
+
+## The stock [#the-stock]
+
+And the limited sword from the hot keys page, split across parts so every server can sell at once without ever selling
+one too many:
+
+```luau
+local Sword = ItemStore:Quantity("GoldenSword")
+local Ok, Result = Sword:Take(1, { Id = OrderId, IdAt = Ledger.Now() })
+```
+
+It picks a part, moves on to the next if that one's sold out, and makes sure a buy only ever lands on one of them.
+
+That's the idea of the whole thing. Everything in this series is still happening on every one of those calls, you just
+don't have to think about it. The [docs](/docs) go through the rest: wipes, counters, following other keys, and shutting
+down.
+
+
+# Shutting down (https://xoifaii.github.io/docs/blog/safe-datastores/shutting-down)
+
+
+
+When a server shuts down, `BindToClose` gives you about 30 seconds. Everything up to now assumed a server might die at
+any point, so nothing gets lost when one does. Shutting down's the one time you get a warning, and it's worth using it
+properly.
+
+## What's still going on [#whats-still-going-on]
+
+When the close starts, a server can have all sorts still in flight:
+
+* Changes queued up but not sent yet.
+* Writes that went out and haven't come back.
+* A trade halfway through, holding something on another key.
+* Calls the game's still waiting on, like a buy the player clicked a second ago.
+
+The aim is simple. Get as much of that through as you can in the time you've got, and leave everything else in a state
+the next server can pick up.
+
+## Sending what's queued [#sending-whats-queued]
+
+The first thing is getting queued changes out. Every key with something waiting gets one last write:
+
+```luau
+game:BindToClose(function()
+	for key, queue in queues do
+		task.spawn(function()
+			store:UpdateAsync(key, function(data)
+				for _, change in queue do
+					data = apply(data, change)
+				end
+				return data
+			end)
+		end)
+	end
+	waitUntilDone(25)
+end)
+```
+
+The ids still apply, so if one of these errors and the server goes away, nothing's lost. Either it landed, or it didn't
+and the game never got told it did.
+
+## A deadline, not just a timeout [#a-deadline-not-just-a-timeout]
+
+Only thing is you can't just keep retrying until the server's killed. A write sent a second before the server dies can
+still land a minute later, after the player's already on another server. Most of the time the ids make that harmless,
+but there's no reason to send things you can't follow up on.
+
+So there's a deadline a few seconds before the close runs out. Past that, nothing new gets sent at all: no retries, no
+new writes, nothing. Whatever's still out after that gets left to land or not on its own.
+
+## Answering everything [#answering-everything]
+
+Every call the game's waiting on gets an answer before the server goes:
+
+* If it landed, the game gets told it landed.
+* If it got refused, the game gets that.
+* If it's still out at the deadline, the game gets told it can't know.
+
+Nothing just hangs, and nothing gets told it failed when it might not have.
+
+## What gets left behind [#what-gets-left-behind]
+
+A trade that's halfway through is fine to leave. Whatever's held stays held, and the next server to touch either key
+finishes it off, the same as if the server had crashed. Same for a wipe that's started. That's the whole point of
+everything being settled on touch: shutting down doesn't need any special cleanup, because there's nothing that can only
+be cleaned up by the server that started it.
+
+
+# Totals and hot keys (https://xoifaii.github.io/docs/blog/safe-datastores/totals-and-hot-keys)
+
+
+
+Everything so far has been keys that a few servers write to at most, like a player's data. Some keys aren't like that. A
+global counter for an event, a shop item with limited stock, anything every server in the game writes to at once.
+
+## One key, every server [#one-key-every-server]
+
+Say you want a counter of how many eggs have been hatched across the whole game:
+
+```luau
+local function bump(changeId, amount)
+	return function(data)
+		data = data or { count = 0, done = {} }
+		if data.done[changeId] then
+			return nil
+		end
+		data.count += amount
+		data.done[changeId] = os.time()
+		return data
+	end
+end
+
+counterStore:UpdateAsync("EggsHatched", bump(changeId, 1))
+```
+
+That's fine with one server. With a thousand it falls apart. Roblox only lets one key take so many writes a minute, and
+so many bytes a minute, no matter how many servers are sending. Past that, writes just get throttled and wait. And every
+bump adds an id to `done`, so the key keeps getting bigger and each write costs more of that byte limit, so it fits even
+fewer writes.
+
+## Splitting it up [#splitting-it-up]
+
+So you split the counter over a few keys, called shards, and each server writes to one of them:
+
+```luau
+local shards = 16
+local home = (hash(game.JobId) % shards) + 1
+
+counterStore:UpdateAsync("EggsHatched/" .. home, bump(changeId, 1))
+```
+
+Sixteen shards means sixteen times the writes. To read the total you add them all up:
+
+```luau
+local total = 0
+for i = 1, shards do
+	local data = counterStore:GetAsync("EggsHatched/" .. i)
+	total += data and data.count or 0
+end
+```
+
+## Keeping the ids small [#keeping-the-ids-small]
+
+Shards fix how many writes fit, but not the ids. A busy shard still gets a new id for every bump.
+
+The trick is that each server sends to the same shard every time. So instead of remembering every bump, the shard only
+remembers the latest bump number for each server:
+
+```luau
+local function bump(serverId, number, amount)
+	return function(data)
+		if (data.servers[serverId] or 0) >= number then
+			return nil
+		end
+		data.count += amount
+		data.servers[serverId] = number
+		return data
+	end
+end
+```
+
+A server numbers its bumps 1, 2, 3 and so on, and only sends the next one once the last one's landed. So if a shard's
+already seen bump 7 from a server, any retry of bump 7 or lower can't be applied again. The shard holds one small entry
+per server that writes to it, not one per bump.
+
+Servers come and go though, so those entries would still pile up over time. So an entry for a server that hasn't
+written in a while gets dropped, and the shard moves a horizon past it, the same trick as the ids. A bump from that old
+server showing up really late gets turned away instead of applied twice.
+
+## Batching on busy shards [#batching-on-busy-shards]
+
+Even with shards, a busy one gets more bumps than it can write one at a time. So each server waits a bit between writes
+to its shard, and everything that comes in while it waits goes out together in the next write. The busier the shard, the
+longer it waits, so it stays well under the limit and each write just carries more.
+
+## Reading it cheaply [#reading-it-cheaply]
+
+Adding up 16 shards is 16 reads every time. If every server wants the total every few seconds, that's a lot of reads for
+one number.
+
+So one server keeps a shared copy of the shard totals in MemoryStore, and everyone else reads that. The copy's just there
+to save reads, it's never what decides anything. If MemoryStore's down or the copy's old, servers go back to reading the
+shards themselves. And each shard's copy carries the shard's own write count, so an older copy can never overwrite a
+newer one, even if two servers both think they're keeping it.
+
+## Limited stock [#limited-stock]
+
+Counters are the easy case, since bumps can never be refused. Limited stock's harder. Say you're selling 1,000 of an
+item, every server's buying at once, and you can't ever sell 1,001.
+
+One key holding the stock has the same problem as the counter: it's one key and every server's hitting it. But you can't
+just shard it like a counter, because each shard would have to know how much the others have sold.
+
+So you split the stock itself. 1,000 units across 10 keys is 100 each, and each key only ever sells what it's got:
+
+```luau
+local function take(changeId)
+	return function(data)
+		if data.done[changeId] then
+			return nil
+		end
+		if data.left <= 0 then
+			data.done[changeId] = "SoldOut"
+			return data
+		end
+		data.left -= 1
+		data.done[changeId] = "Took"
+		return data
+	end
+end
+```
+
+No part can ever go below zero, so the total can never go past 1,000. And each part's just a normal key, so everything
+from the earlier pages still applies: retries, ids, answers.
+
+## When one part runs out [#when-one-part-runs-out]
+
+A buyer whose part's sold out moves on to the next one. The tricky part is making sure a buy never lands on two parts. If
+it got refused on part 3, moved on to part 4, and then a late retry of part 3 went through after all, they'd have bought
+it twice.
+
+But part 3 already wrote down "SoldOut" for that id when it refused. So a late retry finds that and does nothing, which
+is the same thing that stops late trade writes. A buy only moves on once the earlier part has a definite no on it, so it
+can only ever land on one part.
+
+## Sold out stays sold out [#sold-out-stays-sold-out]
+
+A part with nothing left marks itself sealed, and nothing ever unseals it. So once every part's sealed, the item's sold
+out for good. That's a fact you can check any time, from anywhere, without needing to read all the parts at the same
+moment.
+
+## Holding stock [#holding-stock]
+
+Sometimes you want to hold a unit while the player confirms, like a checkout. The hold goes on the part itself, in the
+same write that takes the unit out of what's left. Then it either gets confirmed, released, or runs out on its own.
+Nothing about it lives in MemoryStore, so a server going down can't lose a hold or leave one stuck.
+
+
+# Trades (https://xoifaii.github.io/docs/blog/safe-datastores/trades)
+
+
+
+Everything so far has been one key. A trade's at least two, and that's where it gets harder, since `UpdateAsync` can
+only ever change one key at a time. There's nothing in datastores that changes two keys together.
+
+All the problems from the last few pages still apply here: writes that error but went through, retries, answers,
+forgetting ids. They just apply to every key in the trade at once, and a trade brings a few new ones of its own.
+
+## Just doing both [#just-doing-both]
+
+The first thing you'd try is two updates, one after the other:
+
+```luau
+sellerStore:UpdateAsync(seller, function(data)
+	data.items.k3f9x2 = nil
+	data.money += 100
+	return data
+end)
+
+buyerStore:UpdateAsync(buyer, function(data)
+	if data.money < 100 then
+		return nil
+	end
+	data.money -= 100
+	data.items.k3f9x2 = true
+	return data
+end)
+```
+
+If the server dies between the two, the seller's been paid and lost their item, and the buyer got nothing. If the
+buyer's too poor, the seller's already been changed and you've got to undo it, which is just another write that can
+fail. And if the first write errors, you're back to not knowing if it went through, except now there's a second key
+depending on it.
+
+## Holding the change first [#holding-the-change-first]
+
+So instead of changing the seller straight away, you hold the change on it. Nothing moves yet, the key just remembers
+that this trade's waiting on it:
+
+```luau
+sellerStore:UpdateAsync(seller, function(data)
+	if data.done[tradeId] or data.held[tradeId] then
+		return nil
+	end
+	if not data.items.k3f9x2 then
+		data.done[tradeId] = "Refused"
+		return data
+	end
+	data.held[tradeId] = { give = "k3f9x2", get = 100, at = sentAt }
+	return data
+end)
+```
+
+The trade's id works the same as any change id from before. If this write errors and you send it again, it finds the
+hold already there and does nothing, so you can't end up holding the item twice.
+
+While it's held, the item's still the seller's but it's spoken for. Then there's only one question left: did the trade
+happen or not. That answer has to live somewhere every server can check.
+
+## The usual way: a deciding key [#the-usual-way-a-deciding-key]
+
+The textbook way to do this is called two-phase commit. You hold the change on every key, then write the decision to a
+separate key just for this trade, then go back and apply it on every key:
+
+1. Hold on the seller.
+2. Hold on the buyer.
+3. Write "done" to the trade's own key.
+4. Apply on the seller.
+5. Apply on the buyer.
+
+If a server dies anywhere in there, another one can read the trade's key and finish it off. It works, but it's 5 writes
+for a 2-player trade, and every trade leaves a key behind. Something then has to go around cleaning those up: keep a list
+of every trade, walk it, check each one's finished, remove the key. That cleanup is its own system with its own bugs.
+Ledger used to work exactly like this, and once the cleanup was counted a two-player trade was about 8 writes. A lot of
+the old bugs lived in the cleanup: lists that never got fully walked, keys found in the wrong order, a decision key
+removed just as a retry rewrote it.
+
+## Deciding on the last key [#deciding-on-the-last-key]
+
+The thing is, the decision doesn't need its own key. It can go on the last key in the trade, in the same write that
+changes it:
+
+```luau
+buyerStore:UpdateAsync(buyer, function(data)
+	if data.done[tradeId] then
+		return nil
+	end
+	if data.money < 100 then
+		data.done[tradeId] = "Refused"
+		return data
+	end
+	data.money -= 100
+	data.items.k3f9x2 = true
+	data.done[tradeId] = "Done"
+	return data
+end)
+```
+
+That one write applies the buyer's side and decides the whole trade. If the buyer says "Done", the trade happened. If it
+says "Refused", it didn't, and nothing about the buyer changed.
+
+So the trade is just:
+
+1. Hold on the seller.
+2. Decide on the buyer.
+
+Then the seller's held change gets applied, or dropped if it was refused. That last part doesn't have to happen before
+the trade's done. The trade already happened the moment the buyer's write landed.
+
+## What the game gets told [#what-the-game-gets-told]
+
+The game finds out how the trade went from the buyer's key, since that's where it got decided. If step 2 goes through,
+you know straight away if it was done or refused.
+
+If step 2 errors, you just send it again with the same trade id. The buyer remembers what it already decided, so you get
+that back instead of it deciding twice. And if you can't get through at all, you tell the game you don't know yet. It
+holds off, and next time the buyer's loaded you can see what happened.
+
+## Servers dying halfway [#servers-dying-halfway]
+
+If a server dies after step 1, the held change is still sitting on the seller. Whichever server touches the seller next
+sees it and has to find out how the trade went.
+
+Only thing is, you can't read the buyer from inside the seller's update. The function you give `UpdateAsync` isn't
+allowed to yield, so it can't make another datastore call. The read has to happen first, outside it:
+
+```luau
+local seller = sellerStore:GetAsync(sellerId)
+for tradeId, change in seller.held do
+	local buyer = buyerStore:GetAsync(change.decider)
+	local fate = buyer and buyer.done[tradeId]
+	if fate then
+		sellerStore:UpdateAsync(sellerId, settle(tradeId, fate))
+	else
+		buyerStore:UpdateAsync(change.decider, refuse(tradeId))
+	end
+end
+```
+
+And that read could be old. `GetAsync` can give you data from a few seconds ago, so "not decided yet" might just mean
+you're not seeing the decision yet. That's why the `else` doesn't trust it. It doesn't just drop the hold, it writes
+"Refused" onto the buyer, and `refuse` only writes if the buyer still hasn't decided:
+
+```luau
+local function refuse(tradeId)
+	return function(data)
+		if data.done[tradeId] then
+			return nil -- it did get decided, so leave it
+		end
+		data.done[tradeId] = "Refused"
+		return data
+	end
+end
+```
+
+`UpdateAsync` always runs on the latest data, so that write is the thing you can trust, not the read before it. Either
+it lands and the trade's refused for good, or it finds the real answer already there. Once the buyer's got an answer
+either way, the seller's hold gets settled to match it.
+
+There's no list of trades to go through and nothing running in the background. A trade left halfway gets finished the
+next time anyone touches one of its keys, and that's usually right away, since it's normally the player loading in.
+
+## A write that shows up late [#a-write-that-shows-up-late]
+
+That last part's the important one. Writes can land late, a lot later than you'd think, even after the server that sent
+them is gone. So you have to plan for this:
+
+1. Server A holds on the seller, then hangs.
+2. Server B finds the hold, writes "Refused" on the buyer, drops the hold.
+3. Server A's step 2 finally lands on the buyer.
+
+If the buyer had nothing stopping it, step 3 would buy the item with no hold behind it. That's an item made out of
+nothing. This is why the decision has to be written even when it's a refusal. The buyer's `done` list already has
+"Refused" for that trade, so step 3 finds it and does nothing.
+
+The same goes for a hold that lands late, after its trade was already refused. It just sits there until the next touch,
+which checks the buyer, sees "Refused", and drops it.
+
+## The deciding key can't forget too early [#the-deciding-key-cant-forget-too-early]
+
+The forgetting from the last page gets riskier here. If the buyer forgets the trade id while the seller's still holding,
+the next server to check can't tell if it went through. So the deciding key has to remember a trade for longer than any
+hold could still be waiting on it.
+
+Holds normally get settled within seconds, the next time either key's touched. But a key nobody ever touches again, like
+a player who quit, could keep its hold forever. So there's a hard limit: a hold that's still there after 30 days gets
+given back, with a warning saying exactly what was given back and on which key. The deciding key keeps its answer longer
+than that. So a hold can never outlive the answer it's waiting on.
+
+## Two trades on the same item [#two-trades-on-the-same-item]
+
+Now that items can be held, a second trade might try to use something that's already held. The hold from before
+just needs to check for that too:
+
+```luau
+local result
+sellerStore:UpdateAsync(seller, function(data)
+	for _, change in data.held do
+		if change.give == itemId then
+			result = "Busy"
+			return nil
+		end
+	end
+	data.held[tradeId] = { give = itemId, get = 100, at = sentAt }
+	result = "Held"
+	return data
+end)
+```
+
+The second trade just gets told the item's busy, straight away, and the game can try again in a second. Nothing ever
+waits on anything else, so two trades can't get stuck waiting on each other. The same goes for the rest of the player's
+data: buying, selling, anything that doesn't touch what's held carries on like normal.
+
+## Same id, different trade [#same-id-different-trade]
+
+One more thing the ids have to handle. If a game sends a trade, it errors, and the retry goes out with the same id but a
+different item or price, that isn't a retry. It's a different trade that happens to share a name. If the keys treated it
+as the same one, they could answer "Done" for terms that never happened.
+
+So every trade also carries a fingerprint of its terms, and a key that sees the same id with a different fingerprint
+refuses it instead of treating it as a retry:
+
+```luau
+local result
+store:UpdateAsync(key, function(data)
+	local seen = data.done[tradeId]
+	if seen then
+		result = if seen.terms == termsOf(change) then seen.fate else "OtherTerms"
+		return nil
+	end
+	-- the first time this id's been seen, so apply it as normal
+end)
+```
+
+`termsOf` has to print the same terms the same way every time, on every server. The old version of Ledger once printed
+`{[1] = "a"}` and `{["1"] = "a"}` as the same thing, so two different trades looked like one.
+
+## Picking the deciding key [#picking-the-deciding-key]
+
+Any key in the trade can be the deciding one, but it's worth picking well. It's the key that gets the full change
+straight away, while every other key only holds its part until the trade's decided. So if one key in the trade is the
+trade record or a log, put it last. A 5-for-5 trade with a trade record is the same thing, just with more held keys, and
+it still takes one write per key.
+
+Might seem a bit odd that the trade gets decided on one of its own keys and not somewhere neutral, but that's what gets
+rid of the extra key, the cleanup, and most of the bugs that came with them.
+
+
+# What about other datastores (https://xoifaii.github.io/docs/blog/safe-datastores/what-about-other-datastores)
+
+
+
+If all of this is as hard as the last page says, it's fair to ask why every game isn't losing data all the time. Most
+games use some datastore module, a lot of them have been around for years, and they seem fine.
+
+## Session locking hides most of it [#session-locking-hides-most-of-it]
+
+Most games use a session locking module. One server owns a player's key while they're in it, saves the whole table, and
+gives it up when they leave. That sidesteps a lot of this series straight away. Only one server writes the key, so
+nothing's racing it, and saving the whole table twice is harmless since it's the same table both times.
+
+What it doesn't fix is anything that touches two keys. Trades, gifts, mail, a marketplace, anything that takes from one
+player and gives to another. Session locking can't make two keys change together, so every game does that part itself,
+usually with two saves in a row. That's exactly the "just doing both" from the trades page, and it's where most dupes
+come from.
+
+## They're rare, until they aren't [#theyre-rare-until-they-arent]
+
+The other reason is that most of these bugs need something unlucky to happen. A write that errors after it already went
+through doesn't happen often. When Roblox's servers are fine, almost never. But it does happen, and it happens in
+bursts, when the datastore service has a bad few minutes. Those are exactly the minutes when every server's retrying at
+once.
+
+A small game might go years without hitting one. A big game hits them every week. One big game
+[wrote about it](https://codermitchell.com/writing/datastore-write-correctness): their mailbox trusted that an error
+meant the write hadn't happened, and they found hundreds of thousands of duplicated pets before they worked out why.
+
+## Nobody can see them [#nobody-can-see-them]
+
+And when it does happen, nothing tells you. A dupe doesn't throw an error. The game thinks it worked, the player's
+happy, and the extra item just sits in someone's inventory. Most of the time it gets blamed on an exploiter, or nobody
+notices at all. You only find out if you go looking, by counting items that should be unique, or tracing where they
+came from.
+
+## Going lockless [#going-lockless]
+
+Some libraries have tried dropping session locks, the same as Ledger. It's the right idea, but it's also where all of
+this gets harder, since now any server can write any key. Two of them are worth looking at, because they ran into
+exactly the problems from this series.
+
+### drop [#drop]
+
+[drop](https://github.com/jackhexed/drop) is about 1,200 lines. Its updates are pure functions sent with `UpdateAsync`,
+like the intro to this series, and it has transactions with a separate deciding key per transaction, like the
+two-phase commit on the trades page.
+
+The trouble is that it trusts errors. When an `UpdateAsync` fails, drop just runs it again:
+
+```luau
+local success, result, info = pcall(UpdateAsync, datastore, key, transform)
+if success then
+	return true, result, info
+end
+
+-- the first attempt failed, so try once more
+local success, result, info = pcall(UpdateAsync, datastore, key, transform)
+```
+
+There's no id on the change, so if the first attempt actually went through, the second applies it again. That's the
+retry from "Every change happens once". Its own example of giving a player 1,000 coins for a developer product can
+give them 2,000.
+
+Its transactions have the same problem on the deciding key. If marking the transaction as committed errors, the server
+treats it as aborted and starts undoing every key. But that write might have gone through. Then any key the undo didn't
+reach gets finished as committed by the next server that checks the deciding key. Some keys get rolled back and some
+go through, which is a dupe or a lost item. And the deciding key gets removed once enough servers say they're done with
+it, but that count isn't protected by an id either, so a retried count can remove it before every key's been settled.
+
+### skilift [#skilift]
+
+[skilift](https://github.com/alicesaidhi/skilift) is about 1,400 lines. It doesn't use session locks either, and it
+has transactions too. It keeps a list of pending transactions on each key, and a transaction counts as finished once
+its own key says "finished".
+
+The catch is how it checks that. It reads the transaction's key with `GetAsync`, and if the key isn't there yet, it
+decides the transaction failed and remembers that for 90 minutes:
+
+```luau
+local result = TRANSACTION_STORE:GetAsync(id)
+set_transaction_status(id, if result then true else false)
+```
+
+So if another server loads one of the players before the transaction's server has written "finished", or just gets an
+old read from `GetAsync`, it undoes that player's side. The other player's side still goes through. That's the read
+that nothing checks, from the trades page, and it splits the trade in half. And writing "finished" itself is a single
+`SetAsync`, which can error and still land.
+
+Skilift's own readme now says it's no longer maintained, because of "design issues which cannot be remedied", and that
+session locks are "more practical to work with".
+
+## So what does that mean [#so-what-does-that-mean]
+
+None of this is because the people who wrote these were careless. Both libraries are clean, they're small, and the
+ideas behind them are right. That's kind of the point. Each one handled the cases you'd think of, and the bugs are all in
+the ones you wouldn't: an error that wasn't really an error, a read that was a bit old, a retry that landed twice.
+
+That's the whole reason Ledger went the way it did. Not because writing a lockless datastore is impossible, but because
+the only way to be sure it's right is to check every order things can happen in, and that's what the last page of this
+series is about.
+
+
+# Why it isn't 300 lines (https://xoifaii.github.io/docs/blog/safe-datastores/why-it-isnt-300-lines)
+
+
+
+If you add up every code sample in this series it's maybe 300 lines. Ids, answers, a horizon, holds, a deciding key,
+seals, shards. Each page fixed one problem, and each fix was short. So it'd be fair to think Ledger's a few hundred
+lines, maybe a thousand with the boring bits.
+
+Ledger 7 is about 45,000 lines of Luau across 201 files. This page is about where the rest goes.
+
+## Every fix was on its own [#every-fix-was-on-its-own]
+
+Every page fixed one problem with nothing else going on. But on a real key, all of it's happening at once. A wipe happens
+while a trade's holding an item, a batch of ten changes goes out and one of them meets the seal, a hold is still waiting
+when the horizon moves past the trade it's waiting on. Each fix on its own is right. Put two of them on the same key and
+you get a case neither page thought about.
+
+Take the batching from earlier and the seal from the wipes page:
+
+```luau
+store:UpdateAsync(key, function(data)
+	if data.sealed then
+		return nil
+	end
+	for _, change in queue do
+		data = apply(data, change)
+	end
+	return data
+end)
+```
+
+That looks fine, but now all ten changes in the queue got the same "nothing happened", and the game has to be told
+something for each one. Was it wiped before or after they were sent? Should they be refused, or is it too late to know?
+And if this was a retry, did some of them already land before the seal did? Every one of those needs an answer, and the
+answer has to be the same one a different server would give.
+
+## The function runs more than once [#the-function-runs-more-than-once]
+
+`UpdateAsync` can run your function again if another server wrote the key in between. So it might run three times, and
+each run sees different data and decides something different. One run says "Bought", the next says "TooPoor", and only
+one of them is the write that actually happened. If the call then errors, you don't even know which one that was.
+
+So nothing you work out inside the function can be trusted until the write's happened, and anything the game gets told
+has to come from the run that counted. Every answer in Ledger is worked out that way, for every kind of change.
+
+## You can't look at another key while you write [#you-cant-look-at-another-key-while-you-write]
+
+The function you give `UpdateAsync` can't yield, so it can't read any other key. That's why the trade cleanup had to
+read the buyer first and then write. And that read can be a few seconds old, so it can't decide anything on its own. It
+has to be backed up by a write that checks again. That's true of every decision that depends on another key, and a lot
+of the old bugs were a decision made from a read that nothing ever checked.
+
+## Everything has a limit [#everything-has-a-limit]
+
+The samples just keep adding to tables. Roblox doesn't let you do that forever:
+
+* A key can only take so many bytes of writes a minute, and every write rewrites the whole key. So every bit of
+  bookkeeping on a key costs you writes, and it all has to stay a fixed size however busy the key gets.
+* Every server only gets so many requests a minute, shared with everything else in your game. So every background
+  read, every cleanup and every retry has to fit in a budget, and busy keys have to wait and batch instead of sending
+  more.
+* MemoryStore can lose anything at any time, so it can only ever be used to save requests, never to remember anything
+  that matters.
+
+Ledger packs its own bookkeeping into a compact format just to stay under those limits.
+
+## Old servers keep running [#old-servers-keep-running]
+
+When you publish an update, old servers don't stop straight away. For a while, servers running your old reducer and
+servers running your new one are writing the same keys. An old server can't apply a change it's never heard of, and a
+new server's data has to survive being written by an old one. That's its own whole part of Ledger.
+
+## Nothing can wait for a server [#nothing-can-wait-for-a-server]
+
+Every one of those pages ended with "the next server to touch it finishes it off". That's the thing that removes the
+cleanup system, but it also means every server has to be able to finish anything any other server started: a trade, a
+wipe, a held unit of stock, a late write. And it has to do that from whatever state the key's in, with no idea what the
+other server was doing.
+
+## Every call gets one answer [#every-call-gets-one-answer]
+
+Then there's the game. Every call has to get exactly one answer, through retries, crashes, a server shutting down, and
+the player leaving halfway. Changes are shown to the player straight away, before they're saved, so the session has to
+line up what the player sees with what's actually on the key once the write comes back.
+
+## So where do 45,000 lines go [#so-where-do-45000-lines-go]
+
+That's the real size of it. Not the fixes, the ways they meet. The core of Ledger is a state machine: an event comes in,
+like a write happening, a write erroring, a timer, or a call from the game, and it works out what changes and what to send
+next. Every one of those events has to be handled in every state a key can be in, under every way a request can fail.
+
+That's also why the design was checked with TLA+ before any code was written. You can't test every combination of all
+of this by hand, there are far too many. Most of the code is just following what TLA+ spec says, no human or AI could
+of written it. The last page of this series goes through how that worked, and some of the stranger bugs it found.

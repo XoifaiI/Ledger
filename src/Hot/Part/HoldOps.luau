@@ -3,7 +3,8 @@
 
 --[=[
 	HoldOps: hold, confirm and release judged (hot keys sheet H5 P8 to P15, H10). A hold ends at the run's clock
-	plus its duration. A confirm finds its hold, else takes, else is gone. A release writes even when no hold stands.
+	plus its duration. A confirm finds its hold, else takes, else is gone, also when the part has free units but no
+	run of serials for them. A release writes even when no hold stands.
 
 	Return type: A plain table with Hold, Confirm and Release, each a handler of Ops.
 	Example usage:
@@ -123,6 +124,13 @@ local function ConfirmStanding(
 	return ConfirmPlain(Arithmetics, State, Record, Place, Price)
 end
 
+local function GoneIfRefused(Verdict: Verdict): Verdict
+	if Verdict.Kind == "RefusedFor" then
+		return RefusedFor(PartReasons.Gone)
+	end
+	return Verdict
+end
+
 local function Confirm(
 	Setup: Setup,
 	State: Fields,
@@ -136,13 +144,10 @@ local function Confirm(
 		return ConfirmStanding(Arithmetics, State, Record, Place, Terms.Price)
 	end
 	local Refusal = Settle.TakeRefusal(State, Record, Escrows, Terms.Count)
-	if Refusal == nil then
-		return Settle.Taken(Arithmetics, State, Record, Terms)
+	if Refusal ~= nil then
+		return GoneIfRefused(Refusal)
 	end
-	if Refusal.Kind == "RefusedFor" then
-		return RefusedFor(PartReasons.Gone)
-	end
-	return Refusal
+	return GoneIfRefused(Settle.Taken(Arithmetics, State, Record, Terms))
 end
 
 local function ReleasePlain(

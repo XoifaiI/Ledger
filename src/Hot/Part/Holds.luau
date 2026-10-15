@@ -3,12 +3,14 @@
 
 --[=[
 	Holds: the holds, serial runs and seal of a part record (hot keys sheet H4 steps 2 and 5, H10). ReturnRun and
-	DrawSerials change the caller's own copy: its lists are replaced, an entry is never edited.
+	DrawRun change the caller's own copy: its lists are replaced, an entry is never edited.
 	ExpireHolds, SealIfDone and the With and Without functions return a new table. The clock must be usable.
+	A take's serials and a hold's are each one run, so a first serial and a count name them (2.7). A take draws
+	returned runs first, so they leave the hold room; a hold draws fresh serials first.
 
 	Return type: A plain table of functions.
 	Example usage:
-		local First = Holds.DrawSerials(Record, 3) --> 100
+		local First = Holds.DrawRun(Record, 3) --> 100, or nil when the part has no run of 3
 --]=]
 
 local Amounts = require("../../Encoding/Amounts")
@@ -46,10 +48,6 @@ local PartRecordKey = Hot.PartRecordKey
 local HoldRoom = Hot.HoldRoom
 
 local NoUnits = 0
-
-local ModuleName = "Holds"
-local TooFewSerials =
-	`{ModuleName}: the part has fewer serials than asked for. The caller must give a part whose u is within its serials`
 
 local function IsHigherRun(Left: SerialRun, Right: SerialRun): boolean
 	return Left.First > Right.First
@@ -108,36 +106,16 @@ local function ReturnRun(Record: SerialPart, First: number, Count: number)
 	Record.Returned = Returned
 end
 
-local function DrawSerials(Record: SerialPart, Count: number): number
-	if SerialsLeft(Record) < Count then
-		error(TooFewSerials)
+local function FreshRun(Record: SerialPart, Count: number): SerialRun?
+	if Record.SerialNext + Count > Record.SerialEnd then
+		return nil
 	end
-	local Returned = table.clone(Record.Returned)
-	local Lowest = Returned[#Returned]
-	local First = if Lowest == nil then Record.SerialNext else Lowest.First
-	local Needed = Count
-	while Needed > 0 and #Returned > 0 do
-		local Place = #Returned
-		local Run = Returned[Place]
-		local Drawn = math.min(Needed, Run.Count)
-		if Drawn == Run.Count then
-			table.remove(Returned, Place)
-		else
-			Returned[Place] = { First = Run.First + Drawn, Count = Run.Count - Drawn }
-		end
-		Needed -= Drawn
-	end
-	Record.Returned = Returned
-	Record.SerialNext += Needed
-	return First
+	local Fresh: SerialRun = { First = Record.SerialNext, Count = Count }
+	Record.SerialNext += Count
+	return Fresh
 end
 
-local function TakeRun(Record: SerialPart, Count: number): SerialRun?
-	if Record.SerialNext + Count <= Record.SerialEnd then
-		local Fresh: SerialRun = { First = Record.SerialNext, Count = Count }
-		Record.SerialNext += Count
-		return Fresh
-	end
+local function ReturnedRun(Record: SerialPart, Count: number): SerialRun?
 	for Place = #Record.Returned, 1, -1 do
 		local Run = Record.Returned[Place]
 		if Run.Count < Count then
@@ -153,6 +131,26 @@ local function TakeRun(Record: SerialPart, Count: number): SerialRun?
 		return { First = Run.First, Count = Count }
 	end
 	return nil
+end
+
+local function HoldRun(Record: SerialPart, Count: number): SerialRun?
+	local Fresh = FreshRun(Record, Count)
+	if Fresh ~= nil then
+		return Fresh
+	end
+	return ReturnedRun(Record, Count)
+end
+
+local function DrawRun(Record: SerialPart, Count: number): number?
+	local Returned = ReturnedRun(Record, Count)
+	if Returned ~= nil then
+		return Returned.First
+	end
+	local Fresh = FreshRun(Record, Count)
+	if Fresh == nil then
+		return nil
+	end
+	return Fresh.First
 end
 
 local function WithoutAt<Item>(Items: { Item }, Place: number): { Item }
@@ -187,7 +185,7 @@ local function WithSerialHold(
 	End: number
 ): { Record: SerialPart, First: number }?
 	local Holding = table.clone(Record)
-	local Run = TakeRun(Holding, Count)
+	local Run = HoldRun(Holding, Count)
 	if Run == nil then
 		return nil
 	end
@@ -298,7 +296,7 @@ end
 return {
 	ExpireHolds = ExpireHolds,
 	ReturnRun = ReturnRun,
-	DrawSerials = DrawSerials,
+	DrawRun = DrawRun,
 	HeldUnits = HeldUnits,
 	SerialsLeft = SerialsLeft,
 	FindHold = FindHold,

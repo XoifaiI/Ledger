@@ -14,6 +14,9 @@ HotCtlRelease.cfg Hot expect=violate:ReleaseTrue timeout=3600 why=hot keys 11: a
 HotSerial.cfg Hot expect=pass timeout=3600 why=2.7: no serial sold twice; S1 on units
 ProbeHotSerial.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotSerial's pass is not a pass by an early stop
 HotSerialCtlExpiry.cfg Hot expect=violate:SerialOnce timeout=3600 why=hot keys 11: a confirmed hold's serial comes back and is sold again (2.7)
+HotSerialRun.cfg Hot expect=pass timeout=3600 why=2.7: a take's serials are one run; no serial sold twice; S1 on units
+ProbeHotSerialRun.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotSerialRun's pass is not a pass by an early stop
+HotSerialCtlRun.cfg Hot expect=violate:SerialRun timeout=3600 why=hot keys 11: a take reports v while its serials are not v to v + k - 1 (2.7)
 HotCredit.cfg Hot expect=pass timeout=3600 why=2.3, 2.5: a final quantity takes no Deposit, so SoldOut stays true
 ProbeHotCredit.cfg Hot expect=violate:ScriptUnfinished timeout=3600 why=probe: HotCredit's pass is not a pass by an early stop
 HotCreditClose.cfg Hot expect=pass timeout=3600 why=2.3, 2.5: a closed part refuses a credit, so Close removes no unit
@@ -32,6 +35,7 @@ QuickHotWalk.cfg Hot expect=pass timeout=1800 why=quick check of HotWalk's logic
 QuickHotHold.cfg Hot expect=pass timeout=1800 why=quick check of HotHold's logic, not a safety result
 QuickHotConfirm.cfg Hot expect=pass timeout=1800 why=quick check of HotConfirm's logic, not a safety result
 QuickHotSerial.cfg Hot expect=pass timeout=1800 why=quick check of HotSerial's logic, not a safety result
+QuickHotSerialRun.cfg Hot expect=pass timeout=1800 why=quick check of HotSerialRun's logic, not a safety result
 QuickHotCredit.cfg Hot expect=pass timeout=1800 why=quick check of HotCredit's logic, not a safety result
 QuickHotCreditClose.cfg Hot expect=pass timeout=1800 why=quick check of HotCreditClose's logic, not a safety result
 QuickHotCreditEarly.cfg Hot expect=pass timeout=1800 why=quick check of HotCreditEarly's logic, not a safety result

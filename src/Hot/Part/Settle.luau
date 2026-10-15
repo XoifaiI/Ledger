@@ -188,12 +188,16 @@ local function Taken(
 	Terms: TakeTerms
 ): Verdict
 	local Sold = AddSold(Record, Terms.Count)
-	local Paid = PayProceeds(State, Terms.Price, Arithmetics)
-	if Sold.IsSerial then
-		local First = Holds.DrawSerials(Sold, Terms.Count)
-		return MoveUnitsWith(Arithmetics, Paid, Sold, Terms.Count, Direction.Debit, First)
+	if not Sold.IsSerial then
+		local Paid = PayProceeds(State, Terms.Price, Arithmetics)
+		return MoveUnits(Arithmetics, Paid, Sold, Terms.Count, Direction.Debit)
 	end
-	return MoveUnits(Arithmetics, Paid, Sold, Terms.Count, Direction.Debit)
+	local First = Holds.DrawRun(Sold, Terms.Count)
+	if First == nil then
+		return RefusedFor(PartReasons.Free)
+	end
+	local Paid = PayProceeds(State, Terms.Price, Arithmetics)
+	return MoveUnitsWith(Arithmetics, Paid, Sold, Terms.Count, Direction.Debit, First)
 end
 
 return {

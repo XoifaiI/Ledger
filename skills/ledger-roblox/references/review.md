@@ -366,6 +366,11 @@ Session:Apply({ Kind = "GrantPurchase", PurchaseId = Receipt.PurchaseId, Gold = 
 return Granted
 ```
 
+```luau
+local Ok = Stock:Confirm(HeldFor[Receipt.PlayerId]) -- no leg, or a leg whose op has no PurchaseId
+return if Ok then Granted else NotProcessedYet
+```
+
 **Why it survives review.** The first purchase works, and every manual test is a first purchase.
 
 **What it costs.** A `PurchaseId` has no first send time, so as an `Id` it is an **untimed** name: it
@@ -373,14 +378,18 @@ throws unless the kind's `Windows[Kind].Untimed` was set, and once set it protec
 window. Roblox resends an unanswered receipt the next time the player buys or joins, which can be days
 later, and then it grants again. Answering from the boolean alone answers `NotProcessedYet` for ever
 once a retry is refused as a duplicate. `Apply` answers before anything is saved, so a crash in the
-next 30 s loses a grant Roblox was told happened.
+next 30 s loses a grant Roblox was told happened. `Confirm` has no `Id` at all: a second `Confirm` of a
+hold that already sold finds no hold, takes a free unit and sells it, so each resend of the receipt
+sells another limited item.
 
 **When it fires.** On any receipt resend: a lost acknowledgement, a player who switched servers
 mid-purchase, an outage.
 
 **Fix.** The pattern in `learn/purchases`: the op records the `PurchaseId` in the player's data and the
 reducer refuses an id it already holds; `Store:Edit` with no `Id`; `true` is granted; `Refused` with
-the id in `Info.State` is granted; anything else is `NotProcessedYet`.
+the id in `Info.State` is granted; anything else is `NotProcessedYet`. For a `Confirm`, the same record
+goes in the buyer's leg (`reference/quantity#hold-and-confirm`), and since a refused `Confirm` carries no
+`Info.State`, the handler `Peek`s the buyer for the id before it answers granted.
 
 **Not a match.** That pattern. Check the record is bounded (D21) and that its bound is far above any
 resend delay: the docs keep 1,000 ids, and a game that kept 100 was found to grant twice after 100
