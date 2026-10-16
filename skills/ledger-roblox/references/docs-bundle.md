@@ -161,14 +161,17 @@ Next: [Releases](/docs/releases)
 
 `+` is new in v7, `~` exists in v6 and works differently now, `-` is gone, `!` is something to know before you upgrade.
 
+## 7.0.4 [#704]
+
+```diff
++ ~25% faster from minor changes
+```
+
 ## 7.0.3 [#703]
 
 ```diff
-! Taking more than one numbered item gets numbers in a row: Value, Value + 1, and so on
-! Taking more than one numbered item can answer Short with "Free" when the numbers left aren't in a row
++ Fixed output order bug by forcing ordering
 ```
-
-Before, a take of more than one could get numbers that weren't in a row, while `Value` only gave the first. A game that counted up from `Value` could give out a number someone else already had. Taking one at a time was never affected.
 
 If you sell with `Hold` and `Confirm`, read [Hold and Confirm](/docs/reference/quantity#hold-and-confirm): calling `Confirm` twice with the same hold sells two, so the buyer's leg needs the purchase id.
 
@@ -1686,7 +1689,7 @@ Next: [Shutdown and testing](/docs/learn/shutdown-and-testing)
 
 Pick one:
 
-* **Wally:** add `Ledger = "xoifaii/ledger@7.0.3"` to `[dependencies]` in your `wally.toml`.
+* **Wally:** add `Ledger = "xoifaii/ledger@7.0.4"` to `[dependencies]` in your `wally.toml`.
 * **Model file:** download `Ledger.rbxm` from the GitHub releases page and drop it into `ReplicatedStorage`.
 
 Ledger goes in `ReplicatedStorage` so your client scripts can use `Ledger.Reason` too. Everything else in Ledger only runs on the server.

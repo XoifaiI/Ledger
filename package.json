@@ -1,6 +1,6 @@
 {
 	"name": "@xoifail/ledger",
-	"version": "7.0.3",
+	"version": "7.0.4",
 	"description": "Safe player data for Roblox: every change saved once, every answer says what happened.",
 	"main": "src/init.luau",
 	"types": "index.d.ts",
