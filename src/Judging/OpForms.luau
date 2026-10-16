@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	OpForms: what an op's form says of the op, for the modules that queue, send, judge and run ops. A cut, a

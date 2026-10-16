@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Pacing: a shard's or part's send gap and read interval (extras sheet E3, E10). A new shard writer first waits a

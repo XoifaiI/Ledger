@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Transaction: the numbers of the transaction design that are not the record's (the transaction sheet's

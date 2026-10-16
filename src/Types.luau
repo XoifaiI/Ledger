@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Types: the public types. Typed views hold each op to the game's op map; annotating an op with

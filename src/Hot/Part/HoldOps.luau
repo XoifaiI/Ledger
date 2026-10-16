@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	HoldOps: hold, confirm and release judged (hot keys sheet H5 P8 to P15, H10). A hold ends at the run's clock

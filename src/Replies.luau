@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Replies: the one way the core answers a call, an Answer command, and settles an Unresolved call's outcome, an Emit

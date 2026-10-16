@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Leg: one leg the game names (transaction sheet 7 step 1, A11): a plain table, its store one Ledger.New made on

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	State: a server's extras state, in Composed.State.Extras (extras sheet E4, E5): a TotalView per total, a

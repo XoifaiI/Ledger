@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Balance: a balance kind (a Credit or Debit name under a Balances field) and its arithmetic as Check rules, run

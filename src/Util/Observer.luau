@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Observer: Sends each value to each listener, which must not yield. From links the first subscriber before starting

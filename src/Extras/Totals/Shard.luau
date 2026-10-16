@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Shard: a total's shard (extras sheet E1, E2 B0, B5, B6): its key, build and bump terms. The state is

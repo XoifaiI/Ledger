@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	NextSteps: what a Tx call sends or waits for after a report: the Tents, Commit or final fence again, a help, the

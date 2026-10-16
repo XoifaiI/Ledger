@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Extras: the numbers of totals, the summary item and copies that have a meaning. Seconds unless a name says

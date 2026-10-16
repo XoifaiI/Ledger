@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	KeyLegs: the key leg a quantity's move builds for a key the game names as a plain { Store, Key } (hot keys H8, A11):

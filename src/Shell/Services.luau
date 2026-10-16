@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Services: the DataStore, MemoryStore and JSON calls, one request in, one Result out, through ResultOf's one

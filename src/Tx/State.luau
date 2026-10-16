@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	State: a server's transaction state (transaction sheets 5, 7, 16, 17, 18 and 21): a Call, a PendingCall, a

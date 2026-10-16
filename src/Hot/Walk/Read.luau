@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Read: what a read of a part teaches the quantity's view (hot keys sheet H9), for a walk's read and for Total's.

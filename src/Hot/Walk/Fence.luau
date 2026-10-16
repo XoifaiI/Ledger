@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Fence: the requests a walk sends besides its steps (hot keys sheet H5 P6, P7, H9). A fence on a part is an end

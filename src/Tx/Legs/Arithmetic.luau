@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Arithmetic: the contract a balance field's values go through (internal/balances.md), and Ledger's default

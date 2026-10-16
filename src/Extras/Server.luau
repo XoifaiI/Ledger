@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Server: routes extras calls and events. A landed shard value merges into its total's view and paces its writer

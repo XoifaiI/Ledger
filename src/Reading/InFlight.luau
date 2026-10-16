@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	InFlight: a server's reads in flight, kept in State.Reads by request id: a result handed to Reads, what its Next

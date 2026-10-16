@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Run: a write's working state while one request is judged. Judge, Transform and the rules they call (a cut's, a

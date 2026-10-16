@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Holds: the holds, serial runs and seal of a part record (hot keys sheet H4 steps 2 and 5, H10). ReturnRun and

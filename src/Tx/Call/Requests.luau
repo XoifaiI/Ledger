@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Requests: a Tx call's requests, each with no writer (TX-NONE), their names, and what answers teach the call

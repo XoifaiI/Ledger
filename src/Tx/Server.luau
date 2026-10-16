@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Server: routes the transaction's events to their owners by State.Tx.Purposes, forgetting a purpose once heard. On

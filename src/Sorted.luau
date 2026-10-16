@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Sorted: the keys of a map in a fixed order, so a step that emits commands while walking a map emits them in an

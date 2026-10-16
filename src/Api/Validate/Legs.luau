@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Legs: a Tx's legs and name, judged before sending (transaction sheet 7 step 1, A11); the decider is the core's

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	KeyPath: a follower's key path and Peek(key, MaxAge) (extras sheet E9 F6, F7). A big or newer header, a

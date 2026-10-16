@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Step: the server's state machine, step(state, event) -> (state', commands) (Charter item 23); the State is
@@ -181,7 +182,7 @@ local function OnCounterUnusable(State: State, RequestId: number, Clock: number,
 end
 
 local function EndCloseAfterWork(State: State, Clock: number, Commands: { Command })
-	Closing.EndClose(State.Server, State.Sessions, Composed.OpenCount(State), Clock, Commands)
+	Composed.EndClose(State, Clock, Commands)
 end
 
 local function OnRead(

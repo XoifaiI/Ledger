@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Numbers: the server's number from a counter key the JobId chooses, request ids, negative helper call ids (record

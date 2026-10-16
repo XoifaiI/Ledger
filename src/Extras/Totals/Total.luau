@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Total: one Total(total, MaxAge) call over shards or a quantity's parts (sheet E4). A fresh view answers (T1);

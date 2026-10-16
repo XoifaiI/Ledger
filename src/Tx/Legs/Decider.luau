@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Decider: the Commit and the Fence on the decider D (transaction sheets 9, 10) and the Commit's create window

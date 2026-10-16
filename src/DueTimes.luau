@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	DueTimes: times at which items fall due, kept as a binary min-heap in a plain array (an empty table is an empty

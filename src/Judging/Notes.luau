@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Notes: a run's note, cancel and land (record sheet 9, S.9).

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	GetOrMake: the value a map holds at a key, made and kept by the caller's constructor when the key has none.

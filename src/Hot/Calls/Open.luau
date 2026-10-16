@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Open: a quantity's Open (hot keys sheet H7). It sends each part's open alone, with no writer, and sends or

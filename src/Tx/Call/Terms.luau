@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Terms: the terms of a Tx call (transaction sheets 3.6, 7 and 15.4): how its legs are classified, which leg decides,

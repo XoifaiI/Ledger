@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Hearing: a writer's answer in, and each Flush and Refresh; a Flush waits for the push that carries its ops (record
@@ -315,7 +316,7 @@ local function Hear(
 	AnswerFlushesOnRequest(State, Writer, RequestId, Commands)
 	Closing.OnReleaseAnswer(State.Sessions, Writer.Key, RequestId, Commands)
 	if #State.Server.StepOut == 0 then
-		Closing.EndClose(State.Server, State.Sessions, Composed.OpenCount(State), Clock, Commands)
+		Composed.EndClose(State, Clock, Commands)
 	end
 	return Finished
 end

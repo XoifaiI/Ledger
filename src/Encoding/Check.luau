@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Check: pure validation rules. A rule is a function of one value that gives back nothing when the value

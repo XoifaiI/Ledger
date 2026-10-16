@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	State: what a server keeps of the copies it holds and follows (sheet E8, E9). A CopyHolder is one key's

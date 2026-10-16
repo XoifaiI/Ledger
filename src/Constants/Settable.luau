@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Settable: the constants a game may set, each with its default and the Check rule its value must

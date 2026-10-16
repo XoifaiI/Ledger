@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Decide: the step of J.9 for one op on any state: the new state, or why not.

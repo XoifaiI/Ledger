@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Setup: Ledger.New's options as Check rules, settled into Shell/Setup's Settings; balance kinds are Balance's.

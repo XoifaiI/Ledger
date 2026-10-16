@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Steps: what a walk sends for a part and under what name (sheet H3, H6). A step is a one key op under sub name

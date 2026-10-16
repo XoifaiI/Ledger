@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Durable: a durable call on one key, Edit or a session's Commit (record sheets 4, 7 and 11). A game name's

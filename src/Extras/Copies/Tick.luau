@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Tick: what Follow and KeyPath share (extras sheet E9): a Follower's tick, run for a followed key's observers, who

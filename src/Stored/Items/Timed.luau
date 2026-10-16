@@ -1,12 +1,15 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Timed: the items of the rooms T, U and K (spec/protocols/record/Format.md 6, 7.1 to 7.4): writer
 	entries, named entries and cut names.
 
 	A stamp is an offset from the epoch of b and a window is whole WindowUnits (Format). Named entries sort
-	by stamp, name, part. A reader throws through Format.Malformed; the record says what belongs in a room.
+	by stamp, name, part. Names order by their encoded bytes, held as strings, since Luau compares strings byte by
+	byte; a sort encodes each name once. A reader throws through Format.Malformed; the record says what belongs in
+	a room.
 
 	Return type: A plain table of functions, the frozen lookups CutKindIndex (kind to character) and
 	CutKindOfIndex (character to kind), and the types of the items.
@@ -80,7 +83,7 @@ local ReadWriterFateKind = Fates.ReadWriterFateKind
 
 local NewWriter = Format.NewWriter
 local Malformed = Format.Malformed
-local WrittenBefore = Format.WrittenBefore
+local ToString = Format.ToString
 local WriteVarint = Format.WriteVarint
 local RequireWholeBelow = Format.RequireWholeBelow
 local ReadVarint = Format.ReadVarint
@@ -105,8 +108,7 @@ local SubNameHeadStep = 32
 
 local NameHeaderBytes = 2
 local NameScratchBytes = Record.NameMax + NameHeaderBytes
-local LeftScratch = NewWriter(NameScratchBytes)
-local RightScratch = NewWriter(NameScratchBytes)
+local NameScratch = NewWriter(NameScratchBytes)
 
 local BuiltIndex: { [CutKind]: number } = {
 	Erase = buffer.readu8(Values, Record.EventCauseByte.Erase),
@@ -317,16 +319,14 @@ local function ReadCutName(In: Reader, Epoch: number, WindowUnit: number): CutNa
 	return Entry
 end
 
-local function FillScratches(Left: Name, Right: Name)
-	LeftScratch.Cursor = 0
-	RightScratch.Cursor = 0
-	WriteName(LeftScratch, Left)
-	WriteName(RightScratch, Right)
+local function NameKey(Name: Name): string
+	NameScratch.Cursor = 0
+	WriteName(NameScratch, Name)
+	return ToString(NameScratch)
 end
 
 local function NameBefore(Left: Name, Right: Name): boolean
-	FillScratches(Left, Right)
-	return WrittenBefore(LeftScratch, RightScratch)
+	return NameKey(Left) < NameKey(Right)
 end
 
 local function PartBefore(Left: number?, Right: number?): boolean
@@ -336,15 +336,15 @@ local function PartBefore(Left: number?, Right: number?): boolean
 	return Right ~= nil and Left < Right
 end
 
-local function NamePartBefore(LeftName: Name, LeftPart: number?, RightName: Name, RightPart: number?): boolean
-	FillScratches(LeftName, RightName)
-	if WrittenBefore(LeftScratch, RightScratch) then
-		return true
-	end
-	if WrittenBefore(RightScratch, LeftScratch) then
-		return false
+local function KeyPartBefore(LeftKey: string, LeftPart: number?, RightKey: string, RightPart: number?): boolean
+	if LeftKey ~= RightKey then
+		return LeftKey < RightKey
 	end
 	return PartBefore(LeftPart, RightPart)
+end
+
+local function NamePartBefore(LeftName: Name, LeftPart: number?, RightName: Name, RightPart: number?): boolean
+	return KeyPartBefore(NameKey(LeftName), LeftPart, NameKey(RightName), RightPart)
 end
 
 local function StampThenName(LeftStamp: number, LeftName: Name, RightStamp: number, RightName: Name): boolean
@@ -368,12 +368,18 @@ local function StampNamePartBefore(
 	return NamePartBefore(LeftName, LeftPart, RightName, RightPart)
 end
 
-local function NamedEntryBefore(Left: NamedEntry, Right: NamedEntry): boolean
-	local LeftName, RightName = Left.Name, Right.Name
-	return StampNamePartBefore(Left.Stamp, LeftName.Name, LeftName.Part, Right.Stamp, RightName.Name, RightName.Part)
+local function EntryKey(Entry: NamedEntry): string
+	return NameKey(Entry.Name.Name)
 end
 
-local function TimedBefore(Left: TimedItem, Right: TimedItem): boolean
+local function EntryBeforeBy(Left: NamedEntry, Right: NamedEntry, KeyOf: (Entry: NamedEntry) -> string): boolean
+	if Left.Stamp ~= Right.Stamp then
+		return Left.Stamp < Right.Stamp
+	end
+	return KeyPartBefore(KeyOf(Left), Left.Name.Part, KeyOf(Right), Right.Name.Part)
+end
+
+local function TimedBeforeBy(Left: TimedItem, Right: TimedItem, KeyOf: (Entry: NamedEntry) -> string): boolean
 	if Left.Kind == "Writer" then
 		if Right.Kind == "Writer" then
 			return Left.WriterId < Right.WriterId
@@ -383,7 +389,43 @@ local function TimedBefore(Left: TimedItem, Right: TimedItem): boolean
 	if Right.Kind == "Writer" then
 		return false
 	end
-	return NamedEntryBefore(Left, Right)
+	return EntryBeforeBy(Left, Right, KeyOf)
+end
+
+local function NamedEntryBefore(Left: NamedEntry, Right: NamedEntry): boolean
+	return EntryBeforeBy(Left, Right, EntryKey)
+end
+
+local function TimedBefore(Left: TimedItem, Right: TimedItem): boolean
+	return TimedBeforeBy(Left, Right, EntryKey)
+end
+
+local function SortTimed(Items: { TimedItem })
+	local Keys: { [NamedEntry]: string } = {}
+	for _, Item in Items do
+		if Item.Kind == "Named" then
+			Keys[Item] = EntryKey(Item)
+		end
+	end
+	local function KeyOf(Entry: NamedEntry): string
+		return Keys[Entry]
+	end
+	table.sort(Items, function(Left: TimedItem, Right: TimedItem): boolean
+		return TimedBeforeBy(Left, Right, KeyOf)
+	end)
+end
+
+local function SortNamedEntries(Items: { NamedEntry })
+	local Keys: { [NamedEntry]: string } = {}
+	for _, Item in Items do
+		Keys[Item] = EntryKey(Item)
+	end
+	local function KeyOf(Entry: NamedEntry): string
+		return Keys[Entry]
+	end
+	table.sort(Items, function(Left: NamedEntry, Right: NamedEntry): boolean
+		return EntryBeforeBy(Left, Right, KeyOf)
+	end)
 end
 
 local function CutNameBefore(Left: CutName, Right: CutName): boolean
@@ -414,6 +456,8 @@ return {
 	StampNamePartBefore = StampNamePartBefore,
 	TimedBefore = TimedBefore,
 	NamedEntryBefore = NamedEntryBefore,
+	SortTimed = SortTimed,
+	SortNamedEntries = SortNamedEntries,
 	CutNameBefore = CutNameBefore,
 	FateBefore = FateBefore,
 }

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Calls: what the server does with an arriving call, once Step has its State. First, in order: CloseAll, a call after

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Verify: pinned records' verification and the drops it earns (transaction sheet 17; 18.4's ProveGone of a missing

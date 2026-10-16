@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Runner: the server's loop, wakes, stores and close. Events step at once, even inside commands; an unhandled command

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	GameValues: the values in what the core says, as the game is handed them (Answers.md 4 to 6): frozen deep copies,

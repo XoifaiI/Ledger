@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Events: what goes into step and what comes out of it. An Event is the clock reading and what happened. A

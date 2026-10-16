@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	CutOp: the cut op in step (cuts sheets 3, 4): missing, kept, own gate, forgotten, behind, ahead, then Gate and

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Adoption: what an open session does with a newer state or a turned-away op (record sheet 10 steps 3 and 4, and 13).

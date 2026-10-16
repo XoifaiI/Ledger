@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Keys: the store's key mode applied to a call's key or player (A11). A player store's key is a Player or a whole

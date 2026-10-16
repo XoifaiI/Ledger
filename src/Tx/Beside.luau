@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Beside: what a read and an Apply do beside the marks of P that need no request (transaction sheet 19 rules 1

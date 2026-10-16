@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Stepping: marks the game code Ledger runs (the core's steps and transforms, the API's checks), so the API can

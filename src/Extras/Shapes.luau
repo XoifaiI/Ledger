@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Shapes: what totals and copies add to calls, items and pairs. A total sums KeyCount keys: shards, or a

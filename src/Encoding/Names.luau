@@ -8,7 +8,7 @@
 
 	A body outside the alphabet is base64url behind a flag. The reader takes only what the writer would
 	write, and throws through Format.Malformed. A SubName is the stored pair; OpName.Part is the same part on an
-	op's name.
+	op's name. KeyText runs several times per call, so it writes into one scratch writer and allocates only its text.
 
 	Return type: A plain table of functions (KeyText gives the full key reference of a StoreKey as the text that
 	keys a table), and the Name, GameOpName, OpName, NameWithPart, GivenName, SubName, KeyReference and StoreKey
@@ -72,6 +72,7 @@ local BitsPerByte = Record.BitsPerByte
 local ByteMask = 2 ^ BitsPerByte - 1
 
 local KeyTextStartBytes = 64
+local KeyScratch = Format.NewWriter(KeyTextStartBytes)
 
 local BytesPerGroup = 3
 local CharactersPerGroup = 4
@@ -356,20 +357,24 @@ local function WithPart(Name: OpName, Part: number?): OpName
 	return { Kind = "Drawn", Server = Name.Server, Counter = Name.Counter, Part = Part }
 end
 
+local function WriteFullKey(Out: Writer, Store: string, Scope: string, Key: string)
+	WriteStored(Out, Store)
+	WriteStored(Out, Scope)
+	WriteStored(Out, Key)
+end
+
 local function WriteKey(Out: Writer, Reference: KeyReference)
 	if Reference.Kind == "Short" then
 		WriteStored(Out, Reference.Key)
 		return
 	end
-	WriteStored(Out, Reference.Store)
-	WriteStored(Out, Reference.Scope)
-	WriteStored(Out, Reference.Key)
+	WriteFullKey(Out, Reference.Store, Reference.Scope, Reference.Key)
 end
 
 local function KeyText(Key: StoreKey): string
-	local Out = Format.NewWriter(KeyTextStartBytes)
-	WriteKey(Out, { Kind = "Full", Store = Key.Store, Scope = Key.Scope, Key = Key.Key })
-	return Format.ToString(Out)
+	KeyScratch.Cursor = 0
+	WriteFullKey(KeyScratch, Key.Store, Key.Scope, Key.Key)
+	return Format.ToString(KeyScratch)
 end
 
 local function ReferenceTo(From: StoreKey, To: StoreKey): KeyReference

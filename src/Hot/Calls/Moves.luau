@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Moves: Confirm, Release and the minted Deposit are writer ops; Deposit from a key and Withdraw are plain Txs; a

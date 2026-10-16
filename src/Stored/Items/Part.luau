@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Part: a part's own state s (spec/protocols/record/Format.md 10) as text and as the state table. The free

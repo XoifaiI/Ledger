@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Shapes: the shapes the record's rule modules share: the limits, a store's build and setup, ops, requests and

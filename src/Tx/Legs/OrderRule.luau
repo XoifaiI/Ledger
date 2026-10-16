@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	OrderRule: how a write other than a leg's own mark is judged beside the marks of P (transaction sheet 13),

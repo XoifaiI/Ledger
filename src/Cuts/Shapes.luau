@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Shapes: the shapes a cut puts in an op, a request, a report, a call and its answer (cuts sheets 1.3, 4, 5.3,

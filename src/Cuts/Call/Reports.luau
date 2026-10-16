@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Reports: how a cut call hears each report (cuts sheets 8.2, 9). A call that may have written answers Unresolved, not

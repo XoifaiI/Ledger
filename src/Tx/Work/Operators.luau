@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Operators: Pending lists a key's marks and pinned records; Resettle ends them at once, as a touch does but with no

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Help: the work any server does on another use's marks for a writer, a read, a call or a touch that met them

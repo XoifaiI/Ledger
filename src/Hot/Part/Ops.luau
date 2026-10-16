@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Ops: the part's ops judged (hot keys sheet H4 steps 1 and 3, H5). An open makes a part or changes nothing. Any

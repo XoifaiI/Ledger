@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Messages: the texts that two or more files use. A text only one file uses sits at the top of that file.

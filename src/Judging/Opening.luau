@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Opening: what a write finds on its key (record sheet 9, K.1, K.2, G.1, G.2): the stored value, the key opened or

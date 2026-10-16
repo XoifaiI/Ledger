@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Requests: runs the DataStore commands Update, Count, Get and Remove, each in a thread, and feeds each event

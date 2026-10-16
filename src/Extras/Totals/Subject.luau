@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Subject: what a Total and a summary refresh read: a total's shards (Pairs) or a quantity's parts, the walk's view

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Unclean: a read that meets unclean marks reads their deciders (transaction sheet 19, rule 3). All aborted (absent

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Writer: the writer of one key and its queue (record sheets 7, 8 and 10).

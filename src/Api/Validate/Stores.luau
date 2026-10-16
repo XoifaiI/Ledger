@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Stores: the live store objects Ledger.New made on this server, each with its Settings, so a call that names a store

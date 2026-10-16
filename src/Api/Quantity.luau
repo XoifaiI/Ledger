@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Quantity: the object Store:Quantity gives for a declared quantity (hot keys 2.1 to 2.6), one per name. Each method

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Composed: the state that step keeps, changed in place: the server's state, its sessions, the reads and flushes in
@@ -30,6 +31,7 @@ local Showables = require("./Reading/Showables")
 local TxState = require("./Tx/State")
 
 type Call = Events.Call
+type Command = Events.Command
 type CutsState = CutState.CutsState
 type Encoding = HashInputs.Encoding
 type ExtrasState = ExtrasState.ExtrasState
@@ -188,6 +190,13 @@ local function OpenCount(State: State): number
 		+ HotState.OpenCount(State.Hot, State.Server)
 end
 
+local function EndClose(State: State, Clock: number, Commands: { Command })
+	if not Closing.IsEnding(State.Sessions) then
+		return
+	end
+	Closing.EndClose(State.Server, State.Sessions, OpenCount(State), Clock, Commands)
+end
+
 local function IsReached(At: number?, Clock: number): boolean
 	return At ~= nil and Clock >= At
 end
@@ -213,7 +222,7 @@ return {
 	NoteSendableAt = NoteSendableAt,
 	NoteTimersMoved = NoteTimersMoved,
 	NoteTimersMovedAt = NoteTimersMovedAt,
-	OpenCount = OpenCount,
+	EndClose = EndClose,
 	IsReached = IsReached,
 	EarliestAfter = EarliestAfter,
 }

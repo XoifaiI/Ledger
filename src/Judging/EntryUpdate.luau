@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	EntryUpdate: the writer's entry of a run (record sheet 9, S.5). The numbers a run decided go into the

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Ends: a request's ends, applied at record step 3 before its ops (transaction sheet 11), and ProveGone (sheet 12).

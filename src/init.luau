@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Ledger: the module surface. On the server it starts the Runner at load; on a client, read through Platform (not a

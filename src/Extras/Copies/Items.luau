@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Items: the copy items of one followed key (extras sheet E7; Format 11, 12): the header's key (tagged, with the

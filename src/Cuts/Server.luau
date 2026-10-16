@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Server: routes a cut call's events to their owners. A request id in State.Cuts.Purposes is the cuts', forgotten

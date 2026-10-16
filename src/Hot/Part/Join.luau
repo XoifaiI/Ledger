@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Join: a quantity call's writer op joins its part's writer, which a call's Fraction makes paced (hot keys sheet

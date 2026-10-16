@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Waking: the writers' and sessions' timers and the wake for the next of them (record sheet 7 cases 2 and 6, 10, 13).
@@ -230,7 +231,7 @@ local function OnClock(State: State, Clock: number, Commands: { Command })
 	Hearing.AnswerFlushesAtDeadline(State, Clock, Commands)
 	Session.AnswerRefreshesDue(Sessions, Clock, Commands)
 	Closing.ReleaseTimeOut(Sessions, Clock, Commands)
-	Closing.EndClose(Server, Sessions, Composed.OpenCount(State), Clock, Commands)
+	Composed.EndClose(State, Clock, Commands)
 	Writers.DropIdle(Server, Clock)
 end
 

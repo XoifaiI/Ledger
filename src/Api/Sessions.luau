@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Sessions: a player store's Load, Unload, lookups and each key's session until Release answers. Load answers the

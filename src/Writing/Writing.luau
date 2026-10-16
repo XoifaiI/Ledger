@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Writing: a writer's request out (record sheet 7 case 3, 6 and 13).

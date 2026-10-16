@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Streams: the observer streams the core's Emit commands feed, by stream name and key. A key's last View is kept with

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Showables: where rule 2's remembered states live (transaction sheet 19, Tx/Beside), and the one owner of that

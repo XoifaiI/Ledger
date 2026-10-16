@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	PostDiff: an exclusive mark's post diff (transaction sheet 3.2, spec/protocols/record/Format.md 8):

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	DidApply: the record's DidApply (record sheet 14), with and without its probe.

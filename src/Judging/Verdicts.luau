@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Verdicts: the frozen verdicts of J.9 that carry no data, one value each, shared by Decide and the part's rules.

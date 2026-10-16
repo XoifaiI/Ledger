@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Cache: the one owner of the server's key cache, HCache (record sheet 6), and of finding a key's store

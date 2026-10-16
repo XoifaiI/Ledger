@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Marks: this protocol's items in the room P of a working book, and what is written into T beside them:

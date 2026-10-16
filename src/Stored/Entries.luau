@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Entries: the named entry that a decision of a timed or untimed op writes into T or U.

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	ProbeAdvice: the warning a DidApply asked without the probe flag earns when it answers Unresolved for a timed name,

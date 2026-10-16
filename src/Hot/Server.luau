@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Server: routes quantity calls to their walks, opens, closes and moves (sheet H6 to H8). OnClock resends a fence or
@@ -314,7 +315,7 @@ local function AfterEvent(State: State, Clock: number, Commands: { Command })
 	local IsDelivered = Delivery.DeliverTxSteps(State, Clock, Commands)
 	local IsResumed = Reports.ResumeWalks(State, Clock, Commands)
 	if HasOwnerEntry or IsDelivered or IsResumed then
-		Closing.EndClose(State.Server, State.Sessions, Composed.OpenCount(State), Clock, Commands)
+		Composed.EndClose(State, Clock, Commands)
 		Delivery.DrainStepOut(State, Clock, Commands)
 	end
 	if Closing.IsEnded(State.Sessions) then

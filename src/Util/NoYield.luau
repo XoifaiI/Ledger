@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	NoYield: Runs a listener that must not yield. A listener that yields is stopped where it yielded,

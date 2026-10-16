@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Gather: an open-mode Take with gather set (sheet H8). Part debit legs are sized from the view, most free first, in

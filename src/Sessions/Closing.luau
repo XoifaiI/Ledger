@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Closing: when a session's writer sends, and how a session and the server end (record sheet 13).
@@ -230,6 +231,11 @@ local function IsPastDeadline(Sessions: SessionState, Clock: number): boolean
 	return Shutdown.Kind == "Ended" or Clock >= Shutdown.Deadline
 end
 
+local function IsEnding(Sessions: SessionState): boolean
+	local Shutdown = Sessions.Shutdown
+	return Shutdown ~= nil and Shutdown.Kind == "Ending"
+end
+
 local function EndClose(
 	State: ServerState,
 	Sessions: SessionState,
@@ -267,6 +273,7 @@ return {
 	ShutdownDeadline = ShutdownDeadline,
 	CloseAll = CloseAll,
 	EndClose = EndClose,
+	IsEnding = IsEnding,
 	IsEnded = IsEnded,
 	IsPastDeadline = IsPastDeadline,
 }

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Moves: a quantity's moves' arguments, Confirm, Release, Deposit, Withdraw and a gather (hot keys H8, A11). A hold

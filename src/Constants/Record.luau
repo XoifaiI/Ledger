@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Record: the numbers and texts of the record that have a meaning. Seconds unless a name says bytes or a

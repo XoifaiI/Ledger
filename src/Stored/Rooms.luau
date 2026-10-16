@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Rooms: the age and fit steps of a write (record sheet 9, S.7 and S.8, with the cuts sheet's), the measure of a
@@ -307,9 +308,9 @@ local function CountItems(Working: Book): number
 end
 
 local function SortRooms(Working: Book)
-	table.sort(Working.Timed, TimedRoom.Before)
+	Timed.SortTimed(Working.Timed)
 	table.sort(Working.CutNames, CutNameRoom.Before)
-	table.sort(Working.Untimed, UntimedRoom.Before)
+	Timed.SortNamedEntries(Working.Untimed)
 	table.sort(Working.Work, WorkItemRoom.Before)
 	table.sort(Working.Losses.Events, Losses.EventBefore)
 	table.sort(Working.Losses.Returns, Losses.ReturnBefore)

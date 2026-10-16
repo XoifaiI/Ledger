@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Args: shared method arguments, judged from the call, the store's options (A11) and the clock. No call may come from
@@ -35,6 +36,7 @@ type AskedName = Shapes.AskedName
 type GivenName = Names.GivenName
 type OpId = PublicTypes.OpId
 type Rule = Check.Rule
+type Arithmetic = Balances.Arithmetic
 type Settings = ShellSetup.Settings
 type StoreKey = Names.StoreKey
 type Fields = StoredValue.Fields
@@ -259,6 +261,12 @@ end
 local StorableOp = Rules.StorableAs("Op")
 local StorableState = Rules.StorableAs(StateKey)
 
+local OpTableRules: { [string]: Rule } = { Op = OpTable }
+local OpKindRules: { [string]: Rule } = { Kind = Rules.OpKindName }
+local StorableOpRules: { [string]: Rule } = { Op = StorableOp }
+local AmountRules: { [Arithmetic]: { [string]: Rule } } = {}
+setmetatable(AmountRules, { __mode = "k" })
+
 local function FitsReset(Value: unknown): string?
 	if Json.Size(Value) > ResetBytesMost then
 		return ResetTooBig
@@ -306,26 +314,31 @@ local function AskedName(Value: unknown, At: unknown, Where: string): AskedName
 	return GameOf(ForDidApply, Value, At, OptionalStamp, Where)
 end
 
-local function OpFields(Given: unknown, Where: string): Fields
-	Check.Table({ Op = Given }, { Op = OpTable }, Where)
-	assert(type(Given) == "table", CheckAccepted)
-	return table.clone(Given :: Fields)
+local function AmountRulesOf(Arithmetic: Arithmetic): { [string]: Rule }
+	local Kept = AmountRules[Arithmetic]
+	if Kept ~= nil then
+		return Kept
+	end
+	local Made: { [string]: Rule } = { Amount = Balance.IsCallAmountOf(Arithmetic) }
+	AmountRules[Arithmetic] = Made
+	return Made
 end
 
 local function Op(Settings: Settings, Value: unknown, Where: string): (string, Terms)
-	local Given = OpFields(Value, Where)
+	Check.Table({ Op = Value }, OpTableRules, Where)
+	assert(type(Value) == "table", CheckAccepted)
+	local Given = Value :: Fields
 	local OpKind = Given.Kind
-	Check.Table({ Kind = OpKind }, { Kind = Rules.OpKindName }, OpWhere(Where))
+	Check.Table({ Kind = OpKind }, OpKindRules, OpWhere(Where))
 	assert(type(OpKind) == "string", CheckAccepted)
 
-	Check.Table({ Op = Given }, { Op = StorableOp }, Where)
+	Check.Table({ Op = Given }, StorableOpRules, Where)
 	local Terms = Guards.DeepCopy(Given)
 
 	local Kind = Settings.Ops[OpKind]
 	if Kind ~= nil then
 		Guards.DeepFreeze(Terms)
-		local Arithmetic = Balances.ArithmeticOf(Kind)
-		Check.Table({ Amount = Terms.Amount }, { Amount = Balance.IsCallAmountOf(Arithmetic) }, OpWhere(Where))
+		Check.Table({ Amount = Terms.Amount }, AmountRulesOf(Balances.ArithmeticOf(Kind)), OpWhere(Where))
 	end
 	return OpKind, Terms
 end

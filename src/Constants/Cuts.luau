@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Cuts: the constants of Erase and Reset. The rooms a cut writes into, and GateMax, are in Record because

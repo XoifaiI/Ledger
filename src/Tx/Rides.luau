@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Rides: the ends a server's next write to a key carries (transaction 3.4, 3.5, 3.7).

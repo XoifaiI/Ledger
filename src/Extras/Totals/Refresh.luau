@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Refresh: the summary holder's refresh (sheet E5). Start reads every shard or part, owing a tidy on an old entry

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Decision: what a read of a decider shows of a mark's use, and the ends that follow (sheets 16, 18.3). Gone is
