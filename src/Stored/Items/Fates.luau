@@ -7,7 +7,8 @@
 
 	A code is one character in the head of the named entry, and a fate's extra bytes come after the stamp,
 	so ReadFate runs once the stamp is read. A reader throws through Format.Malformed on a code no named
-	entry holds. ShortReason: the part reasons a Short carries.
+	entry holds. ShortReason: the part reasons a Short carries. A fate with no extra is one shared frozen table per
+	kind, since a decode reads one per named entry.
 
 	Return type: A plain table of functions and the PartReason and ShortReason names, and the Fate, PartReason,
 	ShortReason and WriterFateKind types.
@@ -66,6 +67,13 @@ local ReadCharacter = Format.ReadCharacter
 
 local Codes = Record.FateCode
 local MaxAttempts = Transaction.MaxAttempts
+
+local TookFate: Fate = { Kind = "Took" }
+local RefusedFate: Fate = { Kind = "Refused" }
+local FullFate: Fate = { Kind = "Full" }
+table.freeze(TookFate)
+table.freeze(RefusedFate)
+table.freeze(FullFate)
 
 local PartReasonByte: { [PartReason]: number } = {
 	Free = string.byte("f"),
@@ -165,13 +173,13 @@ end
 
 local function ReadFate(In: Reader, Code: number): Fate
 	if Code == Codes.Took then
-		return { Kind = "Took" }
+		return TookFate
 	end
 	if Code == Codes.Refused then
-		return { Kind = "Refused" }
+		return RefusedFate
 	end
 	if Code == Codes.Full then
-		return { Kind = "Full" }
+		return FullFate
 	end
 	if Code < Codes.FencedFirst then
 		return { Kind = "Aborted", Attempt = Code - Codes.AbortedFirst + 1 }

@@ -6,7 +6,8 @@
 	View: a quantity's parts as this server knows them (sheet H3, H6, H9). An entry merges by the larger q; sealed
 	and closed, once known, stay. NoteNo seals, closes, or notes a refusal apart. The view orders a walk's parts,
 	answers SoldOut and Busy from memory, sums parts for Total, and enters a missing part as q 0. AbsentAt keeps when a
-	read found a part absent, until a real entry beats it.
+	read found a part absent, until a real entry beats it. A quantity's home part is a hash of its name, its parts and
+	the server number, kept per declaration so a walk does not hash it again.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -42,8 +43,17 @@ type FreeAt = {
 	Free: number,
 }
 
+type KnownHome = {
+	Encoding: Encoding,
+	ServerNumber: number,
+	Home: number,
+}
+
 local ViewAge = Hot.ViewAge
 local PartReasons = Fates.PartReason
+
+local Homes: { [QuantityDeclaration]: KnownHome } = {}
+setmetatable(Homes, { __mode = "k" })
 
 local AbsentEntry: ViewEntry = table.freeze({
 	Q = 0,
@@ -72,7 +82,14 @@ local function GameOrder(Encoding: Encoding, Name: string, Parts: number): { num
 end
 
 local function HomePart(Encoding: Encoding, Quantity: QuantityDeclaration, ServerNumber: number): number
-	return ChoiceOf(Encoding, HashInputs.HomePartInput(Quantity.Name, Quantity.Parts, ServerNumber)) % Quantity.Parts
+	local Known = Homes[Quantity]
+	if Known ~= nil and Known.Encoding == Encoding and Known.ServerNumber == ServerNumber then
+		return Known.Home
+	end
+	local Input = HashInputs.HomePartInput(Quantity.Name, Quantity.Parts, ServerNumber)
+	local Home = ChoiceOf(Encoding, Input) % Quantity.Parts
+	Homes[Quantity] = { Encoding = Encoding, ServerNumber = ServerNumber, Home = Home }
+	return Home
 end
 
 local function IsShort(View: QuantityView, Index: number, Count: number, Clock: number): boolean

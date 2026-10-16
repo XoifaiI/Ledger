@@ -295,7 +295,7 @@ local function ReadStoredBody(In: Reader, Header: number): string
 	local Length = (Header - 1) // StoredFormCount + 1
 	local At = In.At
 	local Bytes = In.Bytes
-	if At + Length > buffer.len(Bytes) then
+	if At + Length > In.Size then
 		Malformed(Messages.EndsEarly)
 	end
 	In.At = At + Length

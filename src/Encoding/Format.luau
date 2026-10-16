@@ -7,7 +7,8 @@
 	buffers: varints below 2^53, fixed numbers, windows and single characters.
 
 	A reader throws through Malformed when the bytes are not what the writer gives, and leaves where it
-	stopped undefined. A reader checks representation only. A window is stored as a whole count of the
+	stopped undefined. A reader checks representation only. A reader keeps its buffer's length, since buffer.len
+	is a call even in native code. A window is stored as a whole count of the
 	WindowUnit the caller gives (Limits.WindowUnit), rounded up.
 
 	Return type: A plain table of functions, FixedNumberWidth (the characters of a fixed number), and the
@@ -31,6 +32,7 @@ export type Writer = {
 export type Reader = {
 	Bytes: buffer,
 	At: number,
+	Size: number,
 }
 
 local Chars = Alphabet.Chars
@@ -69,11 +71,11 @@ local function NewWriter(Capacity: number): Writer
 end
 
 local function NewReader(Bytes: buffer): Reader
-	return { Bytes = Bytes, At = 0 }
+	return { Bytes = Bytes, At = 0, Size = buffer.len(Bytes) }
 end
 
 local function AtEnd(In: Reader): boolean
-	return In.At == buffer.len(In.Bytes)
+	return In.At == In.Size
 end
 
 local function ToBuffer(Out: Writer): buffer
@@ -172,7 +174,7 @@ end
 
 local function ReadVarint(In: Reader): number
 	local Bytes = In.Bytes
-	local Size = buffer.len(Bytes)
+	local Size = In.Size
 	local At = In.At
 	if At >= Size then
 		Malformed(Messages.EndsEarly)
@@ -227,7 +229,7 @@ end
 local function ReadFixedNumber(In: Reader): number
 	local Bytes = In.Bytes
 	local At = In.At
-	if At + FixedNumberWidth > buffer.len(Bytes) then
+	if At + FixedNumberWidth > In.Size then
 		Malformed(Messages.EndsEarly)
 	end
 	local Value = 0
@@ -266,7 +268,7 @@ end
 
 local function ReadCharacter(In: Reader): number
 	local At = In.At
-	if At >= buffer.len(In.Bytes) then
+	if At >= In.Size then
 		Malformed(Messages.EndsEarly)
 	end
 	local Index = buffer.readu8(Values, buffer.readu8(In.Bytes, At))

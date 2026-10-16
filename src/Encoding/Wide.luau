@@ -102,7 +102,7 @@ end
 
 local function ReadWide(In: Reader): Wide
 	local Bytes = In.Bytes
-	local Size = buffer.len(Bytes)
+	local Size = In.Size
 	local At = In.At
 	if At >= Size then
 		Malformed(Messages.EndsEarly)
