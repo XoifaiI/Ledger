@@ -313,7 +313,7 @@ local function AnswerResettle(
 		return TimeOut(State, Resettling, Commands)
 	end
 	local Setup = Cache.StoreOf(State.Server, Resettling.Key).Setup
-	local Landed = Value.DecodeValue(Result.Value, Setup.Build, Setup.Limits.WindowUnit)
+	local Landed = Value.DecodeValue(Result.Value, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding)
 	if Landed == nil then
 		return TimeOut(State, Resettling, Commands)
 	end

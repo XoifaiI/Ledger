@@ -22,7 +22,6 @@ local Decider = require("../Tx/Legs/Decider")
 local Entries = require("../Stored/Entries")
 local Fates = require("../Stored/Items/Fates")
 local Guards = require("./Guards")
-local Json = require("../Encoding/Json")
 local JudgingRun = require("./Run")
 local JudgingShapes = require("./Shapes")
 local Lookup = require("../Stored/Lookup")
@@ -34,6 +33,7 @@ local Rooms = require("../Stored/Rooms")
 local Shapes = require("../Shapes")
 local Tent = require("../Tx/Legs/Tent")
 local TxShapes = require("../Tx/Shapes")
+local Value = require("../Stored/Value")
 local View = require("../Reading/View")
 
 type Fate = Fates.Fate
@@ -204,7 +204,7 @@ local function RunMigrations(Run: Run): boolean
 			return false
 		end
 
-		if Json.Size(Outcome.State) > Limits.StateCap then
+		if not Value.StateFits(Run.Setup.Encoding, Outcome.State, Limits.StateCap) then
 			return false
 		end
 

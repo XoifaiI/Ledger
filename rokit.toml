@@ -2,7 +2,7 @@
 # For more information, see https://github.com/rojo-rbx/rokit
 
 [tools]
-rojo = "rojo-rbx/rojo@7.7.0"
+rojo = "rojo-rbx/rojo@7.7.1"
 luau-lsp = "JohnnyMorganz/luau-lsp@1.68.1"
 wally = "UpliftGames/wally@0.3.2"
 stylua = "JohnnyMorganz/StyLua@2.5.2"

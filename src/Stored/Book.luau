@@ -5,10 +5,12 @@
 	Book: the field b of a game key's value (spec/protocols/record/Format.md 6): its fixed fields, flags, room counts
 	and rooms T, K, U, P, L and S.
 
-	The caller sorts each room, sets the epoch and gives the WindowUnit its windows are stored in. A reader throws
-	through Format.Malformed, or NewerFormat on a newer format's version or flags; DecodeBook gives nil.
+	The caller sorts each room, sets the epoch and gives the WindowUnit its windows are stored in. The flags also
+	carry the form the value's s is stored in, which only Value chooses and checks. A reader throws through
+	Format.Malformed, or NewerFormat on a newer format's version or flags; DecodeBook gives nil.
 
-	Return type: A plain table of functions and the rooms, and the Book, Identity and Room types.
+	Return type: A plain table of functions, the rooms and the StateForm names, and the Book, Identity, Room and
+	StateForm types.
 	Example usage:
 		Book.EncodeBook({
 			Format = 0,
@@ -25,7 +27,7 @@
 			Work = {},
 			Losses = { Events = {}, Returns = {} },
 			Slots = {},
-		}, Limits.WindowUnit) --> "AAAABAAAAAAAAAAAAAAAAAAAAAA"
+		}, Limits.WindowUnit, Book.StateForm.Plain) --> "AAAABAAAAAAAAAAAAAAAAAAAAAA"
 --]=]
 
 local Format = require("../Encoding/Format")
@@ -71,6 +73,13 @@ export type Book = {
 	Slots: { FoldSlot },
 }
 
+local StateForm = {
+	Plain = "Plain" :: "Plain",
+	Packed = "Packed" :: "Packed",
+}
+
+export type StateForm = keyof<typeof(StateForm)>
+
 export type Room<Item> = {
 	Write: (Out: Writer, Item: Item, Epoch: number, WindowUnit: number) -> (),
 	Read: (In: Reader, Epoch: number, WindowUnit: number) -> Item,
@@ -84,6 +93,11 @@ type RoomCounts = {
 	Work: number,
 	Losses: number,
 	Slots: number,
+}
+
+type BookRead = {
+	Book: Book,
+	StateForm: StateForm,
 }
 
 type BookRooms = {
@@ -134,6 +148,7 @@ local ReadGate = Seal.ReadGate
 local BookVersion = Record.BookVersion
 local IdentityFlag = Record.IdentityFlag
 local GateFlag = Record.GateFlag
+local PackedStateFlag = Record.PackedStateFlag
 local BookFlagsMost = Record.BookFlagsMost
 local EncodeStartBytes = Record.EncodeStartBytes
 
@@ -180,13 +195,16 @@ local function ReadRoom<Item>(In: Reader, Count: number, Room: Room<Item>, Epoch
 	return Items
 end
 
-local function WriteFlags(Out: Writer, Book: Book)
+local function WriteFlags(Out: Writer, Book: Book, Form: StateForm)
 	local Flags = 0
 	if Book.Identity ~= nil then
 		Flags += IdentityFlag
 	end
 	if Book.Gate ~= nil then
 		Flags += GateFlag
+	end
+	if Form == StateForm.Packed then
+		Flags += PackedStateFlag
 	end
 	WriteCharacter(Out, Flags)
 end
@@ -199,12 +217,13 @@ local function IsNewerFormat(Problem: unknown): boolean
 	return Problem == NewerFormat
 end
 
-local function ReadFlags(In: Reader): (boolean, boolean)
+local function ReadFlags(In: Reader): (boolean, boolean, StateForm)
 	local Flags = ReadCharacter(In)
 	if Flags > BookFlagsMost then
 		WrittenByNewerLedger()
 	end
-	return bit32.btest(Flags, IdentityFlag), bit32.btest(Flags, GateFlag)
+	local Form = if bit32.btest(Flags, PackedStateFlag) then StateForm.Packed else StateForm.Plain
+	return bit32.btest(Flags, IdentityFlag), bit32.btest(Flags, GateFlag), Form
 end
 
 local function ReadVersion(In: Reader): number
@@ -247,13 +266,13 @@ local function ReadCounts(In: Reader): RoomCounts
 	}
 end
 
-local function EncodeBook(Book: Book, WindowUnit: number): string
+local function EncodeBook(Book: Book, WindowUnit: number, Form: StateForm): string
 	if Book.Format ~= BookVersion then
 		error(WrongBookVersion)
 	end
 	local Out = NewWriter(EncodeStartBytes)
 	WriteCharacter(Out, Book.Format)
-	WriteFlags(Out, Book)
+	WriteFlags(Out, Book, Form)
 	WriteVarint(Out, Book.Level)
 	WriteVarint(Out, Book.Floor)
 	WriteVarint(Out, Book.Writes)
@@ -277,9 +296,9 @@ local function EncodeBook(Book: Book, WindowUnit: number): string
 	return ToString(Out)
 end
 
-local function ReadBook(In: Reader, WindowUnit: number): Book
+local function ReadBook(In: Reader, WindowUnit: number): BookRead
 	local Version = ReadVersion(In)
-	local HasIdentity, HasGate = ReadFlags(In)
+	local HasIdentity, HasGate, Form = ReadFlags(In)
 	local Book = {
 		Format = Version,
 		Level = ReadVarint(In),
@@ -299,13 +318,14 @@ local function ReadBook(In: Reader, WindowUnit: number): Book
 	Book.Work = ReadRoom(In, Counts.Work, Rooms.Work, Book.Epoch, WindowUnit)
 	Book.Losses = ReadLossRoom(In, Counts.Losses, Book.Epoch)
 	Book.Slots = ReadRoom(In, Counts.Slots, Rooms.Slots, Book.Epoch, WindowUnit)
-	return Book
+	return { Book = Book, StateForm = Form }
 end
 
-local function ReadBookText(Text: string, WindowUnit: number): Book
-	return ReadWhole(Text, function(In: Reader): Book
+local function ReadBookText(Text: string, WindowUnit: number): (Book, StateForm)
+	local Read = ReadWhole(Text, function(In: Reader): BookRead
 		return ReadBook(In, WindowUnit)
 	end)
+	return Read.Book, Read.StateForm
 end
 
 local function DecodeBook(Text: string, WindowUnit: number): Book?
@@ -329,4 +349,5 @@ return {
 	IsNewerFormat = IsNewerFormat,
 	ItemSize = ItemSize,
 	Rooms = Rooms,
+	StateForm = table.freeze(StateForm),
 }

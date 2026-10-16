@@ -58,7 +58,7 @@ type Value = Value.Value
 type KeyCall = { read CallId: number, read Key: StoreKey }
 
 local NotAnUpdate = "Hearing: this call is never made. A writer's request is always an update."
-local StateSizeWarning = "the state has passed %d bytes. A state of %d bytes or more is refused as Full."
+local StateSizeWarning = "the state has passed %d bytes. Keep it well under %d bytes."
 
 local function IsOutWith(Writer: WriterState, RequestId: number): boolean
 	if Writer.Out ~= nil and Writer.Out.RequestId == RequestId then

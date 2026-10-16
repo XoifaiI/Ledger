@@ -4,7 +4,8 @@
 --[=[
 	Platform: what the core may not ask the platform for. The protocol's clock is whole seconds since StampEpoch
 	(Format 2); SecondsUntil is negative once the stamp has passed. Random:NextNumber() may give 1, so a 1 is drawn
-	again, up to DrawsMost draws, then 0: a fraction is uniform in [0, 1). Util/Threads times durations.
+	again, up to DrawsMost draws, then 0: a fraction is uniform in [0, 1). Util/Threads times durations. ParseJson
+	throws on text that is not JSON.
 
 	Return type: A plain table with Now, SecondsUntil, Fraction, JobId, IsStudio, IsServer and Encoding.
 	Example usage:
@@ -18,12 +19,15 @@ local Record = require("../Constants/Record")
 type Encoding = HashInputs.Encoding
 
 local EncodingService = game:GetService("EncodingService")
+local HttpService = game:GetService("HttpService")
 local RunService = game:GetService("RunService")
 
 local MillisecondsPerSecond = 1000
 
 local Generator = Random.new()
 local DrawsMost = 8
+
+local ZstdLevel = 1
 
 local function Now(): number
 	return DateTime.now().UnixTimestamp - Record.StampEpoch
@@ -60,8 +64,18 @@ local function Sha256(Input: buffer): buffer
 	return EncodingService:ComputeBufferHash(Input, Enum.HashAlgorithm.Sha256)
 end
 
+local function Compress(Input: buffer): buffer
+	return EncodingService:CompressBuffer(Input, Enum.CompressionAlgorithm.Zstd, ZstdLevel)
+end
+
+local function ParseJson(Text: string): unknown
+	return HttpService:JSONDecode(Text)
+end
+
 local Encoding: Encoding = {
 	Sha256 = Sha256,
+	Compress = Compress,
+	ParseJson = ParseJson,
 }
 
 return {

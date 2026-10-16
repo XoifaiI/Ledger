@@ -6,7 +6,8 @@
 	HashInputs: the numbers taken from a SHA-256 digest (spec/protocols/record/Format.md 4) and the builders
 	of every hash input.
 
-	The core may not call EncodingService, so SHA-256 comes in as an Encoding. Every field is self
+	The core may not call EncodingService or HttpService, so SHA-256, zstd at level 1 (the level a DataStore
+	measures a buffer at) and JSON parsing come in as an Encoding. Every field is self
 	delimiting, never joined by a separator. Canonical JSON and an arithmetic's Encode text come already
 	written by their owners.
 
@@ -26,6 +27,8 @@ type Name = Names.Name
 
 export type Encoding = {
 	Sha256: (Input: buffer) -> buffer,
+	Compress: (Input: buffer) -> buffer,
+	ParseJson: (Text: string) -> unknown,
 }
 
 export type TxLegInput = {

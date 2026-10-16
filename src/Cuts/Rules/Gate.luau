@@ -30,7 +30,7 @@ type Fields = Value.Fields
 type Mark = Work.Mark
 type CutKind = Timed.CutKind
 type CutForm = CutShapes.CutForm
-type Limits = Shapes.Limits
+type Setup = Shapes.Setup
 type Report = JudgingShapes.Report
 type Run = JudgingRun.Run
 type SentOp = Shapes.SentOp
@@ -64,8 +64,12 @@ local function GatedReport(Run: Run, Form: CutForm): Report?
 	return nil
 end
 
-local function GateFits(State: Fields, Given: Fields, Limits: Limits): boolean
-	return Json.Size(State) + Json.Size(Given) + Limits.BookMax <= DataStoreValueMax
+local function GateFits(State: Fields, Given: Fields, Setup: Setup): boolean
+	local StateCost = Value.StateCost(Setup.Encoding, State)
+	if StateCost == nil then
+		return false
+	end
+	return StateCost + Json.Size(Given) + Setup.Limits.BookMax <= DataStoreValueMax
 end
 
 local function PlaceGate(Run: Run, Op: SentOp, Form: CutForm)
@@ -86,7 +90,7 @@ local function PlaceGateForMarks(Run: Run, Op: SentOp, Form: CutForm): Report?
 		return nil
 	end
 	if Run.Book.Gate == nil and Form.Role == "Cutter" then
-		if Form.Given ~= nil and not GateFits(Run.State, Form.Given, Run.Setup.Limits) then
+		if Form.Given ~= nil and not GateFits(Run.State, Form.Given, Run.Setup) then
 			return { Kind = "Full" }
 		end
 		if not IsClockUsable(Run.Clock, Run.Setup.Limits) then

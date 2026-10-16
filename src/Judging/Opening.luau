@@ -147,7 +147,7 @@ local function DecodeStored(Stored: unknown, Setup: Setup): Decoded?
 	if Stored == nil then
 		return nil
 	end
-	return Value.DecodeStored(Stored, Setup.Build, Setup.Limits.WindowUnit)
+	return Value.DecodeStored(Stored, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding)
 end
 
 local function OpenToProve(Held: Decoded?, Clock: number, Limits: Limits): Opened

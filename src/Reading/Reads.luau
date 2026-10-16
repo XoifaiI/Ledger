@@ -420,7 +420,7 @@ local function OnUpdateResult(
 	if Result.Kind == "Nil" then
 		return AnswerCancel(State, Out, Note.ProbeReport, Commands)
 	end
-	local Landed = Value.DecodeValue(Result.Value, Setup.Build, Setup.Limits.WindowUnit)
+	local Landed = Value.DecodeValue(Result.Value, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding)
 	if Landed == nil then
 		return EndRead(Commands, Out, UnresolvedAnswer)
 	end

@@ -144,7 +144,7 @@ local function OnCheckRead(State: State, Check: SealCheck, Fetched: ReadOutcome,
 		return
 	end
 	local Setup = Cache.StoreOf(State.Server, Check.Key).Setup
-	local Held = Value.DecodeValue(Fetched.Value, Setup.Build, Setup.Limits.WindowUnit)
+	local Held = Value.DecodeValue(Fetched.Value, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding)
 	if Held == nil or Held.Kind ~= "Sealed" then
 		return
 	end

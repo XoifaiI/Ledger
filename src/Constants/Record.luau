@@ -82,6 +82,10 @@ local BookMax = ValueFramingBytes
 local DataStoreValueMax = 4 * BytesPerMiB
 local StateCap = DataStoreValueMax - BookMax
 
+local PackedStateMost = 16 * BytesPerMiB
+local BufferFramingBytes = 36
+local PackedSlackBytes = 1024
+
 local NameMax = 64
 
 local StateWarnBytes = 2 * BytesPerMiB
@@ -135,7 +139,8 @@ local WideLimb = VarintDigitBase ^ WideLowDigits
 local BookVersion = 0
 local IdentityFlag = 1
 local GateFlag = 2
-local BookFlagsMost = IdentityFlag + GateFlag
+local PackedStateFlag = 4
+local BookFlagsMost = IdentityFlag + GateFlag + PackedStateFlag
 local EncodeStartBytes = 1024
 
 local FateCode = table.freeze({
@@ -254,6 +259,9 @@ return table.freeze({
 	BookMax = BookMax,
 	DataStoreValueMax = DataStoreValueMax,
 	StateCap = StateCap,
+	PackedStateMost = PackedStateMost,
+	BufferFramingBytes = BufferFramingBytes,
+	PackedSlackBytes = PackedSlackBytes,
 	NameMax = NameMax,
 	StateWarnBytes = StateWarnBytes,
 	CounterKeyCount = CounterKeyCount,
@@ -286,6 +294,7 @@ return table.freeze({
 	BookVersion = BookVersion,
 	IdentityFlag = IdentityFlag,
 	GateFlag = GateFlag,
+	PackedStateFlag = PackedStateFlag,
 	BookFlagsMost = BookFlagsMost,
 	EncodeStartBytes = EncodeStartBytes,
 	FateCode = FateCode,

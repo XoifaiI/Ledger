@@ -13,6 +13,7 @@
 	Example usage:
 		local Kept = { Kind = "Kept", State = {}, Book = Empty }
 		Value.EncodeValue(Kept, Build, Limits.WindowUnit) --> { s = {}, b = "AAAABAAA..." }
+		Value.StateFits(Setup.Encoding, State, Limits.StateCap) --> true
 --]=]
 
 local Balances = require("../Tx/Legs/Balances")
@@ -20,6 +21,8 @@ local Book = require("./Book")
 local Extras = require("../Constants/Extras")
 local Format = require("../Encoding/Format")
 local Guards = require("../Judging/Guards")
+local HashInputs = require("../Encoding/HashInputs")
+local Json = require("../Encoding/Json")
 local Names = require("../Encoding/Names")
 local Part = require("./Items/Part")
 local Post = require("./Post")
@@ -27,6 +30,8 @@ local Record = require("../Constants/Record")
 local Seal = require("./Items/Seal")
 
 type Book = Book.Book
+type StateForm = Book.StateForm
+type Encoding = HashInputs.Encoding
 type DiffEntry = Post.DiffEntry
 type Arithmetic = Balances.Arithmetic
 type KeyKind = Record.KeyKind
@@ -50,6 +55,11 @@ export type KeyBuild = {
 	read MayReference: ((Reference: KeyReference) -> boolean)?,
 }
 
+type Measure = {
+	Bytes: number,
+	Packed: string?,
+}
+
 local Malformed = Format.Malformed
 local Storable = Guards.Storable
 
@@ -64,6 +74,17 @@ local ReadSealText = Seal.ReadSealText
 
 local KeyKinds = Record.KeyKind
 local ShardSumField = Extras.ShardSumField
+local StateForms = Book.StateForm
+
+local StateCap = Record.StateCap
+local PackedStateMost = Record.PackedStateMost
+local BufferFramingBytes = Record.BufferFramingBytes
+local PackedSlackBytes = Record.PackedSlackBytes
+local Base64GroupBytes = 3
+local Base64GroupCharacters = 4
+
+local Measures: { [Fields]: Measure } = {}
+setmetatable(Measures, { __mode = "k" })
 
 local NewerValue: Unreadable = table.freeze({ Kind = "Unreadable" :: "Unreadable", Cause = "Newer" :: "Newer" })
 local ForeignValue: Unreadable = table.freeze({ Kind = "Unreadable" :: "Unreadable", Cause = "Foreign" :: "Foreign" })
@@ -91,6 +112,9 @@ local StateNotATable = "the field that holds a state is not a table"
 local StoredStateWhere = "the stored state"
 local ShardNotASum = "the field that holds a shard's state is not a whole number within the sum a shard holds"
 local PostOnLedgerKey = "a shard or a part holds p or r, which only a game key holds"
+local PackedOnLedgerKey = "b says a shard's or a part's state is packed, which only a game key's can be"
+local PackedNotBuffer = "b says the state is packed, and the field that holds it is not a buffer"
+local PackedNotJson = "the packed state is not JSON"
 local KeyNotOfStore = "a mark or a pinned record names a key that its store cannot hold"
 local ModuleName = "Value"
 local WriteStateNotATable = `{ModuleName}: a kept value's state and given state are tables. The caller must give tables`
@@ -98,6 +122,51 @@ local WritePostOnLedgerKey =
 	`{ModuleName}: only a game key holds p and r. The caller must give a shard or a part neither`
 local WriteShardNotASum =
 	`{ModuleName}: a shard's state holds a whole sum within its limit under {ShardSumField}. The caller must give one`
+local WriteStateTooBig =
+	`{ModuleName}: a state past {PackedStateMost} bytes of JSON cannot be stored. The caller must refuse it as Full`
+
+local function Base64Length(Bytes: number): number
+	return math.ceil(Bytes / Base64GroupBytes) * Base64GroupCharacters
+end
+
+local function MeasureOf(State: Fields): Measure
+	local Known = Measures[State]
+	if Known ~= nil then
+		return Known
+	end
+	local Measured: Measure = { Bytes = Json.Size(State), Packed = nil }
+	Measures[State] = Measured
+	return Measured
+end
+
+local function TakePackedText(State: Fields, Measured: Measure): string
+	local Packed = Measured.Packed
+	Measured.Packed = nil
+	if Packed ~= nil then
+		return Packed
+	end
+	return Json.CanonicalJson(State)
+end
+
+local function StateCost(Encoding: Encoding, State: Fields): number?
+	local Measured: Measure = { Bytes = Json.Size(State), Packed = nil }
+	Measures[State] = Measured
+	if Measured.Bytes <= StateCap then
+		return Measured.Bytes
+	end
+	if Measured.Bytes > PackedStateMost then
+		return nil
+	end
+	local Packed = Json.CanonicalJson(State)
+	Measured.Packed = Packed
+	local Compressed = Encoding.Compress(buffer.fromstring(Packed))
+	return BufferFramingBytes + Base64Length(buffer.len(Compressed) + PackedSlackBytes)
+end
+
+local function StateFits(Encoding: Encoding, State: Fields, Cap: number): boolean
+	local Cost = StateCost(Encoding, State)
+	return Cost ~= nil and Cost <= Cap
+end
 
 local function IsShardSum(Held: unknown): boolean
 	if type(Held) ~= "number" then
@@ -114,14 +183,25 @@ local function WriteShardSum(State: Fields): unknown
 	return Sum
 end
 
-local function WriteState(State: Fields, Build: KeyBuild): unknown
+local function WriteGameState(State: Fields): (unknown, StateForm)
+	local Measured = MeasureOf(State)
+	if Measured.Bytes <= StateCap then
+		return State, StateForms.Plain
+	end
+	if Measured.Bytes > PackedStateMost then
+		error(WriteStateTooBig)
+	end
+	return buffer.fromstring(TakePackedText(State, Measured)), StateForms.Packed
+end
+
+local function WriteState(State: Fields, Build: KeyBuild): (unknown, StateForm)
 	if Build.KeyKind == KeyKinds.Shard then
-		return WriteShardSum(State)
+		return WriteShardSum(State), StateForms.Plain
 	end
 	if Build.KeyKind == KeyKinds.Part then
-		return Part.TextOfState(State, Build.Balances)
+		return Part.TextOfState(State, Build.Balances), StateForms.Plain
 	end
-	return State
+	return WriteGameState(State)
 end
 
 local function EncodeValue(Value: Value, Build: KeyBuild, WindowUnit: number): { [string]: unknown }
@@ -137,8 +217,8 @@ local function EncodeValue(Value: Value, Build: KeyBuild, WindowUnit: number): {
 	if Build.KeyKind ~= KeyKinds.Game and (Value.Post ~= nil or Value.Given ~= nil) then
 		error(WritePostOnLedgerKey)
 	end
-	local Raw: { [string]: unknown } =
-		{ [StateKey] = WriteState(Value.State, Build), [BookKey] = EncodeBook(Value.Book, WindowUnit) }
+	local Written, Form = WriteState(Value.State, Build)
+	local Raw: { [string]: unknown } = { [StateKey] = Written, [BookKey] = EncodeBook(Value.Book, WindowUnit, Form) }
 	if Value.Post ~= nil then
 		Raw[PostKey] = EncodePost(Value.Post)
 	end
@@ -181,7 +261,24 @@ local function ReadShardState(Field: unknown): Fields
 	return { [ShardSumField] = Field }
 end
 
-local function ReadState(Field: unknown, Build: KeyBuild): Fields
+local function ReadPackedState(Field: unknown, Encoding: Encoding): Fields
+	if type(Field) ~= "buffer" then
+		return Malformed(PackedNotBuffer)
+	end
+	local Parsed, Held = pcall(Encoding.ParseJson, buffer.tostring(Field))
+	if not Parsed then
+		return Malformed(PackedNotJson)
+	end
+	return RequireState(Held)
+end
+
+local function ReadState(Field: unknown, Build: KeyBuild, Form: StateForm, Encoding: Encoding): Fields
+	if Form == StateForms.Packed then
+		if Build.KeyKind ~= KeyKinds.Game then
+			return Malformed(PackedOnLedgerKey)
+		end
+		return ReadPackedState(Field, Encoding)
+	end
 	if Build.KeyKind == KeyKinds.Shard then
 		return ReadShardState(Field)
 	end
@@ -211,7 +308,7 @@ local function RequireReferable(Read: Book, Build: KeyBuild)
 	end
 end
 
-local function ReadValue(Raw: unknown, Build: KeyBuild, WindowUnit: number): Value
+local function ReadValue(Raw: unknown, Build: KeyBuild, WindowUnit: number, Encoding: Encoding): Value
 	if type(Raw) ~= "table" then
 		return Malformed(NotATable)
 	end
@@ -224,19 +321,19 @@ local function ReadValue(Raw: unknown, Build: KeyBuild, WindowUnit: number): Val
 	if Build.KeyKind ~= KeyKinds.Game and (Fields[PostKey] ~= nil or Fields[GivenKey] ~= nil) then
 		Malformed(PostOnLedgerKey)
 	end
-	local Read = ReadBookText(RequireText(Fields[BookKey]), WindowUnit)
+	local Read, Form = ReadBookText(RequireText(Fields[BookKey]), WindowUnit)
 	RequireReferable(Read, Build)
 	return {
 		Kind = "Kept",
-		State = ReadState(Fields[StateKey], Build),
+		State = ReadState(Fields[StateKey], Build, Form, Encoding),
 		Book = Read,
 		Post = if Fields[PostKey] ~= nil then ReadPost(Fields[PostKey]) else nil,
 		Given = if Fields[GivenKey] ~= nil then RequireState(Fields[GivenKey]) else nil,
 	}
 end
 
-local function DecodeStored(Raw: unknown, Build: KeyBuild, WindowUnit: number): Decoded
-	local Succeeded, Read = pcall(ReadValue, Raw, Build, WindowUnit)
+local function DecodeStored(Raw: unknown, Build: KeyBuild, WindowUnit: number, Encoding: Encoding): Decoded
+	local Succeeded, Read = pcall(ReadValue, Raw, Build, WindowUnit, Encoding)
 	if Succeeded then
 		return Read
 	end
@@ -246,8 +343,8 @@ local function DecodeStored(Raw: unknown, Build: KeyBuild, WindowUnit: number): 
 	return ForeignValue
 end
 
-local function DecodeValue(Raw: unknown, Build: KeyBuild, WindowUnit: number): Value?
-	local Decoded = DecodeStored(Raw, Build, WindowUnit)
+local function DecodeValue(Raw: unknown, Build: KeyBuild, WindowUnit: number, Encoding: Encoding): Value?
+	local Decoded = DecodeStored(Raw, Build, WindowUnit, Encoding)
 	if Decoded.Kind == "Unreadable" then
 		return nil
 	end
@@ -264,6 +361,8 @@ end
 
 return {
 	CopyDefault = CopyDefault,
+	StateCost = StateCost,
+	StateFits = StateFits,
 	EncodeValue = EncodeValue,
 	DecodeStored = DecodeStored,
 	DecodeValue = DecodeValue,

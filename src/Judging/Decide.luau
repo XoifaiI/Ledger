@@ -19,11 +19,11 @@
 local Balances = require("../Tx/Legs/Balances")
 local Fates = require("../Stored/Items/Fates")
 local Guards = require("./Guards")
-local Json = require("../Encoding/Json")
 local JudgingShapes = require("./Shapes")
 local PartOps = require("../Hot/Part/Ops")
 local Record = require("../Constants/Record")
 local Shapes = require("../Shapes")
+local Value = require("../Stored/Value")
 local Verdicts = require("./Verdicts")
 local Work = require("../Stored/Items/Work")
 
@@ -77,7 +77,7 @@ local function DecideBalanceOp(
 	end
 	local Arithmetic = Balances.ArithmeticOf(Declaration)
 	local Settled = Balances.SettleValue(State, Declaration.Field, Amount, Declaration.Direction, Arithmetic)
-	if Json.Size(Settled) > Setup.Limits.StateCap then
+	if not Value.StateFits(Setup.Encoding, Settled, Setup.Limits.StateCap) then
 		return Verdicts.Full
 	end
 	return { Kind = "Took", State = Settled }
@@ -121,7 +121,7 @@ local function DecideOnState(
 		return Verdicts.Refused
 	end
 	local Whole = Guards.PutBack(Outcome.State, Undeclared)
-	if Json.Size(Whole) > Limits.StateCap then
+	if not Value.StateFits(Setup.Encoding, Whole, Limits.StateCap) then
 		return Verdicts.Full
 	end
 	return { Kind = "Took", State = Whole }

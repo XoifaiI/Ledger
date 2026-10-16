@@ -221,7 +221,7 @@ local function LearnStored(
 	local Stored: Value? = nil
 	if Fetched.Kind == "Found" then
 		local KeySetup = KindSetup.SetupFor(Setup, Cache.KindOfKey(Key))
-		local Decoded = Value.DecodeStored(Fetched.Value, KeySetup.Build, KeySetup.Limits.WindowUnit)
+		local Decoded = Value.DecodeStored(Fetched.Value, KeySetup.Build, KeySetup.Limits.WindowUnit, KeySetup.Encoding)
 		if Decoded.Kind == "Unreadable" then
 			return Decoded
 		end

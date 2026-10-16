@@ -17,7 +17,6 @@
 
 local Balances = require("../Tx/Legs/Balances")
 local Guards = require("../Judging/Guards")
-local Json = require("../Encoding/Json")
 local Shapes = require("../Shapes")
 local Value = require("../Stored/Value")
 
@@ -45,7 +44,7 @@ local function MigrateFrom(Setup: Setup, State: Value.Fields, Level: number, Flo
 	end
 	for Index = Level + 1, Build.MigrationCount do
 		local Migrated = Guards.RunMigration(Build.Migrations[Index].Run, State, Setup.Limits)
-		if Migrated.Kind ~= "State" or Json.Size(Migrated.State) > Setup.Limits.StateCap then
+		if Migrated.Kind ~= "State" or not Value.StateFits(Setup.Encoding, Migrated.State, Setup.Limits.StateCap) then
 			return { Kind = "Unreadable", Cause = "Migration" }
 		end
 		State = Migrated.State

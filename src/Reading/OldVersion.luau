@@ -27,7 +27,7 @@ local function AnswerOf(Setup: Setup, Raw: unknown): Answer
 	if Raw == nil then
 		return MissingAnswer
 	end
-	local Decoded = Value.DecodeStored(Raw, Setup.Build, Setup.Limits.WindowUnit)
+	local Decoded = Value.DecodeStored(Raw, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding)
 	if Decoded.Kind == "Unreadable" then
 		return Replies.FailedAnswer(Unreadable.ReasonOf(Decoded.Cause))
 	end
