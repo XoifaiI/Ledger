@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Answers: the core's Answer as each method's public returns (Answers.md 4 to 6), the one place they are made. A write

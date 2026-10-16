@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Seal: the gate G (spec/protocols/record/Format.md 7.6) and the seal (9) that stands for an erased key.

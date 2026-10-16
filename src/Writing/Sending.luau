@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Sending: a writer's requests and answers (record sheets 7, 8, 10).

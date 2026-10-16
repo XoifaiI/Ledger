@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Pager: the pages Store:Keys and Store:Versions give, over ListKeysAsync and ListVersionsAsync on the store's own

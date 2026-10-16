@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Incarnations: the incarnation an op carries (record sheet 6). A game key of an erasable store is read before

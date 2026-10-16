@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Summary: the wire format of a summary item (extras sheet E5; Format 11, 12): its key (tagged with the store and

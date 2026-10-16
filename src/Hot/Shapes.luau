@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Shapes: what split quantities add to calls, part ops and answers (sheet H1, H4, H7, H8). Part op terms

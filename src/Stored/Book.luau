@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Book: the field b of a game key's value (spec/protocols/record/Format.md 6): its fixed fields, flags, room counts

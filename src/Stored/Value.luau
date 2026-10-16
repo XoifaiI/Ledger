@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Value: a key's value (spec/protocols/record/Format.md 5, 10) as the DataStore table: the state s and its book b, or

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Cut: rule 9 of a cut op (cuts sheet 4.9, 5.1). A reset names its money, folds L, replaces the state, keeps its name

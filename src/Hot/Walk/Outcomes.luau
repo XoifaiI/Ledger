@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Outcomes: a Take's outcome, owed by HotState.EndOwedCall once it answered Unresolved with a step, fence or step Tx

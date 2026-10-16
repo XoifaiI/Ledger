@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Close: a quantity's Close (hot keys sheet H7). It asks each part's writer for a close, a piece each. A closed,

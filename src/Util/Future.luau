@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Future: Plumbing. Holds the answer to a call that has not finished yet.

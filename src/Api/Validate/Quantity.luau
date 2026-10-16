@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Quantity: totals' and quantities' arguments (extras E2 step 1, hot keys H1 to H8, A11). Store:Total takes a

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Waking: the writers' and sessions' timers and the wake for the next of them (record sheet 7 cases 2 and 6, 10, 13).

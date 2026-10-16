@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Setup: a store's Settings, scope, part build, Build and core Setup. The reducer runs the game's (thrice in Studio,

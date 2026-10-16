@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Closing: when a session's writer sends, and how a session and the server end (record sheet 13).

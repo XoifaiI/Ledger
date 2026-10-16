@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Handles: the frozen handles Ledger gives the game, OpId, Applied and a hold's handle. Each is kept weakly, so a

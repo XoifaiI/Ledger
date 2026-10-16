@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Rules: the rules Api/Validate's modules share and Check lacks, among them the plain-table rule, Schema at a call

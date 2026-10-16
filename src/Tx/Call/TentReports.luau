@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	TentReports: what the reports of a Tx call's Tents say, read over its other keys in leg order: the first refusal,

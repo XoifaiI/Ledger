@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Pairs: a total's local pairs and its summary item's breaker (extras sheet E4). A pair or landing merges by

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Shedding: when a writer's ops are shed or timed out (record sheet 7, K5, L1). An unsent durable op is

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Refresh: a key's copy holder's refresh (extras sheet E8, cuts sheet 8.6). It pushes a newer state or one

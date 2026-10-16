@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Drain: what a cut does with the marks it met (cuts sheet 8.3): a fence to each reachable decider, each decision

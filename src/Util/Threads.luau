@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Threads: the threads Ledger starts and the seconds they wait. Now reads os.clock, which only rises and has

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	OwnOpKinds: the op kinds Ledger sends for itself, which no game op kind may take (one name, one concept): a

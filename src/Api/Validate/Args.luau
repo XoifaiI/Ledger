@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Args: shared method arguments, judged from the call, the store's options (A11) and the clock. No call may come from

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	TypeFunctions: turns a game's op map into the types its ops are held against. OpUnion is the tagged union a reducer

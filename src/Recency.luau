@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Recency: texts in the order they were last used, for a table that lets its least recently used text go when it

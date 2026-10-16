@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	KindSetup: the Setup a key of each kind is judged by (extras sheet E1, hot keys sheet H1). A shard is judged by

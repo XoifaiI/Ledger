@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Store: Ledger.New's object, with its methods on any key and Sessions'. Each but Leg checks its arguments, and each

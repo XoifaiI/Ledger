@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Server: routes quantity calls to their walks, opens, closes and moves (sheet H6 to H8). OnClock resends a fence or

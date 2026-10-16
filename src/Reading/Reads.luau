@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Reads: the record's reads (record sheet 14): Peek, Inspect, Peek with Fresh, Losses, Load, the read DidApply

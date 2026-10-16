@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Follow: a followed key's follower (extras sheet E9). A tick reads the copy header, then its parts, and shows a q

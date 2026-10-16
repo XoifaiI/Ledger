@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Server: routes the copies' calls and events to their owners (extras sheet E8, E9). A copy read that ended goes to

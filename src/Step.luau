@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Step: the server's state machine, step(state, event) -> (state', commands) (Charter item 23); the State is

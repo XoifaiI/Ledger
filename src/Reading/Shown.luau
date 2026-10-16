@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Shown: a server's shown table (record sheet 14, Format.md 4): per key the largest write count shown of one

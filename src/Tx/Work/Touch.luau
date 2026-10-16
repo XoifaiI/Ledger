@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Touch: what a server does after its own answer that showed work left on a key (transaction sheets 18.1, 18.2).

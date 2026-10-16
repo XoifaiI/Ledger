@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Hot: the numbers, modes, op kinds and part flag bit of split quantities. Seconds unless a name says bytes or a

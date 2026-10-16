@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Removal: a stamper's one RemoveAsync per seal it stamped, within RemoveSend of rt (cuts sheet 8.5, 8.2 sealed,

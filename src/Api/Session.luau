@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Session: a player's key from Load to its Release's answer (record 6), the object the game holds. A released object

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Alphabet: the record's 64 characters as two lookup buffers, the character of each value and the value of

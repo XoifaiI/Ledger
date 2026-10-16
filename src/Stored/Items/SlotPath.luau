@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	SlotPath: an exclusive mark's slot path in bytes (spec/protocols/record/Format.md 7.5): V(#steps - 1), then per

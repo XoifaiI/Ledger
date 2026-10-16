@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Rooms: the age and fit steps of a write (record sheet 9, S.7 and S.8, with the cuts sheet's), the measure of a

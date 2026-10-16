@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Transform: the one order of every write to a key, judged by its kind's Setup (record sheet 9).

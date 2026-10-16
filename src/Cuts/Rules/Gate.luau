@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Gate: cut rules 6 to 8 (cuts sheet 4.6 to 4.8): a helper with no gate, another cut's gate, the marks, where a

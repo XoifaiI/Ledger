@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Balances: the one owner of the rules about a balance (internal/balances.md "One owner").

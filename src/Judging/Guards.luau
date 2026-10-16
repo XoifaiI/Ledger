@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Guards: the pure checks of a value, the runs of a reducer and of a migration, and the carry of

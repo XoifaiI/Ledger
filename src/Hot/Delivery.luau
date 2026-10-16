@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Delivery: hands a quantity call's writer op and step Tx results to their owner, by kind. A Late StepOut entry, or a

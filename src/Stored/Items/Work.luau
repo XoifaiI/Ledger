@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Work: the items of the room P (spec/protocols/record/Format.md 7.5): escrow marks, exclusive marks and

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Answering: how a writer op's call is answered, once (record sheet 10). A step op's answers go to StepOut, a hopeful

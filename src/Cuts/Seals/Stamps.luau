@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Stamps: the seals this server stamps or watches (cuts sheets 5.3, 8.4, 8.5): a left over seal shown, the removal

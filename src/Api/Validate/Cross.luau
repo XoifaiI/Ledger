@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Cross: the rules between a store's settled options that no one option's rule can state: balance kinds and Balances

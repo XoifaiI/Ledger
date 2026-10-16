@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Timed: the items of the rooms T, U and K (spec/protocols/record/Format.md 6, 7.1 to 7.4): writer

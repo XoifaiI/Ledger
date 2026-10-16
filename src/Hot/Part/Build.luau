@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Build: a part's key, share, serial range and fp, the part build, a new part, the debit kind of a field and a

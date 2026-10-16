@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	OldVersion: what one old version of a key answers, for Store:PeekVersion: the state exactly as that version saved

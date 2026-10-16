@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Stale: the keys this server wrote that its observers show too old (extras sheet E9, R8). Once Stale is called, a

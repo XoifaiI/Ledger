@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Hearing: a writer's answer in, and each Flush and Refresh; a Flush waits for the push that carries its ops (record

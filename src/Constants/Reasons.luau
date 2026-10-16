@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Reasons: the answers of spec/properties/Answers.md section 4 other than `true`, each meaning one thing

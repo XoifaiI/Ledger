@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Fold: keeps the loss rooms within LossRooms (cuts sheet 7, amend C14). The oldest events fold into at most

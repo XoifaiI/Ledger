@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	View: a quantity's parts as this server knows them (sheet H3, H6, H9). An entry merges by the larger q; sealed

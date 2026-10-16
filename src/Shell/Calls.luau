@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Calls: the game's call ids, positive (the core's helpers take negative ones), and their futures. An answer before

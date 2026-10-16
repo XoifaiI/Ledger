@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	StepAnswer: what a step Tx call (BeginStep) hands its quantity call: its answer, or why it never began, its name

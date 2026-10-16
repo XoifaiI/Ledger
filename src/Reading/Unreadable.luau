@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Unreadable: what a key this build cannot read answers (Answers.md 4). A newer Ledger's value answers Behind; a value

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Composed: the state that step keeps, changed in place: the server's state, its sessions, the reads and flushes in

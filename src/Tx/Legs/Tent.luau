@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Tent: the judgement of a Tent on a leg key that is not the decider (transaction sheet 8).

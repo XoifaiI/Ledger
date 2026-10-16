@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	State: a server's hot keys state (sheet H6 to H9): a view per quantity, each Take or Hold's Walk with its fence and

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Call: a cut call's name, fingerprint, incarnation read, requests and answer (cuts sheets 8.1, 1.3). Requests never

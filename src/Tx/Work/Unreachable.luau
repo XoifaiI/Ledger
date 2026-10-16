@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Unreachable: the warning for a key whose work names a decider, or a pinned record a leg, in a store this server

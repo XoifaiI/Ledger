@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Judge: one request's judgement (record sheet 9, J.0 to J.11): record ops and a Tx's Tent and Commit; a cut throws. A

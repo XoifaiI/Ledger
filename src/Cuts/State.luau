@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	State: a server's cut state (cuts sheet 8): a CutCall per call, a helper per key, Purposes that find a result's

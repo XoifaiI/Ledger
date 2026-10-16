@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Call: one Tx call before and as it sends (transaction sheets 7, 15.4 and 17). It answers once, a no with its latest

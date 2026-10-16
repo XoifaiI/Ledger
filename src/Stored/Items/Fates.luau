@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Fates: the fate of a named entry and its code (spec/protocols/record/Format.md 7.1).

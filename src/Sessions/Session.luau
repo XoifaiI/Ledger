@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Session: a player's key held open on this server (record sheet 13 and 12's Apply), with its key's text and idle

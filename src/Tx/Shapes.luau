@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Shapes: the shapes a transaction puts in a request, an end, a note and a report (transaction sheet 4).

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Verdicts: what a walk's step, fence or step Tx report means for its call (sheet H6): took, a part's refusal or a

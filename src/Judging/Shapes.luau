@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Shapes: what judging a request gives back: the report each op gets, the note the request leaves with what its

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	View: the state a read or load shows (record sheet 13 to 15): the stored state at the build's level.

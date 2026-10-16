@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Lookup: what a key's book already holds of an op, the lookups of rules J.1 and J.2 of the record sheet's

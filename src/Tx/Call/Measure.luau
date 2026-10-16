@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Measure: the bytes a Tx call's marks and pinned record would take, for the API's check before it sends and a

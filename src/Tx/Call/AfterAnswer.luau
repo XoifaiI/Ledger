@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	AfterAnswer: what a Tx call does once it has answered (transaction sheets 15.5, 3.5, 3.7). It resolves each leg

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Post: the post diff "p" (spec/protocols/record/Format.md 8) as the JSON array that Json writes, sorted

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	OpOutcomes: the outcome a writer op's call is owed once it answered Unresolved and the op stays queued (ruling A1).

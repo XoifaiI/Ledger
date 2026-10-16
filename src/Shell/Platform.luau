@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Platform: what the core may not ask the platform for. The protocol's clock is whole seconds since StampEpoch

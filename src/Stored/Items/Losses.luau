@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Losses: the items of the loss rooms L and S (spec/protocols/record/Format.md 6, 7.7) and the run of them

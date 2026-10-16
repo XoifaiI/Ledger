@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Limits: a store's frozen Limits (record sheet 18.1) from the constants, its options and part build, or all defaults

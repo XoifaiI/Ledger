@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	RecordTypes: the public shapes of a stored record, as Inspect, Losses and Pending answer them. They are written

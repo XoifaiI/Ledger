@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Helper: finishing another cut's gate (cuts sheet 8.4). A key has one helper, which sends the gate's cut op with

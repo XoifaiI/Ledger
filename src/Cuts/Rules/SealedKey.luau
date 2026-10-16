@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	SealedKey: a request on a sealed key (cuts sheet 5.2 case 1, 5.3): the report of each op of a request that

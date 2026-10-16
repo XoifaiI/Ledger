@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Walk: a Take or Hold's walk over a quantity's parts (sheet H3, H6). A named Take goes by hash order, fencing a

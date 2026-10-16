@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	SentNames: the server's table of the game names it sent (record sheet 4, Charter item 33): for each of

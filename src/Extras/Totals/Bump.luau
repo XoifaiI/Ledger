@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Bump: a Bump call and its shard (extras sheet E2 steps 1 to 3). Unnamed, the op is minted on the server's

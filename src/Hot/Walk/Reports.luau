@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Reports: what a walk does with each report (sheet H6, H12). A part's no, a Tx step's refusing decider or a fence

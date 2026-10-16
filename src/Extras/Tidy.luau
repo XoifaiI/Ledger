@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Tidy: when a shard or part is tidied (extras sheet E6). A read showing an item PruneAge old makes a tidy due,

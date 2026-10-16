@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Settle: what the part's rules share when an op settles (hot keys sheet H4 step 3, H5). The refusal a take and a

@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Reports: what a Tx call's coordinator does with each report (transaction sheets 15.1 to 15.4, A7, A8). Past

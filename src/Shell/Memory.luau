@@ -1,6 +1,5 @@
 --!strict
 --!optimize 2
---!native
 
 --[=[
 	Memory: runs the MemoryStore commands and the JSON Decode, each in its own thread, and feeds the event each gives
