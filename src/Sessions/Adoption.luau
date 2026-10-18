@@ -4,8 +4,8 @@
 --[=[
 	Adoption: what an open session does with a newer state or a turned-away op (record sheet 10 steps 3 and 4, and 13).
 
-	A newer state, with its incarnation, is taken only above the session's write count. Queued hopeful ops lie on the
-	stored state; a refused one stays queued, off the view. OnIdleRead says if it read a state. A Refresh made while
+	A newer state, with its incarnation, is taken only above the session's write count, from a write, a read, or the
+	read of a write that wrote nothing. Queued hopeful ops lie on the stored state; a refused one stays queued, off the view. OnIdleRead says if it read a state. A Refresh made while
 	this server's own transaction end is out on the key waits for it to land, then reads; one that waits for a read
 	already out reads again after it, so the answer shows the end.
 
@@ -126,6 +126,34 @@ local function Adopt(
 		return false
 	end
 	TakeAndShow(State, Sessions, Open, BasisOfNote(Note, Viewed.State), Clock, Commands)
+	return true
+end
+
+local function AdoptUnwritten(
+	State: ServerState,
+	Sessions: SessionState,
+	Writer: WriterState,
+	Note: Note,
+	Clock: number,
+	Commands: { Command }
+): boolean
+	local Open = Sessions.Open[Writer.Text]
+	local Read = Note.ReadValue
+	if Open == nil or Read == nil then
+		return false
+	end
+	local Writes = Read.Book.Writes
+	if Writes <= Open.WriteCount then
+		return false
+	end
+	if not Shown.IsShown(State, Open.Key, Writes, Read.Book.Identity) then
+		return false
+	end
+	local Viewed = View.ViewState(Cache.StoreOf(State, Writer.Key).Setup, Read)
+	if Viewed.Kind ~= "State" then
+		return false
+	end
+	TakeAndShow(State, Sessions, Open, Session.BasisOfKept(Read, Viewed.State), Clock, Commands)
 	return true
 end
 
@@ -321,6 +349,7 @@ end
 return {
 	TurnAway = TurnAway,
 	Adopt = Adopt,
+	AdoptUnwritten = AdoptUnwritten,
 	ShowWithoutTurned = ShowWithoutTurned,
 	IsIdleReadDue = IsIdleReadDue,
 	IdleRead = IdleRead,

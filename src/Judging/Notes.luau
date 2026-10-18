@@ -5,7 +5,7 @@
 	Notes: a run's note, cancel and land (record sheet 9, S.9).
 
 	A note carries each op's and end's report, the gate, its copy of P and whether it shows a key; a seal shows none.
-	A stop leaves each end Undecided. Only shard and part landings carry written bytes. A probe's unheld name is
+	A note that writes nothing carries the value it read, so a session can take it. A stop leaves each end Undecided. Only shard and part landings carry written bytes. A probe's unheld name is
 	forgotten under either horizon (cuts 3.1).
 
 	Return type: A plain table of the functions, Cancelled and NothingShown, and the types Output, Shown, Ending.
@@ -53,6 +53,7 @@ export type Shown = {
 	read State: unknown,
 	read Work: { Mark },
 	read Gate: Gate?,
+	read Read: Kept?,
 }
 
 export type Ending = {
@@ -80,6 +81,7 @@ local NothingShown: Shown = table.freeze({
 	State = nil,
 	Work = NoWork,
 	Gate = nil,
+	Read = nil,
 })
 
 local function ShownOf(Read: Kept): Shown
@@ -93,6 +95,7 @@ local function ShownOf(Read: Kept): Shown
 		State = Read.State,
 		Work = table.clone(Read.Book.Work),
 		Gate = Read.Book.Gate,
+		Read = Read,
 	}
 end
 
@@ -108,6 +111,7 @@ local function NoteWritten(Shown: Shown, Carried: Closure, Ending: Ending, Writt
 		Closure = Carried,
 		State = Shown.State,
 		WrittenValue = Written,
+		ReadValue = if Written == nil then Shown.Read else nil,
 		WrittenBytes = Bytes,
 		ProbeReport = Ending.ProbeReport,
 		Warnings = Ending.Warnings,

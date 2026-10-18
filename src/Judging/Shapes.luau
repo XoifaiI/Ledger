@@ -26,6 +26,7 @@ local Work = require("../Stored/Items/Work")
 
 type Identity = Book.Identity
 type Value = Value.Value
+type Kept = Value.Kept
 type Fate = Fates.Fate
 type PartReason = Fates.PartReason
 type Name = Names.Name
@@ -94,6 +95,7 @@ export type Note = {
 	read Closure: Closure,
 	read State: unknown,
 	read WrittenValue: Value?,
+	read ReadValue: Kept?,
 	read WrittenBytes: number?,
 	read ProbeReport: Report?,
 	read Warnings: { NoteWarning },

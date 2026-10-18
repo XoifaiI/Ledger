@@ -304,6 +304,8 @@ local function Hear(
 			IsTaken = Adoption.Adopt(State.Server, State.Sessions, Writer, Note, Clock, Commands)
 			WarnIfLarge(State, Writer.Key, Note.WrittenValue, Commands)
 			KeepShowableOfWritten(State, Writer.Key, Note.WrittenValue)
+		else
+			IsTaken = Adoption.AdoptUnwritten(State.Server, State.Sessions, Writer, Note, Clock, Commands)
 		end
 		if Turned > 0 and not IsTaken then
 			Adoption.ShowWithoutTurned(State.Server, State.Sessions, Writer, Clock, Commands)

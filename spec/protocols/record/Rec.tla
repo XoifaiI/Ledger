@@ -39,10 +39,13 @@
 \* to its default and adds 1 to the cut count c; hopeful ops (5.2), which
 \* ride the writer as minted ops do, carry the c of the session view they
 \* were judged on, and meet rule 7; sessions (6): Load, Apply judged on
-\* the view, the adoption of a state whose q is higher, and the local turn
-\* of queued ops judged at an older c; reads (5.3): GetAsync through the
-\* shown table, whose key may be evicted (a table full of other keys) and
-\* then sets its bit, the fresh read, and DidApply with its probe.
+\* the view, the adoption of a state whose q is higher (from a write, or
+\* from what a write that wrote nothing read), the local turn of queued
+\* ops judged at an older c, and the view laid again on the state it lies
+\* on when an answer turns an op away and no state is taken; reads (5.3):
+\* GetAsync through the shown table, whose key may be evicted (a table
+\* full of other keys) and then sets its bit, the fresh read, and DidApply
+\* with its probe.
 \*
 \* WHAT IS LEFT OUT, AND WHY
 \*
@@ -62,6 +65,8 @@
 \*   its view had). S13 through AtMostOnce, TrueTook and NoMeansNever on
 \*   hopeful fates (a turned op never took). A7 ReadWasHeld, DidApplyTrue,
 \*   DidApplyFalse. A8 NeverBack (a ghost that a show going back sets).
+\*   A9 ViewHoldsTook: a session's view is the state it lies on, its
+\*   queued ops, and the ops it heard took since that state.
 EXTENDS Env, TLC
 
 CONSTANTS
@@ -82,7 +87,8 @@ CONSTANTS
     FixShownTable,     \* 5.3: a read below the table's q is not shown, and a key whose bit is set
                        \* is shown first from a landed write (a fresh read)
     FixProbeForFalse,  \* 5.3: DidApply answers false only from a landed probe
-    FixTurnOk          \* 6: a session turns away queued ops of an older c only after "ok"
+    FixTurnOk,         \* 6: a session turns away queued ops of an older c only after "ok"
+    FixAdoptUnwritten  \* 6: a session takes the state a write that wrote nothing read, when its q is higher
 
 VARIABLES
     ws,        \* ws[s]: server s's writer on the key
@@ -92,7 +98,8 @@ VARIABLES
     tk,        \* every effect that took: [id, tm, c, v, at, w, seq]. Ghost.
     rj,        \* every refusal written: [id, tm]. Ghost.
     hc,        \* hc[s]: the newest h server s saw (3.1's horizon cache)
-    sv,        \* sv[s]: server s's session on the key: open, and the view's q, c and g
+    sv,        \* sv[s]: server s's session on the key: open, the view's q, c and g, and b, the g of the
+               \* state the view lies on
     rd,        \* rd[s]: server s's read out (a get, a fresh read or a probe): request and item
     tq,        \* tq[s]: the shown table's q for the key, NONE when the key is not in it
     bit,       \* bit[s]: the table's bit for the key, set when the key left the table
@@ -317,6 +324,9 @@ Script ==
       [] Scenario = "Session" -> << Seed(1), Load("A"), Hope("A", -1), Mint("B", 1), Release("A"), Peek("A") >>
       \* R2: DidApply of a timed name whose send may land before or after the probe (A7).
       [] Scenario = "Probe"   -> << Seed(1), Timed("A", 1, -1, 0), DidApply("B", 1, 0) >>
+      \* R2: A's session applies +1 and -2 after B's debit it has not seen, so the -2 is refused when A
+      \* saves; a lost answer then makes a rerun that writes nothing (A9).
+      [] Scenario = "View"    -> << Seed(1), Load("A"), Mint("B", -1), After(3, Hope("A", 1)), Hope("A", -2) >>
 Idx == DOMAIN Script
 
 \* The servers.
@@ -344,7 +354,7 @@ Ready(i) ==
 \* The variables R2 adds, which the R1 actions leave alone.
 rvars == <<sv, rd, tq, bit, lastShown, back, unheld>>
 
-S0 == [on |-> FALSE, q |-> 0, c |-> 0, g |-> 0]
+S0 == [on |-> FALSE, q |-> 0, c |-> 0, g |-> 0, b |-> 0]
 RD0 == [out |-> 0, i |-> 0, kd |-> ""]
 
 \* Every answer the model records: the script item, the answer, whether the op's fate may be unknown,
@@ -449,6 +459,9 @@ ShowGhosts(s, x) ==
     /\ unheld' = (unheld \/ ~\E j \in 0..ver[K] : View(hist[K][j]) = x)
     /\ tq' = [tq EXCEPT ![s] = IF tq[s] = NONE THEN x.q ELSE MaxOf({tq[s], x.q})]
 
+\* Whether the shown table would show a state of write count q (5.3, Shown.IsShown).
+IsShownAt(s, q) == IF tq[s] = NONE THEN ~(bit[s] /\ FixShownTable) ELSE q >= tq[s]
+
 RECURSIVE SumTm(_)
 SumTm(S) == IF S = {} THEN 0 ELSE LET o == CHOOSE x \in S : TRUE IN o.tm + SumTm(S \ {o})
 
@@ -486,19 +499,26 @@ Hear(s) ==
                      turned == {[o EXCEPT !.heard = TRUE, !.said = TRUE] : o \in old}
                      ops2 == (ops1 \ old) \cup turned
                      said == {x.n.rec : x \in {y \in res : y.n.say}} \cup {Rec(o, "Turned", FALSE) : o \in {x \in old : ~x.said}}
-                     \* 6, after "ok": the session takes the returned state if its q is higher, with the still
-                     \* queued hopeful ops laid on top.
-                     adopt == sv[s].on /\ a = "ok" /\ nt.vs.q > sv[s].q
+                     \* 6: the session takes the returned state if its q is higher, with the still queued
+                     \* hopeful ops laid on top: after "ok", and with FixAdoptUnwritten after "nil" too, whose note
+                     \* shows the state its run read, if the shown table would show it (5.3).
+                     unwritten == a = "nil" /\ FixAdoptUnwritten /\ IsShownAt(s, nt.vs.q)
+                     adopt == sv[s].on /\ (a = "ok" \/ unwritten) /\ nt.vs.q > sv[s].q
                      queued == {o \in ops2 : ~o.heard /\ o.kind = "hopeful"}
+                     \* 6: an answer that turns an op away, when no state is taken, lays the queued ops again on
+                     \* the state the view lies on.
+                     turnedAny == old # {} \/ \E x \in res : x.n.rec.r = "Turned"
+                     relaid == sv[s].on /\ ~adopt /\ turnedAny
                  IN /\ ws' = [ws EXCEPT ![s].out = 0, ![s].ops = ops2, ![s].ack = AckOf(ops2)]
                     /\ ans' = ans \cup said
                     /\ finished' = finished \cup {r.c : r \in said}
                     /\ hc' = IF a # "err" /\ nt.h > hc[s] THEN [hc EXCEPT ![s] = nt.h] ELSE hc
                     /\ IF adopt
                        THEN /\ sv' = [sv EXCEPT ![s] = [on |-> TRUE, q |-> nt.vs.q, c |-> nt.vs.c,
-                                                         g |-> nt.vs.g + SumTm(queued)]]
+                                                         g |-> nt.vs.g + SumTm(queued), b |-> nt.vs.g]]
                             /\ ShowGhosts(s, nt.vs)
-                       ELSE UNCHANGED <<sv, tq, lastShown, back, unheld>>
+                       ELSE /\ sv' = IF relaid THEN [sv EXCEPT ![s].g = sv[s].b + SumTm(queued)] ELSE sv
+                            /\ UNCHANGED <<tq, lastShown, back, unheld>>
                     /\ UNCHANGED started
     /\ UNCHANGED <<tk, rj, rd, bit>>
 
@@ -538,7 +558,8 @@ ReadHear(s) ==
                  /\ finished' = finished \cup {i}
                  /\ UNCHANGED <<started, sv, tq, lastShown, back, unheld>>
             ELSE /\ ShowGhosts(s, vw)
-                 /\ sv' = IF e.kind = "load" THEN [sv EXCEPT ![s] = [on |-> TRUE, q |-> vw.q, c |-> vw.c, g |-> vw.g]]
+                 /\ sv' = IF e.kind = "load" THEN [sv EXCEPT ![s] = [on |-> TRUE, q |-> vw.q, c |-> vw.c, g |-> vw.g,
+                                                                      b |-> vw.g]]
                           ELSE sv
                  /\ finished' = finished \cup {i}
                  /\ UNCHANGED <<started, ans>>
@@ -637,6 +658,13 @@ DidApplyTrue == \A a \in ans : a.m = "didapply" /\ a.r = "true" => \E x \in tk :
 DidApplyFalse == \A a \in ans : a.m = "didapply" /\ a.r = "false" => a.pr /\ a.eff = 0
 \* A8 NeverBack: what one server shows never goes back to a state older than one it showed.
 NeverBack == ~back
+\* A9 ViewHoldsTook: an open session's view is the state it lies on, plus its queued hopeful ops, plus
+\* each hopeful op of its writer it heard took in a version after that state. A view laid again on an
+\* older state than an op it heard took drops the op.
+TookSince(s) == {x \in tk : x.kind = "hopeful" /\ x.w = ws[s].wid /\ hist[K][x.v].q > sv[s].q
+                              /\ \E o \in ws[s].ops : o.seq = x.seq /\ o.heard}
+ViewHoldsTook == \A s \in Servers : sv[s].on =>
+    sv[s].g = sv[s].b + SumTm({o \in ws[s].ops : ~o.heard /\ o.kind = "hopeful"}) + SumTm(TookSince(s))
 
 \* Probe: some behaviour answers every item of the script.
 ScriptUnfinished == ~(Idx \subseteq finished)
