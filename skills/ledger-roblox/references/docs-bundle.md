@@ -161,6 +161,13 @@ Next: [Releases](/docs/releases)
 
 `+` is new in v7, `~` exists in v6 and works differently now, `-` is gone, `!` is something to know before you upgrade.
 
+## 7.0.5 [#705]
+
+```diff
++ Auto Compresses when near 4mb per key limit
++ Slight optimization
+```
+
 ## 7.0.4 [#704]
 
 ```diff
@@ -1689,7 +1696,7 @@ Next: [Shutdown and testing](/docs/learn/shutdown-and-testing)
 
 Pick one:
 
-* **Wally:** add `Ledger = "xoifaii/ledger@7.0.4"` to `[dependencies]` in your `wally.toml`.
+* **Wally:** add `Ledger = "xoifaii/ledger@7.0.5"` to `[dependencies]` in your `wally.toml`.
 * **Model file:** download `Ledger.rbxm` from the GitHub releases page and drop it into `ReplicatedStorage`.
 
 Ledger goes in `ReplicatedStorage` so your client scripts can use `Ledger.Reason` too. Everything else in Ledger only runs on the server.
