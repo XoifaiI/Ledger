@@ -18,8 +18,8 @@
 		if Result.Kind == "Err" and Result.IsThrottled then ... end
 --]=]
 
-local GetOrMake = require("../GetOrMake").GetOrMake
-local Names = require("../Encoding/Names")
+local GetOrMake = require("../Machine/GetOrMake").GetOrMake
+local Names = require("../Record/Encoding/Names")
 
 type StoreKey = Names.StoreKey
 

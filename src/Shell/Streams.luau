@@ -12,11 +12,11 @@
 		Streams.OnEmit({ Kind = "Emit", Stream = "View", Key = Key, Value = View })
 --]=]
 
-local Events = require("../Events")
-local Names = require("../Encoding/Names")
+local Events = require("../Machine/Events")
+local Names = require("../Record/Encoding/Names")
 local Observer = require("../Util/Observer")
-local Value = require("../Stored/Value")
-local WritingAnswers = require("../Writing/Answers")
+local Value = require("../Record/Stored/Value")
+local WritingAnswers = require("../Record/Writing/Answers")
 
 type Answer = Events.Answer
 type EmitCommand = Events.EmitCommand

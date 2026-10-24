@@ -12,11 +12,11 @@
 		local Asked = Handles.AskedOf(OpId)
 --]=]
 
-local Events = require("../Events")
-local Guards = require("../Judging/Guards")
-local HotShapes = require("../Hot/Shapes")
-local Names = require("../Encoding/Names")
-local Shapes = require("../Shapes")
+local Events = require("../Machine/Events")
+local Guards = require("../Record/Judging/Guards")
+local HotShapes = require("../Features/Hot/Shapes")
+local Names = require("../Record/Encoding/Names")
+local Shapes = require("../Machine/Shapes")
 local Types = require("../Types")
 
 type AskedName = Shapes.AskedName

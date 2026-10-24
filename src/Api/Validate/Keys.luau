@@ -12,9 +12,9 @@
 		local Key = Keys.Key(Settings, Player, "Store:Edit")
 --]=]
 
-local Check = require("../../Encoding/Check")
-local Names = require("../../Encoding/Names")
-local Record = require("../../Constants/Record")
+local Check = require("../../Record/Encoding/Check")
+local Names = require("../../Record/Encoding/Names")
+local Record = require("../../Record/Constants/Record")
 local Rules = require("./Rules")
 local ShellSetup = require("../../Shell/Setup")
 

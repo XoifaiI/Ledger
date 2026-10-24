@@ -14,22 +14,22 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Tx/Legs/Balances")
-local Check = require("../../Encoding/Check")
-local Cuts = require("../../Constants/Cuts")
-local Guards = require("../../Judging/Guards")
+local Balances = require("../../Record/Legs/Balances")
+local Check = require("../../Record/Encoding/Check")
+local Cuts = require("../../Record/Constants/Cuts")
+local Guards = require("../../Record/Judging/Guards")
 local Handles = require("../Handles")
-local Json = require("../../Encoding/Json")
-local Names = require("../../Encoding/Names")
+local Json = require("../../Record/Encoding/Json")
+local Names = require("../../Record/Encoding/Names")
 local NoYield = require("../../Util/NoYield")
 local Platform = require("../../Shell/Platform")
 local PublicTypes = require("../../Types")
-local Record = require("../../Constants/Record")
+local Record = require("../../Record/Constants/Record")
 local Rules = require("./Rules")
 local Runner = require("../../Shell/Runner")
-local Shapes = require("../../Shapes")
+local Shapes = require("../../Machine/Shapes")
 local ShellSetup = require("../../Shell/Setup")
-local StoredValue = require("../../Stored/Value")
+local StoredValue = require("../../Record/Stored/Value")
 
 type AskedName = Shapes.AskedName
 type GivenName = Names.GivenName

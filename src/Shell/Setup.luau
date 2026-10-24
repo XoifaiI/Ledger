@@ -14,17 +14,17 @@
 		local StoreSetup = Setup.SetupOf(Settings, PartBuild, Encoding, Limits, IsStudio)
 --]=]
 
-local Balances = require("../Tx/Legs/Balances")
-local Cache = require("../Reading/Cache")
-local ExtrasShapes = require("../Extras/Shapes")
-local Guards = require("../Judging/Guards")
-local HashInputs = require("../Encoding/HashInputs")
-local HotShapes = require("../Hot/Shapes")
-local Names = require("../Encoding/Names")
-local PartBuilder = require("../Hot/Part/Build")
-local Reasons = require("../Constants/Reasons")
-local Record = require("../Constants/Record")
-local Shapes = require("../Shapes")
+local Balances = require("../Record/Legs/Balances")
+local Cache = require("../Record/Reading/Cache")
+local ExtrasShapes = require("../Features/Extras/Shapes")
+local Guards = require("../Record/Judging/Guards")
+local HashInputs = require("../Record/Encoding/HashInputs")
+local HotShapes = require("../Features/Hot/Shapes")
+local Names = require("../Record/Encoding/Names")
+local PartBuilder = require("../Record/Part/Build")
+local Reasons = require("../Record/Constants/Reasons")
+local Record = require("../Record/Constants/Record")
+local Shapes = require("../Machine/Shapes")
 
 type Arithmetic = Balances.Arithmetic
 type Build = Shapes.Build

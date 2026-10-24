@@ -13,20 +13,20 @@
 --]=]
 
 local Args = require("./Args")
-local Check = require("../../Encoding/Check")
-local Entries = require("../../Stored/Entries")
-local HotShapes = require("../../Hot/Shapes")
+local Check = require("../../Record/Encoding/Check")
+local Entries = require("../../Record/Stored/Entries")
+local HotShapes = require("../../Features/Hot/Shapes")
 local Leg = require("./Leg")
-local Measure = require("../../Tx/Call/Measure")
-local Names = require("../../Encoding/Names")
-local Record = require("../../Constants/Record")
-local Requests = require("../../Tx/Call/Requests")
+local Measure = require("../../Features/Tx/Call/Measure")
+local Names = require("../../Record/Encoding/Names")
+local Record = require("../../Record/Constants/Record")
+local Requests = require("../../Features/Tx/Call/Requests")
 local Rules = require("./Rules")
 local ShellSetup = require("../../Shell/Setup")
 local Stepping = require("../../Shell/Stepping")
-local Terms = require("../../Tx/Call/Terms")
-local Transaction = require("../../Constants/Transaction")
-local TxShapes = require("../../Tx/Shapes")
+local Terms = require("../../Features/Tx/Call/Terms")
+local Transaction = require("../../Record/Constants/Transaction")
+local TxShapes = require("../../Features/Tx/Shapes")
 
 type CheckedLeg = Leg.CheckedLeg
 type GivenName = Names.GivenName

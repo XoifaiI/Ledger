@@ -11,18 +11,18 @@
 		Requests.OnUpdate(Command, Stores[Command.Target.Store], Feed)
 --]=]
 
-local Cache = require("../Reading/Cache")
-local Events = require("../Events")
-local JudgingShapes = require("../Judging/Shapes")
-local Names = require("../Encoding/Names")
+local Cache = require("../Record/Reading/Cache")
+local Events = require("../Machine/Events")
+local JudgingShapes = require("../Record/Judging/Shapes")
+local Names = require("../Record/Encoding/Names")
 local Platform = require("./Platform")
-local Record = require("../Constants/Record")
+local Record = require("../Record/Constants/Record")
 local Services = require("./Services")
-local Shapes = require("../Shapes")
+local Shapes = require("../Machine/Shapes")
 local ShellSetup = require("./Setup")
 local Stepping = require("./Stepping")
 local Threads = require("../Util/Threads")
-local Transform = require("../Judging/Transform")
+local Transform = require("../Record/Judging/Transform")
 
 type Closure = JudgingShapes.Closure
 type KeyKind = Shapes.KeyKind

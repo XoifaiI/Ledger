@@ -16,10 +16,10 @@
 		Calls.Resume(Waiters)
 --]=]
 
-local Events = require("../Events")
+local Events = require("../Machine/Events")
 local Future = require("../Util/Future")
-local Reasons = require("../Constants/Reasons")
-local Replies = require("../Replies")
+local Reasons = require("../Record/Constants/Reasons")
+local Replies = require("../Machine/Replies")
 
 type Answer = Events.Answer
 type AnswerCommand = Events.AnswerCommand

@@ -10,9 +10,9 @@
 		ProbeAdvice.Heard(Settings.Name, Asked, IsProbe, Answered)
 --]=]
 
-local Events = require("../Events")
-local Reasons = require("../Constants/Reasons")
-local Shapes = require("../Shapes")
+local Events = require("../Machine/Events")
+local Reasons = require("../Record/Constants/Reasons")
+local Shapes = require("../Machine/Shapes")
 
 type Answer = Events.Answer
 type AskedName = Shapes.AskedName

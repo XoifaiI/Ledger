@@ -14,18 +14,18 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Tx/Legs/Balances")
-local Check = require("../../Encoding/Check")
-local Extras = require("../../Constants/Extras")
-local ExtrasShapes = require("../../Extras/Shapes")
-local Guards = require("../../Judging/Guards")
-local Hot = require("../../Constants/Hot")
-local HotShapes = require("../../Hot/Shapes")
-local Json = require("../../Encoding/Json")
+local Balances = require("../../Record/Legs/Balances")
+local Check = require("../../Record/Encoding/Check")
+local Extras = require("../../Record/Constants/Extras")
+local ExtrasShapes = require("../../Features/Extras/Shapes")
+local Guards = require("../../Record/Judging/Guards")
+local Hot = require("../../Record/Constants/Hot")
+local HotShapes = require("../../Features/Hot/Shapes")
+local Json = require("../../Record/Encoding/Json")
 local PublicTypes = require("../../Types")
-local Record = require("../../Constants/Record")
+local Record = require("../../Record/Constants/Record")
 local Rules = require("./Rules")
-local Settable = require("../../Constants/Settable")
+local Settable = require("../../Record/Constants/Settable")
 local ShellSetup = require("../../Shell/Setup")
 
 type Declaration = Balances.Declaration

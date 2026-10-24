@@ -13,8 +13,8 @@
 		local Wait = Platform.SecondsUntil(Clock + 30)
 --]=]
 
-local HashInputs = require("../Encoding/HashInputs")
-local Record = require("../Constants/Record")
+local HashInputs = require("../Record/Encoding/HashInputs")
+local Record = require("../Record/Constants/Record")
 
 type Encoding = HashInputs.Encoding
 

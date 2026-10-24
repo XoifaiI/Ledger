@@ -12,19 +12,19 @@
 --]=]
 
 local Args = require("./Args")
-local Check = require("../../Encoding/Check")
-local HotShapes = require("../../Hot/Shapes")
+local Check = require("../../Record/Encoding/Check")
+local HotShapes = require("../../Features/Hot/Shapes")
 local Keys = require("./Keys")
-local Post = require("../../Stored/Post")
-local Record = require("../../Constants/Record")
-local Requests = require("../../Tx/Call/Requests")
+local Post = require("../../Record/Stored/Post")
+local Record = require("../../Record/Constants/Record")
+local Requests = require("../../Features/Tx/Call/Requests")
 local Rules = require("./Rules")
 local Runner = require("../../Shell/Runner")
-local Shapes = require("../../Shapes")
+local Shapes = require("../../Machine/Shapes")
 local ShellSetup = require("../../Shell/Setup")
-local SlotPath = require("../../Stored/Items/SlotPath")
+local SlotPath = require("../../Record/Stored/Items/SlotPath")
 local Stores = require("./Stores")
-local TxShapes = require("../../Tx/Shapes")
+local TxShapes = require("../../Features/Tx/Shapes")
 
 type PathStep = Post.PathStep
 type QuantityDeclaration = HotShapes.QuantityDeclaration

@@ -13,21 +13,21 @@
 		type Store = Types.TypedStore<{ Gold: number }, { AddGold: { Amount: number } }>
 --]=]
 
-local Amounts = require("./Encoding/Amounts")
-local Book = require("./Stored/Book")
-local Fates = require("./Stored/Items/Fates")
+local Amounts = require("./Record/Encoding/Amounts")
+local Book = require("./Record/Stored/Book")
+local Fates = require("./Record/Stored/Items/Fates")
 local Future = require("./Util/Future")
-local Guards = require("./Judging/Guards")
-local Hot = require("./Constants/Hot")
-local HotShapes = require("./Hot/Shapes")
-local Names = require("./Encoding/Names")
+local Guards = require("./Record/Judging/Guards")
+local Hot = require("./Record/Constants/Hot")
+local HotShapes = require("./Features/Hot/Shapes")
+local Names = require("./Record/Encoding/Names")
 local Observer = require("./Util/Observer")
-local Reasons = require("./Constants/Reasons")
-local RecordTypes = require("./RecordTypes")
+local Reasons = require("./Record/Constants/Reasons")
+local RecordTypes = require("./Machine/RecordTypes")
 local Services = require("./Shell/Services")
 local ShellSetup = require("./Shell/Setup")
 local TypeFunctions = require("./TypeFunctions")
-local WritingAnswers = require("./Writing/Answers")
+local WritingAnswers = require("./Record/Writing/Answers")
 
 type Emitted = WritingAnswers.Emitted
 type MigrationRun = Guards.MigrationRun

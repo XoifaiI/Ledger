@@ -13,8 +13,8 @@
 		local Settled = Balance.Settle(Kind, {}, { Gold = Arithmetic }, "Ledger.New Balances kind SpendGold")
 --]=]
 
-local Balances = require("../../Tx/Legs/Balances")
-local Check = require("../../Encoding/Check")
+local Balances = require("../../Record/Legs/Balances")
+local Check = require("../../Record/Encoding/Check")
 local Rules = require("./Rules")
 local Stepping = require("../../Shell/Stepping")
 

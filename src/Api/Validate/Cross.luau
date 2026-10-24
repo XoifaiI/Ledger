@@ -13,15 +13,15 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Tx/Legs/Balances")
-local Check = require("../../Encoding/Check")
-local Guards = require("../../Judging/Guards")
-local Hot = require("../../Constants/Hot")
-local Record = require("../../Constants/Record")
+local Balances = require("../../Record/Legs/Balances")
+local Check = require("../../Record/Encoding/Check")
+local Guards = require("../../Record/Judging/Guards")
+local Hot = require("../../Record/Constants/Hot")
+local Record = require("../../Record/Constants/Record")
 local Rules = require("./Rules")
 local ShellSetup = require("../../Shell/Setup")
 local Stepping = require("../../Shell/Stepping")
-local Transaction = require("../../Constants/Transaction")
+local Transaction = require("../../Record/Constants/Transaction")
 
 type Arithmetic = Balances.Arithmetic
 type Declaration = Balances.Declaration

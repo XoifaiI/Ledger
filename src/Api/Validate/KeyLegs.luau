@@ -12,17 +12,17 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Tx/Legs/Balances")
-local Cache = require("../../Reading/Cache")
-local Check = require("../../Encoding/Check")
+local Balances = require("../../Record/Legs/Balances")
+local Cache = require("../../Record/Reading/Cache")
+local Check = require("../../Record/Encoding/Check")
 local Keys = require("./Keys")
-local KindSetup = require("../../Judging/KindSetup")
+local KindSetup = require("../../Record/Judging/KindSetup")
 local Leg = require("./Leg")
 local Rules = require("./Rules")
 local Runner = require("../../Shell/Runner")
 local ShellSetup = require("../../Shell/Setup")
 local Stores = require("./Stores")
-local TxShapes = require("../../Tx/Shapes")
+local TxShapes = require("../../Features/Tx/Shapes")
 
 type CheckedLeg = Leg.CheckedLeg
 type Direction = Balances.Direction

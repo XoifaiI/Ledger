@@ -11,15 +11,15 @@
 		local Limits = Limits.Build(Settings, Setup.PartBuildOf(Settings), Platform.IsStudio())
 --]=]
 
-local Book = require("../Stored/Book")
-local Cuts = require("../Constants/Cuts")
-local Extras = require("../Constants/Extras")
-local Hot = require("../Constants/Hot")
-local Record = require("../Constants/Record")
-local Settable = require("../Constants/Settable")
-local Shapes = require("../Shapes")
+local Book = require("../Record/Stored/Book")
+local Cuts = require("../Record/Constants/Cuts")
+local Extras = require("../Record/Constants/Extras")
+local Hot = require("../Record/Constants/Hot")
+local Record = require("../Record/Constants/Record")
+local Settable = require("../Record/Constants/Settable")
+local Shapes = require("../Machine/Shapes")
 local ShellSetup = require("./Setup")
-local Transaction = require("../Constants/Transaction")
+local Transaction = require("../Record/Constants/Transaction")
 
 type Build = Shapes.Build
 type Limits = Shapes.Limits

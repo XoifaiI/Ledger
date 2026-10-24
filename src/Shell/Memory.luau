@@ -11,7 +11,7 @@
 		Memory.OnGet(Command, Feed)
 --]=]
 
-local Events = require("../Events")
+local Events = require("../Machine/Events")
 local Platform = require("./Platform")
 local Services = require("./Services")
 local Threads = require("../Util/Threads")

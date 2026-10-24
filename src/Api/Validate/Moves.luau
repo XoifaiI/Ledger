@@ -13,19 +13,19 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Tx/Legs/Balances")
-local Check = require("../../Encoding/Check")
+local Balances = require("../../Record/Legs/Balances")
+local Check = require("../../Record/Encoding/Check")
 local Handles = require("../Handles")
-local Hot = require("../../Constants/Hot")
-local HotShapes = require("../../Hot/Shapes")
+local Hot = require("../../Record/Constants/Hot")
+local HotShapes = require("../../Features/Hot/Shapes")
 local KeyLegs = require("./KeyLegs")
 local Leg = require("./Leg")
 local Legs = require("./Legs")
-local PartBuild = require("../../Hot/Part/Build")
+local PartBuild = require("../../Record/Part/Build")
 local Quantity = require("./Quantity")
 local Rules = require("./Rules")
 local ShellSetup = require("../../Shell/Setup")
-local TxShapes = require("../../Tx/Shapes")
+local TxShapes = require("../../Features/Tx/Shapes")
 
 type CheckedLeg = Leg.CheckedLeg
 type CheckedLegs = Legs.CheckedLegs

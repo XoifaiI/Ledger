@@ -15,8 +15,8 @@
 
 local Args = require("./Validate/Args")
 local Keys = require("./Validate/Keys")
-local Names = require("../Encoding/Names")
-local Reasons = require("../Constants/Reasons")
+local Names = require("../Record/Encoding/Names")
+local Reasons = require("../Record/Constants/Reasons")
 local Runner = require("../Shell/Runner")
 local Services = require("../Shell/Services")
 local ShellSetup = require("../Shell/Setup")
