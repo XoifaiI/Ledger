@@ -2,10 +2,10 @@
 --!optimize 2
 
 --[=[
-	Services: the DataStore, MemoryStore and JSON calls, one request in, one Result out, through ResultOf's one
-	pcall; a listing gives one page through PageResultOf's. A failed request's error is not read: a failed Get is
-	throttled when this server's GetAsync budget is below 1, every other failure fails plainly. A key listing takes 50
-	keys a page, deleted ones left out; a version listing takes the platform's default page (0, which is 1024), oldest
+	Services: the DataStore, MemoryStore and JSON calls, one request in, one Result out, through ResultOf's one pcall;
+	a listing gives one page through PageResultOf's. A failed request's error is not read: a failed Get is throttled
+	when this server's StandardRead budget is below 1, every other failure fails plainly. A key listing takes 50 keys
+	a page, deleted ones left out; a version listing takes the platform's default page (0, which is 1024), oldest
 	first, the order named since the Mock defaults to newest first. Server-only services are got at first use. A mock,
 	given through a store's Mock option, stands in for both services for the whole server, since Ledger's own stores
 	cannot be split from the game's: one mock per server, and only before the first request, so a store opened on the
@@ -130,7 +130,7 @@ local function ResultOf(Body: () -> unknown): Result
 end
 
 local function ReadGetBudget(): unknown
-	return GetDataStoreService():GetRequestBudgetForRequestType(Enum.DataStoreRequestType.GetAsync)
+	return GetDataStoreService():GetRequestBudgetForRequestType(Enum.DataStoreRequestType.StandardRead)
 end
 
 local function IsGetBudgetSpent(): boolean
