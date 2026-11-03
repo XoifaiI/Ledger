@@ -53,7 +53,7 @@ local function Wake(Caller: thread, ...: any)
 end
 
 local function Settle(Body: Private, ...: any)
-	assert(Body.Result == nil, "a future settled twice, so a thread waiting on it would read the wrong answer")
+	assert(Body.Result == nil, "a future settled twice, being cancelled")
 	Body.Result = Pack(...)
 	local Waiting = Body.Waiting
 	if Waiting == nil then
