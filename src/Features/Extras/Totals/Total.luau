@@ -159,6 +159,12 @@ local function Fail(State: State, Work: TotalWork, Why: Reason, Clock: number, C
 	Finish(State, Work, Clock, Commands)
 end
 
+local function FailAll(State: State, Works: { TotalWork }, Clock: number, Commands: { Command })
+	for _, Work in Works do
+		Fail(State, Work, Reasons.Unresolved, Clock, Commands)
+	end
+end
+
 local function Conclude(State: State, Work: TotalWork, Clock: number, Commands: { Command })
 	if not Subject.IsComplete(State, Work.Call) then
 		return Fail(State, Work, Reasons.Unresolved, Clock, Commands)
@@ -219,6 +225,16 @@ local function IsTakerWanted(Read: ItemRead, Clock: number, Fraction: number): b
 	return Read.Kind == "Missing"
 end
 
+local function IsFallbackWanted(Replica: number, Read: ItemRead, Clock: number, Fraction: number): boolean
+	if Replica == 0 or Read.Kind == "Behind" then
+		return false
+	end
+	if Read.Kind ~= "Item" then
+		return true
+	end
+	return Summary.IsLapsed(Read, Clock, Fraction)
+end
+
 local function OnSummaryRead(
 	State: State,
 	Purpose: SummaryGet,
@@ -231,12 +247,19 @@ local function OnSummaryRead(
 	local Ref = Purpose.Ref
 	local View = Subject.ViewOf(State, Ref)
 	local Works = ExtrasState.TakeWaits(State.Extras, RequestId)
+	local IsClosing = Closing.IsPastDeadline(State.Sessions, Clock)
 	if Fetched.Kind == "Failed" then
+		if IsClosing then
+			return FailAll(State, Works, Clock, Commands)
+		end
 		return Await(Works, SendCold(State, Ref, Commands))
 	end
 	Pairs.NoteHit(View)
 	local Read = Subject.ReadItem(State, Ref, Fetched)
-	if Purpose.Replica ~= 0 and (Read.Kind ~= "Item" or Summary.IsLapsed(Read, Clock, 0)) then
+	if IsFallbackWanted(Purpose.Replica, Read, Clock, Fraction) then
+		if IsClosing then
+			return FailAll(State, Works, Clock, Commands)
+		end
 		return Await(Works, ReadSummary(State, Ref, 0, Commands))
 	end
 	if Read.Kind == "Item" then

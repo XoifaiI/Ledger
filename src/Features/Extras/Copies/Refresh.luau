@@ -2,18 +2,10 @@
 --!optimize 2
 
 --[=[
-	Refresh: a key's copy holder's refresh (extras sheet E8, cuts sheet 8.6). Each check reads the key. While its
-	lease is live, a holder pushes a newer state, or the lease's own q when it is RepushAge old or replica 0 says
-	it reached too few replicas (Written below Replicas); it renews the lease on replica 0 when the read agrees
-	with the lease; Copies/Push writes. A read behind the lease pushes nothing. A server holding no live lease
-	pushes replica 0 alone.
-	A failed write to replica 0 under a lease sends a cold read. If MemoryStore answers it, replica 0 is only hot:
-	the count doubles once every replica of it was written, and the lease is kept for the next check. A failed write
-	whose cold read fails, or one replica 0 refused, lets the lease go. A grown count outlives a push that did not
-	reach every replica. A missing key loses replica 0's items and every replica this server knows of; an erased
-	key's are found through replica 0's header (AdviseErased). OnClock owns the stop rule; a holder that stops is
-	no longer served, so its remembered state moves to the small set (Reading/Showables). The holder's own read
-	feeds this server's Follower of the key.
+	Refresh: a key's copy holder's refresh (extras sheet E8, cuts sheet 8.6). The holder's Count lives in the holder,
+	so it outlives its lease, and it doubles only after a cold read that MemoryStore answered, once the lease's
+	Written reaches it. A holder that stops is no longer served, so its remembered state moves to the small set
+	(Reading/Showables).
 
 	OnClock looks only at the holders whose times in CopyTimes fell due, in the order of their key texts. A holder
 	keeps a refresh time while NextAt is set and an expiry time at all times, put back at UsedAt plus CopyPushAge, or
@@ -32,7 +24,6 @@ local CopyState = require("./State")
 local DueTimes = require("../../../Machine/DueTimes")
 local Events = require("../../../Machine/Events")
 local Extras = require("../../../Record/Constants/Extras")
-local ExtrasShapes = require("../Shapes")
 local ExtrasState = require("../State")
 local Items = require("./Items")
 local Names = require("../../../Record/Encoding/Names")
@@ -59,7 +50,6 @@ type CopyRead = CopyState.CopyRead
 type HeaderUpdate = CopyState.HeaderUpdate
 type ItemRemove = CopyState.ItemRemove
 type PartSet = CopyState.PartSet
-type CopyHeader = ExtrasShapes.CopyHeader
 type DueTimes<Item> = DueTimes.DueTimes<Item>
 type State = Composed.State
 
@@ -195,8 +185,7 @@ end
 
 local function RemoveGone(State: State, Key: StoreKey, Clock: number, Commands: { Command })
 	local Holder = State.Extras.CopyHolders[Names.KeyText(Key)]
-	local Lease = if Holder ~= nil then Holder.Lease else nil
-	local Known = if Lease ~= nil then Lease.Replicas else 1
+	local Known = if Holder ~= nil then Holder.Count else 1
 	RemoveItems(State, Key, math.max(Replicas.CountOf(State.Server, Key), Known), Clock, Commands)
 end
 
@@ -216,11 +205,11 @@ local function IsLive(Lease: CopyLease, Clock: number): boolean
 	return Clock < Lease.Until
 end
 
-local function IsPushDue(Lease: CopyLease, Q: number, Clock: number): boolean
+local function IsPushDue(Holder: CopyHolder, Lease: CopyLease, Q: number, Clock: number): boolean
 	if Q ~= Lease.Q then
 		return Q > Lease.Q
 	end
-	return Clock - Lease.PushedAt >= RepushAge or Lease.Written < Lease.Replicas
+	return Lease.Written < Lease.Replicas or Holder.Count > Lease.Replicas or Clock - Lease.PushedAt >= RepushAge
 end
 
 local function IsRenewDue(Lease: CopyLease, Clock: number): boolean
@@ -256,8 +245,8 @@ local function OnKeyShown(State: State, Next: CopyRead, Clock: number, Commands:
 		Holder.Lease = nil
 		return CopyPush.Start(State, Holder, CopyPush.NewPlan(State, Next, Clock), 1, Clock, Commands)
 	end
-	if IsPushDue(Lease, Q, Clock) then
-		return CopyPush.Start(State, Holder, CopyPush.NewPlan(State, Next, Clock), Lease.Replicas, Clock, Commands)
+	if IsPushDue(Holder, Lease, Q, Clock) then
+		return CopyPush.Start(State, Holder, CopyPush.NewPlan(State, Next, Clock), Holder.Count, Clock, Commands)
 	end
 	if Q == Lease.Q and IsRenewDue(Lease, Clock) then
 		return CopyPush.SendRenewHeader(State, Holder, CopyPush.NewPlan(State, Next, Clock), Lease, Clock, Commands)
@@ -274,9 +263,8 @@ local function EndReplica(
 	Clock: number,
 	Commands: { Command }
 )
-	Push.Left -= 1
-	Push.IsWhole = Push.IsWhole and IsWritten
-	if Push.Left > 0 then
+	local IsAllAnswered = CopyPush.NoteReplicaEnd(Push, IsWritten)
+	if not IsAllAnswered then
 		return
 	end
 	if Closing.IsPastDeadline(State.Sessions, Clock) then
@@ -316,14 +304,6 @@ local function OnPartSet(State: State, Purpose: PartSet, Result: MemoryOutcome, 
 	CopyPush.SendPushHeader(State, Holder, Push, Purpose.Replica, Clock, Commands)
 end
 
-local function MergedOf(Written: unknown, Carried: CopyHeader): CopyHeader
-	local Decoded = Items.DecodeHeader(Written)
-	if Decoded.Kind ~= "Header" then
-		return Carried
-	end
-	return Decoded.Header
-end
-
 local function OnHeaderResult(
 	State: State,
 	Purpose: HeaderUpdate,
@@ -339,30 +319,28 @@ local function OnHeaderResult(
 	if Push ~= nil and Purpose.Replica ~= 0 then
 		return EndReplica(State, Holder, Push, true, Clock, Commands)
 	end
-	local Prior = Holder.Lease
-	local Merged = MergedOf(Result.Value, Purpose.Header)
+	local Decoded = Items.DecodeHeader(Result.Value)
+	if Decoded.Kind ~= "Header" then
+		return Abandon(Holder)
+	end
+	local Merged = Decoded.Header
 	Holder.IsRefreshing = false
+	Holder.Count = math.max(Holder.Count, Merged.Replicas)
 	Holder.Lease = {
 		Q = Merged.Q,
 		PushedAt = Purpose.PushedAt,
 		Until = Merged.HolderStamp.Until,
-		Replicas = if Prior ~= nil then math.max(Prior.Replicas, Merged.Replicas) else Merged.Replicas,
+		Replicas = Merged.Replicas,
 		Written = Merged.Written,
 	}
 	RefreshAt(State, Holder, Clock + CheckEvery)
 end
 
 local function Grow(Holder: CopyHolder, Lease: CopyLease)
-	if Lease.Written < Lease.Replicas then
+	if Lease.Written < Holder.Count then
 		return
 	end
-	Holder.Lease = {
-		Q = Lease.Q,
-		PushedAt = Lease.PushedAt,
-		Until = Lease.Until,
-		Replicas = Spread.Grown(Lease.Replicas),
-		Written = Lease.Written,
-	}
+	Holder.Count = Spread.Grown(Holder.Count)
 end
 
 local function OnColdRead(State: State, Purpose: ColdRead, Fetched: MemoryFetched, Clock: number)

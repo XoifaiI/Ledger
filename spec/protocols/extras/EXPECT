@@ -28,6 +28,7 @@ ReplayCopyRep.cfg MCCopy expect=pass timeout=1800 why=for the replay's random wa
 ProbeMergeNewer.cfg MCCopy expect=violate:MergesNewer timeout=600 why=probe for the replay, run as random walks: a header update runs over a live header with a newer q
 ProbeCancelOlder.cfg MCCopy expect=violate:CancelsOlder timeout=600 why=probe for the replay, run as random walks: a header update is cancelled over a live header with a larger q (5.2)
 ProbeFallBack.cfg MCCopy expect=violate:FallsBack timeout=600 why=probe for the replay, run as random walks: a follower whose home replica held no header or missed a part reads replica 0 on its next tick
+ProbeGrown.cfg MCCopy expect=violate:Grown timeout=1800 why=probe: a holder doubles its count after a failed write to replica 0 whose cold read answered (D1), so the replica configs reach replica 1
 ProbeMergeSmallerN.cfg MCCopy expect=violate:MergesSmallerN timeout=600 why=probe for the replay, run as random walks: a header update runs over a live header with a smaller replica count
 CopyRepCtlPartQ.cfg MCCopy expect=violate:ReadWasHeld timeout=1800 why=extras 13: with replicas, parts shown without checking each part's q join pieces of two versions (A7)
 # CopyAbs: copies at the level of landings; hand-written configs.

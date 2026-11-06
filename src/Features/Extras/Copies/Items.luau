@@ -5,8 +5,9 @@
 	Items: the copy items of one followed key (extras sheet E7; Format 11, 12) on each of its replicas: a replica's
 	header key (replica 0 the tagged key with the key's length, replica r named by Spread), its parts' keys and map,
 	both values' codecs, whether a header fits ItemRoom, a state's JSON cut into pieces at characters, and the commands
-	that get or remove items. A header carries the copy's replica count and how many replicas were written at its q.
-	Every replica's items sit in the map its own header key hashes to. A malformed item reads as nothing.
+	that get or remove items. A header carries the copy's replica count and how many replicas were written at its q,
+	from 1 to the replica count. Every replica's items sit in the map its own header key hashes to. A malformed item
+	reads as nothing.
 
 	Return type: A plain table of functions, and the DecodedHeader type.
 	Example usage:
@@ -71,51 +72,55 @@ local CopyVersion = Record.CopyVersion
 local PartsMax = Record.PartsMax
 local ItemRoom = Extras.ItemRoom
 local CopySlots = Extras.CopySlots
-local ReplicasMost = Extras.ReplicasMost
 
 local IsPartCount = Check.Whole(1, PartsMax)
-local IsReplicaCount = Check.Whole(1, ReplicasMost)
-local IsWrittenCount = Check.Whole(0, ReplicasMost)
 
-local function ReadState(Held: unknown): CopyBody?
+local Faults = table.freeze({
+	BodyTwice = "the item holds more than one body",
+	BodyMissing = "the item holds no body",
+	NotBigMark = "a big body is not marked as one",
+	WrittenAboveReplicas = "more replicas were written than there are",
+	PieceNotText = "a part's piece is not text",
+})
+
+local function ReadState(Held: unknown): CopyBody
 	if type(Held) ~= "table" then
-		return nil
+		return Summary.Malformed(Summary.Faults.NotATable)
 	end
 	return { Kind = "State", State = Held :: Fields }
 end
 
-local function ReadParts(Held: unknown): CopyBody?
-	if type(Held) ~= "number" or IsPartCount(Held) ~= nil then
-		return nil
-	end
-	return { Kind = "Parts", Count = Held }
+local function ReadParts(Held: unknown): CopyBody
+	return { Kind = "Parts", Count = Summary.ReadWhole(Held, IsPartCount) }
 end
 
-local function ReadBig(Held: unknown): CopyBody?
+local function ReadBig(Held: unknown): CopyBody
 	if Held ~= BigMark then
-		return nil
+		return Summary.Malformed(Faults.NotBigMark)
 	end
 	return BigBody
 end
 
-local BodyReaders: { [string]: (Held: unknown) -> CopyBody? } = {
+local BodyReaders: { [string]: (Held: unknown) -> CopyBody } = {
 	[StateKey] = ReadState,
 	[PartsKey] = ReadParts,
 	[BigKey] = ReadBig,
 }
 
-local function DecodeBody(Item: Fields): CopyBody?
+local function ReadBody(Item: Fields): CopyBody
 	local Body: CopyBody? = nil
-	local Found = 0
 	for Key, Read in BodyReaders do
 		local Held = Item[Key]
-		if Held ~= nil then
-			Found += 1
-			Body = Read(Held)
+		if Held == nil then
+			continue
 		end
+		if Body ~= nil then
+			return Summary.Malformed(Faults.BodyTwice)
+		end
+		Body = Read(Held)
 	end
-	if Found ~= 1 then
-		return nil
+	if Body == nil then
+		return Summary.Malformed(Faults.BodyMissing)
 	end
 	return Body
 end
@@ -167,56 +172,54 @@ local function EncodeHeader(Header: CopyHeader): Fields
 	return Item
 end
 
-local function DecodeIncarnation(Held: unknown): (boolean, ExtrasShapes.CopyIncarnation)
+local function ReadIncarnation(Held: unknown): ExtrasShapes.CopyIncarnation
 	if Held == nil then
-		return true, nil
-	elseif Held == NoIncarnationMark then
-		return true, false
-	elseif type(Held) ~= "table" then
-		return false, nil
+		return nil
+	end
+	if Held == NoIncarnationMark then
+		return false
+	end
+	if type(Held) ~= "table" then
+		return Summary.Malformed(Summary.Faults.NotATable)
 	end
 	local Pair = Held :: Fields
-	local Server = Summary.ReadPlain(Pair[1])
-	local Counter = Summary.ReadPlain(Pair[2])
-	if Server == nil or Counter == nil then
-		return false, nil
-	end
-	return true, { Server = Server, Counter = Counter }
+	return { Server = Summary.ReadPlain(Pair[1]), Counter = Summary.ReadPlain(Pair[2]) }
 end
 
-local function DecodeHeader(Raw: unknown): DecodedHeader
+local function ReadStoredHeader(Raw: unknown): DecodedHeader
 	if type(Raw) ~= "table" then
-		return UnreadableHeader
+		return Summary.Malformed(Summary.Faults.NotATable)
 	end
 	local Item = Raw :: Fields
 	local Version = Item[VersionKey]
 	if type(Version) == "number" and Version > CopyVersion then
 		return BehindHeader
 	end
-	local Q = Summary.ReadPlain(Item[QKey])
-	local Level = Summary.ReadPlain(Item[LevelKey])
-	local Floor = Summary.ReadPlain(Item[FloorKey])
-	local Stamp = Summary.ReadHolderStamp(Item)
-	local Body = DecodeBody(Item)
-	local IsReadable, Incarnation = DecodeIncarnation(Item[IncarnationKey])
-	local Replicas = Item[ReplicasKey]
-	local Written = Item[WrittenKey]
-	if Version ~= CopyVersion or Q == nil or Level == nil or Floor == nil or Stamp == nil or Body == nil then
-		return UnreadableHeader
-	elseif not IsReadable or IsReplicaCount(Replicas) ~= nil or IsWrittenCount(Written) ~= nil then
-		return UnreadableHeader
+	if Version ~= CopyVersion then
+		return Summary.Malformed(Summary.Faults.WrongVersion)
 	end
 	local Header: CopyHeader = {
-		Q = Q,
-		Level = Level,
-		Floor = Floor,
-		Incarnation = Incarnation,
-		HolderStamp = Stamp,
-		Body = Body,
-		Replicas = Replicas :: number,
-		Written = Written :: number,
+		Q = Summary.ReadPlain(Item[QKey]),
+		Level = Summary.ReadPlain(Item[LevelKey]),
+		Floor = Summary.ReadPlain(Item[FloorKey]),
+		Incarnation = ReadIncarnation(Item[IncarnationKey]),
+		HolderStamp = Summary.ReadHolderStamp(Item),
+		Body = ReadBody(Item),
+		Replicas = Summary.ReadWhole(Item[ReplicasKey], Spread.IsReplicaCount),
+		Written = Summary.ReadWhole(Item[WrittenKey], Spread.IsReplicaCount),
 	}
+	if Header.Written > Header.Replicas then
+		return Summary.Malformed(Faults.WrittenAboveReplicas)
+	end
 	return { Kind = "Header", Header = Header }
+end
+
+local function DecodeHeader(Raw: unknown): DecodedHeader
+	local IsRead, Read = pcall(ReadStoredHeader, Raw)
+	if not IsRead then
+		return UnreadableHeader
+	end
+	return Read
 end
 
 local function EncodePart(Part: CopyPart): Fields
@@ -227,18 +230,24 @@ local function EncodePart(Part: CopyPart): Fields
 	}
 end
 
-local function DecodePart(Raw: unknown): CopyPart?
+local function ReadPart(Raw: unknown): CopyPart
 	if type(Raw) ~= "table" then
-		return nil
+		return Summary.Malformed(Summary.Faults.NotATable)
 	end
 	local Item = Raw :: Fields
-	local Q = Summary.ReadPlain(Item[QKey])
-	local Level = Summary.ReadPlain(Item[LevelKey])
 	local Piece = Item[PieceKey]
-	if Q == nil or Level == nil or type(Piece) ~= "string" then
+	if type(Piece) ~= "string" then
+		return Summary.Malformed(Faults.PieceNotText)
+	end
+	return { Q = Summary.ReadPlain(Item[QKey]), Level = Summary.ReadPlain(Item[LevelKey]), Piece = Piece }
+end
+
+local function DecodePart(Raw: unknown): CopyPart?
+	local IsRead, Read = pcall(ReadPart, Raw)
+	if not IsRead then
 		return nil
 	end
-	return { Q = Q, Level = Level, Piece = Piece }
+	return Read
 end
 
 local function Fits(Header: CopyHeader): boolean

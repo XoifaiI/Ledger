@@ -136,8 +136,14 @@ B0 == [r |-> 0, i |-> 0]
 RD0 == [r |-> 0, kd |-> "", k |-> "", rep |-> 0, n |-> 1]
 HomeRep(s) == (IF s = "A" THEN 0 ELSE 1) % nf[s]
 Cold == "z"
+\* Who refreshes the summary and who reads its items: every server unless a config narrows them.
+Refreshers == Servers
+Readers == Servers
 Min(a, b) == IF a <= b THEN a ELSE b
 HL0 == [leased |-> FALSE, n |-> 1, said |-> 1]
+\* A holder's count at the start: 1, or 2 where a config starts holders that grew before (D29), so a probe
+\* of the replica path needs no failure to grow first. A crash starts it at 1.
+InitCount == 1
 
 NextOf(s) == LET open == {i \in Idx : Script[i].s = s /\ i \notin started} IN
              IF open = {} THEN 0 ELSE CHOOSE i \in open : \A j \in open : i <= j
@@ -216,7 +222,7 @@ SendItemGet(s, r) ==
     /\ rd' = [rd EXCEPT ![s] = [RD0 EXCEPT !.r = NextMsReq, !.kd = "ms", !.rep = r]]
     /\ UNCHANGED <<bw, bout, lp, nf, hl, started, finished, ans, bk, ev>>
 
-ReadItem(s) == Idle(s) /\ SendItemGet(s, HomeRep(s))
+ReadItem(s) == s \in Readers /\ Idle(s) /\ SendItemGet(s, HomeRep(s))
 ReadZero(s) == rd[s].r = 0 /\ rd[s].kd = "ms0" /\ SendItemGet(s, 0)
 
 \* A refresh with count n: replica 1 first when n is 2, then replica 0.
@@ -225,7 +231,7 @@ SendUpdate(s, r, n) ==
     /\ rd' = [rd EXCEPT ![s] = [RD0 EXCEPT !.r = NextMsReq, !.kd = "fr", !.rep = r, !.n = n]]
     /\ UNCHANGED <<bw, bout, lp, nf, hl, started, finished, ans, bk, ev>>
 
-Refresh(s) == Idle(s) /\ SendUpdate(s, IF hl[s].leased THEN hl[s].n - 1 ELSE 0, hl[s].n)
+Refresh(s) == s \in Refreshers /\ Idle(s) /\ SendUpdate(s, IF hl[s].leased THEN hl[s].n - 1 ELSE 0, hl[s].n)
 RefreshZero(s) == rd[s].r = 0 /\ rd[s].kd = "fr0" /\ SendUpdate(s, 0, rd[s].n)
 
 HearRead(s) ==
@@ -294,7 +300,7 @@ Init ==
     /\ lp = [s \in Servers |-> [k \in Shards |-> NoPair]]
     /\ rd = [s \in Servers |-> RD0]
     /\ nf = [s \in Servers |-> 1]
-    /\ hl = [s \in Servers |-> HL0]
+    /\ hl = [s \in Servers |-> [HL0 EXCEPT !.n = InitCount]]
     /\ started = {} /\ finished = {} /\ ans = {} /\ bk = {} /\ ev = 0
 
 EnvStep == EnvNext(Tf, MsTf, FALSE) /\ Obs /\ UNCHANGED <<bw, bout, lp, rd, nf, hl, started, finished, ans>>

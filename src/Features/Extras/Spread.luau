@@ -8,12 +8,14 @@
 	item spreads servers over ReplicasMost, and its home under a count of replicas is its slot modulo the count, so
 	a doubling count keeps half the homes in place; the cold keys are spread the same way, so many failing readers
 	do not make one hot. A server with no number yet has slot 0. A count grows by ReplicaFactor up to ReplicasMost.
+	IsReplicaCount is the rule a count of replicas, and a count of those written, must meet.
 
 	Return type: A plain table of functions.
 	Example usage:
 		local Home = Spread.HomeOf(Spread.SlotOf(Encoding, ItemKey, ServerNumber), Count)
 --]=]
 
+local Check = require("../../Record/Encoding/Check")
 local Extras = require("../../Record/Constants/Extras")
 local HashInputs = require("../../Record/Encoding/HashInputs")
 local Record = require("../../Record/Constants/Record")
@@ -24,6 +26,8 @@ local ReplicasMost = Extras.ReplicasMost
 local ReplicaFactor = Extras.ReplicaFactor
 local ReplicaKeyInfix = Record.ReplicaKeyInfix
 local ColdKeySuffix = Record.ColdKeySuffix
+
+local IsReplicaCount = Check.Whole(1, ReplicasMost)
 
 local function ReplicaKey(ItemKey: string, Replica: number): string
 	if Replica == 0 then
@@ -53,6 +57,7 @@ local function Grown(Count: number): number
 end
 
 return {
+	IsReplicaCount = IsReplicaCount,
 	ReplicaKey = ReplicaKey,
 	SlotOf = SlotOf,
 	HomeOf = HomeOf,

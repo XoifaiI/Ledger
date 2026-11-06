@@ -2,14 +2,10 @@
 --!optimize 2
 
 --[=[
-	Refresh: the summary holder's refresh (sheet E5). Start reads every shard or part, owing a tidy on an old entry
-	(E6). The last answer writes the summary: replica 0 alone without a live lease, else replicas 1 to Replicas - 1
-	at once and replica 0 once they answered. Any answer from MemoryStore, on any replica, shuts the breaker. An ok
-	on replica 0 makes it the holder until that write's lease runs out, refreshing RefreshEvery later, with the
-	larger of its count and the item's. A failed write to replica 0 sends a cold read (Spread). If MemoryStore
-	answers it, the count doubles once replica 0 took the count, and a leased holder keeps its lease; if not, it is
-	a breaker miss, and the holding ends. CanStart refuses before the server number, while out and closing. OnClock
-	owns the stop rule.
+	Refresh: the summary holder's refresh (sheet E5). The last answer to its reads writes the summary: replica 0
+	alone without a live lease, else replicas 1 to Replicas - 1 at once and replica 0 once they answered. Any
+	answer from MemoryStore, on any replica, shuts the breaker; a cold read that fails is a breaker miss, and the
+	holding ends.
 
 	OnClock looks only at the holders whose times in SummaryTimes fell due, in the order they were made (Holders). A
 	holder keeps a refresh time while NextAt is set and an expiry time at all times, put back at UsedAt plus
@@ -169,17 +165,23 @@ local function OnResult(
 		return SendUpdate(State, Holder, 0, Commands)
 	end
 	if Result.Kind == "Err" then
+		if Closing.IsPastDeadline(State.Sessions, Clock) then
+			return Stop(Holder)
+		end
 		return SendCold(State, Holder, Commands)
 	end
 	Pairs.NoteHit(Subject.ViewOf(State, Holder))
 	if Result.Kind ~= "Ok" then
 		return Stop(Holder)
 	end
-	local Announced, Until = Subject.LeaseIn(Holder, Result.Value)
+	local Lease = Subject.LeaseIn(Holder, Result.Value)
+	if Lease == nil then
+		return Stop(Holder)
+	end
 	Holder.IsLeased = true
-	Holder.Until = Until
-	Holder.Announced = Announced
-	Holder.Replicas = math.max(Holder.Replicas, Announced)
+	Holder.Until = Lease.Until
+	Holder.Announced = Lease.Replicas
+	Holder.Replicas = math.max(Holder.Replicas, Lease.Replicas)
 	RefreshAt(State, Holder, Clock + RefreshEvery)
 end
 

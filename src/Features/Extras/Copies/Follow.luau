@@ -3,14 +3,11 @@
 
 --[=[
 	Follow: a followed key's follower (extras sheet E9). A tick reads its home replica's header (Tick.Begin), then
-	that replica's parts, and shows a q above the last shown; it reads no part from the close deadline. A replica
-	other than 0 that is missing, unreadable, unrefreshed or misses a part sends the next tick to replica 0, so a
-	tick sends at most 1 + PartsMax gets (L1); a Peek, which has one tick, reads replica 0 at once. Only replica
-	0 carries the lease, so only its header can show a lapse, and only its missing header or parts run a taker
-	refresh. A failed read is not a miss: it sends one cold read (Replicas.ColdKeyOf), and if MemoryStore answers
-	it the copy is only hot and the tick ends quietly; if not, the follower reads the key itself (KeyPath), as for
-	a big or newer header. A header read keeps its count for this server's next tick (Replicas.NoteCount). Peek's
-	tick runs this too.
+	that replica's parts, so it sends at most 1 + PartsMax gets (L1), and no part read from the close deadline. A
+	replica other than 0 that is missing, unreadable, unrefreshed or misses a part sends the next tick to replica
+	0; a Peek, which has one tick, reads replica 0 at once. Only replica 0 carries the lease, so only its header
+	can show a lapse. A failed read is not a miss: it sends one cold read (Replicas.ColdKeyOf), and the follower
+	reads the key itself (KeyPath) only if MemoryStore does not answer that.
 
 	A header still held by this server's own lease, whose holder this server dropped (Copies/Refresh's stop rule),
 	refreshes at once rather than waiting for the lease to lapse.
@@ -75,9 +72,12 @@ end
 
 local function FallBack(State: State, Follower: Follower, Clock: number, Commands: { Command })
 	if Follower.Serves.Kind == "Call" then
+		if Closing.IsPastDeadline(State.Sessions, Clock) then
+			return Tick.EndAfter(State, Follower, Follower.TickEvery, Clock, Commands)
+		end
 		return Tick.SendHeaderGet(State, Follower, 0, Commands)
 	end
-	Follower.ReadsZero = true
+	Tick.SendNextToZero(Follower)
 	Tick.EndMoved(State, Follower, Clock, Commands)
 end
 
@@ -118,7 +118,10 @@ local function ShowCopied(
 	Tick.EmitRising(State, Follower, Header.Q, Viewed.State, Clock, Commands)
 end
 
-local function SendCold(State: State, Follower: Follower, Commands: { Command })
+local function SendCold(State: State, Follower: Follower, Clock: number, Commands: { Command })
+	if Closing.IsPastDeadline(State.Sessions, Clock) then
+		return Tick.EndAfter(State, Follower, Follower.TickEvery, Clock, Commands)
+	end
 	local ColdKey = Replicas.ColdKeyOf(State.Server, Follower.Key)
 	local Purpose: TickCold = { Kind = "TickCold", Follower = Follower }
 	Tick.SendGet(State, ColdKey, ColdKey, Purpose, Commands)
@@ -194,7 +197,7 @@ local function OnHeader(
 		return
 	end
 	if Fetched.Kind == "Failed" then
-		return SendCold(State, Follower, Commands)
+		return SendCold(State, Follower, Clock, Commands)
 	end
 	local Decoded = if Fetched.Kind == "Found" then Items.DecodeHeader(Fetched.Value) else nil
 	if Decoded ~= nil and Decoded.Kind == "Behind" then
@@ -237,7 +240,7 @@ local function OnPart(
 		return
 	end
 	if Fetched.Kind == "Failed" then
-		return SendCold(State, Follower, Commands)
+		return SendCold(State, Follower, Clock, Commands)
 	end
 	local Header = Purpose.Header
 	local Part: CopyPart? = nil

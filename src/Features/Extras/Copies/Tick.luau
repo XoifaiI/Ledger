@@ -103,6 +103,10 @@ local function SetQuiet(Follower: Follower)
 	Follower.TickEvery = math.min(Follower.TickEvery * TickFactor, TickMost)
 end
 
+local function SendNextToZero(Follower: Follower)
+	Follower.ReadsZero = true
+end
+
 local function EndMoved(State: State, Follower: Follower, Clock: number, Commands: { Command })
 	SetMoved(Follower)
 	EndAfter(State, Follower, Follower.TickEvery, Clock, Commands)
@@ -177,6 +181,7 @@ return {
 	EndAfter = EndAfter,
 	SetMoved = SetMoved,
 	SetQuiet = SetQuiet,
+	SendNextToZero = SendNextToZero,
 	EndMoved = EndMoved,
 	EndQuiet = EndQuiet,
 	EmitRising = EmitRising,

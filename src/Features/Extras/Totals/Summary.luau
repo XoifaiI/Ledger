@@ -10,7 +10,8 @@
 
 	Return type: A plain table of functions, the PairForm, PartForm, PairPlaces, PartPlaces and Flags, and the
 	RawEntry and RawItem types.
-	TagOf, ReadHolderStamp, ReadPlain and IsLapsed serve copy items.
+	TagOf, IsLapsed, Faults, Malformed and the readers ReadWhole, ReadHolderStamp and ReadPlain, which throw, serve
+	copy items.
 	Example usage:
 		local Item = Summary.TransformRaw(Carried, 16, ServerNumber, Summary.PairForm, 1, 0)(Stored, Clock) --> or nil
 --]=]
@@ -72,13 +73,18 @@ local HolderSpan = Extras.HolderSpan
 local LapseSlack = Extras.LapseSlack
 local TakerJitter = Extras.TakerJitter
 local ShardSumMost = Extras.ShardSumMost
-local ReplicasMost = Extras.ReplicasMost
 
 local IsPlain = Check.Whole(0, ShardSumMost)
 local IsHolder = Check.Whole(1, ShardSumMost)
 local IsSum = Check.Whole(-ShardSumMost, ShardSumMost)
 local IsFlag = Check.Whole(FlagClear, FlagSet)
-local IsReplicaCount = Check.Whole(1, ReplicasMost)
+
+local Faults = table.freeze({
+	NotATable = "a stored value is not a table",
+	WrongLength = "a stored array has the wrong length",
+	NotWhole = "a stored number is not a whole number in its range",
+	WrongVersion = "the item's version is not this one's",
+})
 
 local PairForm: EntryForm = { Width = SummaryShardWidth, Rules = { IsPlain, IsSum } }
 local PartForm: EntryForm = { Width = SummaryPartWidth, Rules = { IsPlain, IsPlain, IsPlain, IsPlain, IsFlag, IsFlag } }
@@ -149,84 +155,88 @@ local function EncodeSummary(
 	}
 end
 
-local function ReadWhole(Held: unknown, Rule: Check.Rule): number?
+local function Malformed(What: string): never
+	error(`Summary: the stored item is not what its writer gives, {What}. The decode that reads it refuses it`)
+end
+
+local function ReadWhole(Held: unknown, Rule: Check.Rule): number
 	if type(Held) ~= "number" or Rule(Held) ~= nil then
-		return nil
+		return Malformed(Faults.NotWhole)
 	end
 	return Held
 end
 
-local function ReadEntry(Raw: unknown, Form: EntryForm): RawEntry?
+local function ReadEntry(Raw: unknown, Form: EntryForm): RawEntry
 	if type(Raw) ~= "table" then
-		return nil
+		return Malformed(Faults.NotATable)
 	end
 	local Held = Raw :: Fields
 	if #Held ~= Form.Width then
-		return nil
+		return Malformed(Faults.WrongLength)
 	end
 	local Entry: RawEntry = {}
 	for Place, Rule in Form.Rules do
-		local Whole = ReadWhole(Held[Place], Rule)
-		if Whole == nil then
-			return nil
-		end
-		Entry[Place] = Whole
+		Entry[Place] = ReadWhole(Held[Place], Rule)
 	end
 	return Entry
 end
 
-local function ReadEntries(Raw: unknown, Count: number, Form: EntryForm): { [number]: RawEntry }?
+local function ReadEntries(Raw: unknown, Count: number, Form: EntryForm): { [number]: RawEntry }
 	if type(Raw) ~= "table" then
-		return nil
+		return Malformed(Faults.NotATable)
 	end
 	local Held = Raw :: Fields
 	if #Held ~= Count then
-		return nil
+		return Malformed(Faults.WrongLength)
 	end
 	local Found: { [number]: RawEntry } = {}
 	for Position = 1, Count do
 		local Stored = Held[Position]
 		if Stored ~= NoEntry then
-			local Entry = ReadEntry(Stored, Form)
-			if Entry == nil then
-				return nil
-			end
-			Found[Position - 1] = Entry
+			Found[Position - 1] = ReadEntry(Stored, Form)
 		end
 	end
 	return Found
 end
 
-local function ReadHolderStamp(Item: Fields): HolderStamp?
-	local HolderNumber = ReadWhole(Item[HolderKey], IsHolder)
-	local Until = ReadWhole(Item[UntilKey], IsPlain)
-	local At = ReadWhole(Item[AtKey], IsPlain)
-	if HolderNumber == nil or Until == nil or At == nil then
-		return nil
-	end
-	return { HolderNumber = HolderNumber, Until = Until, At = At }
+local function ReadHolderStamp(Item: Fields): HolderStamp
+	return {
+		HolderNumber = ReadWhole(Item[HolderKey], IsHolder),
+		Until = ReadWhole(Item[UntilKey], IsPlain),
+		At = ReadWhole(Item[AtKey], IsPlain),
+	}
 end
 
-local function ReadPlain(Held: unknown): number?
+local function ReadPlain(Held: unknown): number
 	return ReadWhole(Held, IsPlain)
 end
 
-local function ReadItem(Raw: unknown, Count: number, Form: EntryForm): RawItem
+local function ReadStored(Raw: unknown, Count: number, Form: EntryForm): RawItem
 	if type(Raw) ~= "table" then
-		return UnreadableItem
+		return Malformed(Faults.NotATable)
 	end
 	local Item = Raw :: Fields
 	local Version = Item[VersionKey]
 	if type(Version) == "number" and Version > SummaryVersion then
 		return BehindItem
 	end
-	local Stamp = ReadHolderStamp(Item)
-	local Replicas = ReadWhole(Item[ReplicasKey], IsReplicaCount)
-	local Entries = ReadEntries(Item[PairsKey], Count, Form)
-	if Version ~= SummaryVersion or Stamp == nil or Replicas == nil or Entries == nil then
+	if Version ~= SummaryVersion then
+		return Malformed(Faults.WrongVersion)
+	end
+	return {
+		Kind = "Item",
+		HolderStamp = ReadHolderStamp(Item),
+		Replicas = ReadWhole(Item[ReplicasKey], Spread.IsReplicaCount),
+		Entries = ReadEntries(Item[PairsKey], Count, Form),
+	}
+end
+
+local function ReadItem(Raw: unknown, Count: number, Form: EntryForm): RawItem
+	local IsRead, Read = pcall(ReadStored, Raw, Count, Form)
+	if not IsRead then
 		return UnreadableItem
 	end
-	return { Kind = "Item", HolderStamp = Stamp, Replicas = Replicas, Entries = Entries }
+	return Read
 end
 
 local function MergeInto(
@@ -288,6 +298,9 @@ return {
 	SummaryKey = SummaryKey,
 	MapOf = MapOf,
 	GetCommand = GetCommand,
+	Faults = Faults,
+	Malformed = Malformed,
+	ReadWhole = ReadWhole,
 	ReadHolderStamp = ReadHolderStamp,
 	ReadPlain = ReadPlain,
 	PairForm = PairForm,

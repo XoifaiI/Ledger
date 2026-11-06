@@ -73,11 +73,7 @@ local function SlotOf(Server: ServerState, Key: StoreKey): number
 end
 
 local function HomeOf(Server: ServerState, Key: StoreKey): number
-	local Count = CountOf(Server, Key)
-	if Count == 1 then
-		return 0
-	end
-	return Spread.HomeOf(SlotOf(Server, Key), Count)
+	return Spread.HomeOf(SlotOf(Server, Key), CountOf(Server, Key))
 end
 
 local function ColdKeyOf(Server: ServerState, Key: StoreKey): string

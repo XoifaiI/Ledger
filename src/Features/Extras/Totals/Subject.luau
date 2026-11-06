@@ -8,7 +8,7 @@
 	last read, and its cold key (Spread). A TotalView is keyed without Keys: the API refuses a total and a quantity
 	under one name.
 
-	Return type: A plain table of functions, and the ItemRead type.
+	Return type: A plain table of functions, and the ItemRead and Lease types.
 	Example usage:
 		local Key = Subject.KeyOf({ Store = "Shop", Scope = "global", Total = Total }, 3)
 --]=]
@@ -59,6 +59,7 @@ export type ItemRead =
 	{ read Kind: "Item", read HolderStamp: HolderStamp, read Replicas: number }
 	| { read Kind: "Behind" }
 	| { read Kind: "Missing" }
+export type Lease = { read Replicas: number, read Until: number }
 
 local PartKind = Record.KeyKind.Part
 local Flags = Summary.Flags
@@ -227,13 +228,13 @@ local function TransformFor(
 	return Summary.TransformRaw(Raw, Total.KeyCount, ServerNumber, Summary.PairForm, Replicas, Replica)
 end
 
-local function LeaseIn(Ref: TotalRef, Stored: unknown): (number, number)
+local function LeaseIn(Ref: TotalRef, Stored: unknown): Lease?
 	local Form = if IsQuantity(Ref.Total) then Summary.PartForm else Summary.PairForm
 	local Read = Summary.ReadItem(Stored, Ref.Total.KeyCount, Form)
 	if Read.Kind ~= "Item" then
-		return 1, 0
+		return nil
 	end
-	return Read.Replicas, Read.HolderStamp.Until
+	return { Replicas = Read.Replicas, Until = Read.HolderStamp.Until }
 end
 
 local function ItemKeyOf(State: State, Ref: TotalRef, Replica: number): string
@@ -245,11 +246,7 @@ local function SlotOf(State: State, Ref: TotalRef): number
 end
 
 local function HomeOf(State: State, Ref: TotalRef): number
-	local Count = ViewOf(State, Ref).Replicas
-	if Count == 1 then
-		return 0
-	end
-	return Spread.HomeOf(SlotOf(State, Ref), Count)
+	return Spread.HomeOf(SlotOf(State, Ref), ViewOf(State, Ref).Replicas)
 end
 
 local function ColdKeyOf(State: State, Ref: TotalRef): string

@@ -3,8 +3,9 @@
 
 --[=[
 	State: what a server keeps of the copies it holds and follows (sheet E8, E9). A CopyHolder is one key's
-	refresh, with its lease and UsedAt, when a local tick last reached it; Copies/Refresh keeps its times due. A
-	lease keeps replica 0's merged Replicas and Written. A Follower ticks for observers or a Peek (PeekWork); NextAt
+	refresh, with its Count of replicas, its lease and UsedAt, when a local tick last reached it; Copies/Refresh
+	keeps its times due. Count lives as long as the holder, so a dropped lease keeps it. A lease keeps replica 0's
+	merged Replicas and Written. A Follower ticks for observers or a Peek (PeekWork); NextAt
 	is nil while a tick is out, and ReadsZero sends its next tick to replica 0. A CopyPlan is the state a push
 	writes, and a CopyPush one push: Left counts its replicas other than 0 still being written, and IsWhole says
 	none of them failed. A CopyRead is an ended read. Every item request names its replica.
@@ -39,6 +40,7 @@ export type CopyHolder = {
 	read Key: StoreKey,
 	read Text: string,
 	IsRefreshing: boolean,
+	Count: number,
 	Lease: CopyLease?,
 	NextAt: number?,
 	UsedAt: number,
@@ -128,7 +130,7 @@ export type ColdRead = { read Kind: "ColdRead", read Holder: CopyHolder }
 export type TickCold = { read Kind: "TickCold", read Follower: Follower }
 
 local function NewCopyHolder(Key: StoreKey, Text: string, Clock: number): CopyHolder
-	return { Key = Key, Text = Text, IsRefreshing = false, Lease = nil, NextAt = nil, UsedAt = Clock }
+	return { Key = Key, Text = Text, IsRefreshing = false, Count = 1, Lease = nil, NextAt = nil, UsedAt = Clock }
 end
 
 local function NoteUsed(Holders: { [string]: CopyHolder }, Key: StoreKey, Clock: number)

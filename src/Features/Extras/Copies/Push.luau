@@ -3,12 +3,9 @@
 
 --[=[
 	Push: what a copy holder writes (extras sheet E8, cuts sheet 8.6): a push's plan, and each replica's parts and
-	header. A push writes every replica other than 0 at once, parts before header, and replica 0 once all of them
-	answered; if any failed, replica 0 is written as a push to replica 0 alone, so its Written stays below Replicas.
-	A header's update with a smaller q than its replica holds is cancelled (extras 5.2); else it merges into it
-	(Replicas.Merge), and on replica 0 a lease of another server that has not run out refuses it. On an equal q a
-	push at another level writes its level, floor and body; a renew writes replica 0 alone and keeps the held ones.
-	A plan measures its header at the largest count.
+	header. The replicas other than 0 are written first, each with its parts before its header, and replica 0 only
+	once all of them answered (Copies/Refresh). A plan measures its header at the largest count, so a plan that fits
+	fits at any count. Replicas owns the merge a header update runs.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -156,6 +153,12 @@ local function CountOf(Push: CopyPush, Replica: number): number
 	return 1
 end
 
+local function NoteReplicaEnd(Push: CopyPush, IsWritten: boolean): boolean
+	Push.Left -= 1
+	Push.IsWhole = Push.IsWhole and IsWritten
+	return Push.Left == 0
+end
+
 local function SendPushHeader(
 	State: State,
 	Holder: CopyHolder,
@@ -253,6 +256,7 @@ return {
 	HeaderTransform = HeaderTransform,
 	NewPlan = NewPlan,
 	Start = Start,
+	NoteReplicaEnd = NoteReplicaEnd,
 	SendReplica = SendReplica,
 	SendPart = SendPart,
 	SendPushHeader = SendPushHeader,
