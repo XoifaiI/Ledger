@@ -39,8 +39,11 @@ local IntervalMost = 960
 local SummaryExpiry = Record.SecondsPerHour
 local CopyExpiry = Record.SecondsPerHour
 local CopyPushAge = CopyExpiry / 2
+local RepushAge = 5 * Record.SecondsPerMinute
 local ItemRoom = 32000
 local CopySlots = 2
+local ReplicasMost = 512
+local ReplicaFactor = 2
 
 local TickFirst = 30
 local TickMost = 240
@@ -73,8 +76,11 @@ return table.freeze({
 	SummaryExpiry = SummaryExpiry,
 	CopyExpiry = CopyExpiry,
 	CopyPushAge = CopyPushAge,
+	RepushAge = RepushAge,
 	ItemRoom = ItemRoom,
 	CopySlots = CopySlots,
+	ReplicasMost = ReplicasMost,
+	ReplicaFactor = ReplicaFactor,
 	TickFirst = TickFirst,
 	TickMost = TickMost,
 	TickFactor = TickFactor,

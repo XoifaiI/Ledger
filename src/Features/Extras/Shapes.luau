@@ -97,6 +97,7 @@ export type ExtrasCall = BumpCall | TotalCall | FollowCall | UnfollowCall | Stal
 
 export type SummaryItem<Entry> = {
 	read HolderStamp: HolderStamp,
+	read Replicas: number,
 	read Entries: { [number]: Entry },
 }
 
@@ -120,6 +121,8 @@ export type CopyHeader = {
 	read Incarnation: CopyIncarnation,
 	read HolderStamp: HolderStamp,
 	read Body: CopyBody,
+	read Replicas: number,
+	read Written: number,
 }
 
 export type CopyPart = {

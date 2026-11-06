@@ -3,8 +3,8 @@
 
 --[=[
 	KeyPath: a follower's key path and Peek(key, MaxAge) (extras sheet E9 F6, F7). A big or newer header, a
-	failed header Get or a refused show reads the key through Reads, or ends the tick from the close deadline. A
-	MaxAge of 0 is a plain Peek: it never shows a copy or the last shown state.
+	failed read whose cold read failed too or a refused show reads the key through Reads, or ends the tick from the
+	close deadline. A MaxAge of 0 is a plain Peek: it never shows a copy or the last shown state.
 	FollowEvery spaces the next tick, jittered by the read's fraction, doubled after a throttled read, halved after a
 	good one.
 
@@ -105,7 +105,7 @@ local function ShowNext(State: State, Follower: Follower, Next: CopyRead, Clock:
 	end
 	local Given = Next.Answer
 	if Given.Kind == "Failed" and Given.Reason == Reasons.Missing then
-		CopyRefresh.RemoveItems(State, Follower.Key, Clock, Commands)
+		CopyRefresh.RemoveGone(State, Follower.Key, Clock, Commands)
 	end
 	Tick.Deliver(State, Follower, Given, Commands)
 	return false

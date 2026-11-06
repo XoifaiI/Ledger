@@ -4,8 +4,12 @@
 --[=[
 	Total: one Total(total, MaxAge) call over shards or a quantity's parts (sheet E4). A fresh view answers (T1);
 	else the item (T2), then the entries it lacks, or all if it is unusable or the breaker open (T4, T5), sharing
-	reads out. It answers once, Unresolved at B_op; then tidies, and a taker for an absent, malformed or lapsed
-	item.
+	reads out. The item is read from this server's home replica (Subject.HomeOf), or replica 0 when that one is
+	missing, unreadable or lapsed, and only replica 0 can call for a taker. A failed read sends a cold read: if
+	MemoryStore answers it the summary is only hot, and the call answers the local sum when every entry was read
+	within the view's interval (the down path's test, with no read), else Unresolved; if not, the breaker notes a
+	miss and the call reads every entry. It answers once, Unresolved at B_op; then tidies, and a taker for an absent,
+	malformed or lapsed item.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -22,7 +26,6 @@ local Numbers = require("../../../Record/Writing/Numbers")
 local Pacing = require("../../../Record/Writing/Pacing")
 local Pairs = require("./Pairs")
 local Reasons = require("../../../Record/Constants/Reasons")
-local Record = require("../../../Record/Constants/Record")
 local Refresh = require("./Refresh")
 local Replies = require("../../../Machine/Replies")
 local Shapes = require("../../../Machine/Shapes")
@@ -38,6 +41,7 @@ type Reason = Reasons.Reason
 type ReadRound = ExtrasState.ReadRound
 type TotalKeyRead = ExtrasState.TotalKeyRead
 type SummaryGet = ExtrasState.SummaryGet
+type TotalCold = ExtrasState.TotalCold
 type TotalView = ExtrasState.TotalView
 type TotalWork = ExtrasState.TotalWork
 type TotalCall = ExtrasShapes.TotalCall
@@ -45,8 +49,6 @@ type TotalRef = ExtrasShapes.TotalRef
 type ItemRead = Subject.ItemRead
 type ServerState = Shapes.ServerState
 type State = Composed.State
-
-local SummaryMapPrefix = Record.SummaryMapPrefix
 
 local function BoundOf(Server: ServerState, Call: TotalCall): number
 	return Cache.StoreNamed(Server, Call.Store).Setup.Limits.OpBound
@@ -111,19 +113,24 @@ local function AwaitKeys(State: State, Work: TotalWork, Indexes: { number }, Clo
 	end
 end
 
-local function ReadSummary(State: State, Ref: TotalRef, Commands: { Command }): number
-	local Encoding = State.Server.Encoding
-	local Purpose: SummaryGet = { Kind = "SummaryGet", Ref = Ref }
+local function ReadSummary(State: State, Ref: TotalRef, Replica: number, Commands: { Command }): number
+	local Purpose: SummaryGet = { Kind = "SummaryGet", Ref = Ref, Replica = Replica }
 	local RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose)
-	local Key = Summary.SummaryKey(Encoding, Ref.Store, Ref.Scope, Ref.Total)
-	local Get: Command = {
-		Kind = "MemoryGet",
-		RequestId = RequestId,
-		Map = Summary.MapOf(Encoding, SummaryMapPrefix, Key),
-		Key = Key,
-	}
-	table.insert(Commands, Get)
+	table.insert(Commands, Summary.GetCommand(State.Server.Encoding, Subject.ItemKeyOf(State, Ref, Replica), RequestId))
 	return RequestId
+end
+
+local function SendCold(State: State, Ref: TotalRef, Commands: { Command }): number
+	local Purpose: TotalCold = { Kind = "TotalCold", Ref = Ref }
+	local RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose)
+	table.insert(Commands, Summary.GetCommand(State.Server.Encoding, Subject.ColdKeyOf(State, Ref), RequestId))
+	return RequestId
+end
+
+local function Await(Works: { TotalWork }, RequestId: number)
+	for _, Work in Works do
+		Work.Waits[RequestId] = true
+	end
 end
 
 local function Answer(State: State, Call: TotalCall, Commands: { Command })
@@ -187,7 +194,7 @@ local function Begin(State: State, Call: TotalCall, Clock: number, Commands: { C
 	if Pairs.IsOpen(View, Clock) then
 		return Down(State, Work, Clock, Commands)
 	end
-	Work.Waits[ReadSummary(State, Call, Commands)] = true
+	Work.Waits[ReadSummary(State, Call, Subject.HomeOf(State, Call), Commands)] = true
 end
 
 local function ContinueWith(State: State, Work: TotalWork, Read: ItemRead, Clock: number, Commands: { Command })
@@ -205,10 +212,7 @@ local function ContinueWith(State: State, Work: TotalWork, Read: ItemRead, Clock
 	AwaitKeys(State, Work, Subject.MissingIndexes(State, Work.Call), Clock, Commands)
 end
 
-local function IsTakerWanted(Fetched: MemoryFetched, Read: ItemRead, Clock: number, Fraction: number): boolean
-	if Fetched.Kind == "Failed" then
-		return false
-	end
+local function IsTakerWanted(Read: ItemRead, Clock: number, Fraction: number): boolean
 	if Read.Kind == "Item" then
 		return Summary.IsLapsed(Read, Clock, Fraction)
 	end
@@ -228,18 +232,51 @@ local function OnSummaryRead(
 	local View = Subject.ViewOf(State, Ref)
 	local Works = ExtrasState.TakeWaits(State.Extras, RequestId)
 	if Fetched.Kind == "Failed" then
-		Pairs.NoteMiss(View, Clock)
-	else
-		Pairs.NoteHit(View)
+		return Await(Works, SendCold(State, Ref, Commands))
 	end
+	Pairs.NoteHit(View)
 	local Read = Subject.ReadItem(State, Ref, Fetched)
-	local IsTakerOwed = IsTakerWanted(Fetched, Read, Clock, Fraction)
+	if Purpose.Replica ~= 0 and (Read.Kind ~= "Item" or Summary.IsLapsed(Read, Clock, 0)) then
+		return Await(Works, ReadSummary(State, Ref, 0, Commands))
+	end
+	if Read.Kind == "Item" then
+		View.Replicas = Read.Replicas
+	end
+	local IsTakerOwed = Purpose.Replica == 0 and IsTakerWanted(Read, Clock, Fraction)
 	if #Works == 0 and IsTakerOwed then
 		RunTaker(State, Ref, Clock, Commands)
 	end
 	for _, Work in Works do
 		Work.IsTakerOwed = IsTakerOwed
 		ContinueWith(State, Work, Read, Clock, Commands)
+	end
+end
+
+local function OnTotalCold(
+	State: State,
+	Purpose: TotalCold,
+	RequestId: number,
+	Fetched: MemoryFetched,
+	_Fraction: number,
+	Clock: number,
+	Commands: { Command }
+)
+	local View = Subject.ViewOf(State, Purpose.Ref)
+	local Works = ExtrasState.TakeWaits(State.Extras, RequestId)
+	if Fetched.Kind == "Failed" then
+		Pairs.NoteMiss(View, Clock)
+		for _, Work in Works do
+			Down(State, Work, Clock, Commands)
+		end
+		return
+	end
+	Pairs.NoteHit(View)
+	for _, Work in Works do
+		if Pairs.HasReadEveryKey(View, Work.Call.Total.KeyCount, Clock) then
+			Conclude(State, Work, Clock, Commands)
+		else
+			Fail(State, Work, Reasons.Unresolved, Clock, Commands)
+		end
 	end
 end
 
@@ -329,6 +366,7 @@ return {
 	ReadSummary = ReadSummary,
 	ReadKey = ReadKey,
 	OnSummaryRead = OnSummaryRead,
+	OnTotalCold = OnTotalCold,
 	OnKeyRead = OnKeyRead,
 	TimeOut = TimeOut,
 	AnswerOpenUnresolved = AnswerOpenUnresolved,

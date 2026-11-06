@@ -284,6 +284,7 @@ export type CacheEntry = {
 	Gate: Gate?,
 	Showable: Showable?,
 	IsBehind: boolean?,
+	CopyReplicas: number?,
 }
 
 export type Outgoing = {

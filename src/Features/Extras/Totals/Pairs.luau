@@ -3,8 +3,9 @@
 
 --[=[
 	Pairs: a total's local pairs and its summary item's breaker (extras sheet E4). A pair or landing merges by
-	the larger q, the held one on a tie. BreakerMisses misses in a row open the breaker for BreakerOpenFor
-	seconds; the next miss after that reopens it; a hit shuts it.
+	the larger q, the held one on a tie. A miss is a cold read that failed (Spread): MemoryStore itself did not
+	answer, which a hot summary never causes. BreakerMisses misses in a row open the breaker for BreakerOpenFor
+	seconds; the next miss after that reopens it; a hit, any answer from MemoryStore, shuts it.
 
 	Return type: A plain table of functions.
 	Example usage:

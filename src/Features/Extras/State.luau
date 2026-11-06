@@ -2,14 +2,17 @@
 --!optimize 2
 
 --[=[
-	State: a server's extras state, in Composed.State.Extras (extras sheet E4, E5): a TotalView per total, a
-	SummaryHolder per summary refresh (UsedAt: its last local Total call), a TotalWork per Total call, the
+	State: a server's extras state, in Composed.State.Extras (extras sheet E4, E5): a TotalView per total (Replicas:
+	the count of its summary this server last read), a SummaryHolder per summary refresh (UsedAt: its last local
+	Total call; Replicas: the count it writes; IsLeased: replica 0 took its last write; Announced: the count replica 0
+	took; Until: when that write's lease runs out), a TotalWork per Total call, the
 	CopyHolders and Followers (Copies/State), the open Peeks, whether Stale is watched, and CopyReads, the ended copy
 	reads. A Purpose finds a request's owner. CopyTimes and SummaryTimes hold the holders' due times (DueTimes): a
 	refresh at NextAt, and an expiry check at UsedAt plus the age that ends it, which HolderOf files first.
 
 	Return type: A plain table of functions, and the TotalView, SummaryHolder, OutRead, TotalWork, ReadRound,
-	TotalKeyRead, SummaryGet, SummaryUpdate, Purpose, HolderTimes and ExtrasState types.
+	TotalKeyRead, SummaryGet, SummaryUpdate, SummaryCold, TotalCold, Purpose, HolderTimes and ExtrasState
+	types.
 	Example usage:
 		local State = ExtrasState.NewState()
 		local View = ExtrasState.ViewOf(State, "Shop", "global", { Name = "coins", KeyCount = 16, Keys = "Shard" })
@@ -36,6 +39,8 @@ type ItemRemove = CopyState.ItemRemove
 type PartGet = CopyState.PartGet
 type PartSet = CopyState.PartSet
 type PeekWork = CopyState.PeekWork
+type ColdRead = CopyState.ColdRead
+type TickCold = CopyState.TickCold
 type Pair = ExtrasShapes.Pair
 type TotalCall = ExtrasShapes.TotalCall
 type TotalDeclaration = ExtrasShapes.TotalDeclaration
@@ -57,6 +62,7 @@ export type TotalView = {
 	Interval: number,
 	Breaker: Breaker,
 	Holder: SummaryHolder?,
+	Replicas: number,
 }
 
 type ViewsOfName = { [number]: TotalView }
@@ -72,6 +78,10 @@ export type SummaryHolder = {
 	Out: number,
 	NextAt: number?,
 	UsedAt: number,
+	Replicas: number,
+	IsLeased: boolean,
+	Announced: number,
+	Until: number,
 }
 
 export type TotalWork = {
@@ -96,15 +106,21 @@ export type TotalKeyRead = {
 	read Round: ReadRound,
 }
 
-export type SummaryGet = { read Kind: "SummaryGet", read Ref: TotalRef }
+export type SummaryGet = { read Kind: "SummaryGet", read Ref: TotalRef, read Replica: number }
 
-export type SummaryUpdate = { read Kind: "SummaryUpdate", read Holder: SummaryHolder }
+export type SummaryUpdate = { read Kind: "SummaryUpdate", read Holder: SummaryHolder, read Replica: number }
+
+export type SummaryCold = { read Kind: "SummaryCold", read Holder: SummaryHolder }
+
+export type TotalCold = { read Kind: "TotalCold", read Ref: TotalRef }
 
 export type Purpose =
 	{ read Kind: "RefreshRead", read Holder: SummaryHolder, read Index: number }
 	| SummaryUpdate
 	| TotalKeyRead
 	| SummaryGet
+	| SummaryCold
+	| TotalCold
 	| PartSet
 	| HeaderUpdate
 	| AdviceGet
@@ -112,6 +128,8 @@ export type Purpose =
 	| HeaderGet
 	| PartGet
 	| Decode
+	| ColdRead
+	| TickCold
 
 export type HolderTimes<Item> = {
 	Refreshes: DueTimes<Item>,
@@ -141,6 +159,7 @@ local function NewView(): TotalView
 		Interval = Extras.IntervalFirst,
 		Breaker = { Misses = 0, OpenUntil = nil },
 		Holder = nil,
+		Replicas = 1,
 	}
 end
 
@@ -185,7 +204,18 @@ local function HolderOf(
 	if Held ~= nil then
 		return Held
 	end
-	local Holder: SummaryHolder = { Store = Store, Scope = Scope, Total = Total, Out = 0, NextAt = nil, UsedAt = Clock }
+	local Holder: SummaryHolder = {
+		Store = Store,
+		Scope = Scope,
+		Total = Total,
+		Out = 0,
+		NextAt = nil,
+		UsedAt = Clock,
+		Replicas = 1,
+		IsLeased = false,
+		Announced = 1,
+		Until = 0,
+	}
 	View.Holder = Holder
 	table.insert(State.Holders, Holder)
 	DueTimes.Add(State.SummaryTimes.Expiries, Holder, Clock + Extras.SummaryExpiry)

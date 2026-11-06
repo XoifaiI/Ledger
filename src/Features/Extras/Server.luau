@@ -34,6 +34,7 @@ local Writers = require("../../Record/Writing/Writer")
 type Command = Events.Command
 type MemoryFetched = Events.MemoryFetched
 type MemoryOutcome = Events.MemoryOutcome
+type SummaryCold = ExtrasState.SummaryCold
 type SummaryGet = ExtrasState.SummaryGet
 type SummaryUpdate = ExtrasState.SummaryUpdate
 type Purpose = ExtrasState.Purpose
@@ -139,11 +140,27 @@ local function OnSummaryGet(
 	Total.OnSummaryRead(State, Purpose, RequestId, Fetched, Fraction, Clock, Commands)
 end
 
+local function OnSummaryCold(
+	State: State,
+	Purpose: SummaryCold,
+	_RequestId: number,
+	Fetched: MemoryFetched,
+	_Fraction: number,
+	Clock: number,
+	_Commands: { Command }
+)
+	Refresh.OnCold(State, Purpose, Fetched, Clock)
+end
+
 local ReadHandlers = {
 	SummaryGet = OnSummaryGet,
+	SummaryCold = OnSummaryCold,
+	TotalCold = Total.OnTotalCold,
 	AdviceGet = CopiesServer.OnAdviceGet,
 	HeaderGet = CopiesServer.OnHeaderGet,
 	PartGet = CopiesServer.OnPartGet,
+	ColdRead = CopiesServer.OnColdRead,
+	TickCold = CopiesServer.OnTickCold,
 }
 
 local function OnMemoryRead(
@@ -172,9 +189,9 @@ local function OnSummaryUpdate(
 	Purpose: SummaryUpdate,
 	Result: MemoryOutcome,
 	Clock: number,
-	_Commands: { Command }
+	Commands: { Command }
 )
-	Refresh.OnResult(State, Purpose.Holder, Result, Clock)
+	Refresh.OnResult(State, Purpose, Result, Clock, Commands)
 end
 
 local ResultHandlers = {

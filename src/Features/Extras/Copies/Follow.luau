@@ -2,9 +2,15 @@
 --!optimize 2
 
 --[=[
-	Follow: a followed key's follower (extras sheet E9). A tick reads the copy header, then its parts, and shows a q
-	above the last shown; it reads no part from the close deadline. A missing header or parts run a taker refresh; a
-	big, newer or unanswered header reads the key itself (KeyPath). Peek's tick runs this too.
+	Follow: a followed key's follower (extras sheet E9). A tick reads its home replica's header (Tick.Begin), then
+	that replica's parts, and shows a q above the last shown; it reads no part from the close deadline. A replica
+	other than 0 that is missing, unreadable, unrefreshed or misses a part sends the next tick to replica 0, so a
+	tick sends at most 1 + PartsMax gets (L1); a Peek, which has one tick, reads replica 0 at once. Only replica
+	0 carries the lease, so only its header can show a lapse, and only its missing header or parts run a taker
+	refresh. A failed read is not a miss: it sends one cold read (Replicas.ColdKeyOf), and if MemoryStore answers
+	it the copy is only hot and the tick ends quietly; if not, the follower reads the key itself (KeyPath), as for
+	a big or newer header. A header read keeps its count for this server's next tick (Replicas.NoteCount). Peek's
+	tick runs this too.
 
 	A header still held by this server's own lease, whose holder this server dropped (Copies/Refresh's stop rule),
 	refreshes at once rather than waiting for the lease to lapse.
@@ -29,6 +35,7 @@ local KeyPath = require("./KeyPath")
 local Names = require("../../../Record/Encoding/Names")
 local Numbers = require("../../../Record/Writing/Numbers")
 local Reads = require("../../../Record/Reading/Reads")
+local Replicas = require("./Replicas")
 local Replies = require("../../../Machine/Replies")
 local Showables = require("../../../Record/Reading/Showables")
 local Shown = require("../../../Record/Reading/Shown")
@@ -48,6 +55,7 @@ type Decode = CopyState.Decode
 type Follower = CopyState.Follower
 type HeaderGet = CopyState.HeaderGet
 type PartGet = CopyState.PartGet
+type TickCold = CopyState.TickCold
 type State = Composed.State
 type StoreKey = Names.StoreKey
 type Fields = Value.Fields
@@ -56,24 +64,27 @@ local PartMissesForTaker = Extras.PartMissesForTaker
 
 local SubscribersServed: CopyState.Serving = table.freeze({ Kind = "Subscribers" :: "Subscribers" })
 
-local function SendPart(
-	State: State,
-	Follower: Follower,
-	Header: CopyHeader,
-	Count: number,
-	Got: { CopyPart },
-	Clock: number,
-	Commands: { Command }
-)
+local function SendPart(State: State, Purpose: PartGet, Clock: number, Commands: { Command })
+	local Follower = Purpose.Follower
 	if Closing.IsPastDeadline(State.Sessions, Clock) then
 		return Tick.EndAfter(State, Follower, Follower.TickEvery, Clock, Commands)
 	end
-	local HeaderKey = Items.HeaderKey(State.Server.Encoding, Follower.Key)
-	local Purpose: PartGet = { Kind = "PartGet", Follower = Follower, Header = Header, Count = Count, Got = Got }
-	Tick.SendGet(State, HeaderKey, Items.PartKey(HeaderKey, Header.Q, #Got), Purpose, Commands)
+	local HeaderKey = Items.HeaderKey(State.Server.Encoding, Follower.Key, Purpose.Replica)
+	Tick.SendGet(State, HeaderKey, Items.PartKey(HeaderKey, Purpose.Header.Q, #Purpose.Got), Purpose, Commands)
 end
 
-local function Miss(State: State, Follower: Follower, Clock: number, Commands: { Command })
+local function FallBack(State: State, Follower: Follower, Clock: number, Commands: { Command })
+	if Follower.Serves.Kind == "Call" then
+		return Tick.SendHeaderGet(State, Follower, 0, Commands)
+	end
+	Follower.ReadsZero = true
+	Tick.EndMoved(State, Follower, Clock, Commands)
+end
+
+local function Miss(State: State, Follower: Follower, Replica: number, Clock: number, Commands: { Command })
+	if Replica ~= 0 then
+		return FallBack(State, Follower, Clock, Commands)
+	end
 	Follower.Misses += 1
 	if Follower.Misses >= PartMissesForTaker then
 		Follower.Misses = 0
@@ -107,6 +118,12 @@ local function ShowCopied(
 	Tick.EmitRising(State, Follower, Header.Q, Viewed.State, Clock, Commands)
 end
 
+local function SendCold(State: State, Follower: Follower, Commands: { Command })
+	local ColdKey = Replicas.ColdKeyOf(State.Server, Follower.Key)
+	local Purpose: TickCold = { Kind = "TickCold", Follower = Follower }
+	Tick.SendGet(State, ColdKey, ColdKey, Purpose, Commands)
+end
+
 local function NoHeader(State: State, Follower: Follower, Clock: number, Commands: { Command })
 	CopyRefresh.Start(State, Follower.Key, Clock, Commands)
 	Tick.EndQuiet(State, Follower, Clock, Commands)
@@ -121,13 +138,14 @@ local function JudgeHeader(
 	State: State,
 	Follower: Follower,
 	Header: CopyHeader,
+	Replica: number,
 	Fraction: number,
 	Clock: number,
 	Commands: { Command }
 )
 	local Server = State.Server
 	local Key = Follower.Key
-	if Summary.IsLapsed(Header, Clock, Fraction) or IsOwnLeaseUnheld(State, Header, Key) then
+	if Replica == 0 and (Summary.IsLapsed(Header, Clock, Fraction) or IsOwnLeaseUnheld(State, Header, Key)) then
 		CopyRefresh.Start(State, Key, Clock, Commands)
 	end
 	if not Shown.IsCopyAboveShown(Server, Key, Header.Q) then
@@ -147,7 +165,15 @@ local function JudgeHeader(
 		return ShowCopied(State, Follower, Header, Body.State, Clock, Commands)
 	end
 	if Body.Kind == "Parts" then
-		return SendPart(State, Follower, Header, Body.Count, {}, Clock, Commands)
+		local Purpose: PartGet = {
+			Kind = "PartGet",
+			Follower = Follower,
+			Header = Header,
+			Count = Body.Count,
+			Got = {},
+			Replica = Replica,
+		}
+		return SendPart(State, Purpose, Clock, Commands)
 	end
 	if Body.Kind == "Big" then
 		return KeyPath.StartKeyRead(State, Follower, Clock, Commands)
@@ -168,33 +194,31 @@ local function OnHeader(
 		return
 	end
 	if Fetched.Kind == "Failed" then
+		return SendCold(State, Follower, Commands)
+	end
+	local Decoded = if Fetched.Kind == "Found" then Items.DecodeHeader(Fetched.Value) else nil
+	if Decoded ~= nil and Decoded.Kind == "Behind" then
 		return KeyPath.StartKeyRead(State, Follower, Clock, Commands)
 	end
-	if Fetched.Kind == "Absent" then
+	local Header = if Decoded ~= nil and Decoded.Kind == "Header" then Decoded.Header else nil
+	local Replica = Purpose.Replica
+	if Replica ~= 0 and (Header == nil or Replicas.IsUnrefreshed(Header, Clock)) then
+		return FallBack(State, Follower, Clock, Commands)
+	end
+	if Header == nil then
 		return NoHeader(State, Follower, Clock, Commands)
 	end
-	local Decoded = Items.DecodeHeader(Fetched.Value)
-	if Decoded.Kind == "Unreadable" then
-		return NoHeader(State, Follower, Clock, Commands)
-	end
-	if Decoded.Kind == "Behind" then
-		return KeyPath.StartKeyRead(State, Follower, Clock, Commands)
-	end
-	JudgeHeader(State, Follower, Decoded.Header, Fraction, Clock, Commands)
+	Replicas.NoteCount(State.Server, Follower.Key, Header.Replicas)
+	JudgeHeader(State, Follower, Header, Replica, Fraction, Clock, Commands)
 end
 
-local function SendDecode(
-	State: State,
-	Follower: Follower,
-	Header: CopyHeader,
-	Got: { CopyPart },
-	Commands: { Command }
-)
-	local Purpose: Decode = { Kind = "Decode", Follower = Follower, Header = Header }
+local function SendDecode(State: State, Purpose: PartGet, Commands: { Command })
+	local Decoding: Decode =
+		{ Kind = "Decode", Follower = Purpose.Follower, Header = Purpose.Header, Replica = Purpose.Replica }
 	local Ask: Command = {
 		Kind = "Decode",
-		RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose),
-		Text = Items.JoinPieces(Got),
+		RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Decoding),
+		Text = Items.JoinPieces(Purpose.Got),
 	}
 	table.insert(Commands, Ask)
 end
@@ -212,20 +236,22 @@ local function OnPart(
 	if not Tick.IsLive(State, Follower) then
 		return
 	end
+	if Fetched.Kind == "Failed" then
+		return SendCold(State, Follower, Commands)
+	end
 	local Header = Purpose.Header
 	local Part: CopyPart? = nil
 	if Fetched.Kind == "Found" then
 		Part = Items.DecodePart(Fetched.Value)
 	end
 	if Part == nil or Part.Q ~= Header.Q or Part.Level ~= Header.Level then
-		return Miss(State, Follower, Clock, Commands)
+		return Miss(State, Follower, Purpose.Replica, Clock, Commands)
 	end
-	local Got = Purpose.Got
-	table.insert(Got, Part)
-	if #Got < Purpose.Count then
-		return SendPart(State, Follower, Header, Purpose.Count, Got, Clock, Commands)
+	table.insert(Purpose.Got, Part)
+	if #Purpose.Got < Purpose.Count then
+		return SendPart(State, Purpose, Clock, Commands)
 	end
-	SendDecode(State, Follower, Header, Got, Commands)
+	SendDecode(State, Purpose, Commands)
 end
 
 local function OnDecoded(State: State, Purpose: Decode, Outcome: DecodeOutcome, Clock: number, Commands: { Command })
@@ -234,9 +260,28 @@ local function OnDecoded(State: State, Purpose: Decode, Outcome: DecodeOutcome, 
 		return
 	end
 	if Outcome.Kind ~= "Found" or type(Outcome.Value) ~= "table" then
-		return Miss(State, Follower, Clock, Commands)
+		return Miss(State, Follower, Purpose.Replica, Clock, Commands)
 	end
 	ShowCopied(State, Follower, Purpose.Header, Outcome.Value :: Fields, Clock, Commands)
+end
+
+local function OnTickCold(
+	State: State,
+	Purpose: TickCold,
+	_RequestId: number,
+	Fetched: MemoryFetched,
+	_Fraction: number,
+	Clock: number,
+	Commands: { Command }
+)
+	local Follower = Purpose.Follower
+	if not Tick.IsLive(State, Follower) then
+		return
+	end
+	if Fetched.Kind == "Failed" then
+		return KeyPath.StartKeyRead(State, Follower, Clock, Commands)
+	end
+	Tick.EndQuiet(State, Follower, Clock, Commands)
 end
 
 local function IsTickDue(State: State, Follower: Follower, Clock: number): boolean
@@ -269,4 +314,5 @@ return {
 	OnHeader = OnHeader,
 	OnPart = OnPart,
 	OnDecoded = OnDecoded,
+	OnTickCold = OnTickCold,
 }

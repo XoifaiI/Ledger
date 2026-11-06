@@ -4,7 +4,9 @@
 --[=[
 	Subject: what a Total and a summary refresh read: a total's shards (Pairs) or a quantity's parts, the walk's view
 	(Keys = "Part", KeyCount parts). It keys, reads, transforms and answers (sheets E4, H9), placing entries by
-	Summary's places. A TotalView is keyed without Keys: the API refuses a total and a quantity under one name.
+	Summary's places, and names a summary's replica keys, this server's home replica of it under the count its view
+	last read, and its cold key (Spread). A TotalView is keyed without Keys: the API refuses a total and a quantity
+	under one name.
 
 	Return type: A plain table of functions, and the ItemRead type.
 	Example usage:
@@ -26,6 +28,7 @@ local PartRead = require("../../Hot/Walk/Read")
 local Record = require("../../../Record/Constants/Record")
 local Shapes = require("../../../Machine/Shapes")
 local Shard = require("../../../Record/Shard")
+local Spread = require("../Spread")
 local Summary = require("./Summary")
 local Value = require("../../../Record/Stored/Value")
 local View = require("../../Hot/Walk/View")
@@ -53,7 +56,7 @@ type Item<Entry> =
 type Decoded = Item<Pair>
 type DecodedParts = Item<ViewEntry>
 export type ItemRead =
-	{ read Kind: "Item", read HolderStamp: HolderStamp }
+	{ read Kind: "Item", read HolderStamp: HolderStamp, read Replicas: number }
 	| { read Kind: "Behind" }
 	| { read Kind: "Missing" }
 
@@ -148,7 +151,7 @@ local function DecodeShards(Stored: unknown, Shards: number): Decoded
 	for Index, Entry in Read.Entries do
 		Entries[Index] = PairOf(Entry)
 	end
-	return { Kind = "Item", Item = { HolderStamp = Read.HolderStamp, Entries = Entries } }
+	return { Kind = "Item", Item = { HolderStamp = Read.HolderStamp, Replicas = Read.Replicas, Entries = Entries } }
 end
 
 local function DecodeParts(Stored: unknown, Parts: number): DecodedParts
@@ -160,7 +163,7 @@ local function DecodeParts(Stored: unknown, Parts: number): DecodedParts
 	for Index, Entry in Read.Entries do
 		Entries[Index] = PartOf(Entry)
 	end
-	return { Kind = "Item", Item = { HolderStamp = Read.HolderStamp, Entries = Entries } }
+	return { Kind = "Item", Item = { HolderStamp = Read.HolderStamp, Replicas = Read.Replicas, Entries = Entries } }
 end
 
 local function ReadParts(State: State, Ref: TotalRef, Stored: unknown): ItemRead
@@ -175,7 +178,7 @@ local function ReadParts(State: State, Ref: TotalRef, Stored: unknown): ItemRead
 	for Index, Entry in Decoded.Item.Entries do
 		View.Merge(Known, Index, Entry)
 	end
-	return { Kind = "Item", HolderStamp = Decoded.Item.HolderStamp }
+	return { Kind = "Item", HolderStamp = Decoded.Item.HolderStamp, Replicas = Decoded.Item.Replicas }
 end
 
 local function ReadShards(State: State, Ref: TotalRef, Stored: unknown): ItemRead
@@ -190,7 +193,7 @@ local function ReadShards(State: State, Ref: TotalRef, Stored: unknown): ItemRea
 	for Index, Pair in Decoded.Item.Entries do
 		Pairs.MergePair(Known, Index, Pair)
 	end
-	return { Kind = "Item", HolderStamp = Decoded.Item.HolderStamp }
+	return { Kind = "Item", HolderStamp = Decoded.Item.HolderStamp, Replicas = Decoded.Item.Replicas }
 end
 
 local function ReadItem(State: State, Ref: TotalRef, Fetched: MemoryFetched): ItemRead
@@ -203,40 +206,54 @@ local function ReadItem(State: State, Ref: TotalRef, Fetched: MemoryFetched): It
 	return ReadShards(State, Ref, Fetched.Value)
 end
 
-local function TransformShards(
-	Carried: { [number]: Pair },
-	Shards: number,
-	ServerNumber: number
-): (Current: unknown, Clock: number) -> unknown?
-	local Raw: { [number]: RawEntry } = {}
-	for Index, Given in Carried do
-		Raw[Index] = RawOfPair(Given)
-	end
-	return Summary.TransformRaw(Raw, Shards, ServerNumber, Summary.PairForm)
-end
-
-local function TransformParts(
-	Carried: { [number]: ViewEntry },
-	Parts: number,
-	ServerNumber: number
-): (Current: unknown, Clock: number) -> unknown?
-	local Raw: { [number]: RawEntry } = {}
-	for Index, Given in Carried do
-		Raw[Index] = RawOfPart(Given)
-	end
-	return Summary.TransformRaw(Raw, Parts, ServerNumber, Summary.PartForm)
-end
-
 local function TransformFor(
 	State: State,
 	Ref: TotalRef,
-	ServerNumber: number
+	ServerNumber: number,
+	Replicas: number,
+	Replica: number
 ): (Current: unknown, Clock: number) -> unknown?
 	local Total = Ref.Total
+	local Raw: { [number]: RawEntry } = {}
 	if IsQuantity(Total) then
-		return TransformParts(table.clone(PartsOf(State, Ref).Parts), Total.KeyCount, ServerNumber)
+		for Index, Given in PartsOf(State, Ref).Parts do
+			Raw[Index] = RawOfPart(Given)
+		end
+		return Summary.TransformRaw(Raw, Total.KeyCount, ServerNumber, Summary.PartForm, Replicas, Replica)
 	end
-	return TransformShards(table.clone(ViewOf(State, Ref).Pairs), Total.KeyCount, ServerNumber)
+	for Index, Given in ViewOf(State, Ref).Pairs do
+		Raw[Index] = RawOfPair(Given)
+	end
+	return Summary.TransformRaw(Raw, Total.KeyCount, ServerNumber, Summary.PairForm, Replicas, Replica)
+end
+
+local function LeaseIn(Ref: TotalRef, Stored: unknown): (number, number)
+	local Form = if IsQuantity(Ref.Total) then Summary.PartForm else Summary.PairForm
+	local Read = Summary.ReadItem(Stored, Ref.Total.KeyCount, Form)
+	if Read.Kind ~= "Item" then
+		return 1, 0
+	end
+	return Read.Replicas, Read.HolderStamp.Until
+end
+
+local function ItemKeyOf(State: State, Ref: TotalRef, Replica: number): string
+	return Summary.SummaryKey(State.Server.Encoding, Ref.Store, Ref.Scope, Ref.Total, Replica)
+end
+
+local function SlotOf(State: State, Ref: TotalRef): number
+	return Spread.SlotOf(State.Server.Encoding, ItemKeyOf(State, Ref, 0), State.Server.ServerNumber)
+end
+
+local function HomeOf(State: State, Ref: TotalRef): number
+	local Count = ViewOf(State, Ref).Replicas
+	if Count == 1 then
+		return 0
+	end
+	return Spread.HomeOf(SlotOf(State, Ref), Count)
+end
+
+local function ColdKeyOf(State: State, Ref: TotalRef): string
+	return Spread.ColdKey(ItemKeyOf(State, Ref, 0), SlotOf(State, Ref))
 end
 
 local function LearnShardRead(
@@ -290,5 +307,9 @@ return {
 	Answer = Answer,
 	ReadItem = ReadItem,
 	TransformFor = TransformFor,
+	LeaseIn = LeaseIn,
+	ItemKeyOf = ItemKeyOf,
+	HomeOf = HomeOf,
+	ColdKeyOf = ColdKeyOf,
 	LearnRead = LearnRead,
 }

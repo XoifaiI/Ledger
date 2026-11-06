@@ -4,8 +4,9 @@
 --[=[
 	Tick: what Follow and KeyPath share (extras sheet E9): a Follower's tick, run for a followed key's observers, who
 	hear a state or Behind, or for one Peek call, which hears how it ends. Ending sets the next tick, or answers the
-	call Unresolved if nothing was shown. A tick that begins keeps the key's copy holder in use, and on a key this
-	server heard Behind gives Behind and shows no copy.
+	call Unresolved if nothing was shown. A tick that begins keeps the key's copy holder in use and reads the header
+	of this server's home replica (Replicas.HomeOf), or replica 0 after a fallback; on a key this server heard Behind
+	it gives Behind and shows no copy.
 
 	Return type: A plain table of functions, and the ShownState type.
 	Example usage:
@@ -22,6 +23,7 @@ local Names = require("../../../Record/Encoding/Names")
 local Numbers = require("../../../Record/Writing/Numbers")
 local Reads = require("../../../Record/Reading/Reads")
 local Reasons = require("../../../Record/Constants/Reasons")
+local Replicas = require("./Replicas")
 local Replies = require("../../../Machine/Replies")
 local Shapes = require("../../../Machine/Shapes")
 local Showables = require("../../../Record/Reading/Showables")
@@ -150,6 +152,12 @@ local function SendGet(State: State, HeaderKey: string, ItemKey: string, Purpose
 	table.insert(Commands, Items.GetCommand(State.Server.Encoding, HeaderKey, ItemKey, RequestId))
 end
 
+local function SendHeaderGet(State: State, Follower: Follower, Replica: number, Commands: { Command })
+	local HeaderKey = Items.HeaderKey(State.Server.Encoding, Follower.Key, Replica)
+	local Purpose: HeaderGet = { Kind = "HeaderGet", Follower = Follower, Replica = Replica }
+	SendGet(State, HeaderKey, HeaderKey, Purpose, Commands)
+end
+
 local function Begin(State: State, Follower: Follower, Clock: number, Commands: { Command })
 	Follower.NextAt = nil
 	CopyState.NoteUsed(State.Extras.CopyHolders, Follower.Key, Clock)
@@ -157,9 +165,9 @@ local function Begin(State: State, Follower: Follower, Clock: number, Commands: 
 		Deliver(State, Follower, Reads.BehindAnswer, Commands)
 		return EndQuiet(State, Follower, Clock, Commands)
 	end
-	local HeaderKey = Items.HeaderKey(State.Server.Encoding, Follower.Key)
-	local Purpose: HeaderGet = { Kind = "HeaderGet", Follower = Follower }
-	SendGet(State, HeaderKey, HeaderKey, Purpose, Commands)
+	local Replica = if Follower.ReadsZero then 0 else Replicas.HomeOf(State.Server, Follower.Key)
+	Follower.ReadsZero = false
+	SendHeaderGet(State, Follower, Replica, Commands)
 end
 
 return {
@@ -175,5 +183,6 @@ return {
 	EndUnchanged = EndUnchanged,
 	LastShownOf = LastShownOf,
 	SendGet = SendGet,
+	SendHeaderGet = SendHeaderGet,
 	Begin = Begin,
 }

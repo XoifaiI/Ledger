@@ -2,23 +2,28 @@
 --!optimize 2
 
 --[=[
-	Summary: the wire format of a summary item (extras sheet E5; Format 11, 12): its key (tagged with the store and
-	scope), map, holder stamp, entry places, lapse test and MemoryStore transform. The transform merges entries by
-	the larger q, cancels while another holder's until is ahead or the item is newer, and replaces a malformed one.
+	Summary: the wire format of a summary item (extras sheet E5; Format 11, 12): its key on each replica (tagged with
+	the store and scope, named by Spread), map, get, holder stamp, replica count, entry places, lapse test and
+	MemoryStore transform. The transform merges entries by the larger q and keeps the larger replica count; it
+	cancels for a newer item and, on replica 0 alone, while another holder's until is ahead, and replaces a malformed
+	one.
 
 	Return type: A plain table of functions, the PairForm, PartForm, PairPlaces, PartPlaces and Flags, and the
 	RawEntry and RawItem types.
 	TagOf, ReadHolderStamp, ReadPlain and IsLapsed serve copy items.
 	Example usage:
-		local Item = Summary.TransformRaw(Carried, 16, ServerNumber, Summary.PairForm)(Stored, Clock) --> or nil
+		local Item = Summary.TransformRaw(Carried, 16, ServerNumber, Summary.PairForm, 1, 0)(Stored, Clock) --> or nil
 --]=]
 
 local Check = require("../../../Record/Encoding/Check")
+local Events = require("../../../Machine/Events")
 local Extras = require("../../../Record/Constants/Extras")
 local ExtrasShapes = require("../Shapes")
 local HashInputs = require("../../../Record/Encoding/HashInputs")
 local Record = require("../../../Record/Constants/Record")
+local Spread = require("../Spread")
 
+type Command = Events.Command
 type Encoding = HashInputs.Encoding
 type HolderStamp = ExtrasShapes.HolderStamp
 type TotalDeclaration = ExtrasShapes.TotalDeclaration
@@ -28,7 +33,7 @@ export type RawEntry = { number }
 type StoredEntry = RawEntry | false
 type EntryForm = { read Width: number, read Rules: { Check.Rule } }
 export type RawItem =
-	{ read Kind: "Item", read HolderStamp: HolderStamp, read Entries: { [number]: RawEntry } }
+	{ read Kind: "Item", read HolderStamp: HolderStamp, read Replicas: number, read Entries: { [number]: RawEntry } }
 	| { read Kind: "Behind" }
 	| { read Kind: "Unreadable" }
 
@@ -55,7 +60,9 @@ local VersionKey = Record.ItemVersionKey
 local HolderKey = Record.ItemHolderKey
 local UntilKey = Record.ItemUntilKey
 local AtKey = Record.ItemAtKey
+local ReplicasKey = Record.ItemReplicasKey
 local SummaryKeyPrefix = Record.SummaryKeyPrefix
+local SummaryMapPrefix = Record.SummaryMapPrefix
 local PartKeyPrefix = Record.PartKeyPrefix
 local SummaryVersion = Record.SummaryVersion
 local SummaryShardWidth = Record.SummaryShardWidth
@@ -65,11 +72,13 @@ local HolderSpan = Extras.HolderSpan
 local LapseSlack = Extras.LapseSlack
 local TakerJitter = Extras.TakerJitter
 local ShardSumMost = Extras.ShardSumMost
+local ReplicasMost = Extras.ReplicasMost
 
 local IsPlain = Check.Whole(0, ShardSumMost)
 local IsHolder = Check.Whole(1, ShardSumMost)
 local IsSum = Check.Whole(-ShardSumMost, ShardSumMost)
 local IsFlag = Check.Whole(FlagClear, FlagSet)
+local IsReplicaCount = Check.Whole(1, ReplicasMost)
 
 local PairForm: EntryForm = { Width = SummaryShardWidth, Rules = { IsPlain, IsSum } }
 local PartForm: EntryForm = { Width = SummaryPartWidth, Rules = { IsPlain, IsPlain, IsPlain, IsPlain, IsFlag, IsFlag } }
@@ -84,14 +93,30 @@ local function TagOf(Encoding: Encoding, Store: string, Scope: string): string
 	return Text
 end
 
-local function SummaryKey(Encoding: Encoding, Store: string, Scope: string, Total: TotalDeclaration): string
+local function SummaryKey(
+	Encoding: Encoding,
+	Store: string,
+	Scope: string,
+	Total: TotalDeclaration,
+	Replica: number
+): string
 	local Prefix = if Total.Keys == KeyKinds.Part then PartKeyPrefix else ""
-	return `{SummaryKeyPrefix}{TagOf(Encoding, Store, Scope)}/{Prefix}{Total.Name}:{Total.KeyCount}`
+	local First = `{SummaryKeyPrefix}{TagOf(Encoding, Store, Scope)}/{Prefix}{Total.Name}:{Total.KeyCount}`
+	return Spread.ReplicaKey(First, Replica)
 end
 
 local function MapOf(Encoding: Encoding, Prefix: string, ItemKey: string): string
 	local Digest = HashInputs.Hash(Encoding, HashInputs.MapInput(ItemKey))
 	return `{Prefix}{HashInputs.ChoiceNumber(Digest) % MapCount}`
+end
+
+local function GetCommand(Encoding: Encoding, ItemKey: string, RequestId: number): Command
+	return {
+		Kind = "MemoryGet",
+		RequestId = RequestId,
+		Map = MapOf(Encoding, SummaryMapPrefix, ItemKey),
+		Key = ItemKey,
+	}
 end
 
 local function EncodeEntries(Held: { [number]: RawEntry }, Count: number): { StoredEntry }
@@ -107,12 +132,19 @@ local function EncodeEntries(Held: { [number]: RawEntry }, Count: number): { Sto
 	return Entries
 end
 
-local function EncodeSummary(HolderNumber: number, Until: number, At: number, Entries: { StoredEntry }): Fields
+local function EncodeSummary(
+	HolderNumber: number,
+	Until: number,
+	At: number,
+	Replicas: number,
+	Entries: { StoredEntry }
+): Fields
 	return {
 		[VersionKey] = SummaryVersion,
 		[HolderKey] = HolderNumber,
 		[UntilKey] = Until,
 		[AtKey] = At,
+		[ReplicasKey] = Replicas,
 		[PairsKey] = Entries,
 	}
 end
@@ -189,11 +221,12 @@ local function ReadItem(Raw: unknown, Count: number, Form: EntryForm): RawItem
 		return BehindItem
 	end
 	local Stamp = ReadHolderStamp(Item)
+	local Replicas = ReadWhole(Item[ReplicasKey], IsReplicaCount)
 	local Entries = ReadEntries(Item[PairsKey], Count, Form)
-	if Version ~= SummaryVersion or Stamp == nil or Entries == nil then
+	if Version ~= SummaryVersion or Stamp == nil or Replicas == nil or Entries == nil then
 		return UnreadableItem
 	end
-	return { Kind = "Item", HolderStamp = Stamp, Entries = Entries }
+	return { Kind = "Item", HolderStamp = Stamp, Replicas = Replicas, Entries = Entries }
 end
 
 local function MergeInto(
@@ -215,11 +248,17 @@ local function MergeInto(
 	return Kept
 end
 
+local function IsHeldByAnother(Read: { read HolderStamp: HolderStamp }, ServerNumber: number, Clock: number): boolean
+	return Read.HolderStamp.HolderNumber ~= ServerNumber and Read.HolderStamp.Until > Clock
+end
+
 local function TransformRaw(
 	Carried: { [number]: RawEntry },
 	Count: number,
 	ServerNumber: number,
-	Form: EntryForm
+	Form: EntryForm,
+	Replicas: number,
+	Replica: number
 ): (Current: unknown, Clock: number) -> unknown?
 	return function(Current: unknown, Clock: number): unknown?
 		local Read = ReadItem(Current, Count, Form)
@@ -227,14 +266,16 @@ local function TransformRaw(
 			return nil
 		end
 		local Held: { [number]: RawEntry } = {}
+		local Kept = Replicas
 		if Read.Kind == "Item" then
-			if Read.HolderStamp.HolderNumber ~= ServerNumber and Read.HolderStamp.Until > Clock then
+			if Replica == 0 and IsHeldByAnother(Read, ServerNumber, Clock) then
 				return nil
 			end
 			Held = Read.Entries
+			Kept = math.max(Kept, Read.Replicas)
 		end
 		local Entries = EncodeEntries(MergeInto(Held, Carried, Count), Count)
-		return EncodeSummary(ServerNumber, Clock + HolderSpan, Clock, Entries)
+		return EncodeSummary(ServerNumber, Clock + HolderSpan, Clock, Kept, Entries)
 	end
 end
 
@@ -246,6 +287,7 @@ return {
 	TagOf = TagOf,
 	SummaryKey = SummaryKey,
 	MapOf = MapOf,
+	GetCommand = GetCommand,
 	ReadHolderStamp = ReadHolderStamp,
 	ReadPlain = ReadPlain,
 	PairForm = PairForm,

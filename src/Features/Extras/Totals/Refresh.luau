@@ -3,9 +3,13 @@
 
 --[=[
 	Refresh: the summary holder's refresh (sheet E5). Start reads every shard or part, owing a tidy on an old entry
-	(E6); the last answer sends one MemoryStore update. An ok makes it the holder, refreshing RefreshEvery later; an
-	err is a breaker miss. CanStart refuses before the server number, while out and closing. OnClock owns the stop
-	rule.
+	(E6). The last answer writes the summary: replica 0 alone without a live lease, else replicas 1 to Replicas - 1
+	at once and replica 0 once they answered. Any answer from MemoryStore, on any replica, shuts the breaker. An ok
+	on replica 0 makes it the holder until that write's lease runs out, refreshing RefreshEvery later, with the
+	larger of its count and the item's. A failed write to replica 0 sends a cold read (Spread). If MemoryStore
+	answers it, the count doubles once replica 0 took the count, and a leased holder keeps its lease; if not, it is
+	a breaker miss, and the holding ends. CanStart refuses before the server number, while out and closing. OnClock
+	owns the stop rule.
 
 	OnClock looks only at the holders whose times in SummaryTimes fell due, in the order they were made (Holders). A
 	holder keeps a refresh time while NextAt is set and an expiry time at all times, put back at UsedAt plus
@@ -29,18 +33,22 @@ local Numbers = require("../../../Record/Writing/Numbers")
 local Pairs = require("./Pairs")
 local Record = require("../../../Record/Constants/Record")
 local Shapes = require("../../../Machine/Shapes")
+local Spread = require("../Spread")
 local Subject = require("./Subject")
 local Summary = require("./Summary")
 local Tidy = require("../Tidy")
 local Value = require("../../../Record/Stored/Value")
 
 type Command = Events.Command
+type MemoryFetched = Events.MemoryFetched
 type MemoryOutcome = Events.MemoryOutcome
 type ReadOutcome = Events.ReadOutcome
 type StoreKey = Names.StoreKey
 type Kept = Value.Kept
 type ServerState = Shapes.ServerState
 type SummaryHolder = ExtrasState.SummaryHolder
+type SummaryCold = ExtrasState.SummaryCold
+type SummaryUpdate = ExtrasState.SummaryUpdate
 type DueTimes<Item> = DueTimes.DueTimes<Item>
 type TotalView = ExtrasState.TotalView
 type State = Composed.State
@@ -49,19 +57,56 @@ local RefreshEvery = Extras.RefreshEvery
 local SummaryExpiry = Extras.SummaryExpiry
 local SummaryMapPrefix = Record.SummaryMapPrefix
 
-local function SendUpdate(State: State, Holder: SummaryHolder, Commands: { Command })
+local function SendUpdate(State: State, Holder: SummaryHolder, Replica: number, Commands: { Command })
 	local Server = State.Server
-	local Key = Summary.SummaryKey(Server.Encoding, Holder.Store, Holder.Scope, Holder.Total)
+	local Key = Subject.ItemKeyOf(State, Holder, Replica)
+	local Purpose: SummaryUpdate = { Kind = "SummaryUpdate", Holder = Holder, Replica = Replica }
 	local Update: Command = {
 		Kind = "MemoryUpdate",
-		RequestId = ExtrasState.NewRequest(Server, State.Extras, { Kind = "SummaryUpdate", Holder = Holder }),
+		RequestId = ExtrasState.NewRequest(Server, State.Extras, Purpose),
 		Map = Summary.MapOf(Server.Encoding, SummaryMapPrefix, Key),
 		Key = Key,
-		Item = Subject.TransformFor(State, Holder, Numbers.ServerNumberOf(Server)),
+		Item = Subject.TransformFor(State, Holder, Numbers.ServerNumberOf(Server), Holder.Replicas, Replica),
 		Expiry = SummaryExpiry,
 	}
 	Holder.Out += 1
 	table.insert(Commands, Update)
+end
+
+local function SendItems(State: State, Holder: SummaryHolder, Clock: number, Commands: { Command })
+	if not Holder.IsLeased or Clock >= Holder.Until or Holder.Replicas == 1 then
+		return SendUpdate(State, Holder, 0, Commands)
+	end
+	for Replica = 1, Holder.Replicas - 1 do
+		SendUpdate(State, Holder, Replica, Commands)
+	end
+end
+
+local function SendGet(State: State, Key: string, Purpose: ExtrasState.Purpose, Commands: { Command })
+	local RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose)
+	table.insert(Commands, Summary.GetCommand(State.Server.Encoding, Key, RequestId))
+end
+
+local function SendCold(State: State, Holder: SummaryHolder, Commands: { Command })
+	Holder.Out += 1
+	local Purpose: SummaryCold = { Kind = "SummaryCold", Holder = Holder }
+	SendGet(State, Subject.ColdKeyOf(State, Holder), Purpose, Commands)
+end
+
+local function RefreshAt(State: State, Holder: SummaryHolder, At: number)
+	Holder.NextAt = At
+	DueTimes.Add(State.Extras.SummaryTimes.Refreshes, Holder, At)
+end
+
+local function Stop(Holder: SummaryHolder)
+	Holder.IsLeased = false
+	Holder.NextAt = nil
+end
+
+local function Grow(Holder: SummaryHolder)
+	if Holder.IsLeased and Holder.Replicas == Holder.Announced then
+		Holder.Replicas = Spread.Grown(Holder.Replicas)
+	end
 end
 
 local function CanStart(State: State, Holder: SummaryHolder): boolean
@@ -98,25 +143,60 @@ local function OnKeyRead(
 	end
 	Holder.Out -= 1
 	if Holder.Out == 0 and not Closing.IsPastDeadline(State.Sessions, Clock) then
-		SendUpdate(State, Holder, Commands)
+		SendItems(State, Holder, Clock, Commands)
 	end
 end
 
-local function OnResult(State: State, Holder: SummaryHolder, Result: MemoryOutcome, Clock: number)
+local function OnResult(
+	State: State,
+	Purpose: SummaryUpdate,
+	Result: MemoryOutcome,
+	Clock: number,
+	Commands: { Command }
+)
+	local Holder = Purpose.Holder
 	Holder.Out -= 1
-	local View = Subject.ViewOf(State, Holder)
+	if Purpose.Replica ~= 0 then
+		if Result.Kind ~= "Err" then
+			Pairs.NoteHit(Subject.ViewOf(State, Holder))
+		end
+		if Holder.Out > 0 then
+			return
+		end
+		if Closing.IsPastDeadline(State.Sessions, Clock) then
+			return Stop(Holder)
+		end
+		return SendUpdate(State, Holder, 0, Commands)
+	end
 	if Result.Kind == "Err" then
-		Pairs.NoteMiss(View, Clock)
-	else
-		Pairs.NoteHit(View)
+		return SendCold(State, Holder, Commands)
 	end
+	Pairs.NoteHit(Subject.ViewOf(State, Holder))
 	if Result.Kind ~= "Ok" then
-		Holder.NextAt = nil
-		return
+		return Stop(Holder)
 	end
-	local At = Clock + RefreshEvery
-	Holder.NextAt = At
-	DueTimes.Add(State.Extras.SummaryTimes.Refreshes, Holder, At)
+	local Announced, Until = Subject.LeaseIn(Holder, Result.Value)
+	Holder.IsLeased = true
+	Holder.Until = Until
+	Holder.Announced = Announced
+	Holder.Replicas = math.max(Holder.Replicas, Announced)
+	RefreshAt(State, Holder, Clock + RefreshEvery)
+end
+
+local function OnCold(State: State, Purpose: SummaryCold, Fetched: MemoryFetched, Clock: number)
+	local Holder = Purpose.Holder
+	local View = Subject.ViewOf(State, Holder)
+	Holder.Out -= 1
+	if Fetched.Kind == "Failed" then
+		Pairs.NoteMiss(View, Clock)
+		return Stop(Holder)
+	end
+	Pairs.NoteHit(View)
+	Grow(Holder)
+	if Holder.IsLeased then
+		return RefreshAt(State, Holder, Clock + RefreshEvery)
+	end
+	Stop(Holder)
 end
 
 local function NextAt(Holder: SummaryHolder): number?
@@ -201,6 +281,7 @@ return {
 	SendUpdate = SendUpdate,
 	OnKeyRead = OnKeyRead,
 	OnResult = OnResult,
+	OnCold = OnCold,
 	NextAt = NextAt,
 	IsDue = IsDue,
 	OnClock = OnClock,

@@ -6,14 +6,30 @@ TotName.cfg Tot expect=pass timeout=3600 why=S5 across servers for a game-named 
 ProbeTotName.cfg Tot expect=violate:ScriptUnfinished timeout=3600 why=probe: TotName's pass is not a pass by an early stop
 TotOne.cfg Tot expect=pass timeout=3600 why=A9 with S = 1
 ProbeTotOne.cfg Tot expect=violate:ScriptUnfinished timeout=3600 why=probe: TotOne's pass is not a pass by an early stop
+TotRepTwo.cfg Tot expect=pass timeout=7200 why=A9 S5 A2 with two summary replicas: a refresh writes replica 1 then replica 0, a read goes on to replica 0 after an empty home replica
+QuickTotRep.cfg Tot expect=pass timeout=1800 why=quick check of TotRepTwo's logic with one MemoryStore failure, the least that lets a summary grow to replica 1 (D1); not a safety result
+ProbeTotRep.cfg Tot expect=violate:ReadFromReplica timeout=1800 why=probe: a read of replica 1 finds an item, so the replica path is reached
+ProbeTotFallBack.cfg Tot expect=violate:FallsBack timeout=1800 why=probe: a read goes on to replica 0 after its home replica held no item
+ProbeTotGrown.cfg Tot expect=violate:TotGrown timeout=1800 why=probe: a summary holder doubles its count after a failed write to replica 0 whose cold read answered (S3, D1)
 TotCtlOwn.cfg Tot expect=violate:TotalExact timeout=3600 why=extras 13: B27 and B46, a bump counted twice or before it took (A9)
 TotCtlNameHash.cfg Tot expect=violate:AtMostOnce timeout=3600 why=extras 13: a game name reaches two shards, and applies on each (S5)
-CopyTwo.cfg Copy expect=pass timeout=3600 why=A7: a shown state is one the key held; A8: a server's shows never go back
-ProbeCopyTwo.cfg Copy expect=violate:ShownLate timeout=3600 why=probe: CopyTwo's pass is not a pass by an early stop
+CopyTwo.cfg MCCopy expect=pass timeout=3600 why=A7: a shown state is one the key held; A8: a server's shows never go back
+ProbeCopyTwo.cfg MCCopy expect=violate:ShownLate timeout=3600 why=probe: CopyTwo's pass is not a pass by an early stop
+ProbeCopyPath.cfg MCCopy expect=violate:ReadFromCopy timeout=600 why=probe, run with -simulate -depth 100 (about 20 steps deep, past a breadth-first search at these bounds): a follower reads a part from the copy (ShownLate is also reached from the key; before an answer and the next request were two steps no refresh ever wrote a copy)
 QuickTotTwo.cfg Tot expect=pass timeout=1800 why=quick check of TotTwo's logic, not a safety result
 QuickTotName.cfg Tot expect=pass timeout=1800 why=quick check of TotName's logic, not a safety result
 QuickTotOne.cfg Tot expect=pass timeout=1800 why=quick check of TotOne's logic, not a safety result
-QuickCopyTwo.cfg Copy expect=pass timeout=1800 why=quick check of CopyTwo's logic, not a safety result
+QuickCopyTwo.cfg MCCopy expect=pass timeout=1800 why=quick check of CopyTwo's logic, not a safety result
+CopyRepTwo.cfg MCCopy expect=pass timeout=7200 why=A7 A8 with two replicas: a refresh writes one or two, replica 0 last, and a follower reads its home replica or replica 0
+ProbeCopyRep.cfg MCCopy expect=violate:ReadFromReplica timeout=1800 why=probe, run with -simulate -depth 300 (the read is about 90 steps and 17 of its 18 MemoryStore requests deep, past a breadth-first search; a walk found it in 1,104 s): a follower reads a part of replica 1, so the replica path is reached
+QuickCopyRep.cfg MCCopy expect=pass timeout=1800 why=quick check of CopyRepTwo's logic, not a safety result
+ReplayCopyTwo.cfg MCCopy expect=pass timeout=1800 why=for the replay's random walks (tests/replay, Copy): room for a header to merge, no item expiring; not a safety result
+ReplayCopyRep.cfg MCCopy expect=pass timeout=1800 why=for the replay's random walks (tests/replay, Copy): ReplayCopyTwo with two replicas; not a safety result
+ProbeMergeNewer.cfg MCCopy expect=violate:MergesNewer timeout=600 why=probe for the replay, run as random walks: a header update runs over a live header with a newer q
+ProbeCancelOlder.cfg MCCopy expect=violate:CancelsOlder timeout=600 why=probe for the replay, run as random walks: a header update is cancelled over a live header with a larger q (5.2)
+ProbeFallBack.cfg MCCopy expect=violate:FallsBack timeout=600 why=probe for the replay, run as random walks: a follower whose home replica held no header or missed a part reads replica 0 on its next tick
+ProbeMergeSmallerN.cfg MCCopy expect=violate:MergesSmallerN timeout=600 why=probe for the replay, run as random walks: a header update runs over a live header with a smaller replica count
+CopyRepCtlPartQ.cfg MCCopy expect=violate:ReadWasHeld timeout=1800 why=extras 13: with replicas, parts shown without checking each part's q join pieces of two versions (A7)
 # CopyAbs: copies at the level of landings; hand-written configs.
 CopyAbs.cfg MCCopyAbs expect=pass timeout=1800 why=A7 A8 for copies over every interleaving of refreshes, stale reads and ticks
 ProbeCopyAbs.cfg MCCopyAbs expect=violate:ShownLast timeout=600 why=probe: the follower shows the last state

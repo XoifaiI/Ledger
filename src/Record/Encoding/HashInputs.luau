@@ -75,6 +75,7 @@ local HashDomain = table.freeze({
 	HomeShard = "S",
 	BumpShard = "s",
 	HomePart = "H",
+	HomeReplica = "R",
 	Walk = "W",
 	Map = "M",
 	ItemTag = "A",
@@ -275,6 +276,13 @@ local function HomePartInput(Quantity: string, Parts: number, ServerNumber: numb
 	return Out
 end
 
+local function HomeReplicaInput(ItemKey: string, ServerNumber: number): Writer
+	local Out = StartInput(HashDomain.HomeReplica)
+	WriteHashString(Out, ItemKey)
+	WriteVarint(Out, ServerNumber)
+	return Out
+end
+
 local function WalkInput(Name: string): Writer
 	local Out = StartInput(HashDomain.Walk)
 	WriteHashString(Out, Name)
@@ -334,6 +342,7 @@ return {
 	HomeShardInput = HomeShardInput,
 	BumpShardInput = BumpShardInput,
 	HomePartInput = HomePartInput,
+	HomeReplicaInput = HomeReplicaInput,
 	WalkInput = WalkInput,
 	MapInput = MapInput,
 	ItemTagInput = ItemTagInput,

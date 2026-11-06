@@ -4,12 +4,14 @@
 --[=[
 	State: what a server keeps of the copies it holds and follows (sheet E8, E9). A CopyHolder is one key's
 	refresh, with its lease and UsedAt, when a local tick last reached it; Copies/Refresh keeps its times due. A
-	Follower ticks for observers or a Peek (PeekWork); NextAt is nil while a tick is out. A CopyPlan is a push; a
-	CopyRead an ended read.
+	lease keeps replica 0's merged Replicas and Written. A Follower ticks for observers or a Peek (PeekWork); NextAt
+	is nil while a tick is out, and ReadsZero sends its next tick to replica 0. A CopyPlan is the state a push
+	writes, and a CopyPush one push: Left counts its replicas other than 0 still being written, and IsWhole says
+	none of them failed. A CopyRead is an ended read. Every item request names its replica.
 
 	Return type: A plain table with NewCopyHolder, NoteUsed, NewFollower and CopyOpenCount, and the CopyLease,
-	CopyHolder, Serving, Follower, PeekWork, CopyRead, CopyPlan, PartSet, HeaderUpdate, AdviceGet, ItemRemove,
-	HeaderGet, PartGet and Decode types.
+	CopyHolder, Serving, Follower, PeekWork, CopyRead, CopyPlan, CopyPush, PartSet, HeaderUpdate, AdviceGet,
+	ItemRemove, HeaderGet, PartGet, Decode, ColdRead and TickCold types.
 	Example usage:
 		local Holder = CopyState.NewCopyHolder(Key, Names.KeyText(Key), Clock)
 --]=]
@@ -29,6 +31,8 @@ export type CopyLease = {
 	read Q: number,
 	read PushedAt: number,
 	read Until: number,
+	read Replicas: number,
+	read Written: number,
 }
 
 export type CopyHolder = {
@@ -53,6 +57,7 @@ export type Follower = {
 	FollowEvery: number,
 	IsKeyThrottled: boolean,
 	KeyFraction: number,
+	ReadsZero: boolean,
 }
 
 export type PeekWork = {
@@ -72,20 +77,35 @@ export type CopyPlan = {
 	read Pieces: { string },
 }
 
-export type PartSet = { read Kind: "PartSet", read Holder: CopyHolder, read Plan: CopyPlan, read Index: number }
+export type CopyPush = {
+	read Plan: CopyPlan,
+	read Count: number,
+	Left: number,
+	IsWhole: boolean,
+}
+
+export type PartSet = {
+	read Kind: "PartSet",
+	read Holder: CopyHolder,
+	read Push: CopyPush,
+	read Replica: number,
+	read Index: number,
+}
 
 export type HeaderUpdate = {
 	read Kind: "HeaderUpdate",
 	read Holder: CopyHolder,
 	read Header: CopyHeader,
 	read PushedAt: number,
+	read Replica: number,
+	read Push: CopyPush?,
 }
 
 export type AdviceGet = { read Kind: "AdviceGet", read Key: StoreKey }
 
 export type ItemRemove = { read Kind: "ItemRemove" }
 
-export type HeaderGet = { read Kind: "HeaderGet", read Follower: Follower }
+export type HeaderGet = { read Kind: "HeaderGet", read Follower: Follower, read Replica: number }
 
 export type PartGet = {
 	read Kind: "PartGet",
@@ -93,9 +113,19 @@ export type PartGet = {
 	read Header: CopyHeader,
 	read Count: number,
 	read Got: { CopyPart },
+	read Replica: number,
 }
 
-export type Decode = { read Kind: "Decode", read Follower: Follower, read Header: CopyHeader }
+export type Decode = {
+	read Kind: "Decode",
+	read Follower: Follower,
+	read Header: CopyHeader,
+	read Replica: number,
+}
+
+export type ColdRead = { read Kind: "ColdRead", read Holder: CopyHolder }
+
+export type TickCold = { read Kind: "TickCold", read Follower: Follower }
 
 local function NewCopyHolder(Key: StoreKey, Text: string, Clock: number): CopyHolder
 	return { Key = Key, Text = Text, IsRefreshing = false, Lease = nil, NextAt = nil, UsedAt = Clock }
@@ -120,6 +150,7 @@ local function NewFollower(Key: StoreKey, Serves: Serving): Follower
 		FollowEvery = Extras.IntervalFirst,
 		IsKeyThrottled = false,
 		KeyFraction = 0,
+		ReadsZero = false,
 	}
 end
 

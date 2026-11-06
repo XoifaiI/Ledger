@@ -2,13 +2,15 @@
 --!optimize 2
 
 --[=[
-	Items: the copy items of one followed key (extras sheet E7; Format 11, 12): the header's key (tagged, with the
-	key's length), its parts' keys and map, both values' codecs, whether a header fits ItemRoom, a state's JSON cut
-	into pieces at characters, and the commands that get or remove items. A malformed item reads as nothing.
+	Items: the copy items of one followed key (extras sheet E7; Format 11, 12) on each of its replicas: a replica's
+	header key (replica 0 the tagged key with the key's length, replica r named by Spread), its parts' keys and map,
+	both values' codecs, whether a header fits ItemRoom, a state's JSON cut into pieces at characters, and the commands
+	that get or remove items. A header carries the copy's replica count and how many replicas were written at its q.
+	Every replica's items sit in the map its own header key hashes to. A malformed item reads as nothing.
 
 	Return type: A plain table of functions, and the DecodedHeader type.
 	Example usage:
-		local Key = Items.HeaderKey(Encoding, { Store = "Players", Scope = "global", Key = "Alice" })
+		local Key = Items.HeaderKey(Encoding, { Store = "Players", Scope = "global", Key = "Alice" }, 0)
 		local Pieces = Items.CutPieces(Json.CanonicalJson(State), Q, Level) --> nil when the state is big
 --]=]
 
@@ -22,6 +24,7 @@ local Names = require("../../../Record/Encoding/Names")
 local Numbers = require("../../../Record/Writing/Numbers")
 local Record = require("../../../Record/Constants/Record")
 local Shapes = require("../../../Machine/Shapes")
+local Spread = require("../Spread")
 local Summary = require("../Totals/Summary")
 
 type Command = Events.Command
@@ -60,14 +63,19 @@ local VersionKey = Record.ItemVersionKey
 local HolderKey = Record.ItemHolderKey
 local UntilKey = Record.ItemUntilKey
 local AtKey = Record.ItemAtKey
+local ReplicasKey = Record.ItemReplicasKey
+local WrittenKey = Record.ItemWrittenKey
 local CopyKeyPrefix = Record.CopyKeyPrefix
 local CopyMapPrefix = Record.CopyMapPrefix
 local CopyVersion = Record.CopyVersion
 local PartsMax = Record.PartsMax
 local ItemRoom = Extras.ItemRoom
 local CopySlots = Extras.CopySlots
+local ReplicasMost = Extras.ReplicasMost
 
 local IsPartCount = Check.Whole(1, PartsMax)
+local IsReplicaCount = Check.Whole(1, ReplicasMost)
+local IsWrittenCount = Check.Whole(0, ReplicasMost)
 
 local function ReadState(Held: unknown): CopyBody?
 	if type(Held) ~= "table" then
@@ -112,8 +120,9 @@ local function DecodeBody(Item: Fields): CopyBody?
 	return Body
 end
 
-local function HeaderKey(Encoding: Encoding, Key: StoreKey): string
-	return `{CopyKeyPrefix}{Summary.TagOf(Encoding, Key.Store, Key.Scope)}/{#Key.Key}:{Key.Key}`
+local function HeaderKey(Encoding: Encoding, Key: StoreKey, Replica: number): string
+	local First = `{CopyKeyPrefix}{Summary.TagOf(Encoding, Key.Store, Key.Scope)}/{#Key.Key}:{Key.Key}`
+	return Spread.ReplicaKey(First, Replica)
 end
 
 local function PartKey(KeyOfHeader: string, Q: number, Index: number): string
@@ -138,6 +147,8 @@ local function EncodeHeader(Header: CopyHeader): Fields
 		[HolderKey] = Stamp.HolderNumber,
 		[UntilKey] = Stamp.Until,
 		[AtKey] = Stamp.At,
+		[ReplicasKey] = Header.Replicas,
+		[WrittenKey] = Header.Written,
 	}
 	local Incarnation = Header.Incarnation
 	if Incarnation == false then
@@ -188,13 +199,23 @@ local function DecodeHeader(Raw: unknown): DecodedHeader
 	local Stamp = Summary.ReadHolderStamp(Item)
 	local Body = DecodeBody(Item)
 	local IsReadable, Incarnation = DecodeIncarnation(Item[IncarnationKey])
+	local Replicas = Item[ReplicasKey]
+	local Written = Item[WrittenKey]
 	if Version ~= CopyVersion or Q == nil or Level == nil or Floor == nil or Stamp == nil or Body == nil then
 		return UnreadableHeader
-	elseif not IsReadable then
+	elseif not IsReadable or IsReplicaCount(Replicas) ~= nil or IsWrittenCount(Written) ~= nil then
 		return UnreadableHeader
 	end
-	local Header: CopyHeader =
-		{ Q = Q, Level = Level, Floor = Floor, Incarnation = Incarnation, HolderStamp = Stamp, Body = Body }
+	local Header: CopyHeader = {
+		Q = Q,
+		Level = Level,
+		Floor = Floor,
+		Incarnation = Incarnation,
+		HolderStamp = Stamp,
+		Body = Body,
+		Replicas = Replicas :: number,
+		Written = Written :: number,
+	}
 	return { Kind = "Header", Header = Header }
 end
 
@@ -271,8 +292,7 @@ local function JoinPieces(Parts: { CopyPart }): string
 	return table.concat(Pieces)
 end
 
-local function CopyKeys(Encoding: Encoding, Key: StoreKey): { string }
-	local Header = HeaderKey(Encoding, Key)
+local function ReplicaKeys(Header: string): { string }
 	local Keys: { string } = { Header }
 	for Slot = 0, CopySlots - 1 do
 		for Index = 0, PartsMax - 1 do
@@ -282,14 +302,17 @@ local function CopyKeys(Encoding: Encoding, Key: StoreKey): { string }
 	return Keys
 end
 
-local function RemoveCommands(Server: ServerState, Key: StoreKey): { MemoryRemoveCommand }
+local function RemoveCommands(Server: ServerState, Key: StoreKey, Replicas: number): { MemoryRemoveCommand }
 	local Encoding = Server.Encoding
-	local Map = CopyMap(Encoding, HeaderKey(Encoding, Key))
 	local Removals: { MemoryRemoveCommand } = {}
-	for _, ItemKey in CopyKeys(Encoding, Key) do
-		local Remove: MemoryRemoveCommand =
-			{ Kind = "MemoryRemove", RequestId = Numbers.NewRequestId(Server), Map = Map, Key = ItemKey }
-		table.insert(Removals, Remove)
+	for Replica = 0, Replicas - 1 do
+		local Header = HeaderKey(Encoding, Key, Replica)
+		local Map = CopyMap(Encoding, Header)
+		for _, ItemKey in ReplicaKeys(Header) do
+			local Remove: MemoryRemoveCommand =
+				{ Kind = "MemoryRemove", RequestId = Numbers.NewRequestId(Server), Map = Map, Key = ItemKey }
+			table.insert(Removals, Remove)
+		end
 	end
 	return Removals
 end

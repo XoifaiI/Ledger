@@ -2,11 +2,18 @@
 --!optimize 2
 
 --[=[
-	Refresh: a key's copy holder's refresh (extras sheet E8, cuts sheet 8.6). It pushes a newer state or one
-	CopyPushAge old, or renews its lease. On an equal q a push at another level writes its header whole; a renew keeps
-	the held level, floor and body. A missing or erased key loses its items. OnClock owns the stop rule; a holder
-	that stops is no longer served, so its remembered state moves to the small set (Reading/Showables). The holder's
-	own read feeds this server's Follower of the key (extras 5.3), whose header then shows no newer q.
+	Refresh: a key's copy holder's refresh (extras sheet E8, cuts sheet 8.6). Each check reads the key. While its
+	lease is live, a holder pushes a newer state, or the lease's own q when it is RepushAge old or replica 0 says
+	it reached too few replicas (Written below Replicas); it renews the lease on replica 0 when the read agrees
+	with the lease; Copies/Push writes. A read behind the lease pushes nothing. A server holding no live lease
+	pushes replica 0 alone.
+	A failed write to replica 0 under a lease sends a cold read. If MemoryStore answers it, replica 0 is only hot:
+	the count doubles once every replica of it was written, and the lease is kept for the next check. A failed write
+	whose cold read fails, or one replica 0 refused, lets the lease go. A grown count outlives a push that did not
+	reach every replica. A missing key loses replica 0's items and every replica this server knows of; an erased
+	key's are found through replica 0's header (AdviseErased). OnClock owns the stop rule; a holder that stops is
+	no longer served, so its remembered state moves to the small set (Reading/Showables). The holder's own read
+	feeds this server's Follower of the key.
 
 	OnClock looks only at the holders whose times in CopyTimes fell due, in the order of their key texts. A holder
 	keeps a refresh time while NextAt is set and an expiry time at all times, put back at UsedAt plus CopyPushAge, or
@@ -18,9 +25,9 @@
 		CopyRefresh.Start(State, Key, Clock, Commands)
 --]=]
 
-local Cache = require("../../../Record/Reading/Cache")
 local Closing = require("../../../Record/Sessions/Closing")
 local Composed = require("../../../Machine/Composed")
+local CopyPush = require("./Push")
 local CopyState = require("./State")
 local DueTimes = require("../../../Machine/DueTimes")
 local Events = require("../../../Machine/Events")
@@ -28,16 +35,15 @@ local Extras = require("../../../Record/Constants/Extras")
 local ExtrasShapes = require("../Shapes")
 local ExtrasState = require("../State")
 local Items = require("./Items")
-local Json = require("../../../Record/Encoding/Json")
 local Names = require("../../../Record/Encoding/Names")
 local Numbers = require("../../../Record/Writing/Numbers")
 local Reads = require("../../../Record/Reading/Reads")
 local Reasons = require("../../../Record/Constants/Reasons")
-local Shapes = require("../../../Machine/Shapes")
+local Replicas = require("./Replicas")
 local Showables = require("../../../Record/Reading/Showables")
 local Sorted = require("../../../Machine/Sorted")
+local Spread = require("../Spread")
 local Tick = require("./Tick")
-local View = require("../../../Record/Reading/View")
 
 type Answer = Events.Answer
 type Command = Events.Command
@@ -45,33 +51,22 @@ type MemoryFetched = Events.MemoryFetched
 type MemoryOutcome = Events.MemoryOutcome
 type StoreKey = Names.StoreKey
 type AdviceGet = CopyState.AdviceGet
+type ColdRead = CopyState.ColdRead
 type CopyHolder = CopyState.CopyHolder
 type CopyLease = CopyState.CopyLease
-type CopyPlan = CopyState.CopyPlan
+type CopyPush = CopyState.CopyPush
 type CopyRead = CopyState.CopyRead
 type HeaderUpdate = CopyState.HeaderUpdate
 type ItemRemove = CopyState.ItemRemove
 type PartSet = CopyState.PartSet
-type CopyBody = ExtrasShapes.CopyBody
 type CopyHeader = ExtrasShapes.CopyHeader
-type HolderStamp = ExtrasShapes.HolderStamp
-type Opened = Reads.Opened
 type DueTimes<Item> = DueTimes.DueTimes<Item>
-type ServerState = Shapes.ServerState
 type State = Composed.State
 
 local CheckEvery = Extras.CheckEvery
-local CopyExpiry = Extras.CopyExpiry
 local CopyPushAge = Extras.CopyPushAge
-local HolderSpan = Extras.HolderSpan
+local RepushAge = Extras.RepushAge
 local RefreshEvery = Extras.RefreshEvery
-
-local HeaderWrite = {
-	Push = "Push" :: "Push",
-	Renew = "Renew" :: "Renew",
-}
-
-type HeaderWrite = keyof<typeof(HeaderWrite)>
 
 local CopyWant: Reads.Want = table.freeze({ Kind = "Copy" :: "Copy" })
 local ItemRemoval: ItemRemove = table.freeze({ Kind = "ItemRemove" :: "ItemRemove" })
@@ -188,162 +183,63 @@ local function Abandon(Holder: CopyHolder)
 	Holder.NextAt = nil
 end
 
-local function TakesCarriedLevel(Write: HeaderWrite, Held: CopyHeader, Carried: CopyHeader): boolean
-	return Write == HeaderWrite.Push and Carried.Level ~= Held.Level
-end
-
-local function HeaderTransform(Carried: CopyHeader, Write: HeaderWrite): (Current: unknown, Clock: number) -> unknown?
-	return function(Current: unknown, Clock: number): unknown?
-		local Decoded = Items.DecodeHeader(Current)
-		if Decoded.Kind == "Behind" then
-			return nil
-		end
-		if Decoded.Kind == "Header" then
-			local Held = Decoded.Header
-			if Held.HolderStamp.HolderNumber ~= Carried.HolderStamp.HolderNumber and Held.HolderStamp.Until > Clock then
-				return nil
-			end
-			if Carried.Q < Held.Q then
-				return nil
-			end
-			if Carried.Q == Held.Q and not TakesCarriedLevel(Write, Held, Carried) then
-				local Renewed: CopyHeader = {
-					Q = Held.Q,
-					Level = Held.Level,
-					Floor = Held.Floor,
-					Incarnation = Held.Incarnation,
-					HolderStamp = Carried.HolderStamp,
-					Body = Held.Body,
-				}
-				return Items.EncodeHeader(Renewed)
-			end
-		end
-		return Items.EncodeHeader(Carried)
-	end
-end
-
-local function NewHolderStamp(Server: ServerState, Clock: number): HolderStamp
-	return { HolderNumber = Numbers.ServerNumberOf(Server), Until = Clock + HolderSpan, At = Clock }
-end
-
-local function HeaderOf(Plan: CopyPlan, Stamped: HolderStamp): CopyHeader
-	return {
-		Q = Plan.Q,
-		Level = Plan.Level,
-		Floor = Plan.Floor,
-		Incarnation = Plan.Incarnation,
-		HolderStamp = Stamped,
-		Body = Plan.Body,
-	}
-end
-
-local function PlanWith(Whole: CopyPlan, Body: CopyBody, Pieces: { string }): CopyPlan
-	return {
-		Q = Whole.Q,
-		Level = Whole.Level,
-		Floor = Whole.Floor,
-		Incarnation = Whole.Incarnation,
-		Body = Body,
-		Pieces = Pieces,
-	}
-end
-
-local function NewPlan(State: State, Opened: Opened, Clock: number): CopyPlan
-	local Server = State.Server
-	local Book = Opened.Kept.Book
-	local Build = Cache.StoreOf(Server, Opened.Out.Key).Setup.Build
-	local Level = math.max(Book.Level, Build.MigrationCount)
-	local Whole: CopyPlan = {
-		Q = Book.Writes,
-		Level = Level,
-		Floor = View.MigratedFloor(Build, Book.Level, Book.Floor),
-		Incarnation = Book.Identity or false,
-		Body = { Kind = "State", State = Opened.Viewed },
-		Pieces = {},
-	}
-	if Items.Fits(HeaderOf(Whole, NewHolderStamp(Server, Clock))) then
-		return Whole
-	end
-	local Pieces = Items.CutPieces(Json.CanonicalJson(Opened.Viewed), Whole.Q, Level)
-	if Pieces == nil then
-		return PlanWith(Whole, { Kind = "Big" }, {})
-	end
-	return PlanWith(Whole, { Kind = "Parts", Count = #Pieces }, Pieces)
-end
-
-local function SendHeader(
-	State: State,
-	Holder: CopyHolder,
-	Plan: CopyPlan,
-	Write: HeaderWrite,
-	PushedAt: number,
-	Clock: number,
-	Commands: { Command }
-)
-	local Encoding = State.Server.Encoding
-	local Key = Items.HeaderKey(Encoding, Holder.Key)
-	local Carried = HeaderOf(Plan, NewHolderStamp(State.Server, Clock))
-	local Purpose: HeaderUpdate = { Kind = "HeaderUpdate", Holder = Holder, Header = Carried, PushedAt = PushedAt }
-	local Update: Command = {
-		Kind = "MemoryUpdate",
-		RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose),
-		Map = Items.CopyMap(Encoding, Key),
-		Key = Key,
-		Item = HeaderTransform(Carried, Write),
-		Expiry = CopyExpiry,
-	}
-	table.insert(Commands, Update)
-end
-
-local function SendPart(State: State, Holder: CopyHolder, Plan: CopyPlan, Index: number, Commands: { Command })
-	local Encoding = State.Server.Encoding
-	local HeaderKey = Items.HeaderKey(Encoding, Holder.Key)
-	local Purpose: PartSet = { Kind = "PartSet", Holder = Holder, Plan = Plan, Index = Index }
-	local Set: Command = {
-		Kind = "MemorySet",
-		RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose),
-		Map = Items.CopyMap(Encoding, HeaderKey),
-		Key = Items.PartKey(HeaderKey, Plan.Q, Index),
-		Item = Items.EncodePart({ Q = Plan.Q, Level = Plan.Level, Piece = Plan.Pieces[Index + 1] }),
-		Expiry = CopyExpiry,
-	}
-	table.insert(Commands, Set)
-end
-
-local function RemoveItems(State: State, Key: StoreKey, Clock: number, Commands: { Command })
+local function RemoveItems(State: State, Key: StoreKey, Count: number, Clock: number, Commands: { Command })
 	if Closing.IsPastDeadline(State.Sessions, Clock) then
 		return
 	end
-	for _, Remove in Items.RemoveCommands(State.Server, Key) do
+	for _, Remove in Items.RemoveCommands(State.Server, Key, Count) do
 		State.Extras.Purposes[Remove.RequestId] = ItemRemoval
 		table.insert(Commands, Remove)
 	end
+end
+
+local function RemoveGone(State: State, Key: StoreKey, Clock: number, Commands: { Command })
+	local Holder = State.Extras.CopyHolders[Names.KeyText(Key)]
+	local Lease = if Holder ~= nil then Holder.Lease else nil
+	local Known = if Lease ~= nil then Lease.Replicas else 1
+	RemoveItems(State, Key, math.max(Replicas.CountOf(State.Server, Key), Known), Clock, Commands)
+end
+
+local function AdviseErased(State: State, Key: StoreKey, Commands: { Command })
+	local Encoding = State.Server.Encoding
+	local HeaderKey = Items.HeaderKey(Encoding, Key, 0)
+	local Purpose: AdviceGet = { Kind = "AdviceGet", Key = Key }
+	local RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose)
+	table.insert(Commands, Items.GetCommand(Encoding, HeaderKey, HeaderKey, RequestId))
 end
 
 local function IsMissing(Given: Answer): boolean
 	return Given.Kind == "Failed" and Given.Reason == Reasons.Missing
 end
 
+local function IsLive(Lease: CopyLease, Clock: number): boolean
+	return Clock < Lease.Until
+end
+
 local function IsPushDue(Lease: CopyLease, Q: number, Clock: number): boolean
-	return Q > Lease.Q or Clock - Lease.PushedAt >= CopyPushAge
+	if Q ~= Lease.Q then
+		return Q > Lease.Q
+	end
+	return Clock - Lease.PushedAt >= RepushAge or Lease.Written < Lease.Replicas
 end
 
 local function IsRenewDue(Lease: CopyLease, Clock: number): boolean
 	return Lease.Until - Clock <= RefreshEvery
 end
 
-local function Push(State: State, Holder: CopyHolder, Plan: CopyPlan, Clock: number, Commands: { Command })
-	if #Plan.Pieces == 0 then
-		return SendHeader(State, Holder, Plan, HeaderWrite.Push, Clock, Clock, Commands)
-	end
-	SendPart(State, Holder, Plan, 0, Commands)
+local function SendColdRead(State: State, Holder: CopyHolder, Commands: { Command })
+	local Encoding = State.Server.Encoding
+	local ColdKey = Replicas.ColdKeyOf(State.Server, Holder.Key)
+	local Purpose: ColdRead = { Kind = "ColdRead", Holder = Holder }
+	local RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose)
+	table.insert(Commands, Items.GetCommand(Encoding, ColdKey, ColdKey, RequestId))
 end
 
 local function OnKeyShown(State: State, Next: CopyRead, Clock: number, Commands: { Command })
 	local Holder = HolderOf(State, Next.Out.Key, Clock)
 	if Next.Kind == "Handed" then
 		if IsMissing(Next.Answer) then
-			RemoveItems(State, Holder.Key, Clock, Commands)
+			RemoveGone(State, Holder.Key, Clock, Commands)
 		end
 		return Abandon(Holder)
 	end
@@ -355,46 +251,129 @@ local function OnKeyShown(State: State, Next: CopyRead, Clock: number, Commands:
 		Tick.GiveRising(State, Follower, Next.Kept.Book.Writes, Next.Viewed, Commands)
 	end
 	local Lease = Holder.Lease
-	if Lease == nil or IsPushDue(Lease, Next.Kept.Book.Writes, Clock) then
-		return Push(State, Holder, NewPlan(State, Next, Clock), Clock, Commands)
+	local Q = Next.Kept.Book.Writes
+	if Lease == nil or not IsLive(Lease, Clock) then
+		Holder.Lease = nil
+		return CopyPush.Start(State, Holder, CopyPush.NewPlan(State, Next, Clock), 1, Clock, Commands)
 	end
-	if IsRenewDue(Lease, Clock) then
-		local Plan = NewPlan(State, Next, Clock)
-		return SendHeader(State, Holder, Plan, HeaderWrite.Renew, Lease.PushedAt, Clock, Commands)
+	if IsPushDue(Lease, Q, Clock) then
+		return CopyPush.Start(State, Holder, CopyPush.NewPlan(State, Next, Clock), Lease.Replicas, Clock, Commands)
+	end
+	if Q == Lease.Q and IsRenewDue(Lease, Clock) then
+		return CopyPush.SendRenewHeader(State, Holder, CopyPush.NewPlan(State, Next, Clock), Lease, Clock, Commands)
 	end
 	Holder.IsRefreshing = false
 	RefreshAt(State, Holder, Clock + CheckEvery)
+end
+
+local function EndReplica(
+	State: State,
+	Holder: CopyHolder,
+	Push: CopyPush,
+	IsWritten: boolean,
+	Clock: number,
+	Commands: { Command }
+)
+	Push.Left -= 1
+	Push.IsWhole = Push.IsWhole and IsWritten
+	if Push.Left > 0 then
+		return
+	end
+	if Closing.IsPastDeadline(State.Sessions, Clock) then
+		return Abandon(Holder)
+	end
+	CopyPush.SendReplica(State, Holder, Push, 0, Clock, Commands)
+end
+
+local function Unwritten(
+	State: State,
+	Holder: CopyHolder,
+	Push: CopyPush?,
+	Replica: number,
+	IsRefused: boolean,
+	Clock: number,
+	Commands: { Command }
+)
+	if Push ~= nil and Replica ~= 0 then
+		return EndReplica(State, Holder, Push, false, Clock, Commands)
+	end
+	if IsRefused or Holder.Lease == nil or Closing.IsPastDeadline(State.Sessions, Clock) then
+		return Abandon(Holder)
+	end
+	SendColdRead(State, Holder, Commands)
 end
 
 local function OnPartSet(State: State, Purpose: PartSet, Result: MemoryOutcome, Clock: number, Commands: { Command })
 	local Holder = Purpose.Holder
+	local Push = Purpose.Push
 	if Result.Kind ~= "Ok" or Closing.IsPastDeadline(State.Sessions, Clock) then
-		return Abandon(Holder)
+		return Unwritten(State, Holder, Push, Purpose.Replica, false, Clock, Commands)
 	end
 	local NextIndex = Purpose.Index + 1
-	if NextIndex < #Purpose.Plan.Pieces then
-		return SendPart(State, Holder, Purpose.Plan, NextIndex, Commands)
+	if NextIndex < #Push.Plan.Pieces then
+		return CopyPush.SendPart(State, Holder, Push, Purpose.Replica, NextIndex, Commands)
 	end
-	SendHeader(State, Holder, Purpose.Plan, HeaderWrite.Push, Clock, Clock, Commands)
+	CopyPush.SendPushHeader(State, Holder, Push, Purpose.Replica, Clock, Commands)
 end
 
-local function OnHeaderResult(State: State, Purpose: HeaderUpdate, Result: MemoryOutcome, Clock: number)
-	local Holder = Purpose.Holder
-	if Result.Kind ~= "Ok" then
-		return Abandon(Holder)
+local function MergedOf(Written: unknown, Carried: CopyHeader): CopyHeader
+	local Decoded = Items.DecodeHeader(Written)
+	if Decoded.Kind ~= "Header" then
+		return Carried
 	end
-	local Written = Purpose.Header
+	return Decoded.Header
+end
+
+local function OnHeaderResult(
+	State: State,
+	Purpose: HeaderUpdate,
+	Result: MemoryOutcome,
+	Clock: number,
+	Commands: { Command }
+)
+	local Holder = Purpose.Holder
+	local Push = Purpose.Push
+	if Result.Kind ~= "Ok" then
+		return Unwritten(State, Holder, Push, Purpose.Replica, Result.Kind == "Nil", Clock, Commands)
+	end
+	if Push ~= nil and Purpose.Replica ~= 0 then
+		return EndReplica(State, Holder, Push, true, Clock, Commands)
+	end
+	local Prior = Holder.Lease
+	local Merged = MergedOf(Result.Value, Purpose.Header)
 	Holder.IsRefreshing = false
-	Holder.Lease = { Q = Written.Q, PushedAt = Purpose.PushedAt, Until = Written.HolderStamp.Until }
+	Holder.Lease = {
+		Q = Merged.Q,
+		PushedAt = Purpose.PushedAt,
+		Until = Merged.HolderStamp.Until,
+		Replicas = if Prior ~= nil then math.max(Prior.Replicas, Merged.Replicas) else Merged.Replicas,
+		Written = Merged.Written,
+	}
 	RefreshAt(State, Holder, Clock + CheckEvery)
 end
 
-local function AdviseErased(State: State, Key: StoreKey, Commands: { Command })
-	local Encoding = State.Server.Encoding
-	local HeaderKey = Items.HeaderKey(Encoding, Key)
-	local Purpose: AdviceGet = { Kind = "AdviceGet", Key = Key }
-	local RequestId = ExtrasState.NewRequest(State.Server, State.Extras, Purpose)
-	table.insert(Commands, Items.GetCommand(Encoding, HeaderKey, HeaderKey, RequestId))
+local function Grow(Holder: CopyHolder, Lease: CopyLease)
+	if Lease.Written < Lease.Replicas then
+		return
+	end
+	Holder.Lease = {
+		Q = Lease.Q,
+		PushedAt = Lease.PushedAt,
+		Until = Lease.Until,
+		Replicas = Spread.Grown(Lease.Replicas),
+		Written = Lease.Written,
+	}
+end
+
+local function OnColdRead(State: State, Purpose: ColdRead, Fetched: MemoryFetched, Clock: number)
+	local Holder = Purpose.Holder
+	local Lease = Holder.Lease
+	if Fetched.Kind == "Failed" or Lease == nil then
+		return Abandon(Holder)
+	end
+	Grow(Holder, Lease)
+	Holder.IsRefreshing = false
+	RefreshAt(State, Holder, Clock + CheckEvery)
 end
 
 local function OnAdviceHeader(
@@ -404,20 +383,23 @@ local function OnAdviceHeader(
 	Clock: number,
 	Commands: { Command }
 )
-	if Fetched.Kind == "Found" then
-		RemoveItems(State, Purpose.Key, Clock, Commands)
+	if Fetched.Kind ~= "Found" then
+		return
 	end
+	local Decoded = Items.DecodeHeader(Fetched.Value)
+	local Count = if Decoded.Kind == "Header" then Decoded.Header.Replicas else 1
+	RemoveItems(State, Purpose.Key, Count, Clock, Commands)
 end
 
 return {
 	Start = Start,
 	OnClock = OnClock,
 	NextAt = NextAt,
-	HeaderTransform = HeaderTransform,
 	OnKeyShown = OnKeyShown,
 	OnPartSet = OnPartSet,
 	OnHeaderResult = OnHeaderResult,
-	RemoveItems = RemoveItems,
+	OnColdRead = OnColdRead,
+	RemoveGone = RemoveGone,
 	AdviseErased = AdviseErased,
 	OnAdviceHeader = OnAdviceHeader,
 }

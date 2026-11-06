@@ -3,8 +3,9 @@
 
 --[=[
 	Memory: runs the MemoryStore commands and the JSON Decode, each in its own thread, and feeds the event each gives
-	back. SetAsync throws when it cannot set, so its boolean is not read. An Update answering nil is a cancel only when
-	its last run returned nil, else the retry limit. A throwing item is raised again and feeds nothing.
+	back. SetAsync throws when it cannot set, so its boolean is not read. An Update's Ok carries the value it wrote;
+	an Update answering nil is a cancel only when its last run returned nil, else the retry limit. A throwing item is
+	raised again and feeds nothing.
 
 	Return type: A plain table with OnGet, OnSet, OnUpdate, OnRemove and OnDecode.
 	Example usage:
@@ -55,7 +56,7 @@ local function UpdateOutcomeOf(Result: Result, LastRun: CompletedRun?): MemoryOu
 		return { Kind = "Err" }
 	end
 	if Result.Kind == "Ok" then
-		return { Kind = "Ok" }
+		return { Kind = "Ok", Value = Result.Value }
 	end
 	if LastRun.Output ~= nil then
 		return { Kind = "Err" }
@@ -67,7 +68,7 @@ local function SetOutcomeOf(Result: Result): MemoryOutcome
 	if Result.Kind == "Err" then
 		return { Kind = "Err" }
 	end
-	return { Kind = "Ok" }
+	return { Kind = "Ok", Value = nil }
 end
 
 local function DecodeOutcomeOf(Result: Result): DecodeOutcome
@@ -115,7 +116,7 @@ end
 local function OnRemove(Command: MemoryRemoveCommand, Feed: Feed)
 	Threads.Spawn(function()
 		local Result = Services.MemoryRemove(Command.Map, Command.Key)
-		local Outcome: MemoryOutcome = if Result.Kind == "Err" then { Kind = "Err" } else { Kind = "Ok" }
+		local Outcome: MemoryOutcome = if Result.Kind == "Err" then { Kind = "Err" } else { Kind = "Ok", Value = nil }
 		Feed({ Kind = "MemoryResult", RequestId = Command.RequestId, Outcome = Outcome })
 	end)
 end

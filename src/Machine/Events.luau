@@ -44,7 +44,7 @@ export type Outcome =
 	| { read Kind: "Nil", read Note: Note }
 	| { read Kind: "Err" }
 
-export type MemoryOutcome = { read Kind: "Ok" } | { read Kind: "Nil" } | { read Kind: "Err" }
+export type MemoryOutcome = { read Kind: "Ok", read Value: unknown } | { read Kind: "Nil" } | { read Kind: "Err" }
 
 export type DecodeOutcome = { read Kind: "Found", read Value: unknown } | { read Kind: "Failed" }
 

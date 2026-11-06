@@ -26,6 +26,7 @@ type DecodeOutcome = Events.DecodeOutcome
 type MemoryFetched = Events.MemoryFetched
 type MemoryOutcome = Events.MemoryOutcome
 type AdviceGet = CopyState.AdviceGet
+type ColdRead = CopyState.ColdRead
 type HeaderUpdate = CopyState.HeaderUpdate
 type State = Composed.State
 
@@ -46,9 +47,21 @@ local function OnHeaderUpdate(
 	Purpose: HeaderUpdate,
 	Result: MemoryOutcome,
 	Clock: number,
+	Commands: { Command }
+)
+	CopyRefresh.OnHeaderResult(State, Purpose, Result, Clock, Commands)
+end
+
+local function OnColdRead(
+	State: State,
+	Purpose: ColdRead,
+	_RequestId: number,
+	Fetched: MemoryFetched,
+	_Fraction: number,
+	Clock: number,
 	_Commands: { Command }
 )
-	CopyRefresh.OnHeaderResult(State, Purpose, Result, Clock)
+	CopyRefresh.OnColdRead(State, Purpose, Fetched, Clock)
 end
 
 local function OnDecoded(State: State, RequestId: number, Outcome: DecodeOutcome, Clock: number, Commands: { Command })
@@ -106,8 +119,10 @@ return {
 	OnAdviceGet = OnAdviceGet,
 	OnHeaderGet = Follow.OnHeader,
 	OnPartGet = Follow.OnPart,
+	OnTickCold = Follow.OnTickCold,
 	OnPartSet = CopyRefresh.OnPartSet,
 	OnHeaderUpdate = OnHeaderUpdate,
+	OnColdRead = OnColdRead,
 	OnDecoded = OnDecoded,
 	OnCopyReads = OnCopyReads,
 	AdviseErased = CopyRefresh.AdviseErased,
