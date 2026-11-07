@@ -21,7 +21,7 @@ the count named back, and cap the pass.
 `Name` starts fresh without destroying anything.
 
 **"Just fix it in the DataStore editor plugin."** The plugin shows Ledger's record, `{ s, b }`, not the
-player's data. Writing a plain table reads `Unreadable`; editing `s` and leaving `b` can make old ops
+player's data, and past 1 KB `s` is usually a compressed buffer. Writing a plain table reads `Unreadable`; editing `s` and leaving `b` can make old ops
 apply again or lose escrow. An op through the reducer, or a `Reset { State = ... }`, does the same job
 safely.
 *Right when:* only reading, to look at old versions. Never writing.

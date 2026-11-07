@@ -605,9 +605,10 @@ migration.
 
 **Why it survives review.** It's small in testing, and the cap is far away.
 
-**What it costs.** A key holds about 4 MB, and Ledger warns past 2 MiB; past the cap writes answer
-`Full`. Long before that, a key takes only about 4 MB of writes a minute, so a 400 KB player can be
-saved about 10 times a minute across every server. A table with only number keys is an array, and an
+**What it costs.** A key holds about 4 MB as saved, and Ledger warns past 2 MiB saved or 4 MB as JSON; past the cap writes
+answer `Full`. Data over 1 KB saves compressed when that is smaller, so it usually takes far less. Long
+before the cap, a key takes only about 4 MB of writes a minute, so a player saved at 400 KB can be saved
+about 10 times a minute across every server. A table with only number keys is an array, and an
 array with gaps can't be stored: the op answers `Invalid`. A field added inside a nested table is
 `nil` on every player saved before, because only top-level fields are carried for you.
 

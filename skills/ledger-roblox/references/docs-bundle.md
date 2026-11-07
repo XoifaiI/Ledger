@@ -68,7 +68,7 @@ Only numbers that change what you do are here. A call that breaks a limit with a
 
 |                            | Limit                                                                                  | What to do                                                                |
 | -------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| One key's data             | About 4 MB (4,160,526 bytes). A warning shows past 2 MiB.                              | Past the cap, a write answers `Full`. Keep an active key well under 1 MB. |
+| One key's data             | About 4 MB (4,160,526 bytes) as saved. Data over 1 KB saves compressed when that is smaller. A warning shows past 2 MiB saved, or past 4 MB as JSON.                              | Past the cap, a write answers `Full`. Keep an active key well under 1 MB. |
 | One key's writes           | About 4 MB of writes a minute.                                                         | A big key cannot be written often. Spread hot data over several keys.     |
 | One op in a `Tx` or `Take` | 4,096 bytes of terms, as JSON.                                                         | Keep ops small.                                                           |
 | Data                       | Plain tables only, up to 64 deep. No cycles, `NaN`, or arrays with gaps or mixed keys. |                                                                           |
@@ -127,6 +127,7 @@ A key remembers the names of recent ops, so a resend does nothing twice.
 | ---------------------------- | ------------------------------------------------------------------------------------- |
 | `Peek` `MaxAge`              | 0 to 30 days. An answer can be up to about 4.5 minutes behind on a key nobody writes. |
 | `Follow`                     | Checks every 30 s, slowing to 240 s on a quiet key. Copies last 1 hour.               |
+| Servers reading one key | About 1.9 million following a busy key, 15 million a quiet one, through `Follow`, `Peek` with `MaxAge` and `Total`. A hot key's copy spreads over up to 512 MemoryStore replicas. |
 | `Store:Keys()` page          | 50 keys. Pages are in no set order.                                                   |
 | `Store:Versions()` page      | 1,024 versions, oldest first. Roblox keeps one per hour of writes, for 30 days.       |
 | `Cut.Losses`, `Store:Losses` | Kept 7 days.                                                                          |
@@ -161,7 +162,30 @@ Next: [Releases](/docs/releases)
 
 `+` is new in v7, `~` exists in v6 and works differently now, `-` is gone, `!` is something to know before you upgrade.
 
-## 7.0.5 [#705]
+## 7.1.0 [#710]
+
+One key can now be followed by millions of servers, and saves are far smaller.
+
+### What a game gets
+
+| | 7.0.5 | 7.1.0 |
+|---|---|---|
+| Servers following one busy key | ~3,750 | **~1.9 million** |
+| Servers following one quiet key | ~30,000 | **~15 million** |
+| Copy reads a minute across the game | ~0.8 million | **~13.6 million** |
+| MemoryStore maps copies and totals spread over | 16 | **256** |
+| A 100 KB player's save | 100 KB | **~12.5 KB** |
+
+Follower numbers are at half of Roblox's MemoryStore limits. The save size is one measured player state; yours depends on your data.
+
+```diff
++ Follow and Peek with MaxAge spread a busy key's copy over up to 512 MemoryStore replicas as it gets hot
++ Total spreads its summary the same way
++ Data over 1 KB saves compressed whenever that is smaller, not only near the 4 MB limit
+~ Size warnings count the saved size, and also warn when a key's data passes 4 MB as JSON
+```
+
+## 7.0.5
 
 ```diff
 + Auto Compresses when near 4mb per key limit
@@ -1696,7 +1720,7 @@ Next: [Shutdown and testing](/docs/learn/shutdown-and-testing)
 
 Pick one:
 
-* **Wally:** add `Ledger = "xoifaii/ledger@7.0.5"` to `[dependencies]` in your `wally.toml`.
+* **Wally:** add `Ledger = "xoifaii/ledger@7.1.0"` to `[dependencies]` in your `wally.toml`.
 * **Model file:** download `Ledger.rbxm` from the GitHub releases page and drop it into `ReplicatedStorage`.
 
 Ledger goes in `ReplicatedStorage` so your client scripts can use `Ledger.Reason` too. Everything else in Ledger only runs on the server.
@@ -2708,7 +2732,7 @@ For a key that many servers read all the time, like the top player on a global l
 local Data, Why = GuildStore:Peek(GuildId, 30)
 ```
 
-If this server read the key in the last 30 seconds, it answers that again for free. Otherwise it reads a copy that all your servers share, which is usually under a minute old, and a few minutes on a key that hasn't changed in a while. Either way, most of these reads cost no DataStore request at all.
+If this server read the key in the last 30 seconds, it answers that again for free. Otherwise it reads a copy that all your servers share, which is usually under a minute old, and a few minutes on a key that hasn't changed in a while. Either way, most of these reads cost no DataStore request at all. As more servers read a key, its shared copy spreads over more MemoryStore maps, so millions of servers can read one key.
 
 Only do this for keys that really are read a lot. The first server to read a key this way keeps the shared copy up to date for the next 30 minutes, which costs it 2 DataStore reads a minute. For a key that's only read now and then, that's far more than a plain `Peek` costs.
 

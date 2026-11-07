@@ -20,7 +20,8 @@ one is the one that matters and it may be far up the log. A warning about a key 
 | "holds a balance this build's arithmetic rejects" | a stored amount fails the field's `Arithmetic` | **Unreadable** below |
 | "names a key of the store X, which this server never opened" | trade work on this key can only be ended by a server with X open | **stuck Unresolved** below |
 | "the reducer gave a state holding X, which the store does not declare" | the reducer set an undeclared field; every such op is refused | `review.md` D11 |
-| "the state has passed N bytes" | the key is past 2 MiB, heading for `Full` at about 4 MB | **Full** below |
+| "the state has passed N bytes as stored" | the key is past 2 MiB saved, heading for `Full` at about 4 MB | **Full** below |
+| "the state has passed N bytes as JSON" | the data is past 4 MB before compressing; every op compresses it to check its size | **Full** below |
 | "answered Missing, since the quantity's parts do not exist" | `Take` before `Open`, or after `Close` removed the parts | **Limited items** below |
 | "the name X was used with other terms" | a name was reused for a different op; the second answers `Spent` | `review.md` D3 |
 | "A reducer must give the same from the same state and op" (Studio) | two runs of the reducer on one op differed: it isn't pure | `review.md` D10 |
