@@ -140,7 +140,7 @@ local function IsSlotWritable(Run: Run, Diff: { DiffEntry }, Leg: GameLeg): bool
 	if not PostDiff.Applies(Run.State, Slotted) then
 		return false
 	end
-	return Guards.Storable(PostDiff.ApplyDiff(Run.State, Slotted), ModuleName) == nil
+	return Guards.CheckStorable(PostDiff.ApplyDiff(Run.State, Slotted), ModuleName) == nil
 end
 
 local function JudgeGameLeg(Run: Run, Op: SentOp, Form: TentForm, Leg: GameLeg): Report

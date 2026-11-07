@@ -2,10 +2,11 @@
 --!optimize 2
 
 --[=[
-	Setup: a store's Settings, scope, part build, Build and core Setup. The reducer runs the game's (thrice in Studio,
-	compared), warning once per undeclared field, then Schema on a table result; a fail warns, unsaved. Schema skips
-	migrations' outputs, older builds' states and balance ops'. Of its own game keys, a player store's builds reference
-	only UserIds. OnLoadFailed keeps Kick.
+	Setup: a store's Settings, scope, part build, Build and core Setup. The reducer runs the game's (twice in Studio,
+	compared, and a third time only when the runs differ, threw, yielded or gave an unstorable state), warning once
+	per undeclared field, then Schema on a table result; a fail warns, unsaved. Schema skips migrations' outputs,
+	older builds' states and balance ops'. Of its own game keys, a player store's builds reference only UserIds.
+	OnLoadFailed keeps Kick.
 
 	Return type: A plain table with StoreScope, KeysMode, BalanceOpsOf, FieldArithmeticsOf, DeclaredOf, FrozenInputs,
 	SchemaProblem, IsUserIdKey, PartBuildOf and SetupOf, and the Settings types.
@@ -142,6 +143,13 @@ local function TwiceRun(Reducer: Reducer, Store: string): Reducer
 		local Difference = Guards.CompareRuns(First, Second)
 		if Difference ~= nil then
 			warn(DifferentRuns(Store, KindOf(Op), Difference))
+			return Reducer(State, Op)
+		end
+		if First.Kind == "State" then
+			return First.State
+		end
+		if First.Kind == "NoState" then
+			return nil
 		end
 		return Reducer(State, Op)
 	end

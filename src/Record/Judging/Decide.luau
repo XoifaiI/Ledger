@@ -6,7 +6,8 @@
 
 	Balances judges a balance op kind: an unreadable escrow amount is Unreadable, a stored balance field the
 	arithmetic rejects is InvalidBalance (refused in a write, Invalid at Apply). PartOps judges a part's kinds;
-	a kind its reducer gives no state for is Invalid.
+	a kind its reducer gives no state for is Invalid. A reducer's state is frozen and vetted, and is the view itself
+	when the store holds no undeclared field.
 
 	Return type: A plain table with DecideOnState, NoMarks, UsesClock, IsPartRule, JudgedOf, StopOf, FateOf and
 	BalanceAmountOf.
@@ -101,7 +102,7 @@ local function DecideOnState(
 		return PartOps.Decide(Setup, State, OpKind, Terms, Marks, Clock)
 	end
 	local Declared, Undeclared = Guards.SplitUndeclared(State, Build.Declared)
-	local Outcome = Guards.RunReducer(Build.Reducer, Declared, Terms, Limits)
+	local Outcome = Guards.RunReducer(Build.Reducer, Declared, Terms, Limits, State)
 	if Outcome.Kind == "NoState" then
 		if Build.KeyKind == PartKind then
 			return Verdicts.Invalid
@@ -124,6 +125,7 @@ local function DecideOnState(
 	if not Value.StateFits(Setup.Encoding, Build, Whole, Limits.StateCap) then
 		return Verdicts.Full
 	end
+	Guards.DeepFreeze(Whole)
 	return { Kind = "Took", State = Whole }
 end
 

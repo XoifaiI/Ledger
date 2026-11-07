@@ -75,7 +75,7 @@ end
 
 local function StorableAs(Option: string): Rule
 	return function(Value: unknown): string?
-		local Problem = Guards.Storable(Value, Option)
+		local Problem = Guards.CheckStorable(Value, Option)
 		if Problem == nil then
 			return nil
 		end

@@ -8,7 +8,7 @@
 	stored size never passes its JSON size. A build's MayReference, if any, judges each key a mark or pinned record
 	names: a value naming one its store cannot hold is not Ledger's. b's windows are in the caller's WindowUnit. The
 	reader throws through Format.Malformed; DecodeValue gives nil and DecodeStored the Unreadable cause, Newer or
-	Foreign.
+	Foreign. A decoded state is frozen and vetted as it is checked, so later checks of it skip it.
 
 	Return type: A plain table of functions and the Value, Kept, Decoded, Unreadable, UnreadableCause and KeyBuild
 	types.
@@ -58,7 +58,8 @@ export type KeyBuild = {
 }
 
 local Malformed = Format.Malformed
-local Storable = Guards.Storable
+local DeepFreeze = Guards.DeepFreeze
+local CheckStorable = Guards.CheckStorable
 
 local EncodeBook = Book.EncodeBook
 local ReadBookText = Book.ReadBookText
@@ -244,7 +245,8 @@ local function RequireState(Field: unknown): Fields
 	if type(Field) ~= "table" then
 		return Malformed(StateNotATable)
 	end
-	local Problem = Storable(Field, StoredStateWhere)
+	DeepFreeze(Field)
+	local Problem = CheckStorable(Field, StoredStateWhere)
 	if Problem ~= nil then
 		return Malformed(Problem)
 	end

@@ -7,10 +7,10 @@
 	whitespace.
 
 	Size counts what CanonicalJson writes, by its rules, in any key order; only a float is written, to scratch.
-	Values the storable guard rejects never reach it. It has its own WriteByte since a call through another module
-	is not inlined.
+	Values the storable guard rejects never reach it. A vetted table is measured once and its size kept. It has
+	its own WriteByte since a call through another module is not inlined.
 
-	Return type: A table with CanonicalJson and Size.
+	Return type: A table with CanonicalJson, Size, KnownSize, KeepSize, EntryBytes and ChangedBytes.
 	Example usage:
 		Json.CanonicalJson({ b = 2, a = { 1, "x" } }) --> '{"a":[1,"x"],"b":2}'
 		Json.Size({ b = 2, a = { 1, "x" } }) --> 17
@@ -18,6 +18,7 @@
 
 local Format = require("./Format")
 local Record = require("../Constants/Record")
+local Vetted = require("./Vetted")
 
 type Writer = Format.Writer
 
@@ -52,6 +53,10 @@ local HexDigitMask = buffer.len(LowerHexDigits) - 1
 
 local EmptyTableText = "[]"
 local EnclosingBytes = #EmptyTableText
+local ColonBytes = 1
+
+local ModuleName = "Json"
+local KeptUnvetted = `{ModuleName}: only a vetted table keeps its size. The caller must vet it first`
 
 local LongestEscape = "\\u0000"
 local EscapeBytesMost = #LongestEscape
@@ -59,6 +64,8 @@ local EscapeBytesMost = #LongestEscape
 local IntegerCharactersMost = 1 + math.ceil(math.log10(VarintLimit))
 
 local Scratch = Format.NewWriter(StartCapacity)
+
+local Sizes = setmetatable({} :: { [{ [unknown]: unknown }]: number }, { __mode = "k" })
 
 local function WriteByte(Out: Writer, Byte: number)
 	local Cursor = Out.Cursor
@@ -276,7 +283,48 @@ local function IntegerBytes(Value: number): number
 	return Width
 end
 
-local function ValueBytes(Value: unknown): number
+local ValueBytes: (Value: unknown) -> number
+
+local function SeparatorBytes(Count: number): number
+	return math.max(Count - 1, 0)
+end
+
+local function ObjectEntryBytes(Key: unknown, Bytes: number): number
+	return StringBytes(Key :: string) + ColonBytes + Bytes
+end
+
+local function EntryBytes(Held: { [unknown]: unknown }, Key: unknown, Bytes: number): number
+	if Held[1] ~= nil then
+		return Bytes
+	end
+	return ObjectEntryBytes(Key, Bytes)
+end
+
+local function ChangedBytes(OldBytes: number, OldCount: number, Count: number, EntryChange: number): number
+	return OldBytes + EntryChange + SeparatorBytes(Count) - SeparatorBytes(OldCount)
+end
+
+local function TableBytes(Held: { [unknown]: unknown }): number
+	if Held[1] ~= nil then
+		local Count = EnclosingBytes + SeparatorBytes(#Held)
+		for Index = 1, #Held do
+			Count += ValueBytes(Held[Index])
+		end
+		return Count
+	end
+	if next(Held) == nil then
+		return EnclosingBytes
+	end
+	local Count = EnclosingBytes
+	local Fields = 0
+	for Key, Field in Held do
+		Fields += 1
+		Count += ObjectEntryBytes(Key, ValueBytes(Field))
+	end
+	return Count + SeparatorBytes(Fields)
+end
+
+function ValueBytes(Value: unknown): number
 	if type(Value) == "string" then
 		return StringBytes(Value)
 	end
@@ -291,24 +339,17 @@ local function ValueBytes(Value: unknown): number
 	if type(Value) == "boolean" then
 		return #tostring(Value)
 	end
+
 	local Held = Value :: { [unknown]: unknown }
-	if Held[1] ~= nil then
-		local Count = EnclosingBytes + #Held - 1
-		for Index = 1, #Held do
-			Count += ValueBytes(Held[Index])
-		end
-		return Count
+	local Known = Sizes[Held]
+	if Known ~= nil then
+		return Known
 	end
-	if next(Held) == nil then
-		return EnclosingBytes
+	local Bytes = TableBytes(Held)
+	if Vetted.IsVetted(Held) then
+		Sizes[Held] = Bytes
 	end
-	local Count = EnclosingBytes
-	local Fields = 0
-	for Key, Field in Held do
-		Fields += 1
-		Count += StringBytes(Key :: string) + 1 + ValueBytes(Field)
-	end
-	return Count + Fields - 1
+	return Bytes
 end
 
 local function CanonicalJson(Value: unknown): string
@@ -321,7 +362,22 @@ local function Size(Value: unknown): number
 	return ValueBytes(Value)
 end
 
+local function KnownSize(Held: { [unknown]: unknown }): number?
+	return Sizes[Held]
+end
+
+local function KeepSize(Held: { [unknown]: unknown }, Bytes: number): ()
+	if not Vetted.IsVetted(Held) then
+		error(KeptUnvetted)
+	end
+	Sizes[Held] = Bytes
+end
+
 return {
 	CanonicalJson = CanonicalJson,
 	Size = Size,
+	KnownSize = KnownSize,
+	KeepSize = KeepSize,
+	EntryBytes = EntryBytes,
+	ChangedBytes = ChangedBytes,
 }

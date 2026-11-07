@@ -2,14 +2,15 @@
 --!optimize 2
 
 --[=[
-	Guards: the pure checks of a value, the runs of a reducer and of a migration, and the carry of
+	Guards: the runs of a reducer and of a migration, with the check of what they return, and the carry of
 	undeclared fields.
 
-	A value past Record.StorableDepthMax is not storable. RunReducer freezes the state and op only when
-	Limits.FreezeInputs is true. The caller warns and measures StateCap. DeepCopy takes only what Storable passed.
-	RunWithoutYield is the yield stop Api shares.
+	RunReducer freezes its input only when Limits.FreezeInputs is true. A state a run returns is checked by Storable
+	(StorableChange, when RunReducer is given the vetted state its input came from), and is frozen and vetted once
+	storable, in live too. The caller warns and measures StateCap. DeepCopy takes only what Storable passed.
+	RunWithoutYield is the yield stop Api shares. CheckStorable and DeepFreeze are Storable's, exported here.
 
-	Return type: A table with Storable, DeepFreeze, DeepCopy, RunWithoutYield, RunReducer, RunMigration,
+	Return type: A table with CheckStorable, DeepFreeze, DeepCopy, RunWithoutYield, RunReducer, RunMigration,
 	CompareRuns, ProbeUnknownKind, SplitUndeclared, PutBack and AddsUndeclared.
 	Example usage:
 		local Outcome = Guards.RunReducer(Reducer, State, Op, Limits)
@@ -17,6 +18,10 @@
 --]=]
 
 local Record = require("../Constants/Record")
+local Storable = require("./Storable")
+local StorableChange = require("./StorableChange")
+
+type Tree = Storable.Tree
 
 export type Reducer<GameState, GameOp, Made = GameState> = (State: GameState, Op: GameOp) -> Made?
 
@@ -28,38 +33,23 @@ export type FreezeLimits = {
 	read FreezeInputs: boolean,
 }
 
-export type Outcome<Made> =
-	{ read Kind: "State", read State: Made }
-	| { read Kind: "NoState" }
+type Ended =
+	{ read Kind: "NoState" }
 	| { read Kind: "Yielded", read Trace: string }
 	| { read Kind: "Threw", read Message: string }
 	| { read Kind: "Unstorable", read Problem: string }
+
+type Returned<Made> = { read Kind: "Table", read State: Made } | Ended
+
+export type Outcome<Made> = { read Kind: "State", read State: Made } | Ended
 
 export type Ran<Value> =
 	{ read Kind: "Returned", read Value: Value? }
 	| { read Kind: "Yielded", read Trace: string }
 	| { read Kind: "Threw", read Problem: unknown, read Trace: string }
 
-type Tree = { [unknown]: unknown }
-
-type Search = {
-	Keys: { unknown },
-	Seen: { [unknown]: boolean },
-}
-
-type Failure = {
-	Problem: string,
-	Level: number,
-}
-
-local StorableNotFinite = "is NaN or infinity, which cannot be stored"
-local StorableBadUtf8 = "is a string that is not valid UTF-8"
-local StorableKeyBadUtf8 = "has a key that is not valid UTF-8"
-local StorableMetatable = "has a metatable, and a stored table has none"
-local StorableCycle = "contains itself, and a stored value is a tree"
-local StorableMixedKeys = "has array keys and string keys together, and it must have only one kind"
-local StorableGap = "has number keys that are not 1 up to its length, so it is not an array without gaps"
-local StorableTooDeep = `is nested deeper than {Record.StorableDepthMax} levels`
+local DeepFreeze = Storable.DeepFreeze
+local PathText = Storable.PathText
 
 local ReducerStateWhere = "the state the reducer returned"
 local ReducerYielded = "the reducer must complete without yielding"
@@ -81,18 +71,6 @@ local function NotTable(Where: string): string
 	return `{Where} is not a table, and a state is a table`
 end
 
-local function StorableType(TypeName: string): string
-	return `is a {TypeName}, and only booleans, numbers, strings and tables can be stored`
-end
-
-local function StorableKeyType(TypeName: string): string
-	return `has a key that is a {TypeName}, and a key must be a string or a place in an array`
-end
-
-local function Unstorable(Where: string, Path: string, Problem: string): string
-	return `{Where}{Path} {Problem}`
-end
-
 local function RunsGave(First: string, Second: string): string
 	return `the first run gave {First} and the second gave {Second}. {SameEveryRun}`
 end
@@ -104,118 +82,6 @@ end
 local function ProbeNotIgnored(Gave: string): string
 	return `the reducer gave {Gave} for an op of a kind it does not know. `
 		.. "It must give no state for such an op, so that an op from a newer build is refused"
-end
-
-local function PathText(Keys: { unknown }, Level: number): string
-	local Parts: { string } = {}
-	for Index = 2, Level do
-		local Key = Keys[Index]
-		if type(Key) == "number" then
-			table.insert(Parts, `[{Key}]`)
-		else
-			table.insert(Parts, `.{Key}`)
-		end
-	end
-	return table.concat(Parts)
-end
-
-local function Fail(Problem: string, Level: number): Failure
-	return { Problem = Problem, Level = Level }
-end
-
-local Visit: (Search: Search, Value: unknown, Level: number) -> Failure?
-
-local function VisitKeys(Held: Tree, Level: number): Failure?
-	local Numbers = 0
-	local Strings = 0
-	for Key in Held do
-		if type(Key) == "number" then
-			Numbers += 1
-		elseif type(Key) == "string" then
-			if utf8.len(Key) == nil then
-				return Fail(StorableKeyBadUtf8, Level)
-			end
-			Strings += 1
-		else
-			return Fail(StorableKeyType(typeof(Key)), Level)
-		end
-	end
-
-	if Numbers > 0 and Strings > 0 then
-		return Fail(StorableMixedKeys, Level)
-	end
-	for Index = 1, Numbers do
-		if Held[Index] == nil then
-			return Fail(StorableGap, Level)
-		end
-	end
-	return nil
-end
-
-local function VisitTable(Search: Search, Held: Tree, Level: number): Failure?
-	if getmetatable(Held) ~= nil then
-		return Fail(StorableMetatable, Level)
-	end
-	if Search.Seen[Held] then
-		return Fail(StorableCycle, Level)
-	end
-
-	local KeyFailure = VisitKeys(Held, Level)
-	if KeyFailure ~= nil then
-		return KeyFailure
-	end
-
-	Search.Seen[Held] = true
-	for Key, Inner in Held do
-		Search.Keys[Level + 1] = Key
-		local InnerFailure = Visit(Search, Inner, Level + 1)
-		if InnerFailure ~= nil then
-			return InnerFailure
-		end
-	end
-	Search.Seen[Held] = nil
-	return nil
-end
-
-function Visit(Search: Search, Value: unknown, Level: number): Failure?
-	if Level > Record.StorableDepthMax then
-		return Fail(StorableTooDeep, Level)
-	end
-
-	if type(Value) == "boolean" then
-		return nil
-	end
-	if type(Value) == "number" then
-		if Value ~= Value or Value == math.huge or Value == -math.huge then
-			return Fail(StorableNotFinite, Level)
-		end
-		return nil
-	end
-	if type(Value) == "string" then
-		if utf8.len(Value) == nil then
-			return Fail(StorableBadUtf8, Level)
-		end
-		return nil
-	end
-	if type(Value) ~= "table" then
-		return Fail(StorableType(typeof(Value)), Level)
-	end
-	return VisitTable(Search, Value :: Tree, Level)
-end
-
-local function Freeze(Value: unknown, Seen: { [unknown]: boolean })
-	if type(Value) ~= "table" or Seen[Value] then
-		return
-	end
-	Seen[Value] = true
-
-	local Held = Value :: Tree
-	for _, Inner in Held do
-		Freeze(Inner, Seen)
-	end
-	if not table.isfrozen(Held) then
-		table.freeze(Held)
-	end
 end
 
 local function FirstDifference(Keys: { unknown }, First: unknown, Second: unknown, Level: number): number?
@@ -244,19 +110,6 @@ local function FirstDifference(Keys: { unknown }, First: unknown, Second: unknow
 	return nil
 end
 
-local function Storable(Value: unknown, Where: string): string?
-	local Search: Search = { Keys = {}, Seen = {} }
-	local Failure = Visit(Search, Value, 1)
-	if Failure == nil then
-		return nil
-	end
-	return Unstorable(Where, PathText(Search.Keys, Failure.Level), Failure.Problem)
-end
-
-local function DeepFreeze(Value: unknown): ()
-	Freeze(Value, {})
-end
-
 local function DeepCopy(Value: Tree): Tree
 	local Copy: Tree = {}
 	for Key, Inner in Value do
@@ -283,12 +136,12 @@ local function RunWithoutYield<Value, Args...>(Body: (Args...) -> Value?, Yielde
 	return { Kind = "Returned", Value = Result }
 end
 
-local function RunAndCheck<Made, Args...>(
+local function RunToTable<Made, Args...>(
 	Function: (Args...) -> Made?,
 	Where: string,
 	YieldedText: string,
 	...: Args...
-): Outcome<Made & Tree>
+): Returned<Made & Tree>
 	local Ran = RunWithoutYield(Function, YieldedText, ...)
 	if Ran.Kind == "Threw" then
 		return { Kind = "Threw", Message = Ran.Trace }
@@ -304,25 +157,54 @@ local function RunAndCheck<Made, Args...>(
 	if type(Result) ~= "table" then
 		return { Kind = "Unstorable", Problem = NotTable(Where) }
 	end
-	local Problem = Storable(Result, Where)
+	return { Kind = "Table", State = Result }
+end
+
+local function CheckAndFreezeWhole<Made>(Run: Returned<Made & Tree>, Where: string): Outcome<Made & Tree>
+	if Run.Kind ~= "Table" then
+		return Run
+	end
+	local Problem = Storable.Check(Run.State, Where)
 	if Problem ~= nil then
 		return { Kind = "Unstorable", Problem = Problem }
 	end
-	return { Kind = "State", State = Result }
+	DeepFreeze(Run.State)
+	return { Kind = "State", State = Run.State }
+end
+
+local function CheckAndFreezeAgainst<Made>(Run: Returned<Made & Tree>, Old: Tree, Where: string): Outcome<Made & Tree>
+	if Run.Kind ~= "Table" then
+		return Run
+	end
+	local NewTables: StorableChange.NewTables = {}
+	local Problem = StorableChange.Check(Run.State, Old, Where, NewTables)
+	if Problem ~= nil then
+		return { Kind = "Unstorable", Problem = Problem }
+	end
+	StorableChange.VetMade(NewTables)
+	DeepFreeze(Run.State)
+	return { Kind = "State", State = Run.State }
 end
 
 local function RunReducer<State, Op, Made>(
 	Reducer: Reducer<State, Op, Made>,
 	CurrentState: State,
 	Given: Op,
-	Limits: FreezeLimits
+	Limits: FreezeLimits,
+	Basis: Tree?
 ): Outcome<Made & Tree>
 	if Limits.FreezeInputs then
+		StorableChange.VetSubsetOf(CurrentState, Basis)
 		DeepFreeze(CurrentState)
 		DeepFreeze(Given)
 	end
 
-	return RunAndCheck(Reducer, ReducerStateWhere, ReducerYielded, CurrentState, Given)
+	local Old = StorableChange.TrustedOld(Basis, CurrentState)
+	local Run = RunToTable(Reducer, ReducerStateWhere, ReducerYielded, CurrentState, Given)
+	if Old == nil then
+		return CheckAndFreezeWhole(Run, ReducerStateWhere)
+	end
+	return CheckAndFreezeAgainst(Run, Old, ReducerStateWhere)
 end
 
 local function RunMigration(Migration: MigrationRun, CurrentState: unknown, Limits: FreezeLimits): Outcome<Tree>
@@ -330,7 +212,8 @@ local function RunMigration(Migration: MigrationRun, CurrentState: unknown, Limi
 		DeepFreeze(CurrentState)
 	end
 
-	return RunAndCheck(Migration, MigrationStateWhere, MigrationYielded, CurrentState)
+	local Run = RunToTable(Migration, MigrationStateWhere, MigrationYielded, CurrentState)
+	return CheckAndFreezeWhole(Run, MigrationStateWhere)
 end
 
 local function CompareRuns<Made>(First: Outcome<Made>, Second: Outcome<Made>): string?
@@ -375,6 +258,9 @@ local function SplitUndeclared(State: Tree, Declared: { [string]: boolean }): (T
 end
 
 local function PutBack(State: Tree, Undeclared: Tree): Tree
+	if next(Undeclared) == nil then
+		return State
+	end
 	local Whole: Tree = table.clone(State)
 	for Key, Value in Undeclared do
 		Whole[Key] = Value
@@ -392,7 +278,7 @@ local function AddsUndeclared(State: Tree, Declared: { [string]: boolean }): boo
 end
 
 return {
-	Storable = Storable,
+	CheckStorable = Storable.Check,
 	DeepFreeze = DeepFreeze,
 	DeepCopy = DeepCopy,
 	RunWithoutYield = RunWithoutYield,

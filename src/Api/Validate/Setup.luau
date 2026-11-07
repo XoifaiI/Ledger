@@ -155,7 +155,7 @@ local function DefaultState(Value: unknown): string?
 	if Problem ~= nil then
 		return Problem
 	end
-	local Unstorable = Guards.Storable(Value, DefaultWhere)
+	local Unstorable = Guards.CheckStorable(Value, DefaultWhere)
 	if Unstorable ~= nil then
 		return Rules.StorableWanted(Unstorable)
 	end
