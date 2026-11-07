@@ -97,6 +97,7 @@ export type Note = {
 	read WrittenValue: Value?,
 	read ReadValue: Kept?,
 	read WrittenBytes: number?,
+	read WrittenStateBytes: number?,
 	read ProbeReport: Report?,
 	read Warnings: { NoteWarning },
 	read EndReports: { Report },

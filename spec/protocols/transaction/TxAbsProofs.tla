@@ -1,13 +1,4 @@
------------------------------ MODULE TxAbsProofs -----------------------------
-\* TLAPS proofs of S4 (AllOrNone) and S5 (AtMostOnce) for TxAbs, for any
-\* finite keys and uses, any amounts whose legs sum to 0, and any number
-\* of attempts: Core, the part of IndInv with no sum in it, holds
-\* initially and is kept by every action. Apalache checks the whole of
-\* IndInv on two instances (ApaTxAbs); this proves the part S4 and S5 rest
-\* on for every instance. Written by genproofs.py.
-\*
-\* Design is the assumption that no guard is off: the controls of
-\* ApaTxAbs turn guards off, and the proof is of the design.
+---- MODULE TxAbsProofs ----
 EXTENDS TxAbs, TLAPS
 
 ASSUME Design == Off = {}
@@ -35,14 +26,12 @@ Core ==
     /\ RPlaced
     /\ PlacedLive
 
-\* The keys a use names are keys.
 LEMMA InK == \A u \in U : Legs(u) \subseteq K /\ Others(u) \subseteq K /\ D[u] \in K
 BY AbsConstants DEF Legs, Others
 
 LEMMA InitCore == Init => Core
 BY Design, AbsConstants, InK DEF Init, Core, TypeOK, AllOrNone, MarkPlaced, DecOnD, FateOnLegs, CommitStays, PinIsCommit, MarksFollow, FenceMax, GiveUpHolds, RStops, TookFate, DecShape, NoFenceNoMax, FateShape, MarkVsFate, GoneClean, AttemptsStarted, PlacedStays, RPlaced, PlacedLive, Dead, Others, NoDec, A
 
-\* A Tent never lands for a use that committed.
 LEMMA TentUncommitted ==
     ASSUME Core, NEW u \in U, NEW a \in A, NEW k \in K, Tent(u, a, k)
     PROVE  gd[u] # "commit"
@@ -59,7 +48,6 @@ LEMMA TentUncommitted ==
   <2> QED BY <1>1, <1>4, <2>1, <2>2 DEF A
 <1> QED BY <1>2, <1>3, <1>4
 
-\* A Commit of (u, a) finds u uncommitted and a mark of a on every leg key but the decider.
 LEMMA CommitFinds ==
     ASSUME Core, NEW u \in U, NEW a \in A, Commit(u, a)
     PROVE  /\ gd[u] # "commit"
@@ -71,8 +59,6 @@ LEMMA CommitFinds ==
   BY Design, AbsConstants DEF Core, Commit, Dead, FenceMax, NoFenceNoMax, TypeOK, A
 <1> QED BY <1>1, <1>2, Design DEF Core, Commit, PlacedLive
 
-\* A Resolve of commit that takes a leg ends a mark of the committed attempt; any other Resolve ends
-\* a mark that no commit counts.
 LEMMA ResolveEnds ==
     ASSUME Core, NEW u \in U, NEW a \in A, NEW out \in {"commit", "abort"}, NEW k \in K,
            Resolve(u, a, out, k)
@@ -923,12 +909,10 @@ THEOREM CoreInductive == Core /\ [Next]_vars => Core'
 THEOREM CoreHolds == Spec => []Core
 BY InitCore, CoreInductive, PTL DEF Spec
 
-\* S4: all or none.
 THEOREM S4 == Spec => []AllOrNone
 BY CoreHolds, PTL DEF Core
 
-\* S5: at most once on each key.
 THEOREM S5 == Spec => []AtMostOnce
 <1>1. Core => AtMostOnce BY DEF Core, AllOrNone, AtMostOnce
 <1> QED BY CoreHolds, <1>1, PTL
-=============================================================================
+====

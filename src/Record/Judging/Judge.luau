@@ -204,7 +204,7 @@ local function RunMigrations(Run: Run): boolean
 			return false
 		end
 
-		if not Value.StateFits(Run.Setup.Encoding, Outcome.State, Limits.StateCap) then
+		if not Value.StateFits(Run.Setup.Encoding, Build, Outcome.State, Limits.StateCap) then
 			return false
 		end
 

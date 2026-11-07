@@ -65,7 +65,7 @@ local function GatedReport(Run: Run, Form: CutForm): Report?
 end
 
 local function GateFits(State: Fields, Given: Fields, Setup: Setup): boolean
-	local StateCost = Value.StateCost(Setup.Encoding, State)
+	local StateCost = Value.StateCost(Setup.Encoding, Setup.Build, State)
 	if StateCost == nil then
 		return false
 	end

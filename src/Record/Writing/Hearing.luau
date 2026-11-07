@@ -54,11 +54,14 @@ type UpdateRequest = Shapes.UpdateRequest
 type ServerState = Shapes.ServerState
 type WriterState = Shapes.WriterState
 type Value = Value.Value
+type Fields = Value.Fields
 
 type KeyCall = { read CallId: number, read Key: StoreKey }
 
 local NotAnUpdate = "Hearing: this call is never made. A writer's request is always an update."
-local StateSizeWarning = "the state has passed %d bytes. Keep it well under %d bytes."
+local StateSizeWarning = "the state has passed %d bytes as stored. Keep it well under %d bytes."
+local StateJsonWarning =
+	"the state has passed %d bytes as JSON, so every op compresses it to check its size. Keep its JSON under that."
 
 local function IsOutWith(Writer: WriterState, RequestId: number): boolean
 	if Writer.Out ~= nil and Writer.Out.RequestId == RequestId then
@@ -132,19 +135,52 @@ local function ApplyMove(
 	end
 end
 
-local function WarnIfLarge(State: State, Key: StoreKey, Written: Value?, Commands: { Command })
-	if Written == nil or Written.Kind ~= "Kept" then
-		return
-	end
-	local Limits = Cache.StoreOf(State.Server, Key).Setup.Limits
-	local Entry = Numbers.EntryFor(State.Server, Key)
-	if Entry.IsSizeWarned == true or Json.Size(Written.State) <= Limits.StateWarnBytes then
-		return
-	end
-	Entry.IsSizeWarned = true
-	local Text = string.format(StateSizeWarning, Limits.StateWarnBytes, Limits.StateCap)
+local function IsSizeWarned(State: State, Key: StoreKey): boolean
+	return Numbers.EntryFor(State.Server, Key).IsSizeWarned == true
+end
+
+local function WarnOnce(State: State, Key: StoreKey, Text: string, Commands: { Command })
+	Numbers.EntryFor(State.Server, Key).IsSizeWarned = true
 	local Warn: Command = { Kind = "Warn", Key = Key, Text = Text }
 	table.insert(Commands, Warn)
+end
+
+local function WarnIfJsonLarge(State: State, Key: StoreKey, JsonBytes: number, Commands: { Command }): boolean
+	local Limits = Cache.StoreOf(State.Server, Key).Setup.Limits
+	if JsonBytes <= Limits.StateCap then
+		return false
+	end
+	WarnOnce(State, Key, string.format(StateJsonWarning, Limits.StateCap), Commands)
+	return true
+end
+
+local function WarnIfStoredLarge(State: State, Key: StoreKey, StoredBytes: number, Commands: { Command })
+	local Limits = Cache.StoreOf(State.Server, Key).Setup.Limits
+	if StoredBytes > Limits.StateWarnBytes then
+		WarnOnce(State, Key, string.format(StateSizeWarning, Limits.StateWarnBytes, Limits.StateCap), Commands)
+	end
+end
+
+local function WarnIfLarge(State: State, Key: StoreKey, StoredBytes: number?, Written: Value?, Commands: { Command })
+	if StoredBytes == nil or Written == nil or Written.Kind ~= "Kept" or IsSizeWarned(State, Key) then
+		return
+	end
+	if WarnIfJsonLarge(State, Key, Json.Size(Written.State), Commands) then
+		return
+	end
+	WarnIfStoredLarge(State, Key, StoredBytes, Commands)
+end
+
+local function WarnIfLoadedLarge(State: State, Key: StoreKey, Loaded: Fields, Commands: { Command })
+	if IsSizeWarned(State, Key) then
+		return
+	end
+	local Setup = Cache.StoreOf(State.Server, Key).Setup
+	local JsonBytes = Json.Size(Loaded)
+	if WarnIfJsonLarge(State, Key, JsonBytes, Commands) or JsonBytes <= Setup.Limits.StateWarnBytes then
+		return
+	end
+	WarnIfStoredLarge(State, Key, Value.StoredBytes(Setup.Encoding, Setup.Build, Loaded), Commands)
 end
 
 local function KeepShowableOfWritten(State: State, Key: StoreKey, Written: Value?)
@@ -302,7 +338,7 @@ local function Hear(
 		if Result.Kind == "Ok" then
 			Turned += Adoption.TurnAway(Writer, Note, Commands)
 			IsTaken = Adoption.Adopt(State.Server, State.Sessions, Writer, Note, Clock, Commands)
-			WarnIfLarge(State, Writer.Key, Note.WrittenValue, Commands)
+			WarnIfLarge(State, Writer.Key, Note.WrittenStateBytes, Note.WrittenValue, Commands)
 			KeepShowableOfWritten(State, Writer.Key, Note.WrittenValue)
 		else
 			IsTaken = Adoption.AdoptUnwritten(State.Server, State.Sessions, Writer, Note, Clock, Commands)
@@ -365,5 +401,5 @@ return {
 	Refresh = Refresh,
 	AttachFlushes = AttachFlushes,
 	AnswerFlushesAtDeadline = AnswerFlushesAtDeadline,
-	WarnIfLarge = WarnIfLarge,
+	WarnIfLoadedLarge = WarnIfLoadedLarge,
 }

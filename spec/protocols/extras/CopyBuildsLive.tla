@@ -1,22 +1,4 @@
----------------------------- MODULE CopyBuildsLive ----------------------------
-\* CopyBuildsLive is CopyBuilds.tla (extras 5, holders on two builds) for
-\* liveness across a deploy. Its actions are CopyBuilds' (FixLevelTakes
-\* included), plus:
-\*   Deploy: one step after which every holder but Survivor starts no new
-\*     refresh (a refresh already under way may still land, or never).
-\*     Survivor on the new build is a finished rollout; Survivor on the
-\*     old build is an old holder outliving a new one (a mid-rollout
-\*     handoff, or a rollback).
-\*   Fairness: on a quiet key (writes stop, as MaxW forces), the survivor
-\*     refreshes for ever, reading the key's last state infinitely often
-\*     (SF), and the follower ticks (WF).
-\* Property: ShowsLast, the follower eventually shows the key's last q and
-\* stays there (extras 5.3). With FixPartLevel alone, a header set at the
-\* last q by the other holder keeps that holder's level, so the follower
-\* never joins the survivor's parts; FixLevelWins is live only when the
-\* survivor is on the newer build; FixLevelTakes is live both ways. Safety
-\* under FixLevelTakes is CopyBuildsFixTakes.cfg on CopyBuilds.tla. No
-\* symmetry (liveness).
+---- MODULE CopyBuildsLive ----
 EXTENDS Integers
 
 CONSTANTS Holders, Lvl, MaxW, MaxT, Skew, FixPartLevel, FixLevelWins, FixLevelTakes, Survivor
@@ -97,6 +79,5 @@ LiveSpec == Spec /\ Fair
 
 ReadWasHeld == ~unheld
 NeverBack == ~back
-\* The oracle's liveness: on a quiet key the follower eventually shows the key's last state, and stays there.
 ShowsLast == <>[](kq >= 1 => shown.q = kq)
-=============================================================================
+====

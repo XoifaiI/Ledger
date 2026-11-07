@@ -3,17 +3,19 @@
 
 --[=[
 	Value: a key's value (spec/protocols/record/Format.md 5, 10) as the DataStore table: the state s and its book b, or
-	a seal z, and no other keys. A build's key kind says what s is: a table, a shard's integer, a part's text. A build's
-	MayReference, if any, judges each key a mark or pinned record names: a value naming one its store cannot hold is not
-	Ledger's. b's windows are in the caller's WindowUnit. The reader throws through Format.Malformed; DecodeValue gives
-	nil and DecodeStored the Unreadable cause, Newer or Foreign.
+	a seal z, and no other keys. A build's key kind says what s is: a table, a shard's integer, a part's text. A game
+	state past PackFrom bytes of JSON is stored as a buffer the DataStore compresses, when that is smaller, so its
+	stored size never passes its JSON size. A build's MayReference, if any, judges each key a mark or pinned record
+	names: a value naming one its store cannot hold is not Ledger's. b's windows are in the caller's WindowUnit. The
+	reader throws through Format.Malformed; DecodeValue gives nil and DecodeStored the Unreadable cause, Newer or
+	Foreign.
 
 	Return type: A plain table of functions and the Value, Kept, Decoded, Unreadable, UnreadableCause and KeyBuild
 	types.
 	Example usage:
 		local Kept = { Kind = "Kept", State = {}, Book = Empty }
-		Value.EncodeValue(Kept, Build, Limits.WindowUnit) --> { s = {}, b = "AAAABAAA..." }
-		Value.StateFits(Setup.Encoding, State, Limits.StateCap) --> true
+		Value.EncodeValue(Kept, Build, Limits.WindowUnit, Setup.Encoding) --> { s = {}, b = "AAAABAAA..." }, 2
+		Value.StateFits(Setup.Encoding, Build, State, Limits.StateCap) --> true
 --]=]
 
 local Balances = require("../Legs/Balances")
@@ -55,11 +57,6 @@ export type KeyBuild = {
 	read MayReference: ((Reference: KeyReference) -> boolean)?,
 }
 
-type Measure = {
-	Bytes: number,
-	Packed: string?,
-}
-
 local Malformed = Format.Malformed
 local Storable = Guards.Storable
 
@@ -77,14 +74,12 @@ local ShardSumField = Extras.ShardSumField
 local StateForms = Book.StateForm
 
 local StateCap = Record.StateCap
+local PackFrom = Record.PackFrom
 local PackedStateMost = Record.PackedStateMost
 local BufferFramingBytes = Record.BufferFramingBytes
 local PackedSlackBytes = Record.PackedSlackBytes
 local Base64GroupBytes = 3
 local Base64GroupCharacters = 4
-
-local Measures: { [Fields]: Measure } = {}
-setmetatable(Measures, { __mode = "k" })
 
 local NewerValue: Unreadable = table.freeze({ Kind = "Unreadable" :: "Unreadable", Cause = "Newer" :: "Newer" })
 local ForeignValue: Unreadable = table.freeze({ Kind = "Unreadable" :: "Unreadable", Cause = "Foreign" :: "Foreign" })
@@ -129,42 +124,27 @@ local function Base64Length(Bytes: number): number
 	return math.ceil(Bytes / Base64GroupBytes) * Base64GroupCharacters
 end
 
-local function MeasureOf(State: Fields): Measure
-	local Known = Measures[State]
-	if Known ~= nil then
-		return Known
-	end
-	local Measured: Measure = { Bytes = Json.Size(State), Packed = nil }
-	Measures[State] = Measured
-	return Measured
-end
-
-local function TakePackedText(State: Fields, Measured: Measure): string
-	local Packed = Measured.Packed
-	Measured.Packed = nil
-	if Packed ~= nil then
-		return Packed
-	end
-	return Json.CanonicalJson(State)
-end
-
-local function StateCost(Encoding: Encoding, State: Fields): number?
-	local Measured: Measure = { Bytes = Json.Size(State), Packed = nil }
-	Measures[State] = Measured
-	if Measured.Bytes <= StateCap then
-		return Measured.Bytes
-	end
-	if Measured.Bytes > PackedStateMost then
-		return nil
-	end
-	local Packed = Json.CanonicalJson(State)
-	Measured.Packed = Packed
-	local Compressed = Encoding.Compress(buffer.fromstring(Packed))
+local function PackedSize(Encoding: Encoding, Text: string): number
+	local Compressed = Encoding.Compress(buffer.fromstring(Text))
 	return BufferFramingBytes + Base64Length(buffer.len(Compressed) + PackedSlackBytes)
 end
 
-local function StateFits(Encoding: Encoding, State: Fields, Cap: number): boolean
-	local Cost = StateCost(Encoding, State)
+local function StateCost(Encoding: Encoding, Build: KeyBuild, State: Fields): number?
+	local JsonBytes = Json.Size(State)
+	if Build.KeyKind ~= KeyKinds.Game then
+		return JsonBytes
+	end
+	if JsonBytes <= StateCap then
+		return JsonBytes
+	end
+	if JsonBytes > PackedStateMost then
+		return nil
+	end
+	return PackedSize(Encoding, Json.CanonicalJson(State))
+end
+
+local function StateFits(Encoding: Encoding, Build: KeyBuild, State: Fields, Cap: number): boolean
+	local Cost = StateCost(Encoding, Build, State)
 	return Cost ~= nil and Cost <= Cap
 end
 
@@ -183,30 +163,47 @@ local function WriteShardSum(State: Fields): unknown
 	return Sum
 end
 
-local function WriteGameState(State: Fields): (unknown, StateForm)
-	local Measured = MeasureOf(State)
-	if Measured.Bytes <= StateCap then
-		return State, StateForms.Plain
+local function WriteGameState(Encoding: Encoding, State: Fields): (unknown, StateForm, number)
+	local JsonBytes = Json.Size(State)
+	if JsonBytes <= PackFrom then
+		return State, StateForms.Plain, JsonBytes
 	end
-	if Measured.Bytes > PackedStateMost then
+	if JsonBytes > PackedStateMost then
 		error(WriteStateTooBig)
 	end
-	return buffer.fromstring(TakePackedText(State, Measured)), StateForms.Packed
+	local Text = Json.CanonicalJson(State)
+	local Packed = PackedSize(Encoding, Text)
+	if JsonBytes <= StateCap and JsonBytes <= Packed then
+		return State, StateForms.Plain, JsonBytes
+	end
+	return buffer.fromstring(Text), StateForms.Packed, Packed
 end
 
-local function WriteState(State: Fields, Build: KeyBuild): (unknown, StateForm)
+local function WriteState(State: Fields, Build: KeyBuild, Encoding: Encoding): (unknown, StateForm, number)
 	if Build.KeyKind == KeyKinds.Shard then
-		return WriteShardSum(State), StateForms.Plain
+		local Sum = WriteShardSum(State)
+		return Sum, StateForms.Plain, Json.Size(Sum)
 	end
 	if Build.KeyKind == KeyKinds.Part then
-		return Part.TextOfState(State, Build.Balances), StateForms.Plain
+		local Text = Part.TextOfState(State, Build.Balances)
+		return Text, StateForms.Plain, Json.Size(Text)
 	end
-	return WriteGameState(State)
+	return WriteGameState(Encoding, State)
 end
 
-local function EncodeValue(Value: Value, Build: KeyBuild, WindowUnit: number): { [string]: unknown }
+local function StoredBytes(Encoding: Encoding, Build: KeyBuild, State: Fields): number
+	local _, _, Bytes = WriteState(State, Build, Encoding)
+	return Bytes
+end
+
+local function EncodeValue(
+	Value: Value,
+	Build: KeyBuild,
+	WindowUnit: number,
+	Encoding: Encoding
+): ({ [string]: unknown }, number?)
 	if Value.Kind == "Sealed" then
-		return { [SealKey] = EncodeSeal(Value.Seal) }
+		return { [SealKey] = EncodeSeal(Value.Seal) }, nil
 	end
 	if type(Value.State) ~= "table" then
 		error(WriteStateNotATable)
@@ -217,7 +214,7 @@ local function EncodeValue(Value: Value, Build: KeyBuild, WindowUnit: number): {
 	if Build.KeyKind ~= KeyKinds.Game and (Value.Post ~= nil or Value.Given ~= nil) then
 		error(WritePostOnLedgerKey)
 	end
-	local Written, Form = WriteState(Value.State, Build)
+	local Written, Form, StateBytes = WriteState(Value.State, Build, Encoding)
 	local Raw: { [string]: unknown } = { [StateKey] = Written, [BookKey] = EncodeBook(Value.Book, WindowUnit, Form) }
 	if Value.Post ~= nil then
 		Raw[PostKey] = EncodePost(Value.Post)
@@ -225,7 +222,7 @@ local function EncodeValue(Value: Value, Build: KeyBuild, WindowUnit: number): {
 	if Value.Given ~= nil then
 		Raw[GivenKey] = Value.Given
 	end
-	return Raw
+	return Raw, StateBytes
 end
 
 local function RequireOnly(Fields: Fields, Allowed: { [unknown]: boolean })
@@ -362,6 +359,7 @@ end
 return {
 	CopyDefault = CopyDefault,
 	StateCost = StateCost,
+	StoredBytes = StoredBytes,
 	StateFits = StateFits,
 	EncodeValue = EncodeValue,
 	DecodeStored = DecodeStored,

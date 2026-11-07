@@ -82,6 +82,7 @@ local BookMax = ValueFramingBytes
 local DataStoreValueMax = 4 * BytesPerMiB
 local StateCap = DataStoreValueMax - BookMax
 
+local PackFrom = BytesPerKiB
 local PackedStateMost = 16 * BytesPerMiB
 local BufferFramingBytes = 36
 local PackedSlackBytes = 1024
@@ -263,6 +264,7 @@ return table.freeze({
 	BookMax = BookMax,
 	DataStoreValueMax = DataStoreValueMax,
 	StateCap = StateCap,
+	PackFrom = PackFrom,
 	PackedStateMost = PackedStateMost,
 	BufferFramingBytes = BufferFramingBytes,
 	PackedSlackBytes = PackedSlackBytes,

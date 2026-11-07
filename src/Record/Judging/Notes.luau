@@ -5,8 +5,9 @@
 	Notes: a run's note, cancel and land (record sheet 9, S.9).
 
 	A note carries each op's and end's report, the gate, its copy of P and whether it shows a key; a seal shows none.
-	A note that writes nothing carries the value it read, so a session can take it. A stop leaves each end Undecided. Only shard and part landings carry written bytes. A probe's unheld name is
-	forgotten under either horizon (cuts 3.1).
+	A note that writes nothing carries the value it read, so a session can take it. A stop leaves each end Undecided.
+	A kept landing carries the bytes its state takes as stored; only shard and part landings carry the value's written
+	bytes, which pace them. A probe's unheld name is forgotten under either horizon (cuts 3.1).
 
 	Return type: A plain table of the functions, Cancelled and NothingShown, and the types Output, Shown, Ending.
 	Example usage:
@@ -99,7 +100,14 @@ local function ShownOf(Read: Kept): Shown
 	}
 end
 
-local function NoteWritten(Shown: Shown, Carried: Closure, Ending: Ending, Written: Value?, Bytes: number?): Note
+local function NoteWritten(
+	Shown: Shown,
+	Carried: Closure,
+	Ending: Ending,
+	Written: Value?,
+	Bytes: number?,
+	StateBytes: number?
+): Note
 	return {
 		Reports = Ending.Reports,
 		Writes = Shown.Writes,
@@ -113,6 +121,7 @@ local function NoteWritten(Shown: Shown, Carried: Closure, Ending: Ending, Writt
 		WrittenValue = Written,
 		ReadValue = if Written == nil then Shown.Read else nil,
 		WrittenBytes = Bytes,
+		WrittenStateBytes = StateBytes,
 		ProbeReport = Ending.ProbeReport,
 		Warnings = Ending.Warnings,
 		EndReports = Ending.EndReports,
@@ -122,7 +131,7 @@ local function NoteWritten(Shown: Shown, Carried: Closure, Ending: Ending, Writt
 end
 
 local function BuildNote(Shown: Shown, Carried: Closure, Ending: Ending, Written: Value?): Note
-	return NoteWritten(Shown, Carried, Ending, Written, nil)
+	return NoteWritten(Shown, Carried, Ending, Written, nil, nil)
 end
 
 local function CancelWith(
@@ -172,16 +181,17 @@ local function Land(Key: Kept, Setup: Setup, Closure: Closure, Ending: Ending): 
 	Working.Epoch = Rooms.EpochOf(Working) or 0
 	Rooms.SortRooms(Working)
 	local Marked: Closure = { Wrote = true, Ran = Closure.Ran }
-	local Encoded = Value.EncodeValue(Key, Setup.Build, Setup.Limits.WindowUnit)
+	local Encoded, StateBytes = Value.EncodeValue(Key, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding)
 	local Output: Output = { Kind = "Write", Value = Encoded }
 	local Bytes = if Setup.Build.KeyKind == GameKind then nil else Json.Size(Encoded)
-	return Output, NoteWritten(ShownOf(Key), Marked, Ending, Key, Bytes)
+	return Output, NoteWritten(ShownOf(Key), Marked, Ending, Key, Bytes, StateBytes)
 end
 
 local function LandSeal(Sealed: Seal, Setup: Setup, Closure: Closure, Ending: Ending): (Output, Note)
 	local Written: Value = { Kind = "Sealed", Seal = Sealed }
 	local Marked: Closure = { Wrote = true, Ran = Closure.Ran }
-	local Output: Output = { Kind = "Write", Value = Value.EncodeValue(Written, Setup.Build, Setup.Limits.WindowUnit) }
+	local Encoded = Value.EncodeValue(Written, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding)
+	local Output: Output = { Kind = "Write", Value = Encoded }
 	return Output, BuildNote(NothingShown, Marked, Ending, Written)
 end
 

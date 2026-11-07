@@ -1,19 +1,5 @@
------------------------------- MODULE TxAbsSums ------------------------------
-\* TLAPS proof of S1 (Conservation) and of NonNeg for TxAbs, for any
-\* finite keys and uses, any amounts whose legs sum to 0, and any number
-\* of attempts. It rests on Core, which TxAbsProofs proves inductive, and
-\* on the community lemmas about MapThenSumSet (FiniteSetsExtTheorems,
-\* proved there). TxAbs's Sum is a FoldSet, the form Apalache takes; the
-\* first lemma shows it is MapThenSumSet.
-\*
-\* The argument: an action other than Commit leaves Bal(k), the money on k
-\* counting committed legs not yet resolved, the same on every key; a
-\* Commit of u adds Amt[u][k] to Bal(k) on every key, and those sum to 0.
-\* LowOn(k), the least k can end at, stays at or above 0 by the guards of
-\* Tent and Commit, and Bal(k) is at least LowOn(k) term by term.
+---- MODULE TxAbsSums ----
 EXTENDS TxAbsProofs, FiniteSetsExtTheorems, FoldsTheorems, FiniteSetTheorems, TLAPS
-
-\* Sums.
 
 LEMMA SumIsMap ==
     ASSUME NEW S, IsFiniteSet(S), NEW f(_)
@@ -134,7 +120,6 @@ LEMMA SumPlus ==
     <3> QED BY <2>1, <2>3, <2>4, <2>5, <2>7, <2>9
   <2> QED BY <2>8, <2>10 DEF P
 <1> HIDE DEF P
-\* Strong induction over subsets, as in SumIsMap: a nonempty T is T \ {x} with x added.
 <1>4. ASSUME NEW T \in SUBSET S, \A V \in (SUBSET T) \ {T} : P(V)
       PROVE  P(T)
   <2>0. IsFiniteSet(T) BY FS_Subset
@@ -170,10 +155,6 @@ LEMMA SumZero ==
 <1>2. MapThenSumSet(f, S) = 0 BY <1>1, MapThenSumSetZero, Isa
 <1> QED BY <1>2, SumIsMap, Isa
 
-\* The money terms: TxAbs defines them as constant operators of the state
-\* they read (HeldV, BalV, NegV, LowV, ConsV), so a primed term is the
-\* same operator of the primed variables.
-
 LEMMA Bridge ==
     /\ \A k \in K : LowOn(k) = LowV(bal, mk, k)
     /\ Conservation <=> ConsV(bal, gd, ca, mk) = Total
@@ -192,7 +173,6 @@ LEMMA TermsInt ==
     PROVE  HeldV(g, c, m, k, u) \in Int /\ NegV(m, k, u) \in Int
 BY AbsConstants DEF HeldV, NegV
 
-\* The sums over U are integers, so Bal and LowOn are wherever bal is.
 LEMMA VInt ==
     ASSUME NEW b, NEW g, NEW c, NEW m, NEW k \in K, b[k] \in Int
     PROVE  /\ Sum(U, LAMBDA u : HeldV(g, c, m, k, u)) \in Int
@@ -208,7 +188,6 @@ LEMMA VInt ==
 <1>5. Sum(U, h) \in Int BY <1>1, <1>3, SumInt
 <1> QED BY <1>4, <1>5 DEF BalV, LowV
 
-\* Bal and LowOn move by what changes on one use, the rest held equal.
 LEMMA BalPoint ==
     ASSUME NEW b1, NEW g1, NEW c1, NEW m1, NEW b2, NEW g2, NEW c2, NEW m2, NEW k \in K, NEW u \in U,
            b1[k] \in Int, NEW d \in Int, b2[k] = b1[k] + d,
@@ -236,7 +215,6 @@ LEMMA LowPoint ==
 <1>3. Sum(U, f) \in Int BY VInt
 <1> QED BY <1>2, <1>3, <1>1 DEF LowV
 
-\* The same two lemmas with every parameter first order, so a solver can instantiate them.
 LEMMA BalPointQ ==
     \A b1, g1, c1, m1, b2, g2, c2, m2 : \A k \in K, u \in U, d \in Int :
         (/\ b1[k] \in Int /\ b2[k] = b1[k] + d
@@ -260,7 +238,6 @@ LEMMA LowPointQ ==
          /\ \A x \in U \ {u} : NegV(m1, k, x) = NegV(m2, k, x)
 <1> QED BY LowPoint, Isa
 
-\* Bal is at least LowOn, term by term (NonNeg from LowOK).
 LEMMA BalAboveLow ==
     ASSUME NEW b, NEW g, NEW c, NEW m, NEW k \in K, b[k] \in Int
     PROVE  BalV(b, g, c, m, k) >= LowV(b, m, k)
@@ -271,8 +248,6 @@ LEMMA BalAboveLow ==
 <1>2. Sum(U, f) <= Sum(U, h) BY <1>0, <1>1, SumMono, Isa
 <1>3. Sum(U, f) \in Int /\ Sum(U, h) \in Int BY VInt
 <1> QED BY <1>2, <1>3 DEF BalV, LowV
-
-\* S1 and NonNeg.
 
 Inv == Core /\ Conservation /\ LowOK
 
@@ -296,7 +271,6 @@ LEMMA InitInv == Init => Inv
 <1>4. \A k \in K : LowV(bal, mk, k) >= 0 BY <1>2, AbsConstants
 <1> QED BY <1>1, <1>3, <1>4, Bridge DEF Inv
 
-\* Every key's Bal after a step: unchanged, or for a Commit of u, moved by u's leg there.
 LEMMA BalStep ==
     ASSUME Core, [Next]_vars
     PROVE  \/ \A k \in K : BalV(bal', gd', ca', mk', k) = BalV(bal, gd, ca, mk, k)
@@ -377,7 +351,6 @@ LEMMA BalStep ==
   BY <1>8 DEF Forget
 <1> QED BY <1>1, <1>2, <1>3, <1>4, <1>5, <1>6, <1>7, <1>8 DEF Next
 
-\* The least each key can end at stays at or above 0.
 LEMMA LowStep ==
     ASSUME Core, LowOK, [Next]_vars
     PROVE  \A k \in K : LowV(bal', mk', k) >= 0
@@ -486,11 +459,9 @@ THEOREM InvInductive == Inv /\ [Next]_vars => Inv'
 THEOREM InvHolds == Spec => []Inv
 BY InitInv, InvInductive, PTL DEF Spec
 
-\* S1: conservation.
 THEOREM S1 == Spec => []Conservation
 BY InvHolds, PTL DEF Inv
 
-\* The game's rule: no key's money, counting committed legs, goes below 0.
 LEMMA InvNonNeg == Inv => NonNeg
 <1> SUFFICES ASSUME Inv PROVE NonNeg OBVIOUS
 <1>1. \A k \in K : bal[k] \in Int BY DEF Inv, Core, TypeOK
@@ -502,4 +473,4 @@ LEMMA InvNonNeg == Inv => NonNeg
 THEOREM NonNegHolds == Spec => []NonNeg
 BY InvHolds, InvNonNeg, PTL
 
-=============================================================================
+====

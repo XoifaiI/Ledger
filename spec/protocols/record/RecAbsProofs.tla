@@ -1,10 +1,4 @@
------------------------------ MODULE RecAbsProofs -----------------------------
-\* TLAPS proof of S5 (AtMostOnce) for RecAbs, for any writers, any number
-\* of ops per writer, any names and any stamps: IndInv, record 9's writer
-\* invariant I1 and horizon invariant I2 with the facts they rest on,
-\* holds initially and is kept by every action. Apalache checks the same
-\* IndInv on two instances (ApaRecAbs). Design is the assumption that the
-\* two rules the controls turn off are on.
+---- MODULE RecAbsProofs ----
 EXTENDS RecAbs, TLAPS
 
 ASSUME Design == FixRaise = TRUE /\ FixEntry = TRUE
@@ -16,7 +10,6 @@ BY Consts DEF Max
 THEOREM InitInv == Init => IndInv
 BY Consts DEF Init, IndInv, TypeOK, AtMostOnce, I1, Kept, Settled, Prefix, I2, Held, Ops, Stamps, NoE
 
-\* The heart of S5: an op a run takes had not taken before.
 LEMMA LandInv ==
     ASSUME IndInv, NEW w \in W, NEW a \in 0..N, NEW i \in 1..N, Land(w, a, i)
     PROVE  IndInv'
@@ -38,7 +31,6 @@ LEMMA LandInv ==
   BY <1>2 DEF TypeOK
 <1>4. ~(e.on /\ i <= e.lo) /\ ~(~e.on /\ st[w][i] <= h)
   BY <1>1 DEF J
-\* With an entry, every op of w that took is at or below its lo, which is below i.
 <1>5. e.on => \A j \in Ops : tk[w][j] >= 1 => j <= e.lo /\ e.lo < i
   BY <1>2, <1>4, <1>3 DEF I1
 <1>6. ~e.on => \A j \in Ops : j > i => tk[w][j] = 0
@@ -126,7 +118,6 @@ LEMMA LandInv ==
       <4> QED BY <4>1, <2>3, <1>1, <1>2 DEF TypeOK
     <3> QED BY <3>1, <3>2, <1>1
   <2>4. CASE v = w /\ k > i
-    \* then j > i, and j is an op that took before this step: impossible (<1>5, <1>6).
     <3>1. j > i
       BY <2>4
     <3>2. tk[w][j] >= 1
@@ -192,4 +183,4 @@ THEOREM S5 == Spec => []AtMostOnce
 <1>1. Spec => []IndInv
   BY InitInv, NextInv, PTL DEF Spec
 <1> QED BY <1>1, PTL DEF IndInv
-=============================================================================
+====

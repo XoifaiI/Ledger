@@ -66,7 +66,7 @@ local function OpenSession(State: State, Found: Opened | OpenedEmpty, Clock: num
 		return Session.LoadEmpty(Server, State.Sessions, Found, Clock, Commands)
 	end
 	Session.Load(Server, State.Sessions, Found, Clock, Commands)
-	Hearing.WarnIfLarge(State, Found.Out.Key, Found.Kept, Commands)
+	Hearing.WarnIfLoadedLarge(State, Found.Out.Key, Found.Kept.State, Commands)
 end
 
 local function WaitToEndWork(State: State, Out: ReadOut, Report: EndWorkReport, Clock: number, Commands: { Command })
