@@ -12,20 +12,20 @@
 		local Shown = GameValues.CopyForGame(Given.State)
 --]=]
 
-local Cache = require("../Record/Reading/Cache")
-local CutShapes = require("../Features/Cuts/Shapes")
-local Events = require("../Machine/Events")
-local Fates = require("../Record/Stored/Items/Fates")
-local Guards = require("../Record/Judging/Guards")
+local Cache = require("../Keys/DataStore/Cache")
+local CutShapes = require("../Shared/ResetShapes")
+local Events = require("../Shared/Events")
+local Fates = require("../Keys/Format/Items/Fates")
+local Guards = require("../Keys/Ops/Guards")
 local Handles = require("./Handles")
-local HotShapes = require("../Features/Hot/Shapes")
+local HotShapes = require("../Shared/QuantityShapes")
 local Keys = require("./Validate/Keys")
-local Names = require("../Record/Encoding/Names")
-local Record = require("../Record/Constants/Record")
-local Shapes = require("../Machine/Shapes")
+local Names = require("../Keys/Encoding/Names")
+local Record = require("../Keys/Constants/Record")
+local Shapes = require("../Shared/Shapes")
 local Types = require("../Types")
-local Value = require("../Record/Stored/Value")
-local WritingAnswers = require("../Record/Writing/Answers")
+local Value = require("../Keys/Format/Value")
+local WritingAnswers = require("../Keys/DataStore/Answers")
 
 type AskedName = Shapes.AskedName
 type CutAnswer = CutShapes.CutAnswer

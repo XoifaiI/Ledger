@@ -14,15 +14,15 @@
 --]=]
 
 local Args = require("./Validate/Args")
-local Calls = require("../Shell/Calls")
-local Events = require("../Machine/Events")
+local Calls = require("../Roblox/Calls")
+local Events = require("../Shared/Events")
 local Future = require("../Util/Future")
 local Keys = require("./Validate/Keys")
-local Names = require("../Record/Encoding/Names")
-local Reasons = require("../Record/Constants/Reasons")
-local Runner = require("../Shell/Runner")
+local Names = require("../Keys/Encoding/Names")
+local Reasons = require("../Keys/Constants/Reasons")
+local Runner = require("../Roblox/Runner")
 local Session = require("./Session")
-local ShellSetup = require("../Shell/Setup")
+local ShellSetup = require("../Roblox/Setup")
 local Stores = require("./Validate/Stores")
 local Threads = require("../Util/Threads")
 

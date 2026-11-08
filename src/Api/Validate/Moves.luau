@@ -13,19 +13,19 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Record/Legs/Balances")
-local Check = require("../../Record/Encoding/Check")
+local Balances = require("../../Keys/Trades/Balances")
+local Check = require("../../Keys/Encoding/Check")
 local Handles = require("../Handles")
-local Hot = require("../../Record/Constants/Hot")
-local HotShapes = require("../../Features/Hot/Shapes")
+local Hot = require("../../Keys/Constants/Hot")
+local HotShapes = require("../../Shared/QuantityShapes")
 local KeyLegs = require("./KeyLegs")
 local Leg = require("./Leg")
 local Legs = require("./Legs")
-local PartBuild = require("../../Record/Part/Build")
+local PartBuild = require("../../Keys/Quantity/Build")
 local Quantity = require("./Quantity")
 local Rules = require("./Rules")
-local ShellSetup = require("../../Shell/Setup")
-local TxShapes = require("../../Features/Tx/Shapes")
+local ShellSetup = require("../../Roblox/Setup")
+local TxShapes = require("../../Shared/TradeShapes")
 
 type CheckedLeg = Leg.CheckedLeg
 type CheckedLegs = Legs.CheckedLegs

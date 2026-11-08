@@ -12,17 +12,17 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Record/Legs/Balances")
-local Cache = require("../../Record/Reading/Cache")
-local Check = require("../../Record/Encoding/Check")
+local Balances = require("../../Keys/Trades/Balances")
+local Cache = require("../../Keys/DataStore/Cache")
+local Check = require("../../Keys/Encoding/Check")
 local Keys = require("./Keys")
-local KindSetup = require("../../Record/Judging/KindSetup")
+local KindSetup = require("../../Keys/Ops/KindSetup")
 local Leg = require("./Leg")
 local Rules = require("./Rules")
-local Runner = require("../../Shell/Runner")
-local ShellSetup = require("../../Shell/Setup")
+local Runner = require("../../Roblox/Runner")
+local ShellSetup = require("../../Roblox/Setup")
 local Stores = require("./Stores")
-local TxShapes = require("../../Features/Tx/Shapes")
+local TxShapes = require("../../Shared/TradeShapes")
 
 type CheckedLeg = Leg.CheckedLeg
 type Direction = Balances.Direction

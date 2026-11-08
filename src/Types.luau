@@ -13,21 +13,21 @@
 		type Store = Types.TypedStore<{ Gold: number }, { AddGold: { Amount: number } }>
 --]=]
 
-local Amounts = require("./Record/Encoding/Amounts")
-local Book = require("./Record/Stored/Book")
-local Fates = require("./Record/Stored/Items/Fates")
+local Amounts = require("./Keys/Encoding/Amounts")
+local Book = require("./Keys/Format/Book")
+local Fates = require("./Keys/Format/Items/Fates")
 local Future = require("./Util/Future")
-local Guards = require("./Record/Judging/Guards")
-local Hot = require("./Record/Constants/Hot")
-local HotShapes = require("./Features/Hot/Shapes")
-local Names = require("./Record/Encoding/Names")
+local Guards = require("./Keys/Ops/Guards")
+local Hot = require("./Keys/Constants/Hot")
+local HotShapes = require("./Shared/QuantityShapes")
+local Names = require("./Keys/Encoding/Names")
 local Observer = require("./Util/Observer")
-local Reasons = require("./Record/Constants/Reasons")
-local RecordTypes = require("./Machine/RecordTypes")
-local Services = require("./Shell/Services")
-local ShellSetup = require("./Shell/Setup")
+local Reasons = require("./Keys/Constants/Reasons")
+local RecordTypes = require("./Shared/RecordTypes")
+local Services = require("./Roblox/Services")
+local ShellSetup = require("./Roblox/Setup")
 local TypeFunctions = require("./TypeFunctions")
-local WritingAnswers = require("./Record/Writing/Answers")
+local WritingAnswers = require("./Keys/DataStore/Answers")
 
 type Emitted = WritingAnswers.Emitted
 type MigrationRun = Guards.MigrationRun

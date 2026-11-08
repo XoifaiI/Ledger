@@ -12,19 +12,19 @@
 --]=]
 
 local Args = require("./Args")
-local Check = require("../../Record/Encoding/Check")
-local HotShapes = require("../../Features/Hot/Shapes")
+local Check = require("../../Keys/Encoding/Check")
+local HotShapes = require("../../Shared/QuantityShapes")
 local Keys = require("./Keys")
-local Post = require("../../Record/Stored/Post")
-local Record = require("../../Record/Constants/Record")
-local Requests = require("../../Features/Tx/Call/Requests")
+local Post = require("../../Keys/Format/Post")
+local Record = require("../../Keys/Constants/Record")
+local Requests = require("../../Features/Trades/Call/Requests")
 local Rules = require("./Rules")
-local Runner = require("../../Shell/Runner")
-local Shapes = require("../../Machine/Shapes")
-local ShellSetup = require("../../Shell/Setup")
-local SlotPath = require("../../Record/Stored/Items/SlotPath")
+local Runner = require("../../Roblox/Runner")
+local Shapes = require("../../Shared/Shapes")
+local ShellSetup = require("../../Roblox/Setup")
+local SlotPath = require("../../Keys/Format/Items/SlotPath")
 local Stores = require("./Stores")
-local TxShapes = require("../../Features/Tx/Shapes")
+local TxShapes = require("../../Shared/TradeShapes")
 
 type PathStep = Post.PathStep
 type QuantityDeclaration = HotShapes.QuantityDeclaration

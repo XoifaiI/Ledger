@@ -15,11 +15,11 @@
 
 local Args = require("./Validate/Args")
 local Keys = require("./Validate/Keys")
-local Names = require("../Record/Encoding/Names")
-local Reasons = require("../Record/Constants/Reasons")
-local Runner = require("../Shell/Runner")
-local Services = require("../Shell/Services")
-local ShellSetup = require("../Shell/Setup")
+local Names = require("../Keys/Encoding/Names")
+local Reasons = require("../Keys/Constants/Reasons")
+local Runner = require("../Roblox/Runner")
+local Services = require("../Roblox/Services")
+local ShellSetup = require("../Roblox/Setup")
 local Stores = require("./Validate/Stores")
 local Types = require("../Types")
 

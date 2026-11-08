@@ -14,13 +14,13 @@
 		local Shards = Rules.OrDefault(Given.Shards, 16)
 --]=]
 
-local Check = require("../../Record/Encoding/Check")
-local Guards = require("../../Record/Judging/Guards")
-local OwnOpKinds = require("../../Record/Constants/OwnOpKinds")
-local Record = require("../../Record/Constants/Record")
-local ShellSetup = require("../../Shell/Setup")
-local Stepping = require("../../Shell/Stepping")
-local Transaction = require("../../Record/Constants/Transaction")
+local Check = require("../../Keys/Encoding/Check")
+local Guards = require("../../Keys/Ops/Guards")
+local OwnOpKinds = require("../../Keys/Constants/OwnOpKinds")
+local Record = require("../../Keys/Constants/Record")
+local ShellSetup = require("../../Roblox/Setup")
+local Stepping = require("../../Roblox/Stepping")
+local Transaction = require("../../Keys/Constants/Transaction")
 
 type Rule = Check.Rule
 type ResultSchema = ShellSetup.ResultSchema<unknown>

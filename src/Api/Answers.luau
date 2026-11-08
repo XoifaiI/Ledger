@@ -11,15 +11,15 @@
 		local Ok, Result, Info = Answers.WriteAnswer(Runner.Call(Call):Wait())
 --]=]
 
-local Events = require("../Machine/Events")
-local Fates = require("../Record/Stored/Items/Fates")
+local Events = require("../Shared/Events")
+local Fates = require("../Keys/Format/Items/Fates")
 local GameValues = require("./GameValues")
 local Handles = require("./Handles")
-local HotShapes = require("../Features/Hot/Shapes")
-local Names = require("../Record/Encoding/Names")
-local Reasons = require("../Record/Constants/Reasons")
+local HotShapes = require("../Shared/QuantityShapes")
+local Names = require("../Keys/Encoding/Names")
+local Reasons = require("../Keys/Constants/Reasons")
 local Types = require("../Types")
-local WritingAnswers = require("../Record/Writing/Answers")
+local WritingAnswers = require("../Keys/DataStore/Answers")
 
 type Answer = Events.Answer
 type FateEmission = WritingAnswers.FateEmission

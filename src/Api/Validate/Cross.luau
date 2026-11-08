@@ -13,15 +13,15 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Record/Legs/Balances")
-local Check = require("../../Record/Encoding/Check")
-local Guards = require("../../Record/Judging/Guards")
-local Hot = require("../../Record/Constants/Hot")
-local Record = require("../../Record/Constants/Record")
+local Balances = require("../../Keys/Trades/Balances")
+local Check = require("../../Keys/Encoding/Check")
+local Guards = require("../../Keys/Ops/Guards")
+local Hot = require("../../Keys/Constants/Hot")
+local Record = require("../../Keys/Constants/Record")
 local Rules = require("./Rules")
-local ShellSetup = require("../../Shell/Setup")
-local Stepping = require("../../Shell/Stepping")
-local Transaction = require("../../Record/Constants/Transaction")
+local ShellSetup = require("../../Roblox/Setup")
+local Stepping = require("../../Roblox/Stepping")
+local Transaction = require("../../Keys/Constants/Transaction")
 
 type Arithmetic = Balances.Arithmetic
 type Declaration = Balances.Declaration

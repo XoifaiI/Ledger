@@ -13,10 +13,10 @@
 		local Settled = Balance.Settle(Kind, {}, { Gold = Arithmetic }, "Ledger.New Balances kind SpendGold")
 --]=]
 
-local Balances = require("../../Record/Legs/Balances")
-local Check = require("../../Record/Encoding/Check")
+local Balances = require("../../Keys/Trades/Balances")
+local Check = require("../../Keys/Encoding/Check")
 local Rules = require("./Rules")
-local Stepping = require("../../Shell/Stepping")
+local Stepping = require("../../Roblox/Stepping")
 
 type Arithmetic = Balances.Arithmetic
 type Declaration = Balances.Declaration

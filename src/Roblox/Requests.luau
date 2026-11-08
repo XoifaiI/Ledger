@@ -1,0 +1,218 @@
+--!strict
+--!optimize 2
+
+--[=[
+	Requests: runs the DataStore commands Update, Count, Get and Remove, each in a thread, and feeds each event
+	back. An Update's transform runs Transform.Step at the landing clock, as Stepping, and passes its closure to a
+	rerun. A throwing transform is raised again and feeds nothing. Its candidates are LastWritten, the game state this
+	server's last transform on the key wrote, then the one its command carries. Both are hints, since the stored
+	bytes decide. LastWritten lives here because a command's candidate comes from Cache, which only step updates, so
+	it misses a state written moments before by a leg whose result has not been heard yet.
+
+	Return type: A plain table with OnUpdate, OnCount, OnGet and OnRemove, and the Store type.
+	Example usage:
+		Requests.OnUpdate(Command, Stores[Command.Target.Store], Feed)
+--]=]
+
+local Cache = require("../Keys/DataStore/Cache")
+local Events = require("../Shared/Events")
+local JudgingShapes = require("../Shared/OpShapes")
+local Names = require("../Keys/Encoding/Names")
+local Platform = require("./Platform")
+local Record = require("../Keys/Constants/Record")
+local Services = require("./Services")
+local Shapes = require("../Shared/Shapes")
+local ShellSetup = require("./Setup")
+local Stepping = require("./Stepping")
+local Threads = require("../Util/Threads")
+local Transform = require("../Keys/Ops/Transform")
+local Value = require("../Keys/Format/Value")
+
+type Closure = JudgingShapes.Closure
+type KeyKind = Shapes.KeyKind
+type Note = JudgingShapes.Note
+type Setup = Shapes.Setup
+type StoreKey = Names.StoreKey
+type CountCommand = Events.CountCommand
+type GetCommand = Events.GetCommand
+type Happening = Events.Happening
+type Outcome = Events.Outcome
+type ReadOutcome = Events.ReadOutcome
+type RemoveCommand = Events.RemoveCommand
+type UpdateCommand = Events.UpdateCommand
+type Result = Services.Result
+type Candidates = Value.Candidates
+type Fields = Value.Fields
+
+export type Store = {
+	read Setup: Setup,
+	read IsPlayerStore: boolean,
+}
+
+type Feed = (Happening: Happening) -> ()
+
+local GameKind = Record.KeyKind.Game
+
+local LastWritten = setmetatable({} :: { [string]: Fields }, { __mode = "v" })
+
+local function RequestText(Target: StoreKey, Kind: string): string
+	return `the {Kind} request on {Target.Store}/{Target.Scope}/{Target.Key}`
+end
+
+local function CoreFault(Target: StoreKey, Kind: string): never
+	error(
+		`Requests: the core faulted inside the transform of {RequestText(Target, Kind)}.`
+			.. ` The write did not land and no event was fed.`
+			.. ` See the console's "Transform function error" line for the fault.`,
+		0
+	)
+end
+
+local function NotUserId(Target: StoreKey): never
+	error(
+		`Requests: the key {Target.Key} of the player store {Target.Store} is not a user id.`
+			.. ` The API must give a player store keys that are user ids.`,
+		0
+	)
+end
+
+local function UserIdsOf(Store: Store, Target: StoreKey, Kind: KeyKind): { number }?
+	if not Store.IsPlayerStore or Kind ~= GameKind then
+		return nil
+	end
+	if not ShellSetup.IsUserIdKey(Target.Key) then
+		return NotUserId(Target)
+	end
+	return { tonumber(Target.Key) :: number }
+end
+
+local function OutcomeOf(Result: Result, Note: Note?): Outcome
+	if Result.Kind == "Err" then
+		return { Kind = "Err" }
+	end
+	if Note == nil then
+		return { Kind = "Err" }
+	end
+	if Result.Kind == "Ok" then
+		return { Kind = "Ok", Value = Result.Value, Note = Note }
+	end
+	return { Kind = "Nil", Note = Note }
+end
+
+local function FetchedOf(Result: Result): ReadOutcome
+	if Result.Kind == "Ok" then
+		return { Kind = "Found", Value = Result.Value }
+	end
+	if Result.Kind == "Absent" then
+		return { Kind = "Absent" }
+	end
+	return { Kind = "Failed", IsThrottled = Result.IsThrottled }
+end
+
+local function CandidatesOf(Text: string, Command: UpdateCommand): Candidates
+	local Candidates: Candidates = {}
+	local Written = LastWritten[Text]
+	if Written ~= nil then
+		table.insert(Candidates, Written)
+	end
+	local Carried = Command.Candidate
+	if Carried ~= nil and Carried ~= Written then
+		table.insert(Candidates, Carried)
+	end
+	return Candidates
+end
+
+local function NoteLastWritten(Text: string, Kind: KeyKind, Note: Note): ()
+	local Written = Note.WrittenValue
+	if Kind == GameKind and Written ~= nil and Written.Kind == "Kept" then
+		LastWritten[Text] = Written.State
+	end
+end
+
+local function OnUpdate(Command: UpdateCommand, Store: Store, Feed: Feed)
+	Threads.Spawn(function()
+		local Target = Command.Target
+		local Kind = Cache.KindOfKey(Target)
+		local UserIds = UserIdsOf(Store, Target, Kind)
+		local Closure: Closure = { Wrote = false, Ran = {} }
+		local Text = Names.KeyText(Target)
+		local LastNote: Note? = nil
+		local IsRunning = false
+		local Result = Services.Update(Target, function(Stored: unknown): (unknown, { number }?)
+			IsRunning = true
+			local Output, Note = Stepping.Run(
+				Transform.Step,
+				Stored,
+				Command.Request,
+				Platform.Now(),
+				Store.Setup,
+				Closure,
+				Kind,
+				CandidatesOf(Text, Command)
+			)
+			IsRunning = false
+			Closure = Note.Closure
+			LastNote = Note
+			if Output.Kind == "Cancel" then
+				return nil, nil
+			end
+			NoteLastWritten(Text, Kind, Note)
+			return Output.Value, UserIds
+		end)
+		if IsRunning then
+			CoreFault(Target, Command.Request.Kind)
+		end
+		Feed({ Kind = "Result", RequestId = Command.RequestId, Outcome = OutcomeOf(Result, LastNote) })
+	end)
+end
+
+local function OnCount(Command: CountCommand, Feed: Feed)
+	Threads.Spawn(function()
+		local Written: string? = nil
+		local IsRunning = false
+		local IsRefused = false
+		local Result = Services.Update(Command.Target, function(Stored: unknown): (unknown, { number }?)
+			IsRunning = true
+			local Added = Command.Add(Stored)
+			IsRunning = false
+			Written = Added
+			IsRefused = Added == nil
+			return Added, nil
+		end)
+		if IsRunning then
+			CoreFault(Command.Target, Command.Kind)
+		end
+		if IsRefused then
+			Feed({ Kind = "CounterUnusable", RequestId = Command.RequestId })
+			return
+		end
+		local Counted = if Result.Kind == "Ok" then Written else nil
+		Feed({ Kind = "Counted", RequestId = Command.RequestId, Written = Counted })
+	end)
+end
+
+local function OnGet(Command: GetCommand, Feed: Feed)
+	Threads.Spawn(function()
+		local Result = Services.Get(Command.Target)
+		Feed({
+			Kind = "Read",
+			RequestId = Command.RequestId,
+			Fetched = FetchedOf(Result),
+			Fraction = Platform.Fraction(),
+		})
+	end)
+end
+
+local function OnRemove(Command: RemoveCommand, Feed: Feed)
+	Threads.Spawn(function()
+		local Result = Services.Remove(Command.Target)
+		Feed({ Kind = "Removed", RequestId = Command.RequestId, IsOk = Result.Kind ~= "Err" })
+	end)
+end
+
+return {
+	OnUpdate = OnUpdate,
+	OnCount = OnCount,
+	OnGet = OnGet,
+	OnRemove = OnRemove,
+}

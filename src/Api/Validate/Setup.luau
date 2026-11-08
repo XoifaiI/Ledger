@@ -14,19 +14,19 @@
 --]=]
 
 local Balance = require("./Balance")
-local Balances = require("../../Record/Legs/Balances")
-local Check = require("../../Record/Encoding/Check")
-local Extras = require("../../Record/Constants/Extras")
-local ExtrasShapes = require("../../Features/Extras/Shapes")
-local Guards = require("../../Record/Judging/Guards")
-local Hot = require("../../Record/Constants/Hot")
-local HotShapes = require("../../Features/Hot/Shapes")
-local Json = require("../../Record/Encoding/Json")
+local Balances = require("../../Keys/Trades/Balances")
+local Check = require("../../Keys/Encoding/Check")
+local Extras = require("../../Keys/Constants/Extras")
+local ExtrasShapes = require("../../Shared/ReadShapes")
+local Guards = require("../../Keys/Ops/Guards")
+local Hot = require("../../Keys/Constants/Hot")
+local HotShapes = require("../../Shared/QuantityShapes")
+local Json = require("../../Keys/Encoding/Json")
 local PublicTypes = require("../../Types")
-local Record = require("../../Record/Constants/Record")
+local Record = require("../../Keys/Constants/Record")
 local Rules = require("./Rules")
-local Settable = require("../../Record/Constants/Settable")
-local ShellSetup = require("../../Shell/Setup")
+local Settable = require("../../Keys/Constants/Settable")
+local ShellSetup = require("../../Roblox/Setup")
 
 type Declaration = Balances.Declaration
 type KindWindows = ShellSetup.KindWindows

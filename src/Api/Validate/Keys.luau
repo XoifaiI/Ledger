@@ -12,11 +12,11 @@
 		local Key = Keys.Key(Settings, Player, "Store:Edit")
 --]=]
 
-local Check = require("../../Record/Encoding/Check")
-local Names = require("../../Record/Encoding/Names")
-local Record = require("../../Record/Constants/Record")
+local Check = require("../../Keys/Encoding/Check")
+local Names = require("../../Keys/Encoding/Names")
+local Record = require("../../Keys/Constants/Record")
 local Rules = require("./Rules")
-local ShellSetup = require("../../Shell/Setup")
+local ShellSetup = require("../../Roblox/Setup")
 
 type KeysMode = ShellSetup.KeysMode
 type Settings = ShellSetup.Settings

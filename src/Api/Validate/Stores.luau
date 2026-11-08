@@ -13,7 +13,7 @@
 		local Settings = Stores.SettingsOf(Leg.Store)
 --]=]
 
-local ShellSetup = require("../../Shell/Setup")
+local ShellSetup = require("../../Roblox/Setup")
 
 type Settings = ShellSetup.Settings
 
