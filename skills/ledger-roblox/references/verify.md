@@ -33,13 +33,13 @@ Paths below are relative to that folder.
 | `Reset`/`Erase` bounds, when `Close` removes parts | `Constants/Cuts.luau` |
 | every throw's message, and what makes each call throw | `Api/Validate/Args.luau`, `Setup.luau`, `Cross.luau`, `Keys.luau`, `Legs.luau`, `Quantity.luau` |
 | which `Info` fields each answer fills | `Api/Answers.luau` |
-| which leg decides a `Tx` | `Tx/Call/Terms.luau` (`ChooseDecider`) |
-| what Studio checks in the reducer, frozen inputs, undeclared fields | `Judging/Guards.luau`, `Shell/Setup.luau` |
-| the `Mock` option and its errors | `Shell/Services.luau` |
-| the close, `BeforeClose`, the 25 s deadline | `Shell/Runner.luau`, `Sessions/Closing.luau` |
-| `Unreadable` and its warnings | `Reading/Unreadable.luau` |
-| a failed Roblox request (every error is one failure, never read) | `Shell/Services.luau` |
-| when a read ends a dead server's trade work | `Tx/Work/Touch.luau` |
+| which leg decides a `Tx` | `Trades/Call/Terms.luau` (`ChooseDecider`) |
+| what Studio checks in the reducer, frozen inputs, undeclared fields | `Ops/Guards.luau`, `Roblox/Setup.luau` |
+| the `Mock` option and its errors | `Roblox/Services.luau` |
+| the close, `BeforeClose`, the 25 s deadline | `Roblox/Runner.luau`, `DataStore/Closing.luau` |
+| `Unreadable` and its warnings | `DataStore/Unreadable.luau` |
+| a failed Roblox request (every error is one failure, never read) | `Roblox/Services.luau` |
+| when a read ends a dead server's trade work | `Trades/Work/Touch.luau` |
 | store calls, session calls, quantity calls | `Api/Store.luau`, `Api/Sessions.luau`, `Api/Session.luau`, `Api/Quantity.luau` |
 
 Every file opens with a header comment saying what it is and what's subtle about it. Read the header

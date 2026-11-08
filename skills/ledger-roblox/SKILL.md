@@ -18,7 +18,8 @@ and check the source when the answer decides money.
 ## Three checks, before anything else
 
 **Is this project on Ledger?** Look for `xoifaii/ledger` in `wally.toml`, `@xoifail/ledger` in
-`package.json`, a `Ledger.rbxm`, or a module tree holding `Shell/Runner.luau` and `Api/Store.luau`.
+`package.json`, a `Ledger.rbxm`, or a module tree holding `Api/Store.luau` and `Roblox/Runner.luau`
+(`Shell/Runner.luau` in older versions).
 If none is there, say the project isn't on Ledger and stop. Nothing here transfers to ProfileService,
 DataStore2 or a raw DataStore, and telling someone to handle `Unresolved` when their library has no
 reasons wastes their time.
@@ -27,7 +28,7 @@ Two exceptions. Someone **deciding whether to adopt Ledger** gets an honest answ
 client replication, no queries across keys, no history of old versions, and it won't hide a reducer
 that is wrong. And a question in a Ledger project that **isn't about Ledger** is just a question.
 
-**Is this the Ledger library itself?** A tree holding `src/Shell/Runner.luau` together with
+**Is this the Ledger library itself?** A tree holding `src/Roblox/Runner.luau` (or `src/Shell/Runner.luau`) together with
 `internal/` and `spec/` is Ledger's own source. Stop and follow its own briefs. This skill assumes
 you may not change the library.
 

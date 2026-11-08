@@ -22,7 +22,7 @@ queued `Apply`s laid on top. It is not the saved data.
 `Session:Apply` sends nothing. It judges the op on the view with the game's reducer and queues it. The
 next save (every `SaveInterval`, 30 s, while ops are queued, one write however many) judges it again on
 the saved data, and can turn it away. A `Flush`, `Commit`, `Release`, `Unload` or the close also carries
-the queue. `Sessions/Session.luau`, `Api/Session.luau`.
+the queue. `DataStore/Session.luau`, `Api/Session.luau`.
 
 The queue holds 4,096 ops or 1.5 MiB; past that `Apply` answers `Backlog`. A crash before a save loses
 the queue with no fate.
@@ -45,8 +45,8 @@ the queue with no fate.
 Every read that finds unfinished trade work on a key notes it, and this server comes back to end that
 work: from 10 s on for a session's load or idle read, staggered up to about 30 minutes (`TouchBound`,
 1,878 s) otherwise. Ending it costs writes and applies decided legs, aborts undecided ones, and returns
-escrow. So a read can cause money to move, later, on this server. `Writing/Numbers.luau`
-(`LearnWorkAndGate`), `Tx/Work/Touch.luau`, `Constants/Transaction.luau`.
+escrow. So a read can cause money to move, later, on this server. `DataStore/Numbers.luau`
+(`LearnWorkAndGate`), `Trades/Work/Touch.luau`, `Constants/Transaction.luau`.
 
 Beside an undecided mark from a server that died, `Peek` and `Inspect` answer `Unresolved` on every
 server until a touch ends it, up to about 30 minutes. `Load` doesn't wait that long: it acts on such a
@@ -93,7 +93,7 @@ once before it learns. A copy expires an hour after it was last written.
 | Server start | 1 write on `Ledger$N` | draws the server's number |
 
 An unnamed write that answers `Unresolved` stays in this server's writer, which sends it again about
-every 16 s for the server's life (`Writing/Writer.luau`, `Writing/Sending.luau`). A `Tx` that answers
+every 16 s for the server's life (`DataStore/Writer.luau`, `DataStore/Sending.luau`). A `Tx` that answers
 `Unresolved` is driven by its sender with no time bound while the sender lives (`Tx/Call/`). After a
 long outage (past about 180 s), if other writes to the key drop names stamped after the op's first send,
 the op can end without landing: a session op then gets the `Unknown` fate, and an unnamed `Edit` is
@@ -103,17 +103,17 @@ A game-op leg of a `Tx` that isn't the decider takes an **exclusive mark** on it
 game ops until the trade ends. A balance leg only escrows its amount, so credits and covered debits on
 the key go on beside it. A key holds at most 16 marks; the 17th leg answers `NoRoom`. The decider is
 the only game-op leg if there's exactly one, else the first Credit leg, else the last
-(`Tx/Call/Terms.luau`, `ChooseDecider`).
+(`Trades/Call/Terms.luau`, `ChooseDecider`).
 
 ## The bottom rows
 
 - **`Quantity:Open`** writes every part, every call, even when they exist: `Parts` writes. Once per
   quantity, ever. After `Close` it makes the stock again; `Closed = true` in the declaration makes it
-  throw in this build. `Hot/Calls/Open.luau`.
+  throw in this build. `Quantity/Calls/Open.luau`.
 - **`Quantity:Close`** writes every part and removes those that are empty and more than 62 minutes past
   the first `Open` (`SealAge`): `Parts` writes plus one `RemoveAsync` per removed part. Safe from many
   servers and again later. A removed part reads `Missing`, the same as never opened.
-  `Hot/Calls/Close.luau`, `Constants/Cuts.luau`.
+  `Quantity/Calls/Close.luau`, `Constants/Cuts.luau`.
 - **`Reset`** ends the key's trade work first, then replaces the state with `Default` or a given `State`
   (newest shape, at most 1 MiB, never migrated), and names every non-zero balance field it replaced in
   the key's `Losses` for 7 days. 1 write, plus 2 per decider when marks stand. `Cuts/`.
