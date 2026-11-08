@@ -6,8 +6,6 @@
 
 	A request that decides and changes nothing cancels; a tidy lands only if age dropped an item. On a part,
 	holds expire before the guards, an open on a held key cancels as took, and a drained final part seals (H4).
-	Candidate, given with the request, is the state this server last landed or loaded for the key; a stored game
-	state of the same content is read as it. The transform keeps nothing: what landed goes back in the note.
 
 	Return type: A plain table with Step, and the Output type.
 	Example usage:

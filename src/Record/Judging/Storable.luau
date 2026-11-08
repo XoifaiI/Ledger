@@ -4,14 +4,12 @@
 
 --[=[
 	Storable: the rules of a storable value, each written once as a check that gives a Failure, and the full walk
-	and the freeze that apply them. StorableChange applies the same rules to only what a new table changed.
+	and the freeze that apply them.
 
 	A value past Record.StorableDepthMax is not storable. DeepFreeze vets a table only after freezing it itself, so
 	what it checked cannot change; a table the game froze is never vetted.
 
-	Return type: A table with Check, DeepFreeze, TextOf, PathText, VisitTable, IsCovered, Fits, RootLevel, the failure
-	checks DepthFailure, ScalarFailure, MetatableFailure, TableFailure, KeyFailure, KindFailure and GapFailure, and the
-	Tree, Search and Failure types.
+	Return type: A table of the checks, the walk and the freeze, and the Tree, Search and Failure types.
 	Example usage:
 		local Problem = Storable.Check(State, "the state") --> nil, or "the state.Gold is NaN or infinity ..."
 --]=]

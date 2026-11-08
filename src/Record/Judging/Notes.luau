@@ -7,8 +7,7 @@
 	A note carries each op's and end's report, the gate, its copy of P and whether it shows a key; a seal shows none.
 	A note that writes nothing carries the value it read, so a session can take it. A stop leaves each end Undecided.
 	A kept landing carries the bytes its state takes as stored; only shard and part landings carry the value's written
-	bytes, which pace them. A probe's unheld name is forgotten under either horizon (cuts 3.1). A landing's note
-	carries the landed value, whose state the step keeps as the key's candidate once it hears the write landed.
+	bytes, which pace them. A probe's unheld name is forgotten under either horizon (cuts 3.1).
 
 	Return type: A plain table of the functions, Cancelled and NothingShown, and the types Output, Shown, Ending.
 	Example usage:

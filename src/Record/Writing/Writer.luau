@@ -7,7 +7,7 @@
 	An op that finds SequenceMax passed waits unnumbered until every fate is heard and the writer holds a new
 	number. Cut ops are never queued. A sent op is never shed: Busy means nothing was sent. Answering answers an op's
 	call. DurableInQueue counts the queue's durable ops, heard or not, so a walk for durable ops can skip a queue of
-	hopeful ones: only NewWriter, Enqueue, PruneHeard and KeepQueue change the queue, and an op's form never changes.
+	hopeful ones; only this module changes the queue, and an op's form never changes.
 
 	Return type: A plain table of functions, and the JoinOutcome type.
 	Example usage:

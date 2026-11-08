@@ -5,13 +5,10 @@
 	Recency: texts in the order they were last used, for a table that lets its least recently used text go when it
 	is full (the key cache, the shown table, the remembered states of keys not served here, the sent names).
 
-	It is a doubly linked list: Links holds each text's older and newer neighbour, First the least recently used text
-	and Last the most. A use moves a text to Last, so every operation is O(1) and the order is exact. Count is the
-	number of texts held, kept as they come and go.
+	It is a doubly linked list. A use moves a text to Last, so every operation is O(1) and the order is exact.
 
-	An owner adds its new text before it lets the oldest go (Count passes its cap by one, then comes back). A Luau map
-	whose live keys peak at a power of two, such as a cap of 4,096, rehashes on every insert that follows a removal,
-	so the order of the two steps is kept in every owner.
+	An owner adds its new text before it lets the oldest go, since a Luau map whose live keys peak at a power of two
+	rehashes on every insert that follows a removal.
 
 	Return type: A plain table of functions, and the Recency and Link types.
 	Example usage:

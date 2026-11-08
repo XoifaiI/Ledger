@@ -12,6 +12,8 @@
 	since there Schubfach's shortest is not always %g's. DecimalBase is kept local so it folds.
 
 	Return type: A table with WriteFloat.
+	Example usage:
+		Float.WriteFloat(Out, 12.34) --> writes 12.34
 --]=]
 
 local Format = require("./Format")

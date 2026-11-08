@@ -4,10 +4,10 @@
 --[=[
 	Closing: when a session's writer sends, and how a session and the server end (record sheet 13).
 
-	Release and CloseAll send nothing; their caller sends each final request, which carries the key's candidate. A
-	release forgets the candidate when it answers at once or times out; Hearing forgets it when the final write is
-	heard. EndClose waits for durable ops and counted work, warns how many went unheard and settles them: sent
-	Unresolved, unsent Closed. A second CloseAll, a later Release and a waiting Refresh answer Closed.
+	Release and CloseAll send nothing; their caller sends each final request. A release that answers at once or times
+	out forgets the key's candidate. EndClose waits for durable ops and counted work, warns how many went unheard and
+	settles them: sent Unresolved, unsent Closed. A second CloseAll, a later Release and a waiting Refresh answer
+	Closed.
 
 	Return type: A plain table of functions.
 	Example usage:
