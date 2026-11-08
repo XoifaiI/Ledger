@@ -30,6 +30,7 @@ type Identity = Book.Identity
 type End = TxShapes.End
 type Kept = Value.Kept
 type Decoded = Value.Decoded
+type Candidates = Value.Candidates
 type Mark = Work.Mark
 type Seal = Seal.Seal
 type Limits = Shapes.Limits
@@ -48,8 +49,6 @@ export type Opened =
 	| { read Kind: "Shut", read Report: Report }
 	| { read Kind: "ShutEach", read Reports: { Report }, read EndReports: { Report } }
 	| { read Kind: "Seal", read Seal: Seal, read Report: Report }
-
-type Fields = { [unknown]: unknown }
 
 local CountsMax = Record.VarintLimit - 1
 
@@ -143,11 +142,11 @@ local function MeetNothing(Creator: SentOp?, Setup: Setup): Opened
 	return Create(Setup, Creator)
 end
 
-local function DecodeStored(Stored: unknown, Setup: Setup, Candidate: Fields?): Decoded?
+local function DecodeStored(Stored: unknown, Setup: Setup, Candidates: Candidates?): Decoded?
 	if Stored == nil then
 		return nil
 	end
-	return Value.DecodeStored(Stored, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding, Candidate)
+	return Value.DecodeStored(Stored, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding, Candidates)
 end
 
 local function OpenToProve(Held: Decoded?, Clock: number, Limits: Limits): Opened
@@ -172,9 +171,9 @@ local function OpenKey(
 	Setup: Setup,
 	Closure: Closure,
 	Clock: number,
-	Candidate: Fields?
+	Candidates: Candidates?
 ): Opened
-	local Held = DecodeStored(Stored, Setup, Candidate)
+	local Held = DecodeStored(Stored, Setup, Candidates)
 	if Request.Kind == "ProveGone" then
 		return OpenToProve(Held, Clock, Setup.Limits)
 	end

@@ -11,7 +11,7 @@
 	Schubfach digits in %g's form, except an exact power of two outside 1e-4 to 2^53, which keeps %.15g to %.17g,
 	since there Schubfach's shortest is not always %g's. DecimalBase is kept local so it folds.
 
-	Return type: A table with WriteFloat.
+	Return type: A table with WriteFloat and SmallestNormal, below which a double is written 0.
 	Example usage:
 		Float.WriteFloat(Out, 12.34) --> writes 12.34
 --]=]
@@ -271,4 +271,5 @@ end
 
 return {
 	WriteFloat = WriteFloat,
+	SmallestNormal = SmallestNormal,
 }

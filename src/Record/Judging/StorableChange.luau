@@ -8,7 +8,8 @@
 
 	A value equal to one of a vetted table's values is that same checked value. The old table is trusted only when
 	it is vetted, never the reducer's input, which the reducer may change during its run. The check freezes nothing:
-	VetMade vets the tables it recorded once the whole result has passed.
+	VetMade vets the tables it recorded once the whole result has passed. What changed is Json.ChangedKeys, where a
+	zero turned into a zero of the other sign counts as changed.
 
 	Return type: A table with Check, VetMade, VetSubsetOf and TrustedOld, and the NewTables type.
 	Example usage:
@@ -16,6 +17,7 @@
 --]=]
 
 local Json = require("../Encoding/Json")
+local Splice = require("../Encoding/Splice")
 local Storable = require("./Storable")
 local Vetted = require("../Encoding/Vetted")
 
@@ -27,23 +29,13 @@ type Facts = {
 	Height: number?,
 	Bytes: number,
 	Count: number,
+	Old: Tree,
+	Changed: { unknown },
 }
 
 export type NewTables = { [Tree]: Facts }
 
 local RootLevel = Storable.RootLevel
-
-local function ChangedKeys(New: Tree, Old: Tree): ({ unknown }, number)
-	local Changed: { unknown } = {}
-	local Count = 0
-	for Key, Inner in New do
-		Count += 1
-		if Old[Key] ~= Inner then
-			table.insert(Changed, Key)
-		end
-	end
-	return Changed, Count
-end
 
 local function AddedKeyFailure(Changed: { unknown }, Old: Tree, Level: number): Failure?
 	for _, Key in Changed do
@@ -171,9 +163,9 @@ local function CheckAgainst(
 		return Entry
 	end
 
-	local Changed, Count = ChangedKeys(New, Old)
+	local Changed, Count = Json.ChangedKeys(New, Old)
 	if #Changed == 0 and Count == OldCount then
-		NewTables[New] = { Height = OldHeight, Bytes = Json.Size(Old), Count = OldCount }
+		NewTables[New] = { Height = OldHeight, Bytes = Json.Size(Old), Count = OldCount, Old = Old, Changed = Changed }
 		return nil
 	end
 	local AddedKey = AddedKeyFailure(Changed, Old, Level)
@@ -209,6 +201,8 @@ local function CheckAgainst(
 		Height = HeightAfterChanges(New, Changed, Count, OldHeight, NewTables),
 		Bytes = Json.ChangedBytes(Json.Size(Old), OldCount, Count, Change),
 		Count = Count,
+		Old = Old,
+		Changed = Changed,
 	}
 	return nil
 end
@@ -256,6 +250,7 @@ local function VetMade(NewTables: NewTables): ()
 		end
 		Vetted.Add(Held, Height, Facts.Count)
 		Json.KeepSize(Held, Facts.Bytes)
+		Splice.KeepChanges(Held, Facts.Old, Facts.Changed)
 	end
 end
 

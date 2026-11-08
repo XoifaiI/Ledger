@@ -2,9 +2,10 @@
 --!optimize 2
 
 --[=[
-	GameValues: the values in what the core says, as the game is handed them (Answers.md 4 to 6): frozen deep copies,
+	GameValues: the values in what the core says, as the game is handed them (Answers.md 4 to 6): frozen tables,
 	public name handles, a Short's reason and a key in the game's form. Table answers and a Short's reason are
-	checked for their promised shape; any other throws. An Identity that is not a table reads as none.
+	checked for their promised shape; any other throws. An Identity that is not a table reads as none. A vetted
+	table is handed as it is, so two answers may share one; any other table is a frozen copy (Guards).
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -84,7 +85,7 @@ local function CopyForGame(Value: unknown): unknown
 	if type(Value) ~= "table" then
 		return Value
 	end
-	return Guards.DeepFrozenCopy(Value :: Fields)
+	return Guards.SharedOrFrozenCopy(Value :: Fields)
 end
 
 local function IdentityForGame(Held: Identity?): Identity?

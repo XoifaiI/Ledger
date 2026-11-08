@@ -7,9 +7,9 @@
 	of every hash input.
 
 	The core may not call EncodingService or HttpService, so SHA-256, zstd at level 1 (the level a DataStore
-	measures a buffer at) and JSON parsing come in as an Encoding. Every field is self
-	delimiting, never joined by a separator. Canonical JSON and an arithmetic's Encode text come already
-	written by their owners.
+	measures a buffer at), BLAKE3 (only to tell whether a stored state is one this server holds; no digest is stored)
+	and JSON parsing come in as an Encoding. Every field is self delimiting, never joined by a separator.
+	Canonical JSON and an arithmetic's Encode text come already written by their owners.
 
 	Return type: A plain table of functions, and the Encoding and input types.
 	Example usage:
@@ -29,6 +29,7 @@ export type Encoding = {
 	Sha256: (Input: buffer) -> buffer,
 	Compress: (Input: buffer) -> buffer,
 	ParseJson: (Text: string) -> unknown,
+	Blake3: (Input: buffer) -> string,
 }
 
 export type TxLegInput = {

@@ -6,28 +6,35 @@
 	Json: canonical JSON (spec/protocols/record/Format.md 4, CJ) written straight into a Writer, with no
 	whitespace. Size counts the same bytes in any key order. Values the storable guard rejects never reach it.
 
-	A vetted table never changes, so its size and text are kept once known, and a later write copies the text
-	whole. Only texts of KeptTextMost bytes or fewer are kept, since a parent's text repeats its children's.
-	WriteByte and DecimalBase are kept local so they inline and fold.
+	A vetted table never changes, so its size, and under WriteLaidOut its layout, are kept once written. WriteLaidOut
+	gives the count of leaves JSONDecode reads back as another value: -0 and a subnormal, both written 0. A vetted
+	table keeps its count. SameValue tells zeros of other signs apart, and ChangedKeys uses it, so a carried count
+	stays exact. WriteByte, SameValue and DecimalBase are kept local so they inline and fold.
 
-	Return type: A table with CanonicalJson, Size, KnownSize, KeepSize, EntryBytes and ChangedBytes.
+	Return type: A table of the writers, sizes, counts, SameValue and ChangedKeys.
 	Example usage:
 		Json.CanonicalJson({ b = 2, a = { 1, "x" } }) --> '{"a":[1,"x"],"b":2}'
 		Json.Size({ b = 2, a = { 1, "x" } }) --> 17
 --]=]
 
+local Escapes = require("./Escapes")
 local Float = require("./Float")
 local Format = require("./Format")
+local Layouts = require("./Layouts")
 local Record = require("../Constants/Record")
 local Vetted = require("./Vetted")
 
 type Writer = Format.Writer
+type Tree = { [unknown]: unknown }
 
 local Grow = Format.Grow
 local WriteRaw = Format.WriteRaw
 local WriteFloat = Float.WriteFloat
+local PutEscape = Escapes.PutEscape
+local EscapeWidths = Escapes.Widths
 
 local VarintLimit = Record.VarintLimit
+local SmallestNormal = Float.SmallestNormal
 local DecimalBase = 10
 local StartCapacity = 64
 
@@ -40,17 +47,11 @@ local OpenObjectByte = string.byte("{")
 local CloseObjectByte = string.byte("}")
 local CommaByte = string.byte(",")
 local ColonByte = string.byte(":")
-
 local QuoteByte = string.byte('"')
-local BackslashByte = string.byte("\\")
-local UnicodeEscapeByte = string.byte("u")
-local FirstPrintableByte = string.byte(" ")
 
-local LowerHexDigits = buffer.fromstring("0123456789abcdef")
-local HexDigitBits = math.log(buffer.len(LowerHexDigits), 2)
-local HexDigitMask = buffer.len(LowerHexDigits) - 1
-
-local KeptTextMost = 4096
+local PlainBytes = 1
+local EscapeBytesMost = Escapes.EscapeBytesMost
+local StartBytes = Layouts.StartBytes
 
 local EmptyTableText = "[]"
 local EnclosingBytes = #EmptyTableText
@@ -59,15 +60,12 @@ local ColonBytes = 1
 local ModuleName = "Json"
 local KeptUnvetted = `{ModuleName}: only a vetted table keeps its size. The caller must vet it first`
 
-local LongestEscape = "\\u0000"
-local EscapeBytesMost = #LongestEscape
-
 local IntegerCharactersMost = 1 + math.ceil(math.log10(VarintLimit))
 
 local Scratch = Format.NewWriter(StartCapacity)
 
-local Sizes = setmetatable({} :: { [{ [unknown]: unknown }]: number }, { __mode = "k" })
-local Texts = setmetatable({} :: { [{ [unknown]: unknown }]: string }, { __mode = "k" })
+local Sizes = setmetatable({} :: { [Tree]: number }, { __mode = "k" })
+local LossyCounts = setmetatable({} :: { [Tree]: number }, { __mode = "k" })
 
 local function WriteByte(Out: Writer, Byte: number)
 	local Cursor = Out.Cursor
@@ -78,22 +76,8 @@ local function WriteByte(Out: Writer, Byte: number)
 	Out.Cursor = Cursor + 1
 end
 
-local function PutEscape(Buffer: buffer, Cursor: number, Byte: number): number
-	buffer.writeu8(Buffer, Cursor, BackslashByte)
-	if Byte == QuoteByte or Byte == BackslashByte then
-		buffer.writeu8(Buffer, Cursor + 1, Byte)
-		return Cursor + 2
-	end
-	buffer.writeu8(Buffer, Cursor + 1, UnicodeEscapeByte)
-	buffer.writeu8(Buffer, Cursor + 2, ZeroByte)
-	buffer.writeu8(Buffer, Cursor + 3, ZeroByte)
-	buffer.writeu8(Buffer, Cursor + 4, buffer.readu8(LowerHexDigits, bit32.rshift(Byte, HexDigitBits)))
-	buffer.writeu8(Buffer, Cursor + 5, buffer.readu8(LowerHexDigits, bit32.band(Byte, HexDigitMask)))
-	return Cursor + EscapeBytesMost
-end
-
-local function NeedsEscape(Byte: number): boolean
-	return Byte < FirstPrintableByte or Byte == QuoteByte or Byte == BackslashByte
+local function IsPlain(Byte: number): boolean
+	return buffer.readu8(EscapeWidths, Byte) == PlainBytes
 end
 
 local function WriteString(Out: Writer, Text: string)
@@ -107,23 +91,23 @@ local function WriteString(Out: Writer, Text: string)
 
 	buffer.writestring(Buffer, Start, Text)
 	local Plain = 0
-	while Plain < Length and not NeedsEscape(buffer.readu8(Buffer, Start + Plain)) do
+	while Plain < Length and IsPlain(buffer.readu8(Buffer, Start + Plain)) do
 		Plain += 1
 	end
 
 	local Cursor = Start + Plain
 	for Index = Plain + 1, Length do
 		local Byte = string.byte(Text, Index)
-		if NeedsEscape(Byte) then
+		if IsPlain(Byte) then
+			buffer.writeu8(Buffer, Cursor, Byte)
+			Cursor += 1
+		else
 			local Room = EscapeBytesMost + Length - Index
 			if Cursor + Room > Out.Size then
 				Grow(Out, Cursor, Room)
 				Buffer = Out.Buffer
 			end
 			Cursor = PutEscape(Buffer, Cursor, Byte)
-		else
-			buffer.writeu8(Buffer, Cursor, Byte)
-			Cursor += 1
 		end
 	end
 	Out.Cursor = Cursor
@@ -156,55 +140,84 @@ local function WriteInteger(Out: Writer, Value: number)
 	Out.Cursor = Cursor + Width
 end
 
-local function WriteNumber(Out: Writer, Value: number)
+local function IsLossyNumber(Value: number): boolean
+	if Value == 0 then
+		return 1 / Value < 0
+	end
+	return math.abs(Value) < SmallestNormal
+end
+
+local function WriteNumber(Out: Writer, Value: number): number
 	if Value % 1 == 0 and math.abs(Value) < VarintLimit then
 		WriteInteger(Out, Value)
 	else
 		WriteFloat(Out, Value)
 	end
+	return if IsLossyNumber(Value) then 1 else 0
 end
 
-local WriteTable: (Out: Writer, Held: { [unknown]: unknown }) -> ()
+local WriteTable: (Out: Writer, Held: Tree, KeepsLayouts: boolean) -> number
 
-local function WriteValue(Out: Writer, Value: unknown)
+local function WriteValue(Out: Writer, Value: unknown, KeepsLayouts: boolean): number
 	if type(Value) == "boolean" then
 		WriteRaw(Out, tostring(Value))
-		return
+		return 0
 	end
 	if type(Value) == "number" then
-		WriteNumber(Out, Value)
-		return
+		return WriteNumber(Out, Value)
 	end
 	if type(Value) == "string" then
 		WriteString(Out, Value)
-		return
+		return 0
 	end
 
-	local Held = Value :: { [unknown]: unknown }
-	local Kept = Texts[Held]
-	if Kept ~= nil then
-		WriteRaw(Out, Kept)
-		return
-	end
+	local Held = Value :: Tree
 	local Start = Out.Cursor
-	WriteTable(Out, Held)
-	local Bytes = Out.Cursor - Start
-	if Bytes <= KeptTextMost and Vetted.IsVetted(Held) then
-		Texts[Held] = buffer.readstring(Out.Buffer, Start, Bytes)
+	local Lossy = WriteTable(Out, Held, KeepsLayouts)
+	if not Vetted.IsVetted(Held) then
+		return Lossy
+	end
+	if Sizes[Held] == nil then
+		Sizes[Held] = Out.Cursor - Start
+	end
+	if Lossy > 0 then
+		LossyCounts[Held] = Lossy
+	end
+	return Lossy
+end
+
+local function NewStarts(Held: Tree, Count: number, KeepsLayouts: boolean): buffer?
+	if not KeepsLayouts or not Layouts.KeepsLayout(Count, Sizes[Held] or 0) or not Vetted.IsVetted(Held) then
+		return nil
+	end
+	return buffer.create(Count * StartBytes)
+end
+
+local function KeepStarts(Held: Tree, Starts: buffer?, Count: number): ()
+	if Starts ~= nil then
+		Layouts.Keep(Held, Layouts.New(Starts, Count))
 	end
 end
 
-function WriteTable(Out: Writer, Held: { [unknown]: unknown }): ()
+function WriteTable(Out: Writer, Held: Tree, KeepsLayouts: boolean): number
+	local TableStart = Out.Cursor
+	local Lossy = 0
 	if Held[1] ~= nil then
+		local Count = #Held
+		local Starts = NewStarts(Held, Count, KeepsLayouts)
 		WriteByte(Out, OpenArrayByte)
-		for Index = 1, #Held do
+		for Index = 1, Count do
 			if Index > 1 then
 				WriteByte(Out, CommaByte)
 			end
-			WriteValue(Out, Held[Index])
+			if Starts then
+				Layouts.WriteStart(Starts, Index, Out.Cursor - TableStart)
+			end
+			Lossy += WriteValue(Out, Held[Index], KeepsLayouts)
 		end
 		WriteByte(Out, CloseArrayByte)
-		return
+		KeepStarts(Held, Starts, Count)
+		return Lossy
 	end
 
 	local Keys: { string } = {}
@@ -215,31 +228,33 @@ function WriteTable(Out: Writer, Held: { [unknown]: unknown }): ()
 	end
 	if Count == 0 then
 		WriteRaw(Out, EmptyTableText)
-		return
+		return Lossy
 	end
 	table.sort(Keys)
+	local Starts = NewStarts(Held, Count, KeepsLayouts)
 	WriteByte(Out, OpenObjectByte)
 	for Index, Key in Keys do
 		if Index > 1 then
 			WriteByte(Out, CommaByte)
 		end
+		if Starts then
+			Layouts.WriteStart(Starts, Index, Out.Cursor - TableStart)
+		end
 		WriteString(Out, Key)
 		WriteByte(Out, ColonByte)
-		WriteValue(Out, Held[Key])
+		Lossy += WriteValue(Out, Held[Key], KeepsLayouts)
 	end
 	WriteByte(Out, CloseObjectByte)
+	KeepStarts(Held, Starts, Count)
+	return Lossy
 end
 
 local function StringBytes(Text: string): number
 	local Length = #Text
 	local Count = EnclosingBytes + Length
 	for Index = 1, Length do
-		local Byte = string.byte(Text, Index)
-		if Byte < FirstPrintableByte then
-			Count += EscapeBytesMost - 1
-		elseif Byte == QuoteByte or Byte == BackslashByte then
-			Count += 1
-		end
+		local Byte: number = string.byte(Text, Index)
+		Count += buffer.readu8(EscapeWidths, Byte) - PlainBytes
 	end
 	return Count
 end
@@ -268,7 +283,7 @@ local function ObjectEntryBytes(Key: unknown, Bytes: number): number
 	return StringBytes(Key :: string) + ColonBytes + Bytes
 end
 
-local function EntryBytes(Held: { [unknown]: unknown }, Key: unknown, Bytes: number): number
+local function EntryBytes(Held: Tree, Key: unknown, Bytes: number): number
 	if Held[1] ~= nil then
 		return Bytes
 	end
@@ -279,7 +294,7 @@ local function ChangedBytes(OldBytes: number, OldCount: number, Count: number, E
 	return OldBytes + EntryChange + SeparatorBytes(Count) - SeparatorBytes(OldCount)
 end
 
-local function TableBytes(Held: { [unknown]: unknown }): number
+local function TableBytes(Held: Tree): number
 	if Held[1] ~= nil then
 		local Count = EnclosingBytes + SeparatorBytes(#Held)
 		for Index = 1, #Held do
@@ -315,7 +330,7 @@ function ValueBytes(Value: unknown): number
 		return #tostring(Value)
 	end
 
-	local Held = Value :: { [unknown]: unknown }
+	local Held = Value :: Tree
 	local Known = Sizes[Held]
 	if Known ~= nil then
 		return Known
@@ -329,30 +344,82 @@ end
 
 local function CanonicalJson(Value: unknown): string
 	local Out = Format.NewWriter(StartCapacity)
-	WriteValue(Out, Value)
+	WriteValue(Out, Value, false)
 	return Format.ToString(Out)
+end
+
+local function WriteLaidOut(Out: Writer, Value: unknown): number
+	return WriteValue(Out, Value, true)
 end
 
 local function Size(Value: unknown): number
 	return ValueBytes(Value)
 end
 
-local function KnownSize(Held: { [unknown]: unknown }): number?
+local function KnownSize(Held: Tree): number?
 	return Sizes[Held]
 end
 
-local function KeepSize(Held: { [unknown]: unknown }, Bytes: number): ()
+local function KeepSize(Held: Tree, Bytes: number): ()
 	if not Vetted.IsVetted(Held) then
 		error(KeptUnvetted)
 	end
 	Sizes[Held] = Bytes
 end
 
+local function LossyCount(Held: Tree): number
+	return LossyCounts[Held] or 0
+end
+
+local function KeepLossy(Held: Tree, Count: number): ()
+	if Vetted.IsVetted(Held) then
+		LossyCounts[Held] = if Count > 0 then Count else nil
+	end
+end
+
+local function EntryLossy(Value: unknown): number
+	if type(Value) == "table" then
+		return LossyCount(Value :: Tree)
+	end
+	if type(Value) == "number" and IsLossyNumber(Value) then
+		return 1
+	end
+	return 0
+end
+
+local function SameValue(Left: unknown, Right: unknown): boolean
+	if Left ~= Right then
+		return false
+	end
+	return Left ~= 0 or 1 / (Left :: number) == 1 / (Right :: number)
+end
+
+local function ChangedKeys(New: Tree, Old: Tree): ({ unknown }, number)
+	local Changed: { unknown } = {}
+	local Count = 0
+	for Key, Inner in New do
+		Count += 1
+		local Before = Old[Key]
+		if Inner ~= Before or (Inner == 0 and not SameValue(Inner, Before)) then
+			table.insert(Changed, Key)
+		end
+	end
+	return Changed, Count
+end
+
 return {
 	CanonicalJson = CanonicalJson,
+	WriteLaidOut = WriteLaidOut,
+	WriteString = WriteString,
 	Size = Size,
+	StringBytes = StringBytes,
 	KnownSize = KnownSize,
 	KeepSize = KeepSize,
 	EntryBytes = EntryBytes,
 	ChangedBytes = ChangedBytes,
+	LossyCount = LossyCount,
+	KeepLossy = KeepLossy,
+	EntryLossy = EntryLossy,
+	SameValue = SameValue,
+	ChangedKeys = ChangedKeys,
 }

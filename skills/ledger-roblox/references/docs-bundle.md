@@ -162,6 +162,28 @@ Next: [Releases](/docs/releases)
 
 `+` is new in v7, `~` exists in v6 and works differently now, `-` is gone, `!` is something to know before you upgrade.
 
+## 7.3.0 [#730]
+
+More optimizationsss
+
+| A 100 KB player | 7.2.0 | 7.3.0 |
+|---|---|---|
+| 50 `Edit` calls | ~72 ms | **~12 ms** |
+| 50 `Commit` calls | ~97 ms | **~12 ms** |
+| 10 trades between two players | ~51 ms | **~7 ms** |
+| 200 `Session:Get` calls | ~98 ms | **~8.5 ms** |
+| `Unload` | 2.3 ms | **~0.8 ms** |
+
+A 1 MB player gains the most: an `Edit` goes from about 12 ms to about 0.5 ms, and a trade from about 44 ms to about 1.2 ms.
+
+```diff
++ Edit, Commit and trades cost about the same on a 1 MB player as on a 100 KB one
++ A save skips reading the stored data back when it is what this server last wrote, checked by a BLAKE3 hash
++ Get, Peek and Follow hand back tables Ledger already holds instead of copying them
+! Answers are still read-only, but two answers can now be the same table. Compare contents, not identity
+! Memory per loaded key is about what it was in 7.2.0: about 1.4 MB for a busy 100 KB player, against 0.8 MB in 7.1.0
+```
+
 ## 7.2.0 [#720]
 
 Changes to big player data cost a fraction of the server time they did, and what's saved is byte for byte the same.
@@ -1747,7 +1769,7 @@ Next: [Shutdown and testing](/docs/learn/shutdown-and-testing)
 
 Pick one:
 
-* **Wally:** add `Ledger = "xoifaii/ledger@7.2.0"` to `[dependencies]` in your `wally.toml`.
+* **Wally:** add `Ledger = "xoifaii/ledger@7.3.0"` to `[dependencies]` in your `wally.toml`.
 * **Model file:** download `Ledger.rbxm` from the GitHub releases page and drop it into `ReplicatedStorage`.
 
 Ledger goes in `ReplicatedStorage` so your client scripts can use `Ledger.Reason` too. Everything else in Ledger only runs on the server.

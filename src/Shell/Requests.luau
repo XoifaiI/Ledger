@@ -3,8 +3,11 @@
 
 --[=[
 	Requests: runs the DataStore commands Update, Count, Get and Remove, each in a thread, and feeds each event
-	back. An Update's transform runs Transform.Step at the landing clock, as Stepping, with the candidate state its
-	command carries, and passes its closure to a rerun. A throwing transform is raised again and feeds nothing.
+	back. An Update's transform runs Transform.Step at the landing clock, as Stepping, and passes its closure to a
+	rerun. A throwing transform is raised again and feeds nothing. Its candidates are LastWritten, the game state this
+	server's last transform on the key wrote, then the one its command carries. Both are hints, since the stored
+	bytes decide. LastWritten lives here because a command's candidate comes from Cache, which only step updates, so
+	it misses a state written moments before by a leg whose result has not been heard yet.
 
 	Return type: A plain table with OnUpdate, OnCount, OnGet and OnRemove, and the Store type.
 	Example usage:
@@ -23,6 +26,7 @@ local ShellSetup = require("./Setup")
 local Stepping = require("./Stepping")
 local Threads = require("../Util/Threads")
 local Transform = require("../Record/Judging/Transform")
+local Value = require("../Record/Stored/Value")
 
 type Closure = JudgingShapes.Closure
 type KeyKind = Shapes.KeyKind
@@ -37,6 +41,8 @@ type ReadOutcome = Events.ReadOutcome
 type RemoveCommand = Events.RemoveCommand
 type UpdateCommand = Events.UpdateCommand
 type Result = Services.Result
+type Candidates = Value.Candidates
+type Fields = Value.Fields
 
 export type Store = {
 	read Setup: Setup,
@@ -46,6 +52,8 @@ export type Store = {
 type Feed = (Happening: Happening) -> ()
 
 local GameKind = Record.KeyKind.Game
+
+local LastWritten = setmetatable({} :: { [string]: Fields }, { __mode = "v" })
 
 local function RequestText(Target: StoreKey, Kind: string): string
 	return `the {Kind} request on {Target.Store}/{Target.Scope}/{Target.Key}`
@@ -101,12 +109,33 @@ local function FetchedOf(Result: Result): ReadOutcome
 	return { Kind = "Failed", IsThrottled = Result.IsThrottled }
 end
 
+local function CandidatesOf(Text: string, Command: UpdateCommand): Candidates
+	local Candidates: Candidates = {}
+	local Written = LastWritten[Text]
+	if Written ~= nil then
+		table.insert(Candidates, Written)
+	end
+	local Carried = Command.Candidate
+	if Carried ~= nil and Carried ~= Written then
+		table.insert(Candidates, Carried)
+	end
+	return Candidates
+end
+
+local function NoteLastWritten(Text: string, Kind: KeyKind, Note: Note): ()
+	local Written = Note.WrittenValue
+	if Kind == GameKind and Written ~= nil and Written.Kind == "Kept" then
+		LastWritten[Text] = Written.State
+	end
+end
+
 local function OnUpdate(Command: UpdateCommand, Store: Store, Feed: Feed)
 	Threads.Spawn(function()
 		local Target = Command.Target
 		local Kind = Cache.KindOfKey(Target)
 		local UserIds = UserIdsOf(Store, Target, Kind)
 		local Closure: Closure = { Wrote = false, Ran = {} }
+		local Text = Names.KeyText(Target)
 		local LastNote: Note? = nil
 		local IsRunning = false
 		local Result = Services.Update(Target, function(Stored: unknown): (unknown, { number }?)
@@ -119,7 +148,7 @@ local function OnUpdate(Command: UpdateCommand, Store: Store, Feed: Feed)
 				Store.Setup,
 				Closure,
 				Kind,
-				Command.Candidate
+				CandidatesOf(Text, Command)
 			)
 			IsRunning = false
 			Closure = Note.Closure
@@ -127,6 +156,7 @@ local function OnUpdate(Command: UpdateCommand, Store: Store, Feed: Feed)
 			if Output.Kind == "Cancel" then
 				return nil, nil
 			end
+			NoteLastWritten(Text, Kind, Note)
 			return Output.Value, UserIds
 		end)
 		if IsRunning then

@@ -9,7 +9,7 @@
 
 	Return type: A plain table with Step, and the Output type.
 	Example usage:
-		local Output, Note = Transform.Step(Stored, Request, Clock, Setup, Closure, "Game", Candidate)
+		local Output, Note = Transform.Step(Stored, Request, Clock, Setup, Closure, "Game", Candidates)
 --]=]
 
 local Book = require("../Stored/Book")
@@ -33,6 +33,7 @@ local Shapes = require("../../Machine/Shapes")
 local Value = require("../Stored/Value")
 
 type Kept = Value.Kept
+type Candidates = Value.Candidates
 type Setup = Shapes.Setup
 type KeyKind = Shapes.KeyKind
 type Closure = JudgingShapes.Closure
@@ -45,7 +46,6 @@ type Run = JudgingRun.Run
 type Book = Book.Book
 type Shown = Notes.Shown
 type Ending = Notes.Ending
-type Fields = { [unknown]: unknown }
 
 export type Output = Notes.Output
 
@@ -205,10 +205,10 @@ local function Step(
 	StoreSetup: Setup,
 	Closure: Closure,
 	Kind: KeyKind,
-	Candidate: Fields?
+	Candidates: Candidates?
 ): (Output, Note)
 	local Setup = KindSetup.SetupFor(StoreSetup, Kind)
-	local Opened = OpenKey(Stored, Request, Setup, Closure, Clock, Candidate)
+	local Opened = OpenKey(Stored, Request, Setup, Closure, Clock, Candidates)
 	if Opened.Kind == "Seal" then
 		local Proving: Ending = { Reports = {}, ProbeReport = Opened.Report, Warnings = {}, EndReports = {} }
 		return Notes.LandSeal(Opened.Seal, Setup, Closure, Proving)

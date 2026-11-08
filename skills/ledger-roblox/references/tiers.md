@@ -12,7 +12,8 @@ The server's budget is 60 + 40 per player of each kind a minute; a key takes abo
 `Store:Stale`, `Store:Leg`, `Store:Quantity`, `Ledger.Now`, `Ledger.Id` (after the server's number is
 drawn).
 
-Every value they hand back is a deep-frozen copy, on a live server too. Changing it throws.
+Every value they hand back is deep-frozen, on a live server too. Changing it throws. It may be the same
+table Ledger holds or another answer gave, so compare contents, not identity.
 `Session:Get()` is the session's **view**: the last saved state this server saw, with the session's own
 queued `Apply`s laid on top. It is not the saved data.
 

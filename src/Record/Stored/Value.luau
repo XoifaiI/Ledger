@@ -5,13 +5,13 @@
 	Value: a key's value (spec/protocols/record/Format.md 5, 10) as the DataStore table: the state s and its book b, or
 	a seal z, and no other keys. A build's key kind says what s is: a table, a shard's integer, a part's text. A game
 	state past PackFrom bytes of JSON is stored as a buffer the DataStore compresses, when that is smaller, so its
-	stored size never passes its JSON size. A build's MayReference, if any, judges each key a mark or pinned record
-	names: a value naming one its store cannot hold is not Ledger's. b's windows are in the caller's WindowUnit. The
-	reader throws through Format.Malformed; DecodeValue gives nil and DecodeStored the Unreadable cause, Newer or
-	Foreign. A decoded state is frozen and vetted as it is checked; one with the content of the key's candidate is
-	read as the candidate.
+	stored size never passes its JSON size. A value whose book names a key MayReference refuses is foreign.
+	b's windows are in the caller's WindowUnit. The reader throws through Format.Malformed; DecodeValue gives nil and
+	DecodeStored the Unreadable cause, Newer or Foreign. A decoded state is frozen and vetted as it is checked, or read
+	as a candidate of the same content (StateHashes, SameContent). A written game state is frozen first. Basis is the
+	state read, and BasisText its canonical text when that is what was stored.
 
-	Return type: Functions, and the types Value, Kept, Decoded, Unreadable, UnreadableCause and KeyBuild.
+	Return type: Functions, and the types Value, Kept, Decoded, Unreadable, UnreadableCause, KeyBuild and Candidates.
 	Example usage:
 		Value.EncodeValue(Kept, Build, Limits.WindowUnit, Setup.Encoding) --> { s = {}, b = "AAAABAAA..." }, 2
 --]=]
@@ -29,6 +29,8 @@ local Post = require("./Post")
 local Record = require("../Constants/Record")
 local SameContent = require("./SameContent")
 local Seal = require("./Items/Seal")
+local Splice = require("../Encoding/Splice")
+local StateHashes = require("../Encoding/StateHashes")
 
 type Book = Book.Book
 type StateForm = Book.StateForm
@@ -38,7 +40,15 @@ type Arithmetic = Balances.Arithmetic
 type KeyKind = Record.KeyKind
 type KeyReference = Names.KeyReference
 
-export type Kept = { Kind: "Kept", State: Fields, Book: Book, Post: { DiffEntry }?, Given: Fields? }
+export type Kept = {
+	Kind: "Kept",
+	State: Fields,
+	Book: Book,
+	Post: { DiffEntry }?,
+	Given: Fields?,
+	Basis: Fields?,
+	BasisText: buffer?,
+}
 
 export type Value = Kept | { Kind: "Sealed", Seal: Seal.Seal }
 
@@ -49,6 +59,8 @@ export type Unreadable = { read Kind: "Unreadable", read Cause: UnreadableCause 
 export type Decoded = Value | Unreadable
 
 export type Fields = { [unknown]: unknown }
+
+export type Candidates = { Fields }
 
 export type KeyBuild = {
 	read KeyKind: KeyKind,
@@ -124,8 +136,8 @@ local function Base64Length(Bytes: number): number
 	return math.ceil(Bytes / Base64GroupBytes) * Base64GroupCharacters
 end
 
-local function PackedSize(Encoding: Encoding, Text: string): number
-	local Compressed = Encoding.Compress(buffer.fromstring(Text))
+local function PackedSize(Encoding: Encoding, Text: buffer): number
+	local Compressed = Encoding.Compress(Text)
 	return BufferFramingBytes + Base64Length(buffer.len(Compressed) + PackedSlackBytes)
 end
 
@@ -140,7 +152,7 @@ local function StateCost(Encoding: Encoding, Build: KeyBuild, State: Fields): nu
 	if JsonBytes > PackedStateMost then
 		return nil
 	end
-	return PackedSize(Encoding, Json.CanonicalJson(State))
+	return PackedSize(Encoding, buffer.fromstring(Json.CanonicalJson(State)))
 end
 
 local function StateFits(Encoding: Encoding, Build: KeyBuild, State: Fields, Cap: number): boolean
@@ -163,36 +175,47 @@ local function WriteShardSum(State: Fields): unknown
 	return Sum
 end
 
-local function WriteGameState(Encoding: Encoding, State: Fields): (unknown, StateForm, number)
+local function WriteGameState(
+	Encoding: Encoding,
+	State: Fields,
+	Basis: Fields?,
+	BasisText: buffer?
+): (unknown, StateForm, number, boolean)
 	local JsonBytes = Json.Size(State)
 	if JsonBytes <= PackFrom then
-		return State, StateForms.Plain, JsonBytes
+		return State, StateForms.Plain, JsonBytes, false
 	end
 	if JsonBytes > PackedStateMost then
 		error(WriteStateTooBig)
 	end
-	local Text = Json.CanonicalJson(State)
+	local Text, ReadsBack = Splice.Canonical(State, Basis, BasisText)
 	local Packed = PackedSize(Encoding, Text)
 	if JsonBytes <= StateCap and JsonBytes <= Packed then
-		return State, StateForms.Plain, JsonBytes
+		return State, StateForms.Plain, JsonBytes, false
 	end
-	return buffer.fromstring(Text), StateForms.Packed, Packed
+	return Text, StateForms.Packed, Packed, ReadsBack
 end
 
-local function WriteState(State: Fields, Build: KeyBuild, Encoding: Encoding): (unknown, StateForm, number)
+local function WriteState(
+	State: Fields,
+	Build: KeyBuild,
+	Encoding: Encoding,
+	Basis: Fields?,
+	BasisText: buffer?
+): (unknown, StateForm, number, boolean)
 	if Build.KeyKind == KeyKinds.Shard then
 		local Sum = WriteShardSum(State)
-		return Sum, StateForms.Plain, Json.Size(Sum)
+		return Sum, StateForms.Plain, Json.Size(Sum), false
 	end
 	if Build.KeyKind == KeyKinds.Part then
 		local Text = Part.TextOfState(State, Build.Balances)
-		return Text, StateForms.Plain, Json.Size(Text)
+		return Text, StateForms.Plain, Json.Size(Text), false
 	end
-	return WriteGameState(Encoding, State)
+	return WriteGameState(Encoding, State, Basis, BasisText)
 end
 
 local function StoredBytes(Encoding: Encoding, Build: KeyBuild, State: Fields): number
-	local _, _, Bytes = WriteState(State, Build, Encoding)
+	local _, _, Bytes = WriteState(State, Build, Encoding, nil, nil)
 	return Bytes
 end
 
@@ -214,7 +237,13 @@ local function EncodeValue(
 	if Build.KeyKind ~= KeyKinds.Game and (Value.Post ~= nil or Value.Given ~= nil) then
 		error(WritePostOnLedgerKey)
 	end
-	local Written, Form, StateBytes = WriteState(Value.State, Build, Encoding)
+	if Build.KeyKind == KeyKinds.Game then
+		DeepFreeze(Value.State)
+	end
+	local Written, Form, StateBytes, ReadsBack = WriteState(Value.State, Build, Encoding, Value.Basis, Value.BasisText)
+	if type(Written) == "buffer" then
+		StateHashes.KeepWritten(Value.State, buffer.len(Written), Encoding.Blake3(Written), ReadsBack)
+	end
 	local Raw: { [string]: unknown } = { [StateKey] = Written, [BookKey] = EncodeBook(Value.Book, WindowUnit, Form) }
 	if Value.Post ~= nil then
 		Raw[PostKey] = EncodePost(Value.Post)
@@ -259,23 +288,46 @@ local function ReadShardState(Field: unknown): Fields
 	return { [ShardSumField] = Field }
 end
 
-local function ReadGameState(Field: unknown, Candidate: Fields?): Fields
-	local Same = SameContent.Matching(Field, Candidate)
+local function SameAsCandidate(Field: unknown, Candidates: Candidates?): Fields?
+	if Candidates == nil then
+		return nil
+	end
+	for _, Candidate in Candidates do
+		local Same = SameContent.Matching(Field, Candidate)
+		if Same ~= nil then
+			return Same
+		end
+	end
+	return nil
+end
+
+local function ReadGameState(Field: unknown, Candidates: Candidates?): Fields
+	local Same = SameAsCandidate(Field, Candidates)
 	if Same ~= nil then
 		return Same
 	end
 	return RequireState(Field)
 end
 
-local function ReadPackedState(Field: unknown, Encoding: Encoding, Candidate: Fields?): Fields
+local function ReadPackedState(Field: unknown, Encoding: Encoding, Candidates: Candidates?): (Fields, buffer?)
 	if type(Field) ~= "buffer" then
-		return Malformed(PackedNotBuffer)
+		return Malformed(PackedNotBuffer), nil
 	end
-	local Parsed, Held = pcall(Encoding.ParseJson, buffer.tostring(Field))
+	local Bytes = buffer.len(Field)
+	local Digest = Encoding.Blake3(Field)
+	local Held, IsCanonical = StateHashes.Match(Candidates, Bytes, Digest)
+	if Held ~= nil then
+		return Held, if IsCanonical then Field else nil
+	end
+	local Parsed, Decoded = pcall(Encoding.ParseJson, buffer.tostring(Field))
 	if not Parsed then
-		return Malformed(PackedNotJson)
+		return Malformed(PackedNotJson), nil
 	end
-	return ReadGameState(Held, Candidate)
+	local State = ReadGameState(Decoded, Candidates)
+	if State == Decoded then
+		StateHashes.KeepRead(State, Bytes, Digest)
+	end
+	return State, nil
 end
 
 local function ReadState(
@@ -283,21 +335,21 @@ local function ReadState(
 	Build: KeyBuild,
 	Form: StateForm,
 	Encoding: Encoding,
-	Candidate: Fields?
-): Fields
+	Candidates: Candidates?
+): (Fields, buffer?)
 	if Form == StateForms.Packed then
 		if Build.KeyKind ~= KeyKinds.Game then
-			return Malformed(PackedOnLedgerKey)
+			return Malformed(PackedOnLedgerKey), nil
 		end
-		return ReadPackedState(Field, Encoding, Candidate)
+		return ReadPackedState(Field, Encoding, Candidates)
 	end
 	if Build.KeyKind == KeyKinds.Shard then
-		return ReadShardState(Field)
+		return ReadShardState(Field), nil
 	end
 	if Build.KeyKind == KeyKinds.Part then
-		return Part.StateOfText(RequireText(Field), Build.Balances)
+		return Part.StateOfText(RequireText(Field), Build.Balances), nil
 	end
-	return ReadGameState(Field, Candidate)
+	return ReadGameState(Field, Candidates), nil
 end
 
 local function RequireReferable(Read: Book, Build: KeyBuild)
@@ -325,7 +377,7 @@ local function ReadValue(
 	Build: KeyBuild,
 	WindowUnit: number,
 	Encoding: Encoding,
-	Candidate: Fields?
+	Candidates: Candidates?
 ): Value
 	if type(Raw) ~= "table" then
 		return Malformed(NotATable)
@@ -341,9 +393,12 @@ local function ReadValue(
 	end
 	local Read, Form = ReadBookText(RequireText(Fields[BookKey]), WindowUnit)
 	RequireReferable(Read, Build)
+	local State, StateText = ReadState(Fields[StateKey], Build, Form, Encoding, Candidates)
 	return {
 		Kind = "Kept",
-		State = ReadState(Fields[StateKey], Build, Form, Encoding, Candidate),
+		State = State,
+		Basis = State,
+		BasisText = StateText,
 		Book = Read,
 		Post = if Fields[PostKey] ~= nil then ReadPost(Fields[PostKey]) else nil,
 		Given = if Fields[GivenKey] ~= nil then RequireState(Fields[GivenKey]) else nil,
@@ -355,9 +410,9 @@ local function DecodeStored(
 	Build: KeyBuild,
 	WindowUnit: number,
 	Encoding: Encoding,
-	Candidate: Fields?
+	Candidates: Candidates?
 ): Decoded
-	local Succeeded, Read = pcall(ReadValue, Raw, Build, WindowUnit, Encoding, Candidate)
+	local Succeeded, Read = pcall(ReadValue, Raw, Build, WindowUnit, Encoding, Candidates)
 	if Succeeded then
 		return Read
 	end

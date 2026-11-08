@@ -6,7 +6,7 @@
 	landed or loaded for it, so a write's transform can read the stored state as the candidate itself.
 
 	Equal means the same keys, a number key never matching a string key, and the same values: strings by bytes,
-	numbers by value and by the sign of zero, so -0 never matches 0 and NaN matches nothing. A decoded table with a
+	numbers by Json.SameValue, so -0 never matches 0 and NaN matches nothing. A decoded table with a
 	metatable never matches. Matching checks that the candidate is vetted itself, whatever its caller kept: that is
 	what makes the kept key counts true and keeps the walk within the candidate's depth.
 
@@ -15,16 +15,10 @@
 		local Same = SameContent.Matching(Decoded, Candidate) --> the candidate when equal, else nil
 --]=]
 
+local Json = require("../Encoding/Json")
 local Vetted = require("../Encoding/Vetted")
 
 type Tree = { [unknown]: unknown }
-
-local function SameZeroSign(Inner: unknown, Other: unknown): boolean
-	if type(Inner) == "number" and type(Other) == "number" and Inner == 0 then
-		return 1 / Inner == 1 / Other
-	end
-	return true
-end
 
 local function SameContent(Decoded: unknown, Candidate: Tree): boolean
 	if type(Decoded) ~= "table" or getmetatable(Decoded) ~= nil then
@@ -35,7 +29,7 @@ local function SameContent(Decoded: unknown, Candidate: Tree): boolean
 		Count += 1
 		local Other = Candidate[Key]
 		if Inner == Other then
-			if not SameZeroSign(Inner, Other) then
+			if Inner == 0 and not Json.SameValue(Inner, Other) then
 				return false
 			end
 			continue

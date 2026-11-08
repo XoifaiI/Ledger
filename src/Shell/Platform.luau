@@ -68,6 +68,10 @@ local function Compress(Input: buffer): buffer
 	return EncodingService:CompressBuffer(Input, Enum.CompressionAlgorithm.Zstd, ZstdLevel)
 end
 
+local function Blake3(Input: buffer): string
+	return buffer.tostring(EncodingService:ComputeBufferHash(Input, Enum.HashAlgorithm.Blake3))
+end
+
 local function ParseJson(Text: string): unknown
 	return HttpService:JSONDecode(Text)
 end
@@ -76,6 +80,7 @@ local Encoding: Encoding = {
 	Sha256 = Sha256,
 	Compress = Compress,
 	ParseJson = ParseJson,
+	Blake3 = Blake3,
 }
 
 return {
