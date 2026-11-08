@@ -249,7 +249,7 @@ local function VetMade(NewTables: NewTables): ()
 			table.freeze(Held)
 		end
 		Vetted.Add(Held, Height, Facts.Count)
-		Json.KeepSize(Held, Facts.Bytes)
+		Vetted.KeepSize(Held, Facts.Bytes)
 		Splice.KeepChanges(Held, Facts.Old, Facts.Changed)
 	end
 end
@@ -276,9 +276,9 @@ local function VetSubsetOf(Input: unknown, Basis: Tree?): ()
 	end
 	table.freeze(Held)
 	Vetted.Add(Held, BasisHeight, Count)
-	local BasisBytes = Json.KnownSize(Basis)
+	local BasisBytes = Vetted.SizeOf(Basis)
 	if BasisBytes ~= nil and Vetted.CountOf(Basis) == Count then
-		Json.KeepSize(Held, BasisBytes)
+		Vetted.KeepSize(Held, BasisBytes)
 	end
 end
 

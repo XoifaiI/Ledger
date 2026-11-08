@@ -44,7 +44,7 @@ type TableRun = {
 
 local Grow = Format.Grow
 local WriteLaidOut = Json.WriteLaidOut
-local KnownSize = Json.KnownSize
+local SizeOf = Vetted.SizeOf
 local StringBytes = Json.StringBytes
 local EntryLossy = Json.EntryLossy
 local StartOf = Layouts.StartOf
@@ -410,7 +410,7 @@ function WriteFrom(Out: Writer, New: unknown, Old: unknown, Text: buffer, At: nu
 		return WriteLaidOut(Out, New)
 	end
 	local OldTree = Old :: Tree
-	local OldBytes = KnownSize(OldTree)
+	local OldBytes = SizeOf(OldTree)
 	if OldBytes == nil then
 		return WriteLaidOut(Out, New)
 	end
@@ -427,8 +427,8 @@ function WriteFrom(Out: Writer, New: unknown, Old: unknown, Text: buffer, At: nu
 	local Lossy = if OldIsArray
 		then SpliceArray(Out, NewTree, OldTree, Text, At, OldBytes)
 		else SpliceObject(Out, NewTree, OldTree, Text, At, OldBytes)
-	if KnownSize(NewTree) == nil and Vetted.IsVetted(NewTree) then
-		Json.KeepSize(NewTree, Out.Cursor - Start)
+	if SizeOf(NewTree) == nil and Vetted.IsVetted(NewTree) then
+		Vetted.KeepSize(NewTree, Out.Cursor - Start)
 	end
 	return Lossy
 end
@@ -437,7 +437,7 @@ local function Canonical(State: Tree, Basis: Tree?, BasisText: buffer?): (buffer
 	local Out = Scratch
 	Out.Cursor = 0
 	local Lossy: number
-	if Basis ~= nil and BasisText ~= nil and KnownSize(Basis) == buffer.len(BasisText) then
+	if Basis ~= nil and BasisText ~= nil and SizeOf(Basis) == buffer.len(BasisText) then
 		Lossy = WriteFrom(Out, State, Basis, BasisText, 0)
 	else
 		Lossy = WriteLaidOut(Out, State)

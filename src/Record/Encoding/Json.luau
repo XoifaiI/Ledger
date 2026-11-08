@@ -6,10 +6,10 @@
 	Json: canonical JSON (spec/protocols/record/Format.md 4, CJ) written straight into a Writer, with no
 	whitespace. Size counts the same bytes in any key order. Values the storable guard rejects never reach it.
 
-	A vetted table never changes, so its size, and under WriteLaidOut its layout, are kept once written. WriteLaidOut
-	gives the count of leaves JSONDecode reads back as another value: -0 and a subnormal, both written 0. A vetted
-	table keeps its count. SameValue tells zeros of other signs apart, and ChangedKeys uses it, so a carried count
-	stays exact. WriteByte, SameValue and DecimalBase are kept local so they inline and fold.
+	A vetted table never changes, so once written its size is kept in Vetted and, under WriteLaidOut, its layout in
+	Layouts. WriteLaidOut gives the count of leaves JSONDecode reads back as another value: -0 and a subnormal, both
+	written 0. A vetted table keeps its count. SameValue tells zeros of other signs apart, and ChangedKeys uses it, so
+	a carried count stays exact. WriteByte, SameValue and DecimalBase are kept local so they inline and fold.
 
 	Return type: A table of the writers, sizes, counts, SameValue and ChangedKeys.
 	Example usage:
@@ -57,14 +57,10 @@ local EmptyTableText = "[]"
 local EnclosingBytes = #EmptyTableText
 local ColonBytes = 1
 
-local ModuleName = "Json"
-local KeptUnvetted = `{ModuleName}: only a vetted table keeps its size. The caller must vet it first`
-
 local IntegerCharactersMost = 1 + math.ceil(math.log10(VarintLimit))
 
 local Scratch = Format.NewWriter(StartCapacity)
 
-local Sizes = setmetatable({} :: { [Tree]: number }, { __mode = "k" })
 local LossyCounts = setmetatable({} :: { [Tree]: number }, { __mode = "k" })
 
 local function WriteByte(Out: Writer, Byte: number)
@@ -177,8 +173,8 @@ local function WriteValue(Out: Writer, Value: unknown, KeepsLayouts: boolean): n
 	if not Vetted.IsVetted(Held) then
 		return Lossy
 	end
-	if Sizes[Held] == nil then
-		Sizes[Held] = Out.Cursor - Start
+	if Vetted.SizeOf(Held) == nil then
+		Vetted.KeepSize(Held, Out.Cursor - Start)
 	end
 	if Lossy > 0 then
 		LossyCounts[Held] = Lossy
@@ -187,7 +183,7 @@ local function WriteValue(Out: Writer, Value: unknown, KeepsLayouts: boolean): n
 end
 
 local function NewStarts(Held: Tree, Count: number, KeepsLayouts: boolean): buffer?
-	if not KeepsLayouts or not Layouts.KeepsLayout(Count, Sizes[Held] or 0) or not Vetted.IsVetted(Held) then
+	if not KeepsLayouts or not Layouts.KeepsLayout(Count, Vetted.SizeOf(Held) or 0) or not Vetted.IsVetted(Held) then
 		return nil
 	end
 	return buffer.create(Count * StartBytes)
@@ -331,13 +327,13 @@ function ValueBytes(Value: unknown): number
 	end
 
 	local Held = Value :: Tree
-	local Known = Sizes[Held]
+	local Known = Vetted.SizeOf(Held)
 	if Known ~= nil then
 		return Known
 	end
 	local Bytes = TableBytes(Held)
 	if Vetted.IsVetted(Held) then
-		Sizes[Held] = Bytes
+		Vetted.KeepSize(Held, Bytes)
 	end
 	return Bytes
 end
@@ -354,17 +350,6 @@ end
 
 local function Size(Value: unknown): number
 	return ValueBytes(Value)
-end
-
-local function KnownSize(Held: Tree): number?
-	return Sizes[Held]
-end
-
-local function KeepSize(Held: Tree, Bytes: number): ()
-	if not Vetted.IsVetted(Held) then
-		error(KeptUnvetted)
-	end
-	Sizes[Held] = Bytes
 end
 
 local function LossyCount(Held: Tree): number
@@ -413,8 +398,6 @@ return {
 	WriteString = WriteString,
 	Size = Size,
 	StringBytes = StringBytes,
-	KnownSize = KnownSize,
-	KeepSize = KeepSize,
 	EntryBytes = EntryBytes,
 	ChangedBytes = ChangedBytes,
 	LossyCount = LossyCount,
