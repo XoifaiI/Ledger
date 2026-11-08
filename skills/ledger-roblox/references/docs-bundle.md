@@ -162,6 +162,21 @@ Next: [Releases](/docs/releases)
 
 `+` is new in v7, `~` exists in v6 and works differently now, `-` is gone, `!` is something to know before you upgrade.
 
+## 7.3.1 [#731]
+
+Each loaded key holds less memory.
+
+| | 7.3.0 | 7.3.1 |
+|---|---|---|
+| A 100 KB player, just loaded | 616 KB | **485 KB** |
+| A busy 100 KB player | 1,469 KB | **1,209 KB** |
+| A busy 1 MB player | 10.6 MB | **7.4 MB** |
+
+```diff
++ Ledger keeps one entry for each table it has checked instead of three, so a loaded key holds 18 to 30% less memory
+~ Ledger folders got restructured
+```
+
 ## 7.3.0 [#730]
 
 More optimizationsss
@@ -1769,7 +1784,7 @@ Next: [Shutdown and testing](/docs/learn/shutdown-and-testing)
 
 Pick one:
 
-* **Wally:** add `Ledger = "xoifaii/ledger@7.3.0"` to `[dependencies]` in your `wally.toml`.
+* **Wally:** add `Ledger = "xoifaii/ledger@7.3.1"` to `[dependencies]` in your `wally.toml`.
 * **Model file:** download `Ledger.rbxm` from the GitHub releases page and drop it into `ReplicatedStorage`.
 
 Ledger goes in `ReplicatedStorage` so your client scripts can use `Ledger.Reason` too. Everything else in Ledger only runs on the server.
