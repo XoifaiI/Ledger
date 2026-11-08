@@ -74,8 +74,9 @@ gone answers `true` or `Missing`, both meaning done.
 Put the time, or the day, in the op. The same goes for `math.random`, a flag table, a `Player`.
 *Right when:* never. Studio warns when two runs differ; a live server doesn't.
 
-**"`Data.Gold += 1` in the reducer."** Only Studio freezes the input. Live, this changes Ledger's own copy.
-Clone each table on the path you change.
+**"`Data.Gold += 1` in the reducer."** Studio throws on it. Live, the top level is a copy, so this line
+gets away with it, but the same habit one level down (`Data.Inventory.Sword += 1`) throws and the op is
+refused. Clone each table on the path you change.
 *Right when:* never.
 
 **"Return `Data` for kinds we don't handle."** Ledger reads any table as accepted. A typo'd kind in a

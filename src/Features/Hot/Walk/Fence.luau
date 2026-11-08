@@ -52,12 +52,8 @@ local function IssueFence(State: State, Walking: HotWalk, Commands: { Command })
 	}
 	local Purpose: HotPurpose = { Kind = "Fence", CallId = Walking.Call.CallId }
 	local RequestId = HotState.NewRequest(State.Server, State.Hot, Purpose)
-	local Update: Command = {
-		Kind = "Update",
-		RequestId = RequestId,
-		Target = HotState.CurrentKey(Walking),
-		Request = Ends.EndsRequest({ Fence }),
-	}
+	local Target = HotState.CurrentKey(Walking)
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Target, Ends.EndsRequest({ Fence }))
 	table.insert(Commands, Update)
 	return RequestId
 end

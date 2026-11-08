@@ -4,9 +4,10 @@
 --[=[
 	Closing: when a session's writer sends, and how a session and the server end (record sheet 13).
 
-	Release and CloseAll send nothing; their caller sends each final request. EndClose waits for durable ops and
-	counted work, warns how many went unheard and settles them: sent Unresolved, unsent Closed. A second CloseAll, a
-	later Release and a waiting Refresh answer Closed.
+	Release and CloseAll send nothing; their caller sends each final request, which carries the key's candidate. A
+	release forgets the candidate when it answers at once or times out; Hearing forgets it when the final write is
+	heard. EndClose waits for durable ops and counted work, warns how many went unheard and settles them: sent
+	Unresolved, unsent Closed. A second CloseAll, a later Release and a waiting Refresh answer Closed.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -105,6 +106,7 @@ local function Release(
 	Session.AnswerEveryRefresh(Sessions, Text, ClosedAnswer, Commands)
 	local Writer = Writers.WriterFor(State, Call.Key)
 	if Writer == nil or Session.IsQuiet(Writer) then
+		Cache.ForgetCandidate(State, Text)
 		return Replies.Reply(Commands, Call.CallId, Replies.DoneAnswer)
 	end
 	local Deadline = Clock + Cache.StoreOf(State, Call.Key).Setup.Limits.OpBound
@@ -130,11 +132,12 @@ local function OnReleaseAnswer(Sessions: SessionState, Key: StoreKey, RequestId:
 	Replies.Reply(Commands, Pending.CallId, Replies.DoneAnswer)
 end
 
-local function ReleaseTimeOut(Sessions: SessionState, Clock: number, Commands: { Command })
+local function ReleaseTimeOut(State: ServerState, Sessions: SessionState, Clock: number, Commands: { Command })
 	local function IsDue(Pending: Releasing): boolean
 		return Clock >= Pending.Deadline
 	end
 	for _, Text in Sorted.SortedDueTexts(Sessions.Releasing, IsDue) do
+		Cache.ForgetCandidate(State, Text)
 		Replies.Reply(Commands, Sessions.Releasing[Text].CallId, Replies.DoneAnswer)
 		Sessions.Releasing[Text] = nil
 	end

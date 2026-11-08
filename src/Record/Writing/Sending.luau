@@ -231,7 +231,7 @@ local function Send(State: ServerState, Writer: WriterState, Clock: number, Comm
 		Pacing.NoteSend(Writer.Paced, Clock)
 	end
 	local Sent: Outgoing = { RequestId = Numbers.NewRequestId(State), Request = Built }
-	local Update: Command = { Kind = "Update", RequestId = Sent.RequestId, Target = Writer.Key, Request = Built }
+	local Update: Command = Cache.UpdateCommand(State, Sent.RequestId, Writer.Key, Built)
 	table.insert(Commands, Update)
 	return Sent
 end

@@ -77,7 +77,7 @@ end
 local function Issue(State: State, Call: Call, Request: UpdateRequest, Purpose: Purpose, Commands: { Command }): number
 	local RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose)
 	Call.Out[Names.KeyText(Purpose.Key)] = RequestId
-	local Update: Command = { Kind = "Update", RequestId = RequestId, Target = Purpose.Key, Request = Request }
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Purpose.Key, Request)
 	table.insert(Commands, Update)
 	return RequestId
 end

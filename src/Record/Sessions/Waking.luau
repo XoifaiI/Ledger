@@ -57,17 +57,19 @@ local function WriterTimers(Writer: WriterState, Limits: Limits, Clock: number):
 	end
 	Soonest = EarliestAfter(Soonest, Writers.IdleDropAt(Writer, Limits), Clock)
 	local ShedAt: number? = nil
-	for _, Op in Writer.Queue do
-		if Op.IsHeard or not IsDurable(Op.Form) then
-			continue
+	if Writer.DurableInQueue > 0 then
+		for _, Op in Writer.Queue do
+			if Op.IsHeard or not IsDurable(Op.Form) then
+				continue
+			end
+			if Op.IsSent then
+				Soonest = EarliestAfter(Soonest, Shedding.OpBoundAt(Writer, Op, Limits), Clock)
+				continue
+			end
+			local Deadline = Shedding.OpDeadline(Writer, Op, Limits)
+			Soonest = EarliestAfter(Soonest, Deadline, Clock)
+			ShedAt = EarlierOf(ShedAt, Deadline)
 		end
-		if Op.IsSent then
-			Soonest = EarliestAfter(Soonest, Shedding.OpBoundAt(Writer, Op, Limits), Clock)
-			continue
-		end
-		local Deadline = Shedding.OpDeadline(Writer, Op, Limits)
-		Soonest = EarliestAfter(Soonest, Deadline, Clock)
-		ShedAt = EarlierOf(ShedAt, Deadline)
 	end
 	for _, Waiting in Writer.Waiting do
 		if Waiting.Form.Kind ~= "Hopeful" then
@@ -229,7 +231,7 @@ local function OnClock(State: State, Clock: number, Commands: { Command })
 	Writing.RetryReads(State, Clock, Commands)
 	Hearing.AnswerFlushesAtDeadline(State, Clock, Commands)
 	Session.AnswerRefreshesDue(Sessions, Clock, Commands)
-	Closing.ReleaseTimeOut(Sessions, Clock, Commands)
+	Closing.ReleaseTimeOut(Server, Sessions, Clock, Commands)
 	Composed.EndClose(State, Clock, Commands)
 	Writers.DropIdle(Server, Clock)
 end

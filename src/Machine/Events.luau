@@ -164,8 +164,13 @@ export type Answer =
 		read Key: StoreKey?,
 	}
 
-export type UpdateCommand =
-	{ read Kind: "Update", read RequestId: number, read Target: StoreKey, read Request: Request }
+export type UpdateCommand = {
+	read Kind: "Update",
+	read RequestId: number,
+	read Target: StoreKey,
+	read Request: Request,
+	read Candidate: { [unknown]: unknown }?,
+}
 
 export type GetCommand = { read Kind: "Get", read RequestId: number, read Target: StoreKey }
 

@@ -62,7 +62,7 @@ local function StampFor(
 	State.Cuts.Stamping[Text] = RequestId
 	local Stamp: Request =
 		{ Kind = "SealStamp", RemovalStamp = RemovalStamp, Server = Numbers.ServerNumberOf(State.Server) }
-	local Update: Command = { Kind = "Update", RequestId = RequestId, Target = Key, Request = Stamp }
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Key, Stamp)
 	table.insert(Commands, Update)
 	return true
 end

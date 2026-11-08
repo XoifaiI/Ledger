@@ -291,9 +291,9 @@ return New
 **Why it survives review.** It looks like a clone. Studio throws on it, so the bug lives in branches
 nobody ran in Studio: a rare kind, an admin path, a nested table one level below the clone.
 
-**What it costs.** Inputs are frozen **only in Studio**. On a live server the change lands in Ledger's
-own copy of the state, the one it judges the next op against and lays queued ops on. The data drifts
-from what was saved, silently, until a refresh or a rejoin shows something else.
+**What it costs.** Studio freezes the whole input; a live server freezes every table inside it. So on
+a live server the write throws and the op is `Refused`: the buy, trade or reward in that branch never
+happens, for every player who reaches it.
 
 **When it fires.** On every live call through that branch.
 

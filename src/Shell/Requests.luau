@@ -3,8 +3,8 @@
 
 --[=[
 	Requests: runs the DataStore commands Update, Count, Get and Remove, each in a thread, and feeds each event
-	back. An Update's transform runs Transform.Step at the landing clock, as Stepping, and passes its closure to a
-	rerun. A throwing transform is raised again and feeds nothing.
+	back. An Update's transform runs Transform.Step at the landing clock, as Stepping, with the candidate state its
+	command carries, and passes its closure to a rerun. A throwing transform is raised again and feeds nothing.
 
 	Return type: A plain table with OnUpdate, OnCount, OnGet and OnRemove, and the Store type.
 	Example usage:
@@ -111,8 +111,16 @@ local function OnUpdate(Command: UpdateCommand, Store: Store, Feed: Feed)
 		local IsRunning = false
 		local Result = Services.Update(Target, function(Stored: unknown): (unknown, { number }?)
 			IsRunning = true
-			local Output, Note =
-				Stepping.Run(Transform.Step, Stored, Command.Request, Platform.Now(), Store.Setup, Closure, Kind)
+			local Output, Note = Stepping.Run(
+				Transform.Step,
+				Stored,
+				Command.Request,
+				Platform.Now(),
+				Store.Setup,
+				Closure,
+				Kind,
+				Command.Candidate
+			)
 			IsRunning = false
 			Closure = Note.Closure
 			LastNote = Note

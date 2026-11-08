@@ -116,8 +116,7 @@ local function SendFence(
 	local Purpose: Purpose = { Kind = "Fence", CallId = Cutting.CallId, Decider = Group.Decider, Key = Cutting.Key }
 	local RequestId = CutState.NewRequest(State.Server, State.Cuts, Purpose)
 	Draining.Fences[Names.KeyText(Group.Decider)] = RequestId
-	local Update: Command =
-		{ Kind = "Update", RequestId = RequestId, Target = Group.Decider, Request = Ends.EndsRequest(Fences) }
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Group.Decider, Ends.EndsRequest(Fences))
 	table.insert(Commands, Update)
 end
 

@@ -84,9 +84,7 @@ local function CopyForGame(Value: unknown): unknown
 	if type(Value) ~= "table" then
 		return Value
 	end
-	local Copy = Guards.DeepCopy(Value :: Fields)
-	Guards.DeepFreeze(Copy)
-	return Copy
+	return Guards.DeepFrozenCopy(Value :: Fields)
 end
 
 local function IdentityForGame(Held: Identity?): Identity?

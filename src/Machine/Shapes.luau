@@ -285,6 +285,7 @@ export type CacheEntry = {
 	Showable: Showable?,
 	IsBehind: boolean?,
 	CopyReplicas: number?,
+	Candidate: { [unknown]: unknown }?,
 }
 
 export type Outgoing = {
@@ -316,6 +317,7 @@ export type WriterState = {
 	IdleSince: number?,
 	QueuedHopefulBytes: number,
 	QueuedHopeful: number,
+	DurableInQueue: number,
 	FirstSequence: number,
 	NotTook: { [number]: NotTook },
 	MintedByCall: { [number]: MintedName },

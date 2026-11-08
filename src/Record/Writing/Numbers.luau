@@ -6,7 +6,7 @@
 	sheet 5, Format.md 11). LearnStored and LearnFromNote own what a read or note teaches: a key's cache entry (an id,
 	legacy or absent), gate and left over seals; none from unreadable values. A key holding no value forgets old
 	incarnations' state (Showables). A key heard Behind forgets its shown state and stays marked until a read shows a
-	state or no value.
+	state or no value. A heard landing's state becomes the key's candidate (Cache.KeepCandidate).
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -293,8 +293,16 @@ local function FileLanded(State: ServerState, Key: StoreKey, Note: Note)
 	end
 end
 
+local function KeepLanded(State: ServerState, Key: StoreKey, Note: Note): ()
+	local Written = Note.WrittenValue
+	if Written ~= nil and Written.Kind == "Kept" then
+		Cache.KeepCandidate(State, Key, Written.State)
+	end
+end
+
 local function LearnFromNote(State: ServerState, Entry: CacheEntry, Key: StoreKey, Setup: Setup, Note: Note)
 	FileLanded(State, Key, Note)
+	KeepLanded(State, Key, Note)
 	if FindReport(Note, "Unreadable") ~= nil then
 		return
 	end

@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Items: the copy items of one followed key (extras sheet E7; Format 11, 12) on each of its replicas: a replica's
@@ -59,6 +60,14 @@ local UnreadableHeader: DecodedHeader = table.freeze({ Kind = "Unreadable" :: "U
 
 local ContinuationMask = 0xC0
 local ContinuationBits = 0x80
+
+local EmptyPiece = ""
+local ByteValueCount = 2 ^ Record.BitsPerByte
+
+local JsonBytesOfByte = buffer.create(ByteValueCount)
+for Byte = 0, ByteValueCount - 1 do
+	buffer.writeu8(JsonBytesOfByte, Byte, Json.Size(string.char(Byte)) - Json.Size(EmptyPiece))
+end
 
 local VersionKey = Record.ItemVersionKey
 local HolderKey = Record.ItemHolderKey
@@ -254,22 +263,17 @@ local function Fits(Header: CopyHeader): boolean
 	return Json.Size(EncodeHeader(Header)) <= ItemRoom
 end
 
-local function PartFits(Q: number, Level: number, Piece: string): boolean
-	return Json.Size(EncodePart({ Q = Q, Level = Level, Piece = Piece })) <= ItemRoom
-end
-
 local function LongestPiece(Text: string, From: number, Q: number, Level: number): number
-	local Least = 0
-	local Most = math.min(#Text - From + 1, ItemRoom)
-	while Least < Most do
-		local Middle = (Least + Most + 1) // 2
-		if PartFits(Q, Level, string.sub(Text, From, From + Middle - 1)) then
-			Least = Middle
-		else
-			Most = Middle - 1
+	local Room = ItemRoom - Json.Size(EncodePart({ Q = Q, Level = Level, Piece = EmptyPiece }))
+	local Used = 0
+	for Index = From, string.len(Text) do
+		local Byte = string.byte(Text, Index)
+		Used += buffer.readu8(JsonBytesOfByte, Byte)
+		if Used > Room then
+			return Index - From
 		end
 	end
-	return Least
+	return string.len(Text) - From + 1
 end
 
 local function IsContinuation(Byte: number): boolean

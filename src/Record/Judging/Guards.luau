@@ -1,25 +1,27 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
-	Guards: the runs of a reducer and of a migration, with the check of what they return, and the carry of
-	undeclared fields.
+	Guards: the runs of a reducer and of a migration, the check of what they return, and the carry of undeclared
+	fields.
 
-	RunReducer freezes its input only when Limits.FreezeInputs is true. A state a run returns is checked by Storable
-	(StorableChange, when RunReducer is given the vetted state its input came from), and is frozen and vetted once
-	storable, in live too. The caller warns and measures StateCap. DeepCopy takes only what Storable passed.
-	RunWithoutYield is the yield stop Api shares. CheckStorable and DeepFreeze are Storable's, exported here.
+	RunReducer freezes its input only when Limits.FreezeInputs is true. A returned state is checked by Storable, or
+	by StorableChange against the vetted state its input came from, and is frozen and vetted once storable. The
+	caller warns and measures StateCap. DeepCopy takes only what Storable passed, since table.clone keeps a
+	metatable. DeepFrozenCopy's copy is never a table Ledger holds. CompareRuns skips the second state's keys when
+	its vetted count equals the first's, since every key of the first held an equal value there.
 
-	Return type: A table with CheckStorable, DeepFreeze, DeepCopy, RunWithoutYield, RunReducer, RunMigration,
-	CompareRuns, ProbeUnknownKind, SplitUndeclared, PutBack and AddsUndeclared.
+	Return type: A table of the runs and checks, with Storable's CheckStorable and DeepFreeze.
 	Example usage:
 		local Outcome = Guards.RunReducer(Reducer, State, Op, Limits)
-		local Difference = Guards.CompareRuns(Outcome, Guards.RunReducer(Reducer, State, Op, Limits))
 --]=]
 
+local Json = require("../Encoding/Json")
 local Record = require("../Constants/Record")
 local Storable = require("./Storable")
 local StorableChange = require("./StorableChange")
+local Vetted = require("../Encoding/Vetted")
 
 type Tree = Storable.Tree
 
@@ -55,6 +57,8 @@ local ReducerStateWhere = "the state the reducer returned"
 local ReducerYielded = "the reducer must complete without yielding"
 local MigrationStateWhere = "the state the migration returned"
 local MigrationYielded = "the migration must complete without yielding"
+local UnvettedInside = "Guards: a vetted table holds a table that is not vetted. "
+	.. "A table is vetted only when every table inside it is"
 
 local OutcomeKinds: { [string]: string } = {
 	State = "a state",
@@ -94,12 +98,20 @@ local function FirstDifference(Keys: { unknown }, First: unknown, Second: unknow
 
 	local FirstHeld = First :: Tree
 	local SecondHeld = Second :: Tree
+	local Count = 0
 	for Key, Inner in FirstHeld do
-		Keys[Level + 1] = Key
-		local At = FirstDifference(Keys, Inner, SecondHeld[Key], Level + 1)
-		if At ~= nil then
-			return At
+		Count += 1
+		local Other = SecondHeld[Key]
+		if Inner ~= Other then
+			Keys[Level + 1] = Key
+			local At = FirstDifference(Keys, Inner, Other, Level + 1)
+			if At ~= nil then
+				return At
+			end
 		end
+	end
+	if Vetted.CountOf(SecondHeld) == Count then
+		return nil
 	end
 	for Key in SecondHeld do
 		if FirstHeld[Key] == nil then
@@ -111,14 +123,43 @@ local function FirstDifference(Keys: { unknown }, First: unknown, Second: unknow
 end
 
 local function DeepCopy(Value: Tree): Tree
-	local Copy: Tree = {}
+	local Copy = table.clone(Value)
 	for Key, Inner in Value do
 		if type(Inner) == "table" then
 			Copy[Key] = DeepCopy(Inner :: Tree)
-		else
-			Copy[Key] = Inner
 		end
 	end
+	return Copy
+end
+
+local function VettedCopy(Held: Tree): Tree
+	local Height = Vetted.HeightOf(Held)
+	local Count = Vetted.CountOf(Held)
+	if Height == nil or Count == nil then
+		error(UnvettedInside, 0)
+	end
+
+	local Copy = table.clone(Held)
+	for Key, Inner in Held do
+		if type(Inner) == "table" then
+			Copy[Key] = VettedCopy(Inner :: Tree)
+		end
+	end
+	table.freeze(Copy)
+	Vetted.Add(Copy, Height, Count)
+	local Bytes = Json.KnownSize(Held)
+	if Bytes ~= nil then
+		Json.KeepSize(Copy, Bytes)
+	end
+	return Copy
+end
+
+local function DeepFrozenCopy(Value: Tree): Tree
+	if Vetted.IsVetted(Value) then
+		return VettedCopy(Value)
+	end
+	local Copy = DeepCopy(Value)
+	DeepFreeze(Copy)
 	return Copy
 end
 
@@ -281,6 +322,7 @@ return {
 	CheckStorable = Storable.Check,
 	DeepFreeze = DeepFreeze,
 	DeepCopy = DeepCopy,
+	DeepFrozenCopy = DeepFrozenCopy,
 	RunWithoutYield = RunWithoutYield,
 	RunReducer = RunReducer,
 	CompareRuns = CompareRuns,

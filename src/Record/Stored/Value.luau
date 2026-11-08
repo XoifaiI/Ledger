@@ -8,14 +8,12 @@
 	stored size never passes its JSON size. A build's MayReference, if any, judges each key a mark or pinned record
 	names: a value naming one its store cannot hold is not Ledger's. b's windows are in the caller's WindowUnit. The
 	reader throws through Format.Malformed; DecodeValue gives nil and DecodeStored the Unreadable cause, Newer or
-	Foreign. A decoded state is frozen and vetted as it is checked, so later checks of it skip it.
+	Foreign. A decoded state is frozen and vetted as it is checked; one with the content of the key's candidate is
+	read as the candidate.
 
-	Return type: A plain table of functions and the Value, Kept, Decoded, Unreadable, UnreadableCause and KeyBuild
-	types.
+	Return type: Functions, and the types Value, Kept, Decoded, Unreadable, UnreadableCause and KeyBuild.
 	Example usage:
-		local Kept = { Kind = "Kept", State = {}, Book = Empty }
 		Value.EncodeValue(Kept, Build, Limits.WindowUnit, Setup.Encoding) --> { s = {}, b = "AAAABAAA..." }, 2
-		Value.StateFits(Setup.Encoding, Build, State, Limits.StateCap) --> true
 --]=]
 
 local Balances = require("../Legs/Balances")
@@ -29,6 +27,7 @@ local Names = require("../Encoding/Names")
 local Part = require("./Items/Part")
 local Post = require("./Post")
 local Record = require("../Constants/Record")
+local SameContent = require("./SameContent")
 local Seal = require("./Items/Seal")
 
 type Book = Book.Book
@@ -260,7 +259,15 @@ local function ReadShardState(Field: unknown): Fields
 	return { [ShardSumField] = Field }
 end
 
-local function ReadPackedState(Field: unknown, Encoding: Encoding): Fields
+local function ReadGameState(Field: unknown, Candidate: Fields?): Fields
+	local Same = SameContent.Matching(Field, Candidate)
+	if Same ~= nil then
+		return Same
+	end
+	return RequireState(Field)
+end
+
+local function ReadPackedState(Field: unknown, Encoding: Encoding, Candidate: Fields?): Fields
 	if type(Field) ~= "buffer" then
 		return Malformed(PackedNotBuffer)
 	end
@@ -268,15 +275,21 @@ local function ReadPackedState(Field: unknown, Encoding: Encoding): Fields
 	if not Parsed then
 		return Malformed(PackedNotJson)
 	end
-	return RequireState(Held)
+	return ReadGameState(Held, Candidate)
 end
 
-local function ReadState(Field: unknown, Build: KeyBuild, Form: StateForm, Encoding: Encoding): Fields
+local function ReadState(
+	Field: unknown,
+	Build: KeyBuild,
+	Form: StateForm,
+	Encoding: Encoding,
+	Candidate: Fields?
+): Fields
 	if Form == StateForms.Packed then
 		if Build.KeyKind ~= KeyKinds.Game then
 			return Malformed(PackedOnLedgerKey)
 		end
-		return ReadPackedState(Field, Encoding)
+		return ReadPackedState(Field, Encoding, Candidate)
 	end
 	if Build.KeyKind == KeyKinds.Shard then
 		return ReadShardState(Field)
@@ -284,7 +297,7 @@ local function ReadState(Field: unknown, Build: KeyBuild, Form: StateForm, Encod
 	if Build.KeyKind == KeyKinds.Part then
 		return Part.StateOfText(RequireText(Field), Build.Balances)
 	end
-	return RequireState(Field)
+	return ReadGameState(Field, Candidate)
 end
 
 local function RequireReferable(Read: Book, Build: KeyBuild)
@@ -307,7 +320,13 @@ local function RequireReferable(Read: Book, Build: KeyBuild)
 	end
 end
 
-local function ReadValue(Raw: unknown, Build: KeyBuild, WindowUnit: number, Encoding: Encoding): Value
+local function ReadValue(
+	Raw: unknown,
+	Build: KeyBuild,
+	WindowUnit: number,
+	Encoding: Encoding,
+	Candidate: Fields?
+): Value
 	if type(Raw) ~= "table" then
 		return Malformed(NotATable)
 	end
@@ -324,15 +343,21 @@ local function ReadValue(Raw: unknown, Build: KeyBuild, WindowUnit: number, Enco
 	RequireReferable(Read, Build)
 	return {
 		Kind = "Kept",
-		State = ReadState(Fields[StateKey], Build, Form, Encoding),
+		State = ReadState(Fields[StateKey], Build, Form, Encoding, Candidate),
 		Book = Read,
 		Post = if Fields[PostKey] ~= nil then ReadPost(Fields[PostKey]) else nil,
 		Given = if Fields[GivenKey] ~= nil then RequireState(Fields[GivenKey]) else nil,
 	}
 end
 
-local function DecodeStored(Raw: unknown, Build: KeyBuild, WindowUnit: number, Encoding: Encoding): Decoded
-	local Succeeded, Read = pcall(ReadValue, Raw, Build, WindowUnit, Encoding)
+local function DecodeStored(
+	Raw: unknown,
+	Build: KeyBuild,
+	WindowUnit: number,
+	Encoding: Encoding,
+	Candidate: Fields?
+): Decoded
+	local Succeeded, Read = pcall(ReadValue, Raw, Build, WindowUnit, Encoding, Candidate)
 	if Succeeded then
 		return Read
 	end

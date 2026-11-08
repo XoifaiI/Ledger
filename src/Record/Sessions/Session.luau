@@ -283,6 +283,7 @@ local function OpenFrom(
 end
 
 local function Load(State: ServerState, Sessions: SessionState, Found: Opened, Clock: number, Commands: { Command })
+	Cache.KeepCandidate(State, Found.Out.Key, Found.Kept.State)
 	OpenFrom(State, Sessions, Found.Out, BasisOfKept(Found.Kept, Found.Viewed), Clock, Commands)
 end
 

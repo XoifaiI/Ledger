@@ -254,7 +254,8 @@ Say it once, plainly, then do the work asked. Don't repeat it and don't moralise
   "didn't happen". Look at the data.
 - Never treat `nil` from a read as empty, and never save a fresh profile over `Behind`.
 - Never put time, randomness, an Instance, an upvalue that changes, or a Ledger call inside a reducer,
-  migration or `Schema`, and never change the `Data` or `Op` it was given. Only Studio freezes them.
+  migration or `Schema`, and never change the `Data` or `Op` it was given. Studio freezes both; a live
+  server freezes every table inside `Data` and every table the reducer returns.
 - Never write `return Data` for a kind the reducer doesn't handle. End with `return nil`.
 - Never suggest a session lock or waiting for another server. Ledger has none by design.
 - Never match on error or warning text. Compare reasons with `Ledger.Reason`.

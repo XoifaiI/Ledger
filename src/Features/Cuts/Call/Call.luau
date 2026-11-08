@@ -250,7 +250,7 @@ local function SendCut(State: State, Call: CutCall, Clock: number, Commands: { C
 	Call.Phase = "Cutting"
 	Call.RetryAt = nil
 	Call.WaitUntil = nil
-	local Update: Command = { Kind = "Update", RequestId = RequestId, Target = Call.Key, Request = Request }
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Call.Key, Request)
 	table.insert(Commands, Update)
 end
 

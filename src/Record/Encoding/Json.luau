@@ -4,11 +4,11 @@
 
 --[=[
 	Json: canonical JSON (spec/protocols/record/Format.md 4, CJ) written straight into a Writer, with no
-	whitespace.
+	whitespace. Size counts the same bytes in any key order. Values the storable guard rejects never reach it.
 
-	Size counts what CanonicalJson writes, by its rules, in any key order; only a float is written, to scratch.
-	Values the storable guard rejects never reach it. A vetted table is measured once and its size kept. It has
-	its own WriteByte since a call through another module is not inlined.
+	A vetted table never changes, so its size and text are kept once known, and a later write copies the text
+	whole. Only texts of KeptTextMost bytes or fewer are kept, since a parent's text repeats its children's.
+	WriteByte and DecimalBase are kept local so they inline and fold.
 
 	Return type: A table with CanonicalJson, Size, KnownSize, KeepSize, EntryBytes and ChangedBytes.
 	Example usage:
@@ -16,6 +16,7 @@
 		Json.Size({ b = 2, a = { 1, "x" } }) --> 17
 --]=]
 
+local Float = require("./Float")
 local Format = require("./Format")
 local Record = require("../Constants/Record")
 local Vetted = require("./Vetted")
@@ -24,16 +25,14 @@ type Writer = Format.Writer
 
 local Grow = Format.Grow
 local WriteRaw = Format.WriteRaw
+local WriteFloat = Float.WriteFloat
 
 local VarintLimit = Record.VarintLimit
 local DecimalBase = 10
-local JsonPrecisionMost = 17
 local StartCapacity = 64
 
-local MinusByte = string.byte("-")
-local PlusByte = string.byte("+")
-local ZeroByte = string.byte("0")
-local ExponentByte = string.byte("e")
+local MinusByte = Record.MinusByte
+local ZeroByte = Record.ZeroByte
 
 local OpenArrayByte = string.byte("[")
 local CloseArrayByte = string.byte("]")
@@ -51,6 +50,8 @@ local LowerHexDigits = buffer.fromstring("0123456789abcdef")
 local HexDigitBits = math.log(buffer.len(LowerHexDigits), 2)
 local HexDigitMask = buffer.len(LowerHexDigits) - 1
 
+local KeptTextMost = 4096
+
 local EmptyTableText = "[]"
 local EnclosingBytes = #EmptyTableText
 local ColonBytes = 1
@@ -66,6 +67,7 @@ local IntegerCharactersMost = 1 + math.ceil(math.log10(VarintLimit))
 local Scratch = Format.NewWriter(StartCapacity)
 
 local Sizes = setmetatable({} :: { [{ [unknown]: unknown }]: number }, { __mode = "k" })
+local Texts = setmetatable({} :: { [{ [unknown]: unknown }]: string }, { __mode = "k" })
 
 local function WriteByte(Out: Writer, Byte: number)
 	local Cursor = Out.Cursor
@@ -154,49 +156,6 @@ local function WriteInteger(Out: Writer, Value: number)
 	Out.Cursor = Cursor + Width
 end
 
-local function ShortestFloatText(Value: number): string
-	local Shortest = ""
-	for Precision = 1, JsonPrecisionMost do
-		Shortest = string.format(`%.{Precision}g`, Value)
-		if tonumber(Shortest) == Value then
-			break
-		end
-	end
-	return Shortest
-end
-
-local function WriteExponentDigits(Out: Writer, Text: string, From: number)
-	local Length = #Text
-	local At = From
-	if string.byte(Text, At) == PlusByte then
-		At += 1
-	end
-	if string.byte(Text, At) == MinusByte then
-		WriteByte(Out, MinusByte)
-		At += 1
-	end
-	while At < Length and string.byte(Text, At) == ZeroByte do
-		At += 1
-	end
-	for Index = At, Length do
-		WriteByte(Out, string.byte(Text, Index))
-	end
-end
-
-local function WriteFloat(Out: Writer, Value: number)
-	local Shortest = ShortestFloatText(Value)
-	local Length = #Shortest
-	local At = 1
-	while At <= Length and string.byte(Shortest, At) ~= ExponentByte do
-		WriteByte(Out, string.byte(Shortest, At))
-		At += 1
-	end
-	if At <= Length then
-		WriteByte(Out, ExponentByte)
-		WriteExponentDigits(Out, Shortest, At + 1)
-	end
-end
-
 local function WriteNumber(Out: Writer, Value: number)
 	if Value % 1 == 0 and math.abs(Value) < VarintLimit then
 		WriteInteger(Out, Value)
@@ -204,6 +163,8 @@ local function WriteNumber(Out: Writer, Value: number)
 		WriteFloat(Out, Value)
 	end
 end
+
+local WriteTable: (Out: Writer, Held: { [unknown]: unknown }) -> ()
 
 local function WriteValue(Out: Writer, Value: unknown)
 	if type(Value) == "boolean" then
@@ -220,6 +181,20 @@ local function WriteValue(Out: Writer, Value: unknown)
 	end
 
 	local Held = Value :: { [unknown]: unknown }
+	local Kept = Texts[Held]
+	if Kept ~= nil then
+		WriteRaw(Out, Kept)
+		return
+	end
+	local Start = Out.Cursor
+	WriteTable(Out, Held)
+	local Bytes = Out.Cursor - Start
+	if Bytes <= KeptTextMost and Vetted.IsVetted(Held) then
+		Texts[Held] = buffer.readstring(Out.Buffer, Start, Bytes)
+	end
+end
+
+function WriteTable(Out: Writer, Held: { [unknown]: unknown }): ()
 	if Held[1] ~= nil then
 		WriteByte(Out, OpenArrayByte)
 		for Index = 1, #Held do

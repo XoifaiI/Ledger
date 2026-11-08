@@ -71,7 +71,7 @@ Only numbers that change what you do are here. A call that breaks a limit with a
 | One key's data             | About 4 MB (4,160,526 bytes) as saved. Data over 1 KB saves compressed when that is smaller. A warning shows past 2 MiB saved, or past 4 MB as JSON.                              | Past the cap, a write answers `Full`. Keep an active key well under 1 MB. |
 | One key's writes           | About 4 MB of writes a minute.                                                         | A big key cannot be written often. Spread hot data over several keys.     |
 | One op in a `Tx` or `Take` | 4,096 bytes of terms, as JSON.                                                         | Keep ops small.                                                           |
-| Data                       | Plain tables only, up to 64 deep. No cycles, `NaN`, or arrays with gaps or mixed keys. |                                                                           |
+| Data                       | Plain tables only, up to 64 deep. No cycles, `NaN`, or arrays with gaps or mixed keys. A number closer to 0 than about 2.2e-308 saves as 0. |                                                                           |
 | Numbers                    | Whole numbers below 2^53 unless you give an `Arithmetic`.                              |                                                                           |
 | `Reset` with a `State`     | At most 1 MiB.                                                                         |                                                                           |
 
@@ -161,6 +161,33 @@ Next: [Releases](/docs/releases)
 
 
 `+` is new in v7, `~` exists in v6 and works differently now, `-` is gone, `!` is something to know before you upgrade.
+
+## 7.2.0 [#720]
+
+Changes to big player data cost a fraction of the server time they did, and what's saved is byte for byte the same.
+
+### What a game gets
+
+| A 100 KB player | 7.1.0 | 7.2.0 |
+|---|---|---|
+| 200 `Apply` calls and a save | 1,117 ms | **8.5 ms** |
+| 50 `Edit` calls | ~575 ms | **~72 ms** |
+| 50 `Commit` calls | ~611 ms | **~97 ms** |
+| 10 trades between two players | ~239 ms | **~51 ms** |
+| `Unload` | 64 ms | **2.3 ms** |
+
+Server time for one measured player state with an inventory, stats, quests and settings, in an engine emulator, with Roblox's own decode time for each save added. Data full of decimals gains the most, data that is mostly long strings the least (about 1.5x on `Edit`).
+
+```diff
++ Checking a change only looks at the tables it touched, not the whole state
++ Decimal numbers are written up to 50x faster
++ A save reuses this server's last copy when nothing else changed the key, instead of checking it again
++ Peek and Follow copies are cut and handed out faster
+! A live server now makes every table inside a reducer's Data, and every table a reducer returns, read-only. Changing one throws and the op is refused, as Studio always did
+! Each loaded key holds more memory: about 1.4 MB against 0.8 MB for a busy 100 KB player
+~ Loading a large, deeply nested state can take a little longer (16 to 22 ms at 1 MB)
+~ A number closer to 0 than about 2.2e-308 saves as 0, which is what Roblox already read back
+```
 
 ## 7.1.0 [#710]
 
@@ -1720,7 +1747,7 @@ Next: [Shutdown and testing](/docs/learn/shutdown-and-testing)
 
 Pick one:
 
-* **Wally:** add `Ledger = "xoifaii/ledger@7.1.0"` to `[dependencies]` in your `wally.toml`.
+* **Wally:** add `Ledger = "xoifaii/ledger@7.2.0"` to `[dependencies]` in your `wally.toml`.
 * **Model file:** download `Ledger.rbxm` from the GitHub releases page and drop it into `ReplicatedStorage`.
 
 Ledger goes in `ReplicatedStorage` so your client scripts can use `Ledger.Reason` too. Everything else in Ledger only runs on the server.
@@ -3073,7 +3100,7 @@ In Studio, Ledger watches your reducer more closely than on a live server:
 | The reducer gives a different answer for the same data and op | Don't use `os.time()`, `math.random()` or anything else that changes between calls. Put those in the op instead.            |
 | The reducer doesn't return `nil` for a kind it doesn't know   | End the reducer with `return nil`.                                                                                          |
 
-These checks only run in Studio, but the rules hold everywhere. A reducer that breaks them on a live server can give players the wrong data.
+On a live server the tables inside `Data` are read-only too, so changing one throws and the op is refused, and every table your reducer returns becomes read-only once the op is taken. The other checks only run in Studio, but the rules hold everywhere. A reducer that breaks them on a live server can give players the wrong data.
 
 Next: [Common mistakes](/docs/learn/common-mistakes)
 
@@ -3419,7 +3446,7 @@ Ledger may run your reducer more than once for the same op, so it has to give th
 
 If your reducer errors, Ledger treats it as `nil` and the op is refused. It won't print the error, so wrap risky code in `pcall` while you debug.
 
-Studio helps you catch broken rules. There, your reducer runs three times per op and Ledger warns you if the answers differ. `Data` and `Op` are also read-only in Studio, so a reducer that changes them directly gets every op refused.
+Studio helps you catch broken rules. There, your reducer runs three times per op and Ledger warns you if the answers differ. `Data` and `Op` are also read-only in Studio, so a reducer that changes them directly gets every op refused. On a live server the tables inside `Data` are read-only too, and so is every table your reducer returns, so don't keep a table you returned and change it later.
 
 ## Using it [#using-it]
 

@@ -6,7 +6,8 @@
 	sheet 10, 11's actions and 13).
 
 	An answer is applied in sheet 10's order. A move to end work leaves the op unheard and starts a help (Tx/Help,
-	TX-END); the writer resends after its retry gap and the help.
+	TX-END); the writer resends after its retry gap and the help. A heard final write leaves its key no candidate,
+	since the session that held the key is released.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -255,8 +256,12 @@ local function FinishNote(
 	local Server = State.Server
 	local Setup = Cache.StoreOf(Server, Writer.Key).Setup
 	local Finished = Rides.Heard(Server, Writer.Key, UpdateOf(Writer, RequestId).Ends, Note)
+	local IsFinal = Writer.Final ~= nil and Writer.Final.RequestId == RequestId
 	Sending.AfterAnswer(Writer, RequestId, Clock)
 	Sending.LearnFromNote(Server, Writer, Numbers.EntryFor(Server, Writer.Key), Setup, Note, Commands)
+	if IsFinal then
+		Cache.ForgetCandidate(Server, Writer.Text)
+	end
 	return Finished
 end
 

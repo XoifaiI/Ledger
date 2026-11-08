@@ -85,12 +85,8 @@ local function SendOpen(
 	local Purpose: HotPurpose = { Kind = "Open", CallId = Work.Call.CallId, Index = Index }
 	local RequestId = HotState.NewRequest(Server, State.Hot, Purpose)
 	Work.Parts[Index] = { Kind = "Out", RequestId = RequestId, SentAt = Clock, Errors = Errors }
-	local Update: Command = {
-		Kind = "Update",
-		RequestId = RequestId,
-		Target = Key,
-		Request = OpenRequest(Server, Work, Key, Index, Errors == NoErrors),
-	}
+	local Request = OpenRequest(Server, Work, Key, Index, Errors == NoErrors)
+	local Update: Command = Cache.UpdateCommand(Server, RequestId, Key, Request)
 	table.insert(Commands, Update)
 end
 

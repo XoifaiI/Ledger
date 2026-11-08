@@ -1,5 +1,6 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	Storable: the rules of a storable value, each written once as a check that gives a Failure, and the full walk
@@ -13,7 +14,6 @@
 	Tree, Search and Failure types.
 	Example usage:
 		local Problem = Storable.Check(State, "the state") --> nil, or "the state.Gold is NaN or infinity ..."
-		Storable.DeepFreeze(State)
 --]=]
 
 local Record = require("../Constants/Record")
@@ -39,17 +39,19 @@ local StorableCycle = "contains itself, and a stored value is a tree"
 local StorableMixedKeys = "has array keys and string keys together, and it must have only one kind"
 local StorableGap = "has number keys that are not 1 up to its length, so it is not an array without gaps"
 local StorableTooDeep = `is nested deeper than {Record.StorableDepthMax} levels`
+local StorableType = "is a %s, and only booleans, numbers, strings and tables can be stored"
+local StorableKeyType = "has a key that is a %s, and a key must be a string or a place in an array"
 
 local RootLevel = 1
+local ScalarHeight = 0
 
 local DepthMax = Record.StorableDepthMax
 
-local function StorableType(TypeName: string): string
-	return `is a {TypeName}, and only booleans, numbers, strings and tables can be stored`
-end
-
-local function StorableKeyType(TypeName: string): string
-	return `has a key that is a {TypeName}, and a key must be a string or a place in an array`
+local function WithTypeOf(Problem: string, Value: unknown): string
+	if Problem ~= StorableType and Problem ~= StorableKeyType then
+		return Problem
+	end
+	return string.format(Problem, typeof(Value))
 end
 
 local function Unstorable(Where: string, Path: string, Problem: string): string
@@ -89,23 +91,31 @@ local function DepthFailure(Level: number): Failure?
 	return nil
 end
 
-local function ScalarFailure(Value: unknown, Level: number): Failure?
-	if type(Value) == "boolean" then
+local function ScalarProblem(Value: unknown): string?
+	if type(Value) == "string" then
+		if utf8.len(Value) == nil then
+			return StorableBadUtf8
+		end
 		return nil
 	end
 	if type(Value) == "number" then
 		if Value ~= Value or Value == math.huge or Value == -math.huge then
-			return Fail(StorableNotFinite, Level)
+			return StorableNotFinite
 		end
 		return nil
 	end
-	if type(Value) == "string" then
-		if utf8.len(Value) == nil then
-			return Fail(StorableBadUtf8, Level)
-		end
+	if type(Value) == "boolean" then
 		return nil
 	end
-	return Fail(StorableType(typeof(Value)), Level)
+	return StorableType
+end
+
+local function ScalarFailure(Value: unknown, Level: number): Failure?
+	local Problem = ScalarProblem(Value)
+	if Problem == nil then
+		return nil
+	end
+	return Fail(WithTypeOf(Problem, Value), Level)
 end
 
 local function MetatableFailure(Held: Tree, Level: number): Failure?
@@ -126,17 +136,25 @@ local function TableFailure(Search: Search, Held: Tree, Level: number): Failure?
 	return nil
 end
 
-local function KeyFailure(Key: unknown, Level: number): Failure?
+local function KeyProblem(Key: unknown): string?
+	if type(Key) == "string" then
+		if utf8.len(Key) == nil then
+			return StorableKeyBadUtf8
+		end
+		return nil
+	end
 	if type(Key) == "number" then
 		return nil
 	end
-	if type(Key) ~= "string" then
-		return Fail(StorableKeyType(typeof(Key)), Level)
+	return StorableKeyType
+end
+
+local function KeyFailure(Key: unknown, Level: number): Failure?
+	local Problem = KeyProblem(Key)
+	if Problem == nil then
+		return nil
 	end
-	if utf8.len(Key) == nil then
-		return Fail(StorableKeyBadUtf8, Level)
-	end
-	return nil
+	return Fail(WithTypeOf(Problem, Key), Level)
 end
 
 local function KindFailure(Numbers: number, Strings: number, Level: number): Failure?
@@ -215,57 +233,56 @@ function Visit(Search: Search, Value: unknown, Level: number): Failure?
 	return ScalarFailure(Value, Level)
 end
 
-local function HeightBelow(Inner: unknown): number?
-	if type(Inner) == "table" then
-		return Vetted.HeightOf(Inner :: Tree)
-	end
-	if ScalarFailure(Inner, RootLevel) ~= nil then
-		return nil
-	end
-	return 0
+local function IsVettable(Held: Tree, Numbers: number, Strings: number, Height: number): boolean
+	return MetatableFailure(Held, RootLevel) == nil
+		and KindFailure(Numbers, Strings, RootLevel) == nil
+		and GapFailure(Held, Numbers, RootLevel) == nil
+		and Fits(RootLevel, Height)
 end
 
-local function VetFrozen(Held: Tree): ()
-	if MetatableFailure(Held, RootLevel) ~= nil then
-		return
-	end
-	if VisitKeys(Held, RootLevel) ~= nil then
-		return
-	end
-
+local function Freeze(Held: Tree, Seen: { [unknown]: boolean }): ()
+	Seen[Held] = true
+	local IsStorable = true
+	local Numbers = 0
+	local Strings = 0
 	local Height = 0
 	local Count = 0
-	for _, Inner in Held do
-		local Below = HeightBelow(Inner)
-		if Below == nil then
-			return
-		end
+	for Key, Inner in Held do
 		Count += 1
-		Height = math.max(Height, Below + 1)
-	end
-	if Fits(RootLevel, Height) then
-		Vetted.Add(Held, Height, Count)
-	end
-end
+		if type(Key) == "number" then
+			Numbers += 1
+		else
+			Strings += 1
+		end
+		if KeyProblem(Key) ~= nil then
+			IsStorable = false
+		end
 
-local function Freeze(Value: unknown, Seen: { [unknown]: boolean }): ()
-	if type(Value) ~= "table" or Seen[Value] then
-		return
+		if type(Inner) == "table" then
+			local Child = Inner :: Tree
+			if not Seen[Child] and not Vetted.IsVetted(Child) then
+				Freeze(Child, Seen)
+			end
+			local Below = Vetted.HeightOf(Child)
+			if Below == nil then
+				IsStorable = false
+			else
+				Height = math.max(Height, Below + 1)
+			end
+		elseif ScalarProblem(Inner) == nil then
+			Height = math.max(Height, ScalarHeight + 1)
+		else
+			IsStorable = false
+		end
 	end
-	Seen[Value] = true
 
-	local Held = Value :: Tree
-	if Vetted.IsVetted(Held) then
-		return
-	end
-	for _, Inner in Held do
-		Freeze(Inner, Seen)
-	end
 	if table.isfrozen(Held) then
 		return
 	end
 	table.freeze(Held)
-	VetFrozen(Held)
+	if IsStorable and IsVettable(Held, Numbers, Strings, Height) then
+		Vetted.Add(Held, Height, Count)
+	end
 end
 
 local function TextOf(Search: Search, Failure: Failure, Where: string): string
@@ -282,7 +299,10 @@ local function Check(Value: unknown, Where: string): string?
 end
 
 local function DeepFreeze(Value: unknown): ()
-	Freeze(Value, {})
+	if type(Value) ~= "table" or Vetted.IsVetted(Value :: Tree) then
+		return
+	end
+	Freeze(Value :: Tree, {})
 end
 
 return {

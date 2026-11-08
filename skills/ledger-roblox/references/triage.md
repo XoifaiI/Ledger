@@ -263,9 +263,9 @@ tool wait for one of those. `Refresh` after anything that changed the player out
 ## The reducer behaves differently in Studio
 
 Studio freezes the reducer's inputs, runs it three times per call, and warns when the runs differ or
-when it doesn't refuse an unknown kind. None of that happens live, so the same reducer is silently
-wrong there. Fix what Studio names: a change to the input (D9), something impure (D10), a fall-through
-(D8).
+when it doesn't refuse an unknown kind. Live, only the tables inside `Data` are frozen, so a change to
+one is `Refused`, while an impure reducer or a fall-through is silently wrong. Fix what Studio names:
+a change to the input (D9), something impure (D10), a fall-through (D8).
 
 ## Nothing here fits
 

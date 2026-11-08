@@ -183,7 +183,7 @@ local function Issue(State: ServerState, Setup: Setup, Out: ReadOut, RequestId: 
 		local Get: Command = { Kind = "Get", RequestId = RequestId, Target = Out.Key }
 		table.insert(Commands, Get)
 	else
-		local Update: Command = { Kind = "Update", RequestId = RequestId, Target = Out.Key, Request = Request }
+		local Update: Command = Cache.UpdateCommand(State, RequestId, Out.Key, Request)
 		table.insert(Commands, Update)
 	end
 	return { Kind = "Reading", Out = Out }

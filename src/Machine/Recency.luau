@@ -10,9 +10,8 @@
 	number of texts held, kept as they come and go.
 
 	An owner adds its new text before it lets the oldest go (Count passes its cap by one, then comes back). A Luau map
-	whose live keys peak at a power of two, such as a cap of 4,096, rehashes on every insert that follows a removal:
-	measured 95 us an insert at 4,096 keys against 0.1 us at 4,097 (luau 0.741 --codegen -O2), so the order of the two
-	steps is kept in every owner.
+	whose live keys peak at a power of two, such as a cap of 4,096, rehashes on every insert that follows a removal,
+	so the order of the two steps is kept in every owner.
 
 	Return type: A plain table of functions, and the Recency and Link types.
 	Example usage:

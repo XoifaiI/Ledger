@@ -143,11 +143,11 @@ local function MeetNothing(Creator: SentOp?, Setup: Setup): Opened
 	return Create(Setup, Creator)
 end
 
-local function DecodeStored(Stored: unknown, Setup: Setup): Decoded?
+local function DecodeStored(Stored: unknown, Setup: Setup, Candidate: Fields?): Decoded?
 	if Stored == nil then
 		return nil
 	end
-	return Value.DecodeStored(Stored, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding)
+	return Value.DecodeStored(Stored, Setup.Build, Setup.Limits.WindowUnit, Setup.Encoding, Candidate)
 end
 
 local function OpenToProve(Held: Decoded?, Clock: number, Limits: Limits): Opened
@@ -166,8 +166,15 @@ local function OpenToStamp(Held: Decoded?, Stamp: SealStampRequest, Clock: numbe
 	return { Kind = "Seal", Seal = Stamped, Report = Report }
 end
 
-local function OpenKey(Stored: unknown, Request: Request, Setup: Setup, Closure: Closure, Clock: number): Opened
-	local Held = DecodeStored(Stored, Setup)
+local function OpenKey(
+	Stored: unknown,
+	Request: Request,
+	Setup: Setup,
+	Closure: Closure,
+	Clock: number,
+	Candidate: Fields?
+): Opened
+	local Held = DecodeStored(Stored, Setup, Candidate)
 	if Request.Kind == "ProveGone" then
 		return OpenToProve(Held, Clock, Setup.Limits)
 	end

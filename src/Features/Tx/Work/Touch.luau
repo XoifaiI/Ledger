@@ -241,12 +241,8 @@ local function TouchItem(State: State, For: WorkWaiter, Key: StoreKey, Item: Mar
 end
 
 local function SendEnds(State: State, Key: StoreKey, Request: Request, Purpose: Purpose, Commands: { Command })
-	local Update: Command = {
-		Kind = "Update",
-		RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose),
-		Target = Key,
-		Request = Request,
-	}
+	local RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose)
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Key, Request)
 	table.insert(Commands, Update)
 end
 

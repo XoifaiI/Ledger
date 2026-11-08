@@ -1,21 +1,18 @@
 --!strict
 --!optimize 2
+--!native
 
 --[=[
 	StorableChange: the storable check of a state a reducer returned, made against the vetted table it came from so
-	that only what changed is walked. It applies Storable's rules and gives the problem Storable's full walk gives,
-	with the same path.
+	that only what changed is walked. It gives the problem Storable's full walk gives, with the same path.
 
 	A value equal to one of a vetted table's values is that same checked value. The old table is trusted only when
-	it is vetted, never the reducer's input, which the reducer may change during its run unless it was vetted before.
-	The check freezes nothing: it records each table's height, key count and JSON size in NewTables, and VetMade
-	vets those tables once the whole result has passed.
+	it is vetted, never the reducer's input, which the reducer may change during its run. The check freezes nothing:
+	VetMade vets the tables it recorded once the whole result has passed.
 
 	Return type: A table with Check, VetMade, VetSubsetOf and TrustedOld, and the NewTables type.
 	Example usage:
-		local NewTables: StorableChange.NewTables = {}
 		local Problem = StorableChange.Check(Result, Old, "the state", NewTables)
-		if Problem == nil then StorableChange.VetMade(NewTables) end
 --]=]
 
 local Json = require("../Encoding/Json")

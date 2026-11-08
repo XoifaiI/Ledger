@@ -104,7 +104,7 @@ local function DropPastDeadline(
 			table.insert(KeptQueue, Op)
 		end
 	end
-	Writer.Queue = KeptQueue
+	Writers.KeepQueue(Writer, KeptQueue)
 	local KeptWaiting = {}
 	for _, Waiting in Writer.Waiting do
 		if IsWaitingPastDeadline(Writer, Waiting, Clock, Limits) then

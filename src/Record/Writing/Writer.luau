@@ -6,7 +6,8 @@
 
 	An op that finds SequenceMax passed waits unnumbered until every fate is heard and the writer holds a new
 	number. Cut ops are never queued. A sent op is never shed: Busy means nothing was sent. Answering answers an op's
-	call.
+	call. DurableInQueue counts the queue's durable ops, heard or not, so a walk for durable ops can skip a queue of
+	hopeful ones: only NewWriter, Enqueue, PruneHeard and KeepQueue change the queue, and an op's form never changes.
 
 	Return type: A plain table of functions, and the JoinOutcome type.
 	Example usage:
@@ -38,6 +39,7 @@ type WriterState = Shapes.WriterState
 type ServerState = Shapes.ServerState
 
 local SequenceOf = OpForms.SequenceOf
+local IsDurable = OpForms.IsDurable
 
 export type JoinOutcome =
 	{ read Kind: "Numbered", read Sequence: number }
@@ -92,6 +94,7 @@ local function NewWriter(State: ServerState, Key: StoreKey): WriterState
 		FinalWaitsRetry = false,
 		QueuedHopefulBytes = 0,
 		QueuedHopeful = 0,
+		DurableInQueue = 0,
 		FirstSequence = Start.NextSequence,
 		NotTook = {},
 		MintedByCall = {},
@@ -146,6 +149,28 @@ local function NumberedOp(Waiting: WaitingOp, Sequence: number): Op
 	return Numbered
 end
 
+local function DurableIn(Ops: { Op }, First: number, Last: number): number
+	local Count = 0
+	for Index = First, Last do
+		if IsDurable(Ops[Index].Form) then
+			Count += 1
+		end
+	end
+	return Count
+end
+
+local function Enqueue(Writer: WriterState, Queued: Op): ()
+	table.insert(Writer.Queue, Queued)
+	if IsDurable(Queued.Form) then
+		Writer.DurableInQueue += 1
+	end
+end
+
+local function KeepQueue(Writer: WriterState, Kept: { Op }): ()
+	Writer.Queue = Kept
+	Writer.DurableInQueue = DurableIn(Kept, 1, #Kept)
+end
+
 local function UnheardCount(Writer: WriterState): number
 	local Count = #Writer.Waiting
 	for _, Op in Writer.Queue do
@@ -184,7 +209,7 @@ local function Join(Writer: WriterState, Waiting: WaitingOp, Limits: Limits): Jo
 		return FirstWaitingOutcome
 	end
 	local Sequence = Writer.NextSequence
-	table.insert(Writer.Queue, NumberedOp(Waiting, Sequence))
+	Enqueue(Writer, NumberedOp(Waiting, Sequence))
 	Writer.NextSequence += 1
 	return { Kind = "Numbered", Sequence = Sequence }
 end
@@ -257,6 +282,7 @@ local function PruneHeard(Writer: WriterState, Clock: number)
 	while Heard < #Queue and SequenceOf(Queue[Heard + 1].Form) <= Acknowledged do
 		Heard += 1
 	end
+	Writer.DurableInQueue -= DurableIn(Queue, 1, Heard)
 	Writer.Queue = if Heard == 0 then Queue else table.move(Queue, Heard + 1, #Queue, 1, {})
 	local IsIdle = #Writer.Queue == 0 and #Writer.Waiting == 0 and Writer.Out == nil and Writer.Final == nil
 	if not IsIdle then
@@ -282,7 +308,7 @@ local function Renumber(Writer: WriterState)
 			Writer.MintedByCall[Waiting.CallId] =
 				{ Kind = "Minted", WriterId = Writer.WriterId, Sequence = Writer.NextSequence }
 		end
-		table.insert(Writer.Queue, NumberedOp(Waiting, Writer.NextSequence))
+		Enqueue(Writer, NumberedOp(Waiting, Writer.NextSequence))
 		Writer.NextSequence += 1
 	end
 	Writer.Waiting = {}
@@ -357,6 +383,7 @@ return {
 	HasUnheardOf = HasUnheardOf,
 	AckOf = AckOf,
 	PruneHeard = PruneHeard,
+	KeepQueue = KeepQueue,
 	MarkHeard = MarkHeard,
 	NoteNotTook = NoteNotTook,
 	NoteTurnedAway = NoteTurnedAway,

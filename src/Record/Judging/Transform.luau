@@ -6,10 +6,12 @@
 
 	A request that decides and changes nothing cancels; a tidy lands only if age dropped an item. On a part,
 	holds expire before the guards, an open on a held key cancels as took, and a drained final part seals (H4).
+	Candidate, given with the request, is the state this server last landed or loaded for the key; a stored game
+	state of the same content is read as it. The transform keeps nothing: what landed goes back in the note.
 
 	Return type: A plain table with Step, and the Output type.
 	Example usage:
-		local Output, Note = Transform.Step(Stored, Request, Clock, Setup, Closure, "Game")
+		local Output, Note = Transform.Step(Stored, Request, Clock, Setup, Closure, "Game", Candidate)
 --]=]
 
 local Book = require("../Stored/Book")
@@ -45,6 +47,7 @@ type Run = JudgingRun.Run
 type Book = Book.Book
 type Shown = Notes.Shown
 type Ending = Notes.Ending
+type Fields = { [unknown]: unknown }
 
 export type Output = Notes.Output
 
@@ -203,10 +206,11 @@ local function Step(
 	Clock: number,
 	StoreSetup: Setup,
 	Closure: Closure,
-	Kind: KeyKind
+	Kind: KeyKind,
+	Candidate: Fields?
 ): (Output, Note)
 	local Setup = KindSetup.SetupFor(StoreSetup, Kind)
-	local Opened = OpenKey(Stored, Request, Setup, Closure, Clock)
+	local Opened = OpenKey(Stored, Request, Setup, Closure, Clock, Candidate)
 	if Opened.Kind == "Seal" then
 		local Proving: Ending = { Reports = {}, ProbeReport = Opened.Report, Warnings = {}, EndReports = {} }
 		return Notes.LandSeal(Opened.Seal, Setup, Closure, Proving)

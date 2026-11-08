@@ -162,12 +162,8 @@ local function SendFence(State: State, Help: Help, Blocker: number, Clock: numbe
 	local Fence = Decision.FenceFor(Help.Blockers[Blocker])
 	local Decider = DeciderKeyOf(Help, Help.Blockers[Blocker])
 	local Purpose: Purpose = { Kind = "HelpFence", HelpId = Help.Id, Blocker = Blocker, Key = Decider }
-	local Update: Command = {
-		Kind = "Update",
-		RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose),
-		Target = Decider,
-		Request = Ends.EndsRequest({ Fence }),
-	}
+	local RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose)
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Decider, Ends.EndsRequest({ Fence }))
 	table.insert(Commands, Update)
 end
 

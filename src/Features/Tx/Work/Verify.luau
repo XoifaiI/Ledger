@@ -219,12 +219,8 @@ local function SendProve(State: State, Verification: Verify, Leg: StoreKey, Cloc
 		return
 	end
 	local Purpose: Purpose = { Kind = "Prove", VerifyId = Verification.Id, Key = Leg }
-	local Update: Command = {
-		Kind = "Update",
-		RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose),
-		Target = Leg,
-		Request = ProveGoneRequest,
-	}
+	local RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose)
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Leg, ProveGoneRequest)
 	table.insert(Commands, Update)
 end
 
@@ -338,12 +334,8 @@ local function SendResolve(
 		DeciderValue = Pinned.DeciderValue,
 	}
 	local Purpose: Purpose = { Kind = "VerifyResolve", VerifyId = Verification.Id, Record = Record, Key = Leg }
-	local Update: Command = {
-		Kind = "Update",
-		RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose),
-		Target = Leg,
-		Request = Ends.EndsRequest({ Resolve }),
-	}
+	local RequestId = TxState.NewRequest(State.Server, State.Tx, Purpose)
+	local Update: Command = Cache.UpdateCommand(State.Server, RequestId, Leg, Ends.EndsRequest({ Resolve }))
 	table.insert(Commands, Update)
 end
 

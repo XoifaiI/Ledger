@@ -42,6 +42,9 @@ local WindowUnit = SecondsPerMinute
 local VarintDigitBase = 32
 local VarintLimit = 2 ^ 53
 
+local MinusByte = string.byte("-")
+local ZeroByte = string.byte("0")
+
 local TimedRoom = 12288
 local UntimedRoom = 4096
 local WorkRoom = 8192
@@ -239,6 +242,8 @@ return table.freeze({
 	WindowUnit = WindowUnit,
 	VarintDigitBase = VarintDigitBase,
 	VarintLimit = VarintLimit,
+	MinusByte = MinusByte,
+	ZeroByte = ZeroByte,
 	TimedRoom = TimedRoom,
 	UntimedRoom = UntimedRoom,
 	WorkRoom = WorkRoom,

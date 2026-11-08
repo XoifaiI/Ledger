@@ -2,25 +2,29 @@
 --!optimize 2
 
 --[=[
-	Cache: the one owner of the server's key cache, HCache (record sheet 6), and of finding a key's store
-	and kind.
+	Cache: the one owner of the server's key cache, HCache (record sheet 6), and of finding a key's store and kind.
 
 	Its size is the server's, from its first Limits recorded (ServerLimits). A new entry in a full cache pushes out
 	the least recently used one, in the order CacheOrder keeps (Recency), once it is in (Recency says why), and hands
 	back its resumed writer, or nil. StoreOf and StoreNamed throw where FindStore gives nil. IsReachable: opened here,
-	and its MayReference holds the key; an unopened store never refuses one (CannotHold).
+	and its MayReference holds the key; an unopened store never refuses one (CannotHold). An entry's Candidate, a
+	game key's vetted state last loaded or heard to land, is written only here; UpdateCommand puts it in every write.
 
 	Return type: A plain table of functions.
 	Example usage:
 		local Entry, LostResumed = Cache.CacheEntry(State, Key)
 --]=]
 
+local Events = require("../../Machine/Events")
 local Names = require("../Encoding/Names")
 local Recency = require("../../Machine/Recency")
 local Record = require("../Constants/Record")
 local Shapes = require("../../Machine/Shapes")
+local Vetted = require("../Encoding/Vetted")
 
 type StoreKey = Names.StoreKey
+type UpdateCommand = Events.UpdateCommand
+type Request = Shapes.Request
 type CacheEntry = Shapes.CacheEntry
 type KeyKind = Shapes.KeyKind
 type Limits = Shapes.Limits
@@ -119,6 +123,43 @@ local function CacheEntry(State: ServerState, Key: StoreKey): (CacheEntry, Resum
 	return Created, EvictLeastRecentlyUsed(State)
 end
 
+local function CandidateOf(State: ServerState, Key: StoreKey): { [unknown]: unknown }?
+	local Entry = FindEntry(State, Key)
+	if Entry == nil then
+		return nil
+	end
+	return Entry.Candidate
+end
+
+local function UpdateCommand(State: ServerState, RequestId: number, Target: StoreKey, Request: Request): UpdateCommand
+	return {
+		Kind = "Update",
+		RequestId = RequestId,
+		Target = Target,
+		Request = Request,
+		Candidate = CandidateOf(State, Target),
+	}
+end
+
+local function KeepCandidate(State: ServerState, Key: StoreKey, Candidate: { [unknown]: unknown }): ()
+	local Entry = FindEntry(State, Key)
+	if Entry == nil then
+		return
+	end
+	if KindOfKey(Key) == KeyKinds.Game and Vetted.IsVetted(Candidate) then
+		Entry.Candidate = Candidate
+	else
+		Entry.Candidate = nil
+	end
+end
+
+local function ForgetCandidate(State: ServerState, Text: string): ()
+	local Entry = State.Caches[Text]
+	if Entry ~= nil then
+		Entry.Candidate = nil
+	end
+end
+
 return {
 	KindOfKey = KindOfKey,
 	FindStore = FindStore,
@@ -129,4 +170,7 @@ return {
 	ServerLimits = ServerLimits,
 	FindEntry = FindEntry,
 	CacheEntry = CacheEntry,
+	UpdateCommand = UpdateCommand,
+	KeepCandidate = KeepCandidate,
+	ForgetCandidate = ForgetCandidate,
 }
