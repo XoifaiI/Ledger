@@ -30,20 +30,25 @@ DataStore2 or a raw DataStore, and telling someone to handle `Unresolved` when t
 reasons wastes their time.
 
 Two exceptions. Someone **deciding whether to adopt Ledger** gets an honest answer: server only, no
-client replication, no queries across keys, no history of old versions, and it won't hide a reducer
-that is wrong. And a question in a Ledger project that **isn't about Ledger** is just a question.
+client replication, no queries across keys, no history of its own (only the versions Roblox keeps
+for 30 days), and it won't hide a reducer that is wrong. And a question in a Ledger project that
+**isn't about Ledger** is just a question.
 
 **Is this the Ledger library itself?** A tree holding `src/Roblox/Runner.luau` (or `src/Shell/Runner.luau`) together with
 `internal/` and `spec/` is Ledger's own source. Stop and follow its own briefs. This skill assumes
 you may not change the library.
 
-**Which version?** This file is pinned to **Ledger 7.0.0**. Find theirs: the `xoifaii/ledger` line in
+**Which version?** This file is pinned to **Ledger 7.3.1**. Find theirs: the `xoifaii/ledger` line in
 `wally.toml`, then `@xoifail/ledger` in `package.json`. There is no `Ledger.Version`, and a `.rbxm`
 install has nothing to read, so ask once if it matters.
 
 Then act on it, rather than only noting it:
 
-- **7.0.x.** Answer normally.
+- **7.3.1.** Answer normally.
+- **7.0.0 to 7.3.0.** Answer normally, with two cautions. Read `releases` in the bundle for what
+  changed after their version before stating a number or a behaviour. And their source has other
+  folder names, since the layout changed in 7.1.0 and again in 7.3.1: find a file by its name
+  (`references/verify.md` lists the older folders).
 - **6.x or older.** Signs: `:Wait()` on answers, `Transfer`, `Reserve`, `Once =`, `Apply(Kind,
   Fields)`, the reason `Held`. Nothing in this file applies to their calls. If they want to move to 7,
   follow `references/migrate-v6.md`. Otherwise say this skill is for 7 and work from their source.
@@ -57,7 +62,7 @@ Then act on it, rather than only noting it:
 Three copies, in the order to reach for them. Don't assume the later ones are available.
 
 1. **`references/docs-bundle.md`**, beside this file. The whole documentation in one file, about
-   4,000 lines. It's here because it is the only copy always readable: a game installed from a
+   5,700 lines. It's here because it is the only copy always readable: a game installed from a
    `.rbxm` has no source tree, and an agent may have no web access. Search it first.
 2. **The library source**, when the install left it on disk: `Packages/Ledger/` or
    `Packages/_Index/xoifaii_ledger@*/ledger/` (Wally), `node_modules/@xoifail/ledger/` (npm), or a
@@ -288,5 +293,7 @@ Say it once, plainly, then do the work asked. Don't repeat it and don't moralise
 
 ## What this is checked against
 
-Ledger 7.0.0 and its documentation, on 2026-10-10. Every claim here can be checked in under a minute
-with `references/verify.md`. If a check fails, the source is right and this file is stale: say so.
+Ledger 7.3.1 and its documentation. The version pin, the source paths, the method list, the named
+constants and the warning texts were checked against 7.3.1 on 2026-11-09. The rest was last checked
+against 7.0.0 on 2026-10-10. Every claim here can be checked in under a minute with
+`references/verify.md`. If a check fails, the source is right and this file is stale: say so.

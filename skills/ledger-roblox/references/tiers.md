@@ -1,8 +1,9 @@
 # What each call touches, and what it costs
 
 The table in `SKILL.md` is the short form. This is the same with costs and the path behind each row, so
-it can be checked rather than believed. Paths are inside the library's `src`. Costs are Roblox requests
-with no contention and no faults, measured on 7.0.0: `read` is a `GetAsync`, `write` an `UpdateAsync`.
+it can be checked rather than believed. Paths are inside the library's `src`, in 7.3.1's folders
+(`verify.md` lists the older ones). Costs are Roblox requests with no contention and no faults,
+measured on 7.0.0: `read` is a `GetAsync`, `write` an `UpdateAsync`.
 The server's budget is 60 + 40 per player of each kind a minute; a key takes about 4 MB of writes and
 25 MB of reads a minute.
 
@@ -22,7 +23,7 @@ queued `Apply`s laid on top. It is not the saved data.
 `Session:Apply` sends nothing. It judges the op on the view with the game's reducer and queues it. The
 next save (every `SaveInterval`, 30 s, while ops are queued, one write however many) judges it again on
 the saved data, and can turn it away. A `Flush`, `Commit`, `Release`, `Unload` or the close also carries
-the queue. `DataStore/Session.luau`, `Api/Session.luau`.
+the queue. `Keys/DataStore/Session.luau`, `Api/Session.luau`.
 
 The queue holds 4,096 ops or 1.5 MiB; past that `Apply` answers `Backlog`. A crash before a save loses
 the queue with no fate.
@@ -45,8 +46,8 @@ the queue with no fate.
 Every read that finds unfinished trade work on a key notes it, and this server comes back to end that
 work: from 10 s on for a session's load or idle read, staggered up to about 30 minutes (`TouchBound`,
 1,878 s) otherwise. Ending it costs writes and applies decided legs, aborts undecided ones, and returns
-escrow. So a read can cause money to move, later, on this server. `DataStore/Numbers.luau`
-(`LearnWorkAndGate`), `Trades/Work/Touch.luau`, `Constants/Transaction.luau`.
+escrow. So a read can cause money to move, later, on this server. `Keys/DataStore/Numbers.luau`
+(`LearnWorkAndGate`), `Features/Trades/Work/Touch.luau`, `Keys/Constants/Transaction.luau`.
 
 Beside an undecided mark from a server that died, `Peek` and `Inspect` answer `Unresolved` on every
 server until a touch ends it, up to about 30 minutes. `Load` doesn't wait that long: it acts on such a
@@ -57,7 +58,7 @@ Reads answer `Unresolved` after 30 s (`OpBound`) when the DataStore doesn't answ
 ## Reads through the shared copy
 
 `Peek(Key, MaxAge)` and `Follow(Key)` read a copy of the key kept in MemoryStore, shared by every
-server. `Extras/Copies/`.
+server. `Features/Reads/Copies/`.
 
 | Case | Cost |
 |---|---|
@@ -93,8 +94,8 @@ once before it learns. A copy expires an hour after it was last written.
 | Server start | 1 write on `Ledger$N` | draws the server's number |
 
 An unnamed write that answers `Unresolved` stays in this server's writer, which sends it again about
-every 16 s for the server's life (`DataStore/Writer.luau`, `DataStore/Sending.luau`). A `Tx` that answers
-`Unresolved` is driven by its sender with no time bound while the sender lives (`Tx/Call/`). After a
+every 16 s for the server's life (`Keys/DataStore/Writer.luau`, `Keys/DataStore/Sending.luau`). A `Tx` that answers
+`Unresolved` is driven by its sender with no time bound while the sender lives (`Features/Trades/Call/`). After a
 long outage (past about 180 s), if other writes to the key drop names stamped after the op's first send,
 the op can end without landing: a session op then gets the `Unknown` fate, and an unnamed `Edit` is
 dropped with no signal. For changes the game can't lose, keep a record in the data.
@@ -103,23 +104,23 @@ A game-op leg of a `Tx` that isn't the decider takes an **exclusive mark** on it
 game ops until the trade ends. A balance leg only escrows its amount, so credits and covered debits on
 the key go on beside it. A key holds at most 16 marks; the 17th leg answers `NoRoom`. The decider is
 the only game-op leg if there's exactly one, else the first Credit leg, else the last
-(`Trades/Call/Terms.luau`, `ChooseDecider`).
+(`Features/Trades/Call/Terms.luau`, `ChooseDecider`).
 
 ## The bottom rows
 
 - **`Quantity:Open`** writes every part, every call, even when they exist: `Parts` writes. Once per
   quantity, ever. After `Close` it makes the stock again; `Closed = true` in the declaration makes it
-  throw in this build. `Quantity/Calls/Open.luau`.
+  throw in this build. `Features/Quantity/Calls/Open.luau`.
 - **`Quantity:Close`** writes every part and removes those that are empty and more than 62 minutes past
   the first `Open` (`SealAge`): `Parts` writes plus one `RemoveAsync` per removed part. Safe from many
   servers and again later. A removed part reads `Missing`, the same as never opened.
-  `Quantity/Calls/Close.luau`, `Constants/Cuts.luau`.
+  `Features/Quantity/Calls/Close.luau`, `Keys/Constants/Cuts.luau`.
 - **`Reset`** ends the key's trade work first, then replaces the state with `Default` or a given `State`
   (newest shape, at most 1 MiB, never migrated), and names every non-zero balance field it replaced in
-  the key's `Losses` for 7 days. 1 write, plus 2 per decider when marks stand. `Cuts/`.
+  the key's `Losses` for 7 days. 1 write, plus 2 per decider when marks stand. `Features/Resets/`.
 - **`Erase`** ends the key's trade work, seals the key, then removes it with `RemoveAsync`. The destroyed
   balances come in `Cut.Losses` of the first answer only. About 200 s at worst. Roblox keeps the older
-  versions 30 days; Ledger doesn't remove them. `Cuts/`.
+  versions 30 days; Ledger doesn't remove them. `Features/Resets/`.
 - **`Reset` and `Erase` names** are `Ledger.Id()` names or none. A server answers `Expired` for its own
   name once it's `CutWindow` (360 s) old, and sends nothing.
 - **`Store:Destroy`** releases every session on the store (up to 25 s), ends its observers, and the name
@@ -129,9 +130,9 @@ the only game-op leg if there's exactly one, else the first Credit leg, else the
 ## Reading this against the source
 
 ```
-grep -n "SettleAge\|TouchBound" Constants/Transaction.luau
-grep -n "OpBound\|MarkCap\|QueueRoomOps" Constants/Record.luau
-grep -n "local function ChooseDecider" -A25 Tx/Call/Terms.luau
+grep -n "SettleAge\|TouchBound" Keys/Constants/Transaction.luau
+grep -n "OpBound\|MarkCap\|QueueRoomOps" Keys/Constants/Record.luau
+grep -n "local function ChooseDecider" -A25 Features/Trades/Call/Terms.luau
 grep -rn "WorkSeen\[" .
 ```
 

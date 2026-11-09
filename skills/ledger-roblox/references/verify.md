@@ -24,23 +24,37 @@ Paths below are relative to that folder.
 |---|---|
 | every public function on `Ledger` | `init.luau` (the `return` at the foot) |
 | every method on a store, session, quantity and key pager, with exact types | `Types.luau` |
-| the 15 reasons | `Constants/Reasons.luau` |
-| name rooms, the state cap, the epoch, answer bounds, queue sizes, mark caps | `Constants/Record.luau` |
-| every setting's default and allowed range | `Constants/Settable.luau` |
-| settle age, touch bound, orphan age | `Constants/Transaction.luau` |
-| copies, `Follow` ticks, totals' shards | `Constants/Extras.luau` |
-| quantities: holds, walk tries | `Constants/Hot.luau` |
-| `Reset`/`Erase` bounds, when `Close` removes parts | `Constants/Cuts.luau` |
+| the 15 reasons | `Keys/Constants/Reasons.luau` |
+| name rooms, the state cap, the epoch, answer bounds, queue sizes, mark caps | `Keys/Constants/Record.luau` |
+| every setting's default and allowed range | `Keys/Constants/Settable.luau` |
+| settle age, touch bound, orphan age | `Keys/Constants/Transaction.luau` |
+| copies, `Follow` ticks, totals' shards | `Keys/Constants/Extras.luau` |
+| quantities: holds, walk tries | `Keys/Constants/Hot.luau` |
+| `Reset`/`Erase` bounds, when `Close` removes parts | `Keys/Constants/Cuts.luau` |
 | every throw's message, and what makes each call throw | `Api/Validate/Args.luau`, `Setup.luau`, `Cross.luau`, `Keys.luau`, `Legs.luau`, `Quantity.luau` |
 | which `Info` fields each answer fills | `Api/Answers.luau` |
-| which leg decides a `Tx` | `Trades/Call/Terms.luau` (`ChooseDecider`) |
-| what Studio checks in the reducer, frozen inputs, undeclared fields | `Ops/Guards.luau`, `Roblox/Setup.luau` |
+| which leg decides a `Tx` | `Features/Trades/Call/Terms.luau` (`ChooseDecider`) |
+| what Studio checks in the reducer, frozen inputs, undeclared fields | `Keys/Ops/Guards.luau`, `Roblox/Setup.luau` |
 | the `Mock` option and its errors | `Roblox/Services.luau` |
-| the close, `BeforeClose`, the 25 s deadline | `Roblox/Runner.luau`, `DataStore/Closing.luau` |
-| `Unreadable` and its warnings | `DataStore/Unreadable.luau` |
+| the close, `BeforeClose`, the 25 s deadline | `Roblox/Runner.luau`, `Keys/DataStore/Closing.luau` |
+| `Unreadable` and its warnings | `Keys/DataStore/Unreadable.luau` |
 | a failed Roblox request (every error is one failure, never read) | `Roblox/Services.luau` |
-| when a read ends a dead server's trade work | `Trades/Work/Touch.luau` |
+| when a read ends a dead server's trade work | `Features/Trades/Work/Touch.luau` |
 | store calls, session calls, quantity calls | `Api/Store.luau`, `Api/Sessions.luau`, `Api/Session.luau`, `Api/Quantity.luau` |
+
+These are 7.3.1's folders. Earlier 7.x releases hold the same files under other folders, so on one of
+them find a file by its name:
+
+| 7.3.1 | 7.1.0 to 7.3.0 | 7.0.x |
+|---|---|---|
+| `Keys/Constants/` | `Record/Constants/` | `Constants/` |
+| `Keys/DataStore/` | `Record/Reading/`, `Record/Writing/`, `Record/Sessions/` | `Reading/`, `Writing/`, `Sessions/` |
+| `Keys/Ops/` | `Record/Judging/` | `Judging/` |
+| `Features/Trades/` | `Features/Tx/` | `Tx/` |
+| `Features/Quantity/` | `Features/Hot/` | `Hot/` |
+| `Features/Resets/` | `Features/Cuts/` | `Cuts/` |
+| `Features/Reads/` | `Features/Extras/` | `Extras/` |
+| `Roblox/` | `Shell/` | `Shell/` |
 
 Every file opens with a header comment saying what it is and what's subtle about it. Read the header
 first; it is the only prose in the file.
@@ -48,8 +62,8 @@ first; it is the only prose in the file.
 ## Checking a number
 
 ```
-grep -n "TimedRoom\|UntimedRoom\|StateCap\|OpBound\|MarkCap" Constants/Record.luau
-grep -n "SaveInterval\|IdleReadInterval\|CutWindow\|OrphanAge\|HoldMax" -A3 Constants/Settable.luau
+grep -n "TimedRoom\|UntimedRoom\|StateCap\|OpBound\|MarkCap" Keys/Constants/Record.luau
+grep -n "SaveInterval\|IdleReadInterval\|CutWindow\|OrphanAge\|HoldMax" -A3 Keys/Constants/Settable.luau
 ```
 
 Read the value and the line beside it. Say which constant a number came from; don't convert it in your
@@ -63,8 +77,8 @@ The set of methods is closed. To be sure one exists before recommending it:
 grep -oE "^	[A-Z][A-Za-z]+: \(" Types.luau | grep -oE "[A-Z][A-Za-z]+" | sort -u
 ```
 
-That prints every method on a store, a session, a quantity and a key pager, and nothing else. On 7.0.0
-it prints 40 names. The module itself has `New`, `Now`, `Id`, `Tx`, `CloseAll`, `BeforeClose` and
+That prints every method on a store, a session, a quantity and a key pager, and nothing else. On 7.3.1
+it prints 42 names (7.0.0 printed 40, before `Versions` and `PeekVersion`). The module itself has `New`, `Now`, `Id`, `Tx`, `CloseAll`, `BeforeClose` and
 `Reason`, and nothing more: there is no `Ledger.Version`, `Ledger.Credit`, `Ledger.Debit`, `Transfer`,
 `Reserve` or `Once`. Anything not printed doesn't exist, however plausible it sounds.
 
@@ -167,5 +181,5 @@ this and tell me what it prints" is a good answer. An invented number is not.
 
 ## Saying what you did
 
-State which of these you did. "Checked `Constants/Record.luau`" and "ran it on the mock" are different
+State which of these you did. "Checked `Keys/Constants/Record.luau`" and "ran it on the mock" are different
 levels of evidence from "I believe", and the developer deserves to know which one they got.
