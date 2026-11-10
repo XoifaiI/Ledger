@@ -3,7 +3,8 @@
 
 --[=[
 	Steps: what a walk sends for a part and under what name (sheet H3, H6). A step is a one key op under sub name
-	x.p, or, with legs, a Tx of the part's take and the legs. A named take's fingerprint is its first step's.
+	x.p, or, with legs, a Tx of the part's take and the legs. A named take's fingerprint is its first step's. Under
+	a game name a step Tx is told the parts after its own in the walk's order, which it fences to answer for the name.
 
 	Return type: A plain table with HasLegs, NameAndStampOf, RememberGivenName, SendOpStep and SendTxStep.
 	Example usage:
@@ -129,6 +130,13 @@ local function SendOpStep(State: State, Walk: Walk, JoinedAt: number, Clock: num
 	return JoinPartOp(State, Key, Op, Walk.Call.Fraction, Clock, Commands)
 end
 
+local function LaterPartsOf(Walk: Walk): { number }
+	if Walk.Name.Kind ~= "Game" then
+		return {}
+	end
+	return table.move(Walk.Order, Walk.Step + 1, #Walk.Order, 1, {})
+end
+
 local function SendTxStep(
 	State: State,
 	Walk: Walk,
@@ -142,7 +150,8 @@ local function SendTxStep(
 	local Part = HotState.CurrentPart(Walk)
 	local Named = { Name = Names.WithPart(Walk.Name, Part), Stamp = Walk.Stamp }
 	HotState.AddTxStep(State.Hot, StepId, { Kind = "Walk", CallId = Call.CallId })
-	TxCalls.BeginSubStep(State, StepTxOf(Server, Call, Part, StepId), Named, JoinedAt, Clock, Commands)
+	local LaterParts = LaterPartsOf(Walk)
+	TxCalls.BeginSubStep(State, StepTxOf(Server, Call, Part, StepId), Named, LaterParts, JoinedAt, Clock, Commands)
 	return StepId
 end
 

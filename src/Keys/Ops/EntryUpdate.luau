@@ -4,7 +4,7 @@
 --[=[
 	EntryUpdate: the writer's entry of a run (record sheet 9, S.5). The numbers a run decided go into the
 	closure's Ran, and the writer's entry takes the run: its highest sequence, newest stamp and fates above
-	Acknowledged. No writer id changes no entry.
+	Acknowledged, and the looked-up fates of untimed ops at or below that sequence. No writer id changes no entry.
 
 	Return type: A plain table with MarkRan and UpdateEntry.
 	Example usage:
@@ -36,7 +36,7 @@ local function IsHigherSequence(Left: WriterFate, Right: WriterFate): boolean
 	return Left.Sequence > Right.Sequence
 end
 
-local function KeptFates(Run: Run, Entry: WriterEntry?): { WriterFate }
+local function KeptFates(Run: Run, Entry: WriterEntry?, Highest: number): { WriterFate }
 	local Acknowledged = Run.Request.Acknowledged
 	local Fates: { WriterFate } = {}
 	if Entry ~= nil then
@@ -48,6 +48,11 @@ local function KeptFates(Run: Run, Entry: WriterEntry?): { WriterFate }
 	end
 	for _, Fate in Run.NewFates do
 		if Fate.Sequence > Acknowledged then
+			table.insert(Fates, Fate)
+		end
+	end
+	for _, Fate in Run.LookedUpFates do
+		if Fate.Sequence > Acknowledged and Fate.Sequence <= Highest then
 			table.insert(Fates, Fate)
 		end
 	end
@@ -90,12 +95,13 @@ local function UpdateEntry(Run: Run)
 		return
 	end
 	if Entry == nil then
+		local Highest = LastDecided(Run)
 		local Made: WriterEntry = {
 			Kind = "Writer",
 			WriterId = Owner,
-			Highest = LastDecided(Run),
+			Highest = Highest,
 			Newest = NewestStamp(Run),
-			Fates = KeptFates(Run, nil),
+			Fates = KeptFates(Run, nil, Highest),
 		}
 		table.insert(Run.Book.Timed, Made)
 		Run.Written[Made] = true
@@ -105,7 +111,7 @@ local function UpdateEntry(Run: Run)
 		Entry.Highest = LastDecided(Run)
 		Entry.Newest = math.max(Entry.Newest, NewestStamp(Run))
 	end
-	Entry.Fates = KeptFates(Run, Entry)
+	Entry.Fates = KeptFates(Run, Entry, Entry.Highest)
 	Run.Written[Entry] = true
 end
 

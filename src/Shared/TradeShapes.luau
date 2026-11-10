@@ -96,6 +96,7 @@ export type TxReport =
 	| { read Kind: "Done" }
 	| { read Kind: "Proved", read RemovalStamp: number, read Sealer: number }
 	| { read Kind: "Exists" }
+	| { read Kind: "Served", read Part: number }
 
 export type Carrier =
 	{ read Kind: "Writer", read Key: StoreKey }

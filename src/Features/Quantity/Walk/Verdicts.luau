@@ -4,7 +4,8 @@
 --[=[
 	Verdicts: what a walk's step, fence or step Tx report means for its call (sheet H6): took, a part's refusal or a
 	fence, either of which moves the walk on, or an answer. Reports reads a live walk's reports with it, Outcomes a
-	report heard after the walk answered, so both read them one way.
+	report heard after the walk answered, so both read them one way. A step Tx that a sibling's took served names
+	that part.
 
 	Return type: A plain table with StepVerdict, FenceVerdict and TxStepVerdict, and the Verdict type.
 	Example usage:
@@ -24,7 +25,7 @@ type Reason = Reasons.Reason
 type Report = JudgingShapes.Report
 
 export type Verdict =
-	{ read Kind: "Took", read Fate: Fate }
+	{ read Kind: "Took", read Fate: Fate, read Part: number? }
 	| { read Kind: "Refused", read Reason: PartReason }
 	| { read Kind: "Fenced" }
 	| { read Kind: "Answers", read Given: Answer }
@@ -43,9 +44,9 @@ local function AnswersWith(Reason: Reason?): Verdict
 	return { Kind = "Answers", Given = { Kind = "Failed", Reason = Reason, State = nil } }
 end
 
-local function TookVerdict(Value: number?): Verdict
+local function TookVerdict(Value: number?, Part: number?): Verdict
 	local Fate: Fate = if Value ~= nil then { Kind = "TookWith", Value = Value } else { Kind = "Took" }
-	return { Kind = "Took", Fate = Fate }
+	return { Kind = "Took", Fate = Fate, Part = Part }
 end
 
 local function StepVerdict(Reason: Reason?, Report: Report): Verdict
@@ -54,7 +55,7 @@ local function StepVerdict(Reason: Reason?, Report: Report): Verdict
 	end
 	local Fate = Report.Fate
 	if Fate.Kind == "Took" or Fate.Kind == "TookWith" then
-		return { Kind = "Took", Fate = Fate }
+		return { Kind = "Took", Fate = Fate, Part = nil }
 	end
 	if Fate.Kind == "RefusedFor" then
 		return { Kind = "Refused", Reason = Fate.Reason }
@@ -115,7 +116,7 @@ end
 local function TxStepVerdict(Taken: StepAnswer.StepAnswer): Verdict
 	local Given = Taken.Given
 	if Given.Kind == "Succeeded" then
-		return TookVerdict(Taken.DeciderValue)
+		return TookVerdict(Taken.DeciderValue, Taken.TookPart)
 	end
 	local Refusal = Taken.DeciderFate
 	if Refusal ~= nil and Refusal.Kind == "RefusedFor" then

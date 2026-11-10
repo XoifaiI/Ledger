@@ -311,6 +311,13 @@ local function FollowTxStep(State: State, Walking: HotWalk, StepId: number)
 	HotState.AddTxStep(State.Hot, StepId, { Kind = "Walk", CallId = Walking.Call.CallId })
 end
 
+local function PartThatTook(Walking: HotWalk, ServedPart: number?): number
+	if ServedPart == nil then
+		return HotState.CurrentPart(Walking)
+	end
+	return ServedPart
+end
+
 local function OnTxStep(
 	State: State,
 	Walking: HotWalk,
@@ -320,7 +327,8 @@ local function OnTxStep(
 )
 	local Heard = Verdicts.TxStepVerdict(Taken)
 	if Heard.Kind == "Took" then
-		return EndWalk(State, Walking, TookAnswer(HotState.CurrentPart(Walking), Heard.Fate), Clock, Commands)
+		local Part = PartThatTook(Walking, Heard.Part)
+		return EndWalk(State, Walking, TookAnswer(Part, Heard.Fate), Clock, Commands)
 	end
 	if Heard.Kind == "Refused" then
 		NoteTry(State, Walking, Heard.Reason, KnownEntry(State, Walking), Clock)

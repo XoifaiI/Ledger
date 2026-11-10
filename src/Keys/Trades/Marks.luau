@@ -6,7 +6,8 @@
 	finding, counting, placing and removing them, and clean flags.
 
 	A pinned record is in P but not a mark; the WorkItem functions take either. MarksOf and PinnedOf leave the
-	fingerprint to the caller; IsOfUse and the Own lookups compare it.
+	fingerprint to the caller; IsOfUse and the Own lookups compare it. The Sibling lookups find another sub name of
+	the same game name, whatever its fingerprint, and give an entry of the asked fingerprint before any other.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -306,6 +307,62 @@ local function HasOtherEntry(Working: Book, Name: OpName): boolean
 	return false
 end
 
+local function IsSiblingPart(Held: number?, Name: OpName): boolean
+	return Held ~= nil and Name.Part ~= nil and Held ~= Name.Part
+end
+
+local function IsTookKind(Fate: Fate): boolean
+	return Fate.Kind == "Took"
+end
+
+local function IsRefusalKind(Fate: Fate): boolean
+	return Fate.Kind == "Refused" or Fate.Kind == "Full"
+end
+
+local function SiblingEntryWhere(Working: Book, Name: OpName, IsFate: (Fate: Fate) -> boolean): NamedEntry?
+	local Plain = PlainName(Name)
+	local Fingerprint = FingerprintOf(Name)
+	local OfAnotherFingerprint: NamedEntry? = nil
+	for _, Item in Working.Timed do
+		if
+			Item.Kind == "Named"
+			and IsFate(Item.Fate)
+			and IsSiblingPart(Item.Name.Part, Name)
+			and Lookup.IsSameName(Item.Name.Name, Plain)
+		then
+			if Item.Fingerprint == Fingerprint then
+				return Item
+			end
+			if OfAnotherFingerprint == nil then
+				OfAnotherFingerprint = Item
+			end
+		end
+	end
+	return OfAnotherFingerprint
+end
+
+local function SiblingTookEntryOf(Working: Book, Name: OpName): NamedEntry?
+	return SiblingEntryWhere(Working, Name, IsTookKind)
+end
+
+local function SiblingRefusalEntryOf(Working: Book, Name: OpName): NamedEntry?
+	return SiblingEntryWhere(Working, Name, IsRefusalKind)
+end
+
+local function SiblingMarkOf(Working: Book, Name: OpName): StandingMark?
+	local Plain = PlainName(Name)
+	for _, Item in Working.Work do
+		if
+			Item.Kind ~= "Pinned"
+			and IsSiblingPart(Item.Opening.Part, Name)
+			and Lookup.IsSameName(Item.Opening.Name, Plain)
+		then
+			return Item
+		end
+	end
+	return nil
+end
+
 local function IsForgotten(Working: Book, Name: OpName, Stamp: number): boolean
 	if Stamp > Working.Horizon then
 		return false
@@ -404,6 +461,9 @@ return {
 	RemoveNamed = RemoveNamed,
 	OwnEntryOf = OwnEntryOf,
 	HasOtherEntry = HasOtherEntry,
+	SiblingTookEntryOf = SiblingTookEntryOf,
+	SiblingRefusalEntryOf = SiblingRefusalEntryOf,
+	SiblingMarkOf = SiblingMarkOf,
 	IsForgotten = IsForgotten,
 	WriteFate = WriteFate,
 	WriteEndFate = WriteEndFate,

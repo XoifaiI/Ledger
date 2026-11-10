@@ -3,8 +3,9 @@
 
 --[=[
 	StepAnswer: what a step Tx call (BeginStep) hands its quantity call: its answer, or why it never began, its name
-	then, the decider's value and refusing fate, and its refused legs' keys. Taking it clears it and ends a finished
-	call; a Followed step hands on its next definite answer too. AbandonAtClose drops every Tx call not committing.
+	then, the part that took with its value (a sibling's, when the step was served), the decider's refusing fate, and
+	its refused legs' keys. Taking it clears it and ends a finished call; a Followed step hands on its next definite
+	answer too. AbandonAtClose drops every Tx call not committing.
 
 	Return type: A plain table with Take, Follow, IsOpen, IsDeliverable and AbandonAtClose, and the StepAnswer type.
 	Example usage:
@@ -27,6 +28,7 @@ type State = Composed.State
 export type StepAnswer = {
 	read Given: Events.Answer,
 	read Name: GivenName?,
+	read TookPart: number?,
 	read DeciderValue: number?,
 	read DeciderFate: Fate?,
 	read Refused: { [string]: boolean },
@@ -49,17 +51,17 @@ local function Take(State: State, CallId: number): StepAnswer?
 	if Failure ~= nil then
 		State.Tx.StepFailures[CallId] = nil
 		local Failed: Events.Answer = { Kind = "Failed", Reason = Failure, State = nil }
-		return { Given = Failed, Name = nil, DeciderValue = nil, DeciderFate = nil, Refused = {} }
+		return { Given = Failed, Name = nil, TookPart = nil, DeciderValue = nil, DeciderFate = nil, Refused = {} }
 	end
 	local Call = State.Tx.Calls[CallId]
 	if Call == nil or Call.Given == nil then
 		return nil
 	end
-	local Resolving = Call.Resolving
 	local Taken: StepAnswer = {
 		Given = Call.Given,
 		Name = Replies.GivenNameOf(Call.Name, Call.Stamp),
-		DeciderValue = if Resolving ~= nil then Resolving.DeciderValue else nil,
+		TookPart = Call.TookPart,
+		DeciderValue = Call.TookValue,
 		DeciderFate = Call.DeciderFate,
 		Refused = RefusedLegs(Call),
 	}

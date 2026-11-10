@@ -6,7 +6,8 @@
 
 	Removing an older mark of this use sets Acted, so the write lands though a later rule reports without writing. A
 	game leg's mark keeps its slot; past MarkMax it reports Large. A delta leg on a rejected balance reports Unreadable
-	(Balance).
+	(Balance). For a sub name of a game name the lookups also read its siblings: Served, a sibling's refusal, and a
+	delta leg is blocked by a sibling's mark. None of them writes.
 
 	Return type: A plain table with TentLookup, TentGate and JudgeTent.
 	Example usage:
@@ -14,6 +15,7 @@
 --]=]
 
 local Balances = require("./Balances")
+local Book = require("../Format/Book")
 local Decide = require("../Ops/Decide")
 local Entries = require("../Format/Entries")
 local Guards = require("../Ops/Guards")
@@ -21,13 +23,16 @@ local JudgingRun = require("../Ops/Run")
 local JudgingShapes = require("../../Shared/OpShapes")
 local Lookup = require("../Format/Lookup")
 local Marks = require("./Marks")
+local Names = require("../Encoding/Names")
 local Post = require("../Format/Post")
 local PostDiff = require("./PostDiff")
 local Shapes = require("../../Shared/Shapes")
 local TxShapes = require("../../Shared/TradeShapes")
 local Work = require("../Format/Items/Work")
 
+type Book = Book.Book
 type GameLeg = TxShapes.GameLeg
+type OpName = Names.OpName
 type TentForm = TxShapes.TentForm
 type Report = JudgingShapes.Report
 type Run = JudgingRun.Run
@@ -42,12 +47,45 @@ local LargeReport: Report = table.freeze({ Kind = "Large" :: "Large" })
 local SlotProbeValue = 1
 
 local ModuleName = "Tent"
+local SiblingWithoutPart =
+	`{ModuleName}: a sibling entry is of a sub name, so it has a part. The Marks lookup must give only such an entry`
 local DeltaNotDeclared =
 	`{ModuleName}: a delta leg's op kind is a balance op the build declares. This one is not, so the leg is wrong`
+
+local function IsSubNameOfGame(Name: OpName): boolean
+	return Name.Kind == "Game" and Name.Part ~= nil
+end
+
+local function ServedLookup(Working: Book, Name: OpName): Report?
+	local Served = Marks.SiblingTookEntryOf(Working, Name)
+	if Served == nil then
+		return nil
+	end
+	local Part = Served.Name.Part
+	if Part == nil then
+		error(SiblingWithoutPart)
+	end
+	if Served.Fingerprint ~= FingerprintOf(Name) then
+		return { Kind = "Other" }
+	end
+	return { Kind = "Served", Part = Part }
+end
+
+local function RefusalLookup(Working: Book, Name: OpName): Report?
+	local Refusal = Marks.SiblingRefusalEntryOf(Working, Name)
+	if Refusal == nil then
+		return nil
+	end
+	if Refusal.Fingerprint ~= FingerprintOf(Name) then
+		return { Kind = "Other" }
+	end
+	return { Kind = "Decided", Fate = Refusal.Fate }
+end
 
 local function TentLookup(Run: Run, Form: TentForm): Report?
 	local Working = Run.Book
 	local Name = Form.Name
+	local IsSub = IsSubNameOfGame(Name)
 	local Found = Marks.MarksOf(Working, Name)
 	for _, Item in Found do
 		if Item.Opening.Fingerprint ~= FingerprintOf(Name) then
@@ -65,6 +103,12 @@ local function TentLookup(Run: Run, Form: TentForm): Report?
 		Marks.RemoveWorkItem(Run, Own)
 		Run.Acted = true
 	end
+	if IsSub then
+		local Served = ServedLookup(Working, Name)
+		if Served ~= nil then
+			return Served
+		end
+	end
 	if Marks.HasOtherEntry(Working, Name) then
 		return { Kind = "Other" }
 	end
@@ -79,6 +123,12 @@ local function TentLookup(Run: Run, Form: TentForm): Report?
 			return { Kind = "Decided", Fate = Fate }
 		else
 			return { Kind = "Other" }
+		end
+	end
+	if IsSub then
+		local Refusal = RefusalLookup(Working, Name)
+		if Refusal ~= nil then
+			return Refusal
 		end
 	end
 	if Marks.PinnedOf(Working, Name) ~= nil or Lookup.HasUntimedOrCutName(Working, Name) then
@@ -102,6 +152,12 @@ local function PlaceLegMark(Run: Run, Op: SentOp, Form: TentForm, Item: Mark): R
 end
 
 local function JudgeDeltaLeg(Run: Run, Op: SentOp, Form: TentForm, Amount: unknown): Report
+	if IsSubNameOfGame(Form.Name) then
+		local Sibling = Marks.SiblingMarkOf(Run.Book, Form.Name)
+		if Sibling ~= nil then
+			return Marks.BlockedReport({ Sibling }, Run.Setup.Limits)
+		end
+	end
 	local Exclusive = Marks.ExclusiveOf(Run.Book)
 	if Exclusive ~= nil then
 		return Marks.BlockedReport({ Exclusive }, Run.Setup.Limits)

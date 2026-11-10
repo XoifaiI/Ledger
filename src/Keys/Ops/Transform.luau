@@ -88,6 +88,7 @@ local function NewRun(
 		Reports = {},
 		Decided = {},
 		NewFates = {},
+		LookedUpFates = {},
 		Written = {},
 		Warnings = {},
 		IsStopped = false,

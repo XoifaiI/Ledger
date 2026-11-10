@@ -161,7 +161,7 @@ local function IsFatesFull(Run: Run): boolean
 			end
 		end
 	end
-	return Kept + #Run.NewFates >= Run.Setup.Limits.FatesMax
+	return Kept + #Run.NewFates + #Run.LookedUpFates >= Run.Setup.Limits.FatesMax
 end
 
 local function RoomEpoch(Run: Run): number
@@ -298,6 +298,32 @@ local function LookupKey(Run: Run, Form: OpForm): Report?
 	return nil
 end
 
+local function LookedUpFateKind(Form: OpForm, Report: Report): WriterFateKind?
+	if Form.Kind ~= "Untimed" or Report.Kind ~= "Fated" then
+		return nil
+	end
+	return WriterFateKindOf(Report.Fate)
+end
+
+local function NoteLookedUpFateOrStop(Run: Run, Form: OpForm, NameReport: Report): Report?
+	local FateKind = LookedUpFateKind(Form, NameReport)
+	if FateKind == nil then
+		return nil
+	end
+	if IsFatesFull(Run) then
+		return StopWith(Run, { Kind = "Undecided" })
+	end
+	table.insert(Run.LookedUpFates, { Sequence = SequenceOf(Form), Kind = FateKind })
+	return nil
+end
+
+local function DecidedBefore(Run: Run, Form: OpForm): Report?
+	if HasSequence(Form) then
+		return Lookup.LookupWriter(Run, SequenceOf(Form))
+	end
+	return nil
+end
+
 local function GateReport(Run: Run, Form: OpForm): Report?
 	if Form.Kind == "Tent" then
 		return Tent.TentGate(Run)
@@ -333,10 +359,10 @@ local function JudgeOp(Run: Run, Op: SentOp, Epoch: number): Report
 	if IsOtherIncarnation(Run.Book, Op.Incarnation) then
 		return StopWith(Run, OtherIncarnationReport(Run.Book))
 	end
-	if HasSequence(Form) then
-		local DecidedBefore = Lookup.LookupWriter(Run, SequenceOf(Form))
-		if DecidedBefore ~= nil then
-			return DecidedBefore
+	if Form.Kind ~= "Timed" then
+		local EntryReport = DecidedBefore(Run, Form)
+		if EntryReport ~= nil then
+			return EntryReport
 		end
 	end
 	local Name = NameOf(Form)
@@ -345,10 +371,20 @@ local function JudgeOp(Run: Run, Op: SentOp, Epoch: number): Report
 	end
 	local KeyReport = LookupKey(Run, Form)
 	if KeyReport ~= nil then
+		local FateStopping = NoteLookedUpFateOrStop(Run, Form, KeyReport)
+		if FateStopping ~= nil then
+			return FateStopping
+		end
 		return KeyReport
 	end
 	if IsForgotten(Run, Op) then
 		return StopWith(Run, { Kind = "Forgotten" })
+	end
+	if Form.Kind == "Timed" then
+		local EntryReport = DecidedBefore(Run, Form)
+		if EntryReport ~= nil then
+			return EntryReport
+		end
 	end
 	if IsBehind(Run) then
 		return StopWith(Run, { Kind = "Behind" })

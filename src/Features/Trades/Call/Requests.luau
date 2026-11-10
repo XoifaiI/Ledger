@@ -3,8 +3,9 @@
 
 --[=[
 	Requests: a Tx call's requests, each with no writer (TX-NONE), their names, and what answers teach the call
-	(transaction sheets 4, 9 to 11, 15.1). An Unreadable report is an error, leaving the call clean unless caused by
-	Amounts; a stored Balance is never sent again. Only an Err may clear by sending again. A newer Ledger's key reports
+	(transaction sheets 4, 9 to 11, 15.1). A game named step's fence of a sibling sub name goes to that part's key,
+	found from the decider's. An Unreadable report is an error, leaving the call clean unless caused by Amounts; a
+	stored Balance is never sent again. Only an Err may clear by sending again. A newer Ledger's key reports
 	Behind. MayHaveRun marks a key where a send of the call's op erred or its last run decided the op. A run the
 	platform threw away after a conflict, which a closure's Wrote and Ran still count, doesn't mark it: under
 	LoseCommit the next run reads the version its own write made and reports the op, never another key's id.
@@ -26,6 +27,8 @@ local JudgingShapes = require("../../../Shared/OpShapes")
 local KindSetup = require("../../../Keys/Ops/KindSetup")
 local Names = require("../../../Keys/Encoding/Names")
 local Numbers = require("../../../Keys/DataStore/Numbers")
+local PartBuild = require("../../../Keys/Quantity/Build")
+local QuantityShapes = require("../../../Shared/QuantityShapes")
 local Rides = require("../Rides")
 local Sending = require("../../../Keys/DataStore/Sending")
 local Shapes = require("../../../Shared/Shapes")
@@ -42,9 +45,9 @@ type CommitForm = TxShapes.CommitForm
 type LegForm = TxShapes.LegForm
 type ResolveEnd = TxShapes.ResolveEnd
 type TentForm = TxShapes.TentForm
-type TxOutcome = TxShapes.TxOutcome
 type Incarnation = Shapes.Incarnation
 type Limits = Shapes.Limits
+type QuantityName = QuantityShapes.QuantityName
 type Note = JudgingShapes.Note
 type Report = JudgingShapes.Report
 type UnreadableCause = JudgingShapes.UnreadableCause
@@ -55,6 +58,7 @@ type UpdateRequest = Shapes.UpdateRequest
 type State = Composed.State
 type Call = TxState.Call
 type Purpose = TxState.Purpose
+type Resolving = TxState.Resolving
 
 local RoutingFault = "Requests: this call is never made."
 local NotALegKey = `{RoutingFault} A request of a call goes to one of its leg keys.`
@@ -200,21 +204,32 @@ local function FenceRequest(Call: Call, IsFinal: boolean): UpdateRequest
 	return Ends.EndsRequest({ Fence })
 end
 
-local function ResolveEnd(
-	Call: Call,
-	Key: StoreKey,
-	Outcome: TxOutcome,
-	Attempt: number,
-	DeciderValue: number?
-): ResolveEnd
+local function SiblingKeyOf(Call: Call, Part: number): StoreKey
+	local Place = PartBuild.PartOfKey(Call.Decider)
+	local Quantity: QuantityName = { Name = Place.Name, Parts = Place.Parts }
+	return PartBuild.PartKey(Call.Decider.Store, Call.Decider.Scope, Quantity, Part)
+end
+
+local function SiblingFenceRequest(Call: Call, Part: number): UpdateRequest
+	local Fence: TxShapes.FenceEnd = {
+		Kind = "Fence",
+		Name = Names.WithPart(Call.Name, Part),
+		Stamp = Call.Stamp,
+		Attempt = Call.Attempt,
+		IsFinal = true,
+	}
+	return Ends.EndsRequest({ Fence })
+end
+
+local function ResolveEnd(Call: Call, Key: StoreKey, Resolving: Resolving): ResolveEnd
 	return {
 		Kind = "Resolve",
-		Name = Call.Name,
+		Name = Resolving.Name,
 		Stamp = Call.Stamp,
-		Attempt = Attempt,
-		Outcome = Outcome,
-		Decider = Names.ReferenceTo(Key, Call.Decider),
-		DeciderValue = DeciderValue,
+		Attempt = Resolving.Attempt,
+		Outcome = Resolving.Outcome,
+		Decider = Names.ReferenceTo(Key, Resolving.Decider),
+		DeciderValue = Resolving.DeciderValue,
 	}
 end
 
@@ -326,6 +341,8 @@ return {
 	SendTent = SendTent,
 	CommitRequest = CommitRequest,
 	FenceRequest = FenceRequest,
+	SiblingKeyOf = SiblingKeyOf,
+	SiblingFenceRequest = SiblingFenceRequest,
 	ResolveEnd = ResolveEnd,
 	LimitsOf = LimitsOf,
 	MarkErred = MarkErred,

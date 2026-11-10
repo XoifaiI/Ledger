@@ -7,12 +7,21 @@
 	not open work the close waits for), and Purposes, which finds a result's owner by its request id. HasResolveOut
 	says whether a resolve of this server's is out on a key.
 
+	A game named walk's step also holds LaterParts, the parts its walk would try after it; SiblingFence, the sibling
+	sub name it fences now; OwnMarksStanding, set when marks of its own may stand once it answered, and saying
+	whether its own part is already fenced (OwnPartUnfenced, OwnPartFenced); and FenceFor, what its final fence was
+	sent for. MovingOn: its own sub name was decided aborted, so a fenced or refused fence is the part's no and the
+	walk goes on. Sweeping: the no speaks for the name, so the later parts are fenced before Spent. No FenceFor: a
+	give-up, answered Unresolved. A Resolving names the sub name and decider it resolves, the call's own unless a
+	sibling took.
+
 	The code that owns a record changes it in place, and the fields that never change are read only.
 
-	Return type: A plain table of functions, and the Phase, NameAndStamp, SentName, Failure, GiveUp, PendingCall,
-	Resolving, Call, Purpose, UncleanReadPurpose, UncleanFencePurpose, UncleanResolvePurpose, TouchWritePurpose,
-	ResettleWritePurpose, Waiter, TouchWaiter, ResettleWaiter, WorkWaiter, LandedSeal, Help, Verify, UncleanRead,
-	Resettle, PendingRead, TouchWake and TxState types.
+	Return type: A plain table of functions, FenceFor and OwnMarksStanding, and the FenceFor, OwnMarksStanding,
+	Phase, NameAndStamp, SentName, Failure, GiveUp, PendingCall, SiblingFence, Resolving, Call, Purpose,
+	UncleanReadPurpose, UncleanFencePurpose, UncleanResolvePurpose, TouchWritePurpose, ResettleWritePurpose, Waiter,
+	TouchWaiter, ResettleWaiter, WorkWaiter, LandedSeal, Help, Verify, UncleanRead, Resettle, PendingRead, TouchWake
+	and TxState types.
 	Example usage:
 		local State = TxState.NewState()
 		local HelpId = TxState.NextId(State) --> 1
@@ -54,11 +63,27 @@ type Report = JudgingShapes.Report
 
 local FirstAttempt = 1
 
+export type FenceFor = "MovingOn" | "Sweeping"
+
+local FenceFor = {
+	MovingOn = "MovingOn" :: "MovingOn",
+	Sweeping = "Sweeping" :: "Sweeping",
+}
+
+export type OwnMarksStanding = "OwnPartUnfenced" | "OwnPartFenced"
+
+local OwnMarksStanding = {
+	OwnPartUnfenced = "OwnPartUnfenced" :: "OwnPartUnfenced",
+	OwnPartFenced = "OwnPartFenced" :: "OwnPartFenced",
+}
+
 export type Phase =
 	"RetryRead"
 	| "Tents"
 	| "Commit"
 	| "FinalFence"
+	| "SiblingFence"
+	| "CleaningFence"
 	| "Helping"
 	| "Verifying"
 	| "GateWait"
@@ -82,11 +107,18 @@ export type PendingCall = {
 	read Named: NameAndStamp,
 	read Remembers: SentName?,
 	read IsStep: boolean,
+	read LaterParts: { number },
 	Out: { [string]: number },
 	Errors: { [string]: number },
 }
 
+export type SiblingFence =
+	{ read Kind: "Served", read Part: number }
+	| { read Kind: "Sweep", Position: number }
+
 export type Resolving = {
+	read Name: OpName,
+	read Decider: StoreKey,
 	read Outcome: TxOutcome,
 	read Attempt: number,
 	read DeciderValue: number?,
@@ -130,10 +162,16 @@ export type Call = {
 	Gate: Gate?,
 	GatedAt: ("Tents" | "Commit")?,
 	read IsStep: boolean,
+	read LaterParts: { number },
 	Given: GivenAnswer?,
 	DeciderFate: Fate?,
 	ResendAt: number?,
 	Resends: number,
+	FenceFor: FenceFor?,
+	SiblingFence: SiblingFence?,
+	OwnMarksStanding: OwnMarksStanding?,
+	TookPart: number?,
+	TookValue: number?,
 }
 
 export type UncleanReadPurpose = {
@@ -172,6 +210,8 @@ export type Purpose =
 	| { read Kind: "Tent", read CallId: number, read Key: StoreKey, read Carried: { End } }
 	| { read Kind: "Commit", read CallId: number, read Key: StoreKey, read Carried: { End } }
 	| { read Kind: "FinalFence", read CallId: number, read Key: StoreKey }
+	| { read Kind: "SiblingFence", read CallId: number, read Key: StoreKey }
+	| { read Kind: "CleaningFence", read CallId: number, read Key: StoreKey }
 	| { read Kind: "Resolve", read CallId: number, read Key: StoreKey }
 	| { read Kind: "PendingRead", read CallId: number, read Key: StoreKey }
 	| { read Kind: "ResettleRead", read CallId: number, read Key: StoreKey }
@@ -339,10 +379,16 @@ local function NewCall(Pending: PendingCall, Phase: Phase): Call
 		Gate = nil,
 		GatedAt = nil,
 		IsStep = Pending.IsStep,
+		LaterParts = Pending.LaterParts,
 		Given = nil,
 		DeciderFate = nil,
 		ResendAt = nil,
 		Resends = 0,
+		FenceFor = nil,
+		SiblingFence = nil,
+		OwnMarksStanding = nil,
+		TookPart = nil,
+		TookValue = nil,
 	}
 end
 
@@ -398,6 +444,8 @@ end
 
 return {
 	FirstAttempt = FirstAttempt,
+	FenceFor = FenceFor,
+	OwnMarksStanding = OwnMarksStanding,
 	OpenCount = OpenCount,
 	HasResolveOut = HasResolveOut,
 	AbortedUses = AbortedUses,

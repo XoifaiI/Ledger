@@ -5,6 +5,7 @@
 	NextSteps: what a Tx call sends or waits for after a report: the Tents, Commit or final fence again, a help, the
 	verification of owed records, a gate waited out (transaction sheets 15.1, 15.2, 16, 17, cuts 8.4). A clean call
 	whose rounds end on NoRoom answers NoRoom. SendAgainLater waits the growing retry gap and counts no round.
+	FenceFinalFor sends a game named step's final fence, and records what it was sent for (State's FenceFor).
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -34,6 +35,7 @@ type Mark = Work.Mark
 type PinnedRecord = Work.PinnedRecord
 type State = Composed.State
 type Call = TxState.Call
+type FenceFor = TxState.FenceFor
 type Purpose = TxState.Purpose
 type Waiter = TxState.Waiter
 
@@ -50,6 +52,11 @@ local function FenceFinal(State: State, Call: Call, Clock: number, Commands: { C
 	Call.Phase = "FinalFence"
 	local Purpose: Purpose = { Kind = "FinalFence", CallId = Call.CallId, Key = Call.Decider }
 	Requests.Issue(State, Call, Requests.FenceRequest(Call, true), Purpose, Commands)
+end
+
+local function FenceFinalFor(State: State, Call: Call, SentFor: FenceFor, Clock: number, Commands: { Command })
+	Call.FenceFor = SentFor
+	FenceFinal(State, Call, Clock, Commands)
 end
 
 local function SendCommit(State: State, Call: Call, Clock: number, Commands: { Command })
@@ -244,6 +251,7 @@ end
 
 return {
 	FenceFinal = FenceFinal,
+	FenceFinalFor = FenceFinalFor,
 	SendCommit = SendCommit,
 	SendTentsAgain = SendTentsAgain,
 	AreAllMine = AreAllMine,

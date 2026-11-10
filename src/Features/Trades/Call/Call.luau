@@ -4,7 +4,8 @@
 --[=[
 	Call: one Tx call before and as it sends (transaction sheets 7, 15.4 and 17). It answers once, a no with its latest
 	name. A non-step call answered Unresolved owes an outcome: its next answer but Unresolved, Busy or Closed, else
-	Unresolved when it or the close ends. A followed step hands its next such answer to Hot/Walk/Outcomes.
+	Unresolved when it or the close ends. A followed step hands its next such answer to Hot/Walk/Outcomes. A walk's
+	sub step is told the parts its walk would try after it (LaterParts), which it fences if it must answer for the name.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -96,6 +97,10 @@ local function Answer(Call: Call, Given: GivenAnswer, Commands: { Command })
 	Replies.Reply(Commands, Call.CallId, Replies.Named(Given, Replies.GivenNameOf(Call.Name, Call.Stamp)))
 end
 
+local function AnswerTrue(Call: Call, Commands: { Command })
+	Answer(Call, { Kind = "Succeeded", Value = true }, Commands)
+end
+
 local function StopOutcome(Call: Call, Commands: { Command })
 	if not Call.OwesOutcome or Call.IsStep then
 		return
@@ -184,6 +189,7 @@ local function OpenPending(
 	IsStep: boolean,
 	Naming: CallName,
 	DeciderIndex: number,
+	LaterParts: { number },
 	Arrived: number,
 	Clock: number,
 	Commands: { Command }
@@ -197,6 +203,7 @@ local function OpenPending(
 		Named = NameFor(Server, Naming.Given, Clock),
 		Remembers = Naming.Remembers,
 		IsStep = IsStep,
+		LaterParts = LaterParts,
 		Out = {},
 		Errors = {},
 	}
@@ -222,7 +229,8 @@ local function BeginWith(
 	local Forms = Terms.ClassifyLegs(State.Server, Event)
 	local DeciderIndex = Terms.ChooseDecider(Forms, Event.Hot)
 	local Named = Terms.NameOfCall(State.Server, Event, Forms, DeciderIndex)
-	OpenPending(State, Event, IsStep, Named, DeciderIndex, Arrived, Clock, Commands)
+	local NoLaterParts: { number } = {}
+	OpenPending(State, Event, IsStep, Named, DeciderIndex, NoLaterParts, Arrived, Clock, Commands)
 end
 
 local function Begin(State: State, Event: TxCall, Arrived: number, Clock: number, Commands: { Command })
@@ -237,13 +245,14 @@ local function BeginSubStep(
 	State: State,
 	Event: TxCall,
 	Named: NameAndStamp,
+	LaterParts: { number },
 	Arrived: number,
 	Clock: number,
 	Commands: { Command }
 )
 	local DeciderIndex = Terms.ChooseDecider(Terms.ClassifyLegs(State.Server, Event), Event.Hot)
 	local SubName: CallName = { Given = Named }
-	OpenPending(State, Event, true, SubName, DeciderIndex, Arrived, Clock, Commands)
+	OpenPending(State, Event, true, SubName, DeciderIndex, LaterParts, Arrived, Clock, Commands)
 end
 
 local function FailPending(State: State, Pending: PendingCall, Why: Reason, Commands: { Command })
@@ -293,6 +302,7 @@ return {
 	BeginSubStep = BeginSubStep,
 	OnIncarnationRead = OnIncarnationRead,
 	Answer = Answer,
+	AnswerTrue = AnswerTrue,
 	StopOutcome = StopOutcome,
 	End = End,
 	FailPending = FailPending,

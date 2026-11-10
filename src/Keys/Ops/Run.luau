@@ -47,6 +47,7 @@ export type Run = {
 	Reports: { Report },
 	Decided: { SentOp },
 	NewFates: { WriterFate },
+	LookedUpFates: { WriterFate },
 	Written: { [TimedItem]: boolean },
 	Warnings: { NoteWarning },
 	IsStopped: boolean,

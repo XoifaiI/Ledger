@@ -24,6 +24,7 @@ local Help = require("./Work/Help")
 local InFlight = require("../../Keys/DataStore/InFlight")
 local Names = require("../../Keys/Encoding/Names")
 local NextSteps = require("./Call/NextSteps")
+local OneAnswer = require("./Call/OneAnswer")
 local Operators = require("./Work/Operators")
 local Reasons = require("../../Keys/Constants/Reasons")
 local Reports = require("./Call/Reports")
@@ -245,6 +246,22 @@ local function OnResult(State: State, RequestId: number, Result: Outcome, Clock:
 		local Fencing = Tx.Calls[Purpose.CallId]
 		if Fencing ~= nil then
 			Reports.AfterFinalFence(State, Fencing, Result, Clock, Commands)
+		end
+		return true
+	end
+	if Purpose.Kind == "CleaningFence" then
+		Tx.Purposes[RequestId] = nil
+		local Cleaning = Tx.Calls[Purpose.CallId]
+		if Cleaning ~= nil then
+			AfterAnswer.AfterCleaningFence(State, Cleaning, Result, Clock, Commands)
+		end
+		return true
+	end
+	if Purpose.Kind == "SiblingFence" then
+		Tx.Purposes[RequestId] = nil
+		local Fencing = Tx.Calls[Purpose.CallId]
+		if Fencing ~= nil then
+			OneAnswer.AfterSiblingFence(State, Fencing, Purpose.Key, Result, Clock, Commands)
 		end
 		return true
 	end

@@ -9,7 +9,8 @@
 	that key's id while no send of it there may have run (record 5.1), so concurrent calls into a new key all land.
 	A drawn name has one sender, so when its Commit met missing, no send of it erred or landed, and the fence finds
 	no decider either, no commit of it can land: the call answers Missing (a game name may be sent again from
-	another server, finding 6, and stays Unresolved).
+	another server, finding 6, and stays Unresolved). OneAnswer takes a game named step's own fenced or refused final
+	fence, and a Commit's Other, since only it reads what the fence was sent for.
 
 	Return type: A plain table of functions.
 	Example usage:
@@ -22,13 +23,13 @@ local Cache = require("../../../Keys/DataStore/Cache")
 local Composed = require("../../../Shared/Composed")
 local Entries = require("../../../Keys/Format/Entries")
 local Events = require("../../../Shared/Events")
-local Fates = require("../../../Keys/Format/Items/Fates")
 local JudgingShapes = require("../../../Shared/OpShapes")
 local Lookup = require("../../../Keys/Format/Lookup")
 local Marks = require("../../../Keys/Trades/Marks")
 local NextSteps = require("./NextSteps")
 local Names = require("../../../Keys/Encoding/Names")
 local Numbers = require("../../../Keys/DataStore/Numbers")
+local OneAnswer = require("./OneAnswer")
 local Reasons = require("../../../Keys/Constants/Reasons")
 local Requests = require("./Requests")
 local TentReports = require("./TentReports")
@@ -40,15 +41,12 @@ type Command = Events.Command
 type GivenAnswer = Events.Answer
 type Outcome = Events.Outcome
 type ReadOutcome = Events.ReadOutcome
-type Fate = Fates.Fate
 type OpName = Names.OpName
 type StoreKey = Names.StoreKey
 type Reason = Reasons.Reason
 type Note = JudgingShapes.Note
 type State = Composed.State
 type Call = TxState.Call
-type Refusal = TentReports.Refusal
-type DeciderRefusal = { read Fate: Fate, read State: unknown }
 
 local TookBy = {
 	Own = "Own" :: "Own",
@@ -59,10 +57,6 @@ type TookBy = keyof<typeof(TookBy)>
 
 local function FailedWith(Why: Reason): GivenAnswer
 	return { Kind = "Failed", Reason = Why, State = nil }
-end
-
-local function AnswerTrue(Call: Call, Commands: { Command })
-	TxCalls.Answer(Call, { Kind = "Succeeded", Value = true }, Commands)
 end
 
 local function AnswerNo(Call: Call, Why: Reason, Commands: { Command })
@@ -104,46 +98,8 @@ local function AfterErrors(State: State, Call: Call, Erred: { StoreKey }, Clock:
 	EndNo(State, Call, Reasons.Unresolved, Commands)
 end
 
-local function ReasonOfFate(Fate: Fate): Reason
-	if Fate.Kind == "Full" then
-		return Reasons.Full
-	end
-	return Reasons.Refused
-end
-
-local function RefusalAnswer(Refusal: Refusal): GivenAnswer
-	return { Kind = "Failed", Reason = ReasonOfFate(Refusal.Fate), State = Refusal.State, Key = Refusal.Key }
-end
-
 local function BehindAnswer(Call: Call): GivenAnswer
 	return { Kind = "Failed", Reason = Reasons.Behind, State = nil, Key = TentReports.BehindLeg(Call) }
-end
-
-local function AbortWith(State: State, Call: Call, Given: GivenAnswer, Clock: number, Commands: { Command })
-	TxCalls.Answer(Call, Given, Commands)
-	AfterAnswer.SendAbortResolves(State, Call, Clock, Commands)
-end
-
-local function AbortCall(State: State, Call: Call, Why: Reason, Clock: number, Commands: { Command })
-	AbortWith(State, Call, FailedWith(Why), Clock, Commands)
-end
-
-local function AbortRefused(State: State, Call: Call, Refused: DeciderRefusal, Clock: number, Commands: { Command })
-	Call.DeciderFate = Refused.Fate
-	local Refusal: Refusal = { Key = Call.Decider, Fate = Refused.Fate, State = Refused.State }
-	AbortWith(State, Call, RefusalAnswer(Refusal), Clock, Commands)
-end
-
-local function CommitCall(
-	State: State,
-	Call: Call,
-	Attempt: number,
-	DeciderValue: number?,
-	Clock: number,
-	Commands: { Command }
-)
-	AnswerTrue(Call, Commands)
-	AfterAnswer.SendCommitResolves(State, Call, Attempt, DeciderValue, Clock, Commands)
 end
 
 local function GiveUpBehind(State: State, Call: Call, Clock: number, Commands: { Command })
@@ -185,15 +141,19 @@ local function AfterMissing(State: State, Call: Call, Leg: TentReports.MissingLe
 end
 
 local function AfterTents(State: State, Call: Call, Clock: number, Commands: { Command })
+	local ServedPart = OneAnswer.ServedPartOf(Call)
+	if ServedPart ~= nil then
+		return OneAnswer.FenceServed(State, Call, ServedPart, Clock, Commands)
+	end
 	local Refusal = TentReports.FirstRefusal(Call)
 	if Refusal ~= nil then
-		return AbortWith(State, Call, RefusalAnswer(Refusal), Clock, Commands)
+		return AfterAnswer.AbortWith(State, Call, TentReports.RefusalAnswer(Refusal), Clock, Commands)
 	end
 	if NextSteps.AreAllMine(Call) then
 		return NextSteps.StartCommit(State, Call, Clock, Commands)
 	end
 	if TentReports.FirstWhere(Call, TentReports.EndsInFence) ~= nil then
-		return NextSteps.FenceFinal(State, Call, Clock, Commands)
+		return OneAnswer.FenceAfterTents(State, Call, Clock, Commands)
 	end
 	if TentReports.FirstWhere(Call, TentReports.IsBehindReport) ~= nil then
 		return GiveUpBehind(State, Call, Clock, Commands)
@@ -275,7 +235,7 @@ local function AfterFencedCommit(
 )
 	if Fenced.IsFinal then
 		Call.DeciderFate = { Kind = "Fenced" :: "Fenced", Attempt = Fenced.Attempt, IsFinal = true }
-		return AbortCall(State, Call, Reasons.Spent, Clock, Commands)
+		return AfterAnswer.AbortCall(State, Call, Reasons.Spent, Clock, Commands)
 	end
 	if Call.Attempt < Requests.LimitsOf(State.Server, Call).MaxAttempts then
 		return NextAttempt(State, Call, Clock, Commands)
@@ -296,19 +256,19 @@ local function AfterCommit(State: State, Call: Call, Result: Outcome, Clock: num
 		Call.CommitMayHaveWritten = true
 	end
 	if Report.Kind == "Committed" then
-		return CommitCall(State, Call, Report.Attempt, Report.DeciderValue, Clock, Commands)
+		return AfterAnswer.AnswerOwnTook(State, Call, Report.Attempt, Report.DeciderValue, Clock, Commands)
 	end
 	if Report.Kind == "Fenced" then
 		return AfterFencedCommit(State, Call, Report, Clock, Commands)
 	end
 	if Report.Kind == "Large" then
-		return NextSteps.FenceFinal(State, Call, Clock, Commands)
+		return OneAnswer.FenceAfterLarge(State, Call, Clock, Commands)
 	end
 	if Report.Kind == "Other" then
-		return AbortCall(State, Call, Reasons.Spent, Clock, Commands)
+		return OneAnswer.AfterOtherCommit(State, Call, Clock, Commands)
 	end
 	if Report.Kind == "Refused" then
-		return AbortRefused(State, Call, Report, Clock, Commands)
+		return AfterAnswer.AbortRefused(State, Call, Report, Clock, Commands)
 	end
 	if Report.Kind == "Invalid" and not Call.CommitMayHaveWritten then
 		return EndNo(State, Call, Reasons.Invalid, Commands)
@@ -367,23 +327,26 @@ local function AfterFinalFence(State: State, Call: Call, Result: Outcome, Clock:
 		end
 		return EndNo(State, Call, Reasons.Unresolved, Commands)
 	end
+	if OneAnswer.TakesFence(Call, Report) then
+		return OneAnswer.AfterStepFence(State, Call, Report, Clock, Commands)
+	end
 	if Report.Kind == "Committed" then
-		return CommitCall(State, Call, Report.Attempt, Report.DeciderValue, Clock, Commands)
+		return AfterAnswer.AnswerOwnTook(State, Call, Report.Attempt, Report.DeciderValue, Clock, Commands)
 	end
 	if Report.Kind == "Fenced" and Call.GivesUp == "Behind" then
-		return AbortWith(State, Call, BehindAnswer(Call), Clock, Commands)
+		return AfterAnswer.AbortWith(State, Call, BehindAnswer(Call), Clock, Commands)
 	end
 	if Report.Kind == "Fenced" and Call.GivesUp == "Unreadable" then
-		return AbortCall(State, Call, Reasons.Unreadable, Clock, Commands)
+		return AfterAnswer.AbortCall(State, Call, Reasons.Unreadable, Clock, Commands)
 	end
 	if Report.Kind == "Fenced" then
-		return AbortCall(State, Call, Reasons.Spent, Clock, Commands)
+		return AfterAnswer.AbortCall(State, Call, Reasons.Spent, Clock, Commands)
 	end
 	if Report.Kind == "Refused" then
-		return AbortRefused(State, Call, Report, Clock, Commands)
+		return AfterAnswer.AbortRefused(State, Call, Report, Clock, Commands)
 	end
 	if Report.Kind == "Forgotten" then
-		return AbortCall(State, Call, Reasons.Unresolved, Clock, Commands)
+		return AfterAnswer.AbortCall(State, Call, Reasons.Unresolved, Clock, Commands)
 	end
 	if Report.Kind == "Missing" then
 		return AfterFenceMissing(State, Call, Clock, Commands)
@@ -422,7 +385,7 @@ local function AfterRetryRead(State: State, Call: Call, Fetched: ReadOutcome, Cl
 		end
 	end
 	if Took == TookBy.Own then
-		AnswerTrue(Call, Commands)
+		TxCalls.AnswerTrue(Call, Commands)
 		return TxCalls.End(State, Call, Commands)
 	end
 	if Took == TookBy.OtherTerms then

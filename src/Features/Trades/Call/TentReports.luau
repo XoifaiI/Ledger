@@ -4,7 +4,9 @@
 --[=[
 	TentReports: what the reports of a Tx call's Tents say, read over its other keys in leg order: the first refusal,
 	with its leg and state, missing leg, fence, behind, forgotten or gated report, the keys that hold the call up, and a
-	key whose Tent erred past RetryRounds (transaction sheet 15.1). A Behind names its leg, else the decider.
+	key whose Tent erred past RetryRounds (transaction sheet 15.1). A Behind names its leg, else the decider. A sweep
+	report is one a game named step answers Spent for, once the later parts are fenced. A refusal's answer names its
+	leg and state, Refused or Full by its fate.
 
 	Return type: A plain table of functions, and the MissingLeg and Refusal types.
 	Example usage:
@@ -12,12 +14,16 @@
 --]=]
 
 local Book = require("../../../Keys/Format/Book")
+local Events = require("../../../Shared/Events")
 local Fates = require("../../../Keys/Format/Items/Fates")
 local JudgingShapes = require("../../../Shared/OpShapes")
 local Names = require("../../../Keys/Encoding/Names")
 local NextSteps = require("./NextSteps")
+local Reasons = require("../../../Keys/Constants/Reasons")
 local TxState = require("../State")
 
+type GivenAnswer = Events.Answer
+type Reason = Reasons.Reason
 type Fate = Fates.Fate
 type Identity = Book.Identity
 type StoreKey = Names.StoreKey
@@ -47,14 +53,27 @@ local function RefusalFate(Report: Report): Fate?
 	return nil
 end
 
-local function EndsInFence(Report: Report): boolean
-	if Report.Kind == "Other" or Report.Kind == "Superseded" or Report.Kind == "Large" then
+local function IsServedReport(Report: Report): boolean
+	return Report.Kind == "Served"
+end
+
+local function IsSweepReport(Report: Report): boolean
+	if Report.Kind == "Other" or Report.Kind == "Large" then
 		return true
 	end
-	if Report.Kind ~= "Decided" then
-		return false
-	end
-	return Report.Fate.Kind == "Took" or Report.Fate.Kind == "TookWith" or Report.Fate.Kind == "Aborted"
+	return Report.Kind == "Decided" and (Report.Fate.Kind == "Took" or Report.Fate.Kind == "TookWith")
+end
+
+local function IsSupersededReport(Report: Report): boolean
+	return Report.Kind == "Superseded"
+end
+
+local function IsAbortedReport(Report: Report): boolean
+	return Report.Kind == "Decided" and Report.Fate.Kind == "Aborted"
+end
+
+local function EndsInFence(Report: Report): boolean
+	return IsSweepReport(Report) or IsSupersededReport(Report) or IsAbortedReport(Report)
 end
 
 local function IsBehindReport(Report: Report): boolean
@@ -114,6 +133,17 @@ local function FirstRefusal(Call: Call): Refusal?
 	return nil
 end
 
+local function ReasonOfFate(Fate: Fate): Reason
+	if Fate.Kind == "Full" then
+		return Reasons.Full
+	end
+	return Reasons.Refused
+end
+
+local function RefusalAnswer(Refusal: Refusal): GivenAnswer
+	return { Kind = "Failed", Reason = ReasonOfFate(Refusal.Fate), State = Refusal.State, Key = Refusal.Key }
+end
+
 local function BehindLeg(Call: Call): StoreKey
 	for _, Key in Call.OtherKeys do
 		local Report = Call.TentReports[Names.KeyText(Key)]
@@ -139,6 +169,9 @@ end
 return {
 	EndWorkOf = EndWorkOf,
 	RefusalFate = RefusalFate,
+	IsServedReport = IsServedReport,
+	IsSweepReport = IsSweepReport,
+	IsSupersededReport = IsSupersededReport,
 	EndsInFence = EndsInFence,
 	IsBehindReport = IsBehindReport,
 	IsForgottenReport = IsForgottenReport,
@@ -148,6 +181,7 @@ return {
 	FirstWhere = FirstWhere,
 	FirstMissingLeg = FirstMissingLeg,
 	FirstRefusal = FirstRefusal,
+	RefusalAnswer = RefusalAnswer,
 	BehindLeg = BehindLeg,
 	BlockedTents = BlockedTents,
 }
